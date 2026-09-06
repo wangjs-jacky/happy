@@ -375,11 +375,13 @@ describe('message visibility synchronization', () => {
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
+        syncForTest.sessionWarmCacheAccountKey = null;
     });
 
     afterEach(() => {
         clearSessionWarmCache();
         syncForTest.serverID = undefined;
+        syncForTest.sessionWarmCacheAccountKey = null;
         delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
         mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
@@ -431,6 +433,7 @@ describe('message visibility synchronization', () => {
     it('removes an offline-deleted cached session when incremental sync returns 404', async () => {
         const storage = await useRealMessageComposition();
         syncForTest.serverID = 'account';
+        syncForTest.sessionWarmCacheAccountKey = 'account';
         mocks.sessionEncryptions.set('gone', new SessionEncryption('gone', {
             encrypt: async () => [], decrypt: async () => [],
         }, new EncryptionCache()));
@@ -450,6 +453,7 @@ describe('message visibility synchronization', () => {
     it('persists multiple incremental pages and restores their latest frontier', async () => {
         installSession('warm');
         syncForTest.serverID = 'account';
+        syncForTest.sessionWarmCacheAccountKey = 'account';
         saveSessionWarmLatestPage('account', 'warm', { messages: [apiMessage(40)], hasMore: true });
         const lease = syncForTest.sessionMessageLoadGate.enter('warm');
         mocks.apiRequest
