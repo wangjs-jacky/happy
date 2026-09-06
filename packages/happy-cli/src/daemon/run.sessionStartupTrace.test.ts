@@ -5,7 +5,7 @@ import { createDaemonStartupTraceContext } from './sessionStartupTrace';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { logger } from '@/ui/logger';
 
-const spawnLog = vi.hoisted(() => ({ lines: [] as string[], missing: false, fail: false }));
+const spawnLog = vi.hoisted(() => ({ lines: [] as string[], missing: false, fail: false, calls: [] as any[][] }));
 vi.mock('fs', async importOriginal => ({
     ...await importOriginal<typeof import('fs')>(),
     appendFileSync: (_path: unknown, value: unknown) => { spawnLog.lines.push(String(value)); },
@@ -14,9 +14,10 @@ vi.mock('node:fs', async importOriginal => {
     const actual = await importOriginal<typeof import('node:fs')>();
     return { ...actual,
         appendFileSync: (_path: unknown, value: unknown) => { spawnLog.lines.push(String(value)); },
-        existsSync: (path: any) => String(path).endsWith('dist/index.mjs') ? !spawnLog.missing : actual.existsSync(path) };
+        existsSync: (path: any) => /dist\/(index|codexWorkerEntry)\.mjs$/.test(String(path)) ? !spawnLog.missing : actual.existsSync(path) };
 });
-vi.mock('cross-spawn', () => ({ spawn: () => {
+vi.mock('cross-spawn', () => ({ spawn: (...args: any[]) => {
+    spawnLog.calls.push(args);
     if (spawnLog.fail) throw new Error('synthetic-spawn-error');
     return { pid: 101 };
 } }));
@@ -28,6 +29,44 @@ function trace() {
 }
 
 describe('run.ts daemon session startup integration', () => {
+    it.each([
+        ['codex', 'codexWorkerEntry.mjs'],
+        ['claude', 'index.mjs'],
+        ['opencode', 'index.mjs'],
+        ['gemini', 'index.mjs'],
+        ['openclaw', 'index.mjs'],
+        [undefined, 'index.mjs'],
+    ] as const)('spawns daemon %s using %s with the original arguments and reconnect environment', (agent, filename) => {
+        const integration = new DaemonSessionStartupIntegration();
+        const args = ['codex', '--started-by', 'daemon', '--resume', 'thread-1'];
+        const env = integration.buildWorkerEnvironment('regular', { PATH: '/bin' }, {
+            HAPPY_RECONNECT_SESSION_ID: 'session-1',
+            HAPPY_RECONNECT_METADATA_JSON: '{"codexThreadId":"thread-1"}',
+        }, TRACE_ID);
+
+        const child = integration.spawnWorker(agent, args, { cwd: '/test', env });
+
+        const [runtime, actualArgs, actualOptions] = spawnLog.calls.at(-1)!;
+        expect(child.pid).toBe(101);
+        expect(runtime).toBe(process.execPath);
+        expect(actualArgs).toEqual([
+            '--no-warnings', '--no-deprecation', expect.stringMatching(new RegExp(`/dist/${filename}$`)), ...args,
+        ]);
+        expect(actualOptions).toEqual({ windowsHide: true, cwd: '/test', env });
+    });
+
+    it('keeps generic codex and daemon invocations on main unless an entrypoint is explicitly selected', () => {
+        spawnHappyCLI(['codex', '--started-by', 'daemon']);
+        expect(spawnLog.calls.at(-1)![1][2]).toMatch(/\/dist\/index\.mjs$/);
+    });
+
+    it('selects the dedicated artifact without forwarding its internal option to child_process', () => {
+        spawnHappyCLI(['codex', '--started-by', 'daemon'], { entrypoint: 'codex-worker' });
+        const [, args, options] = spawnLog.calls.at(-1)!;
+        expect(args[2]).toMatch(/\/dist\/codexWorkerEntry\.mjs$/);
+        expect(options).toEqual({ windowsHide: true });
+    });
+
     it('records request receipt before child start with component-local spans', () => {
         const events: Record<string, unknown>[] = [];
         const ticks = [100, 100, 145];

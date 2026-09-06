@@ -32,6 +32,16 @@
         "default": "./dist/index.mjs"
       }
     },
+    "./internal/codex-worker": {
+      "require": {
+        "types": "./dist/codexWorkerEntry.d.cts",
+        "default": "./dist/codexWorkerEntry.cjs"
+      },
+      "import": {
+        "types": "./dist/codexWorkerEntry.d.mts",
+        "default": "./dist/codexWorkerEntry.mjs"
+      }
+    },
     "./lib": {
       "require": {
         "types": "./dist/lib.d.cts",

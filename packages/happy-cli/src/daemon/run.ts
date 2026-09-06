@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import axios from 'axios';
 import { performance } from 'node:perf_hooks';
+import type { SpawnOptions } from 'node:child_process';
 
 import { ApiClient } from '@/api/api';
 import { TrackedSession, SessionEncryptionData } from './types';
@@ -13,7 +14,7 @@ import { configuration } from '@/configuration';
 import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
-import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
+import { spawnHappyCLI, resolveHappyCLIEntrypoint, type HappyCLIEntrypoint } from '@/utils/spawnHappyCLI';
 import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readPersistedSessions, persistSession } from '@/persistence';
 import type { PersistedSession } from '@/persistence';
 
@@ -95,6 +96,14 @@ export class DaemonSessionStartupIntegration {
     return Object.fromEntries(
       Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined),
     );
+  }
+
+  workerEntrypoint(agent: SpawnSessionOptions['agent']): HappyCLIEntrypoint {
+    return agent === 'codex' ? 'codex-worker' : 'main';
+  }
+
+  spawnWorker(agent: SpawnSessionOptions['agent'], args: string[], options: SpawnOptions) {
+    return spawnHappyCLI(args, { ...options, entrypoint: this.workerEntrypoint(agent) });
   }
 
   childStarted(pid: number, trace: DaemonStartupTraceContext | undefined): void {
@@ -482,8 +491,8 @@ export async function startDaemon(): Promise<void> {
           const tmux = getTmuxUtilities(tmuxSessionName);
 
           // Construct command for the CLI
-          const cliPath = join(projectPath(), 'dist', 'index.mjs');
           const agent = options.agent ?? 'opencode';
+          const cliPath = resolveHappyCLIEntrypoint(startupIntegration.workerEntrypoint(agent));
           if (!['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw'].includes(agent)) {
             return {
               type: 'error',
@@ -626,6 +635,7 @@ export async function startDaemon(): Promise<void> {
           // TODO: In future, sessionId could be used with --resume to continue existing sessions
           // For now, we ignore it - each spawn creates a new session
           return spawnTrackedHappyProcess({
+            agent: options.agent,
             args,
             cwd: directory,
             env: (() => {
@@ -660,6 +670,7 @@ export async function startDaemon(): Promise<void> {
     };
 
     const spawnTrackedHappyProcess = ({
+      agent,
       args,
       cwd,
       env,
@@ -667,6 +678,7 @@ export async function startDaemon(): Promise<void> {
       message,
       trace,
     }: {
+      agent: SpawnSessionOptions['agent'];
       args: string[];
       cwd: string;
       env: NodeJS.ProcessEnv;
@@ -674,7 +686,7 @@ export async function startDaemon(): Promise<void> {
       message?: string;
       trace?: DaemonStartupTraceContext;
     }): Promise<SpawnSessionResult> => {
-      const happyProcess = spawnHappyCLI(args, {
+      const happyProcess = startupIntegration.spawnWorker(agent, args, {
         cwd,
         detached: true,
         stdio: 'ignore',
@@ -850,6 +862,7 @@ export async function startDaemon(): Promise<void> {
         await fs.access(launch.cwd);
 
         return spawnTrackedHappyProcess({
+          agent: metadata?.flavor === 'codex' || metadata?.codexThreadId ? 'codex' : 'claude',
           args: launch.args,
           cwd: launch.cwd,
           env: {

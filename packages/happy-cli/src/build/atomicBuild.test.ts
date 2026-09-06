@@ -24,6 +24,32 @@ afterEach(() => {
 });
 
 describe('atomic CLI build', () => {
+    it('requires the worker artifact from the published manifest before promoting any CLI output', () => {
+        const packageDir = makePackageDir();
+        const { collectDistOutputs, runAtomicBuild } = require(buildModulePath);
+        const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../package.json'), 'utf8'));
+        const requiredOutputs = collectDistOutputs(manifest);
+
+        expect(requiredOutputs).toEqual(expect.arrayContaining([
+            'index.mjs', 'codexWorkerEntry.mjs', 'codexWorkerEntry.cjs',
+            'codexWorkerEntry.d.mts', 'codexWorkerEntry.d.cts',
+        ]));
+        expect(() => runAtomicBuild({
+            packageDir,
+            requiredOutputs,
+            runTypecheck: () => undefined,
+            runBundler: (stagingDist: string) => {
+                for (const output of requiredOutputs) {
+                    if (output === 'codexWorkerEntry.mjs') continue;
+                    const file = join(stagingDist, output);
+                    mkdirSync(resolve(file, '..'), { recursive: true });
+                    writeFileSync(file, 'new output');
+                }
+            },
+        })).toThrow('Build output is missing: codexWorkerEntry.mjs');
+        expect(readFileSync(join(packageDir, 'dist/index.mjs'), 'utf8')).toBe('old entry');
+    });
+
     it('keeps the live dist intact when validation fails', () => {
         const packageDir = makePackageDir();
         const { runAtomicBuild } = require(buildModulePath) as {

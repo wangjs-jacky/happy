@@ -57,6 +57,12 @@ import { logger } from '@/ui/logger';
 import { existsSync } from 'node:fs';
 import { isBun } from './runtime';
 
+export type HappyCLIEntrypoint = 'main' | 'codex-worker';
+
+export function resolveHappyCLIEntrypoint(entrypoint: HappyCLIEntrypoint = 'main'): string {
+  return join(projectPath(), 'dist', entrypoint === 'codex-worker' ? 'codexWorkerEntry.mjs' : 'index.mjs');
+}
+
 /**
  * Spawn the Happy CLI with the given arguments in a cross-platform way.
  * 
@@ -68,9 +74,9 @@ import { isBun } from './runtime';
  * @param options - Spawn options (same as child_process.spawn)
  * @returns ChildProcess instance
  */
-export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): ChildProcess {
-  const projectRoot = projectPath();
-  const entrypoint = join(projectRoot, 'dist', 'index.mjs');
+export function spawnHappyCLI(args: string[], options: SpawnOptions & { entrypoint?: HappyCLIEntrypoint } = {}): ChildProcess {
+  const { entrypoint: selectedEntrypoint, ...spawnOptions } = options;
+  const entrypoint = resolveHappyCLIEntrypoint(selectedEntrypoint);
 
   // Arguments, paths and raw spawn errors may contain private session data.
   // Diagnostics are best effort and must not prevent starting the worker.
@@ -100,7 +106,7 @@ export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): Child
   try {
     return crossSpawn(runtime, nodeArgs, {
       windowsHide: true,
-      ...options,
+      ...spawnOptions,
     });
   } catch {
     log('WORKER_SPAWN_FAILED');
