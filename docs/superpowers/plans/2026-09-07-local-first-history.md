@@ -58,14 +58,14 @@ Use Task 2's newer-page and jump-latest APIs when restoring a historical Web win
 - [x] Add failing tests for cached download after module restart, preview/original sharing encrypted bytes, deletion/reset preventing repopulation; boundary-only delayed Loading, restore anchor and expanded groups, pagination error/retry and bounded prefetch.
 - [x] Implement persistent encrypted attachment bytes at the shared download boundary; no signature/OSS request on hit; enforce quota and in-flight coalescing. Do not claim large streaming media is fully offline without storing ranges.
 - [x] Persist/restore reading state and pin visible anchor while prepending; separate background prefetch from visible waiting, delayed stable-height indicator only when missing boundary is reached. Keep request budgets and retry affordance.
-- [ ] Run focused component/attachment tests, required runtime contract test and typecheck/build; commit and review.
+- [x] Run focused component/attachment tests, required runtime contract test and typecheck/build; commit and review.
 
 ## Task 4: Delivery and Obsidian
 
 **Files:** `wiki/projects/happy/如何让会话刷新后仍像本地应用一样可读.md`, project index and one related backlink in default Obsidian vault; worktree CLAUDE.md index; implementation evidence in this document.
 
-- [ ] Record approved alternatives, invariants, review findings, actual implementation and source references. Mark unmeasured targets as targets.
-- [ ] Whole-branch independent review; fix material findings, run proportional integration checks.
+- [x] Record approved alternatives, invariants, review findings, actual implementation and source references. Mark unmeasured targets as targets.
+- [x] Whole-branch independent review; fix material findings, run proportional integration checks.
 - [ ] Commit/push PR under repository policy, verify applicable CI/preview and any authorized merge/release. Coordinate server migration before relying on new endpoint; keep compatible fallback.
 - [ ] Verify Obsidian frontmatter/links/index, trigger configured synchronization and report exact completed artifacts and runtime limitations.
 
@@ -84,7 +84,8 @@ Use Task 2's newer-page and jump-latest APIs when restoring a historical Web win
 - Client archive: independent fix review approved. Covers durable unseen-session snapshot work, quota failure retaining newly received memory messages, and delayed account/reset/logout/delete responses.
 - Attachments and reading state: independent fix review approved at `9086cbb4`. **22 files / 235 distinct tests** and final typecheck passed. Controller reran the previously failing standard command: **4 files / 91 tests passed**. Review fixes retain concrete source-block identity inside a wire message and bounded group aliases across trimming/manual collapse. Historical send, ACK and explicit latest navigation are tested together.
 - Two harness races were reproduced and corrected without relaxing behavior assertions: timed-out real-module initialization contaminating the next fixture, and request-count polling missing a zero-delay retry. The final standard command uses no global test-timeout override.
-- Main `9e47ee61` was integrated without conflicts as `bfd7693f`; exact integrated app checks and Web export are in progress. An earlier interrupted export is **not** build evidence. Whole-branch review, PR/CI and release are pending.
+- Main `9e47ee61` was integrated without conflicts as `bfd7693f`. Final whole-branch review found two boundary recovery issues; the single fix wave `547cf57e` passed scoped re-review with all four findings addressed and none open. Web older/newer loading now has independent cache/request ownership; no-IDB failures and interrupted loads expose explicit Retry without unbounded scroll retries. Two full-suite fixture failures were corrected: preserve list-omitted history, and isolate an unrelated native image child in the advisor screen test.
+- Fixed source `547cf57e` passed **18 files / 252 tests**, app typecheck and Web export (**7,637 modules, 1,001 output files**); all three JavaScript entries passed syntax checks. The controller verified all six local HTML references and the main bundle SHA-256. App subtree: `14bf2d05e3aeff6e0e30dbca572247ba71b3b525`. Earlier exports are superseded, and an interrupted export is **not** evidence. Controller final full-app regression: `pnpm exec vitest run --maxWorkers=2 --silent`, **365 files / 2,666 tests passed**, exit 0, 304.38 seconds. PR/CI and release remain separate gates.
 - Web stores encrypted history in IndexedDB and retains bounded rendering windows. Attachment ciphertext is capped at **128 MiB / 1,000 entries per account**; decoded-memory limits were not enlarged. No blanket attachment prefetch or offline streaming promise. Native retains existing MMKV/network persistence behavior.
 - Screenshot choice remains asked/unanswered. No new browser/screenshot/device run was performed; unit measurement tests are not pixel-accurate interaction evidence. No production latency or OSS billing reduction has been measured.
 - Production backend migration/restart approval is pending. Main Web/OTA workflows do not deploy the backend. Keep old-server fallback until the documented additive migration and old-writer drain are completed; the read-only live probe returned endpoint 404. No production database or process mutation was performed.
