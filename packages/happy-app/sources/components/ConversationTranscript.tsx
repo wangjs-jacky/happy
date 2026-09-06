@@ -23,7 +23,7 @@ import {
 } from '@/hooks/useGroupedMessages';
 import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
 import { getAgentMessageForkTargets, type MessageForkTarget } from '@/utils/messageForkPoint';
-import { Modal } from '@/modal';
+import { BaseModal } from '@/modal/components/BaseModal';
 import { t } from '@/text';
 import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
@@ -49,6 +49,8 @@ export type ConversationTranscriptProps = {
     currentTurnActive?: boolean;
     hasPendingPermission?: boolean;
     onLoadOlder?: () => void;
+    hasMoreOlder?: boolean;
+    isLoadingOlder?: boolean;
     visualTop?: React.ReactElement | null;
     visualBottom?: React.ReactElement | null;
     showMessageActions?: boolean;
@@ -68,6 +70,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const showScrollButtonRef = React.useRef(false);
     const [showAnchorPill, setShowAnchorPill] = React.useState(false);
+    const [anchorSheetOpen, setAnchorSheetOpen] = React.useState(false);
     const anchorPillVisibleRef = React.useRef(false);
     const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const groupingOptions = React.useMemo(
@@ -89,6 +92,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const anchors = useUserMessageAnchors(displayItems);
     const anchorsRef = React.useRef(anchors);
     anchorsRef.current = anchors;
+    const hasAnchorNavigation = anchors.length > 0 || props.hasMoreOlder === true;
 
     const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => {
         const initial = new Set<string>();
@@ -256,7 +260,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             showScrollButtonRef.current = next;
             setShowScrollButton(next);
         }
-        if (props.showAnchorNavigation !== false && anchorsRef.current.length > 0) {
+        if (props.showAnchorNavigation !== false && hasAnchorNavigation) {
             if (!anchorPillVisibleRef.current) {
                 anchorPillVisibleRef.current = true;
                 setShowAnchorPill(true);
@@ -267,7 +271,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 setShowAnchorPill(false);
             }, ANCHOR_PILL_LINGER_MS);
         }
-    }, [inverted, props.showAnchorNavigation]);
+    }, [hasAnchorNavigation, inverted, props.showAnchorNavigation]);
 
     React.useEffect(() => () => {
         if (anchorPillTimerRef.current) clearTimeout(anchorPillTimerRef.current);
@@ -278,20 +282,25 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         else flatListRef.current?.scrollToEnd({ animated: true });
     }, [inverted]);
     const scrollToAnchor = React.useCallback((anchor: UserMessageAnchor) => {
-        flatListRef.current?.scrollToIndex({ index: anchor.displayIndex, animated: true, viewPosition: 0.5 });
-    }, []);
+        // History loads and incoming messages can shift indexes while the
+        // sheet is open. Resolve the stable id against the current transcript.
+        const current = anchorsRef.current.find((candidate) => candidate.id === anchor.id);
+        if (!current) return;
+        const index = inverted ? current.displayIndex : displayItemsRef.current.length - 1 - current.displayIndex;
+        flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+    }, [inverted]);
     const handleScrollToIndexFailed = React.useCallback((info: { index: number; averageItemLength: number }) => {
         flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
         setTimeout(() => {
             flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
         }, 120);
     }, []);
-    const openAnchorSheet = React.useCallback(() => {
-        Modal.show({
-            component: AnchorListSheet,
-            props: { anchors: anchorsRef.current, onSelect: scrollToAnchor },
-        } as any);
-    }, [scrollToAnchor]);
+    const openAnchorSheet = React.useCallback(() => setAnchorSheetOpen(true), []);
+    const closeAnchorSheet = React.useCallback(() => setAnchorSheetOpen(false), []);
+
+    React.useEffect(() => {
+        setAnchorSheetOpen(false);
+    }, [props.sessionId]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web') return;
@@ -334,18 +343,30 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 onEndReachedThreshold={2}
                 onScrollToIndexFailed={handleScrollToIndexFailed}
             />
-            {props.showAnchorNavigation !== false && showAnchorPill && anchors.length > 0 ? (
+            {props.showAnchorNavigation !== false && showAnchorPill && hasAnchorNavigation ? (
                 <Animated.View
                     entering={FadeIn.duration(180)}
                     exiting={FadeOut.duration(260)}
                     style={[styles.anchorPillContainer, { pointerEvents: 'box-none' }]}
                 >
-                    <Pressable onPress={openAnchorSheet} style={({ pressed }) => [styles.anchorPill, pressed && styles.anchorPillPressed]}>
+                    <Pressable testID="conversation-anchors-button" accessibilityRole="button" onPress={openAnchorSheet} style={({ pressed }) => [styles.anchorPill, pressed && styles.anchorPillPressed]}>
                         <Octicons name="list-unordered" size={14} color={theme.colors.text} />
                         <Text style={styles.anchorPillLabel}>{t('session.anchorsButton')}</Text>
-                        <Text style={styles.anchorPillCount}>{anchors.length}</Text>
+                        <Text testID="conversation-anchors-count" style={styles.anchorPillCount}>{props.hasMoreOlder ? `${anchors.length}+` : anchors.length}</Text>
                     </Pressable>
                 </Animated.View>
+            ) : null}
+            {props.showAnchorNavigation !== false && anchorSheetOpen ? (
+                <BaseModal visible onClose={closeAnchorSheet} accessibilityLabel={t('session.anchorsTitle')}>
+                    <AnchorListSheet
+                        anchors={anchors}
+                        hasMoreOlder={props.hasMoreOlder}
+                        isLoadingOlder={props.isLoadingOlder}
+                        onLoadOlder={props.onLoadOlder}
+                        onSelect={scrollToAnchor}
+                        onClose={closeAnchorSheet}
+                    />
+                </BaseModal>
             ) : null}
             {props.showScrollToBottom !== false && showScrollButton ? (
                 <View style={styles.scrollButtonContainer}>

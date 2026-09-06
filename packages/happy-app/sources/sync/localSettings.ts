@@ -27,6 +27,7 @@ const RelationshipAdvisorMessageSchema = z.object({
     text: z.string().max(12_000),
     createdAt: z.number().finite(),
     imageCount: z.number().int().min(0).max(4),
+    imageKeys: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}\.(?:jpg|png|webp)$/)).max(4).optional(),
 });
 
 const RelationshipAdvisorConversationSchema = z.object({

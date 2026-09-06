@@ -257,6 +257,56 @@ test('Caddy activation and rollback enqueue reloads without waiting on old conne
     assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
 });
 
+test('all Caddy reload guards wait through a drained-job reloading transition', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const names = [
+        'Configure MCP App sandbox route',
+        'Route the Web SPA to OSS',
+        'Roll back failed Web activation',
+    ];
+    const guards = names.flatMap((name) => {
+        const step = workflow.jobs.deploy.steps.find((candidate) => candidate.name === name);
+        assert.ok(step, name);
+        return [...step.run.matchAll(/wait_for_reload\(\) \{\n[\s\S]*?\n\}/g)].map((match) => match[0]);
+    });
+    assert.ok(guards.length > 0, 'workflow must define at least one reload guard');
+
+    const directory = await mkdtemp(join(tmpdir(), 'paws-caddy-reload-test-'));
+    try {
+        for (const [index, guard] of guards.entries()) {
+            const counter = join(directory, `attempt-${index}`);
+            await writeFile(counter, '0');
+            const result = spawnSync('bash', ['-c', `
+systemctl() {
+    case "$*" in
+        list-jobs*)
+            attempt="$(<"$WAIT_COUNTER")"
+            printf '%s' "$((attempt + 1))" > "$WAIT_COUNTER"
+            ;;
+        *--property=ActiveState*)
+            attempt="$(<"$WAIT_COUNTER")"
+            if [ "$attempt" -eq 1 ]; then printf 'reloading\\n'; else printf 'active\\n'; fi
+            ;;
+        *--property=ReloadResult*)
+            attempt="$(<"$WAIT_COUNTER")"
+            if [ "$attempt" -ge 2 ]; then printf 'success\\n'; fi
+            ;;
+        *) return 2 ;;
+    esac
+}
+sleep() { :; }
+${guard}
+wait_for_reload
+`], { encoding: 'utf8', env: { ...process.env, WAIT_COUNTER: counter } });
+            assert.equal(result.status, 0, `guard ${index + 1}: ${result.stderr}`);
+            assert.equal(await readFile(counter, 'utf8'), '2', `guard ${index + 1} must retry the transition`);
+        }
+        assert.equal(guards.length, 4, 'every activation and rollback reload must use the guarded wait');
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test('Web and Tunnel configuration share one activation candidate and rollback backup', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
     const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
