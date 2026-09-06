@@ -156,6 +156,7 @@ if [[ "${PAWS_SKIP_BUILD:-0}" != "1" ]]; then
             HAPPY_BUILD_COMMIT_TIMESTAMP="$RELEASE_TIMESTAMP" \
             pnpm --filter happy-app export:web
     )
+    node "$SCRIPT_DIR/inject-web-runtime-server-config.mjs" "$DIST_DIR/index.html"
     node "$SCRIPT_DIR/stamp-web-release.mjs" "$DIST_DIR/index.html" "$RELEASE_MARKER" "$RELEASE_REVISION"
 else
     echo "==> 跳过构建，复用已盖章 Web 产物"

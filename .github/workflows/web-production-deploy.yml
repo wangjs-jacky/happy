@@ -198,6 +198,7 @@ jobs:
             HAPPY_BUILD_COMMIT_TIMESTAMP="$RELEASE_TIMESTAMP" \
             pnpm --filter happy-app exec expo export --platform web --clear
           pnpm --filter happy-app exec tsx sources/scripts/injectWebLoading.ts
+          node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html
           node scripts/stamp-web-release.mjs \
             packages/happy-app/dist/index.html \
             packages/happy-app/dist/.paws-release-revision \

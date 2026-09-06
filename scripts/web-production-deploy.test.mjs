@@ -90,6 +90,18 @@ test('production activation is serialized and cannot be cancelled mid-switch', a
     assert.equal(workflow.concurrency['cancel-in-progress'], false);
 });
 
+test('production workflow injects browser-origin runtime configuration once before release stamping', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const build = workflow.jobs.deploy.steps.find((step) => step.name === 'Build and stamp Web from this main revision');
+    const injector = 'node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html';
+    const stamp = 'node scripts/stamp-web-release.mjs';
+
+    assert.equal(build.run.split(injector).length - 1, 1);
+    assert.ok(build.run.indexOf(injector) < build.run.indexOf(stamp));
+    assert.match(build.run, /EXPO_PUBLIC_HAPPY_SERVER_URL="\$PAWS_WEB_ORIGIN"/);
+    assert.equal(workflow.jobs.deploy.env.PAWS_WEB_ORIGIN, 'https://47.115.228.20:8443');
+});
+
 test('authenticated MCP App evidence disables traces and protects external storage state', async () => {
     const [spec, helper, gitignore] = await Promise.all([
         readFile(evidenceSpecUrl, 'utf8'), readFile(evidenceHelperUrl, 'utf8'), readFile(gitignoreUrl, 'utf8'),
