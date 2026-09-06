@@ -23,6 +23,7 @@ vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/text/publicSessionShareText', () => ({ publicSessionShareText: (key: string) => key }));
 vi.mock('@/modal', () => ({ Modal: { show: vi.fn() } }));
+vi.mock('@/modal/components/BaseModal', () => ({ BaseModal: 'BaseModal' }));
 vi.mock('@/hooks/useGroupedMessages', () => ({
     useGroupedMessages: (messages: any[]) => messages.map((message) => ({
         type: 'message',

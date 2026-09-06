@@ -3,6 +3,7 @@ import { apiSocket } from './apiSocket';
 export interface RelationshipAdvisorMessage {
     role: 'user' | 'assistant';
     text: string;
+    imageRefs?: string[];
 }
 
 export interface RelationshipAdvisorStartRequest {
@@ -27,6 +28,7 @@ interface RelationshipAdvisorTransport {
 type RelationshipAdvisorConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export class RelationshipAdvisorClient {
+    private readonly activeRequests = new Map<string, { cancelled: boolean }>();
     constructor(
         private readonly transport: RelationshipAdvisorTransport = apiSocket,
         private readonly acknowledgementTimeoutMs = 10_000,
@@ -39,6 +41,10 @@ export class RelationshipAdvisorClient {
     ): Promise<() => void> {
         let acknowledged = false;
         let ended = false;
+        let hasVisibleText = false;
+        let leadingWhitespace = '';
+        const requestState = { cancelled: false };
+        this.activeRequests.set(request.requestId, requestState);
         let streamTimeout: ReturnType<typeof setTimeout> | undefined;
         const connectionState: { current: RelationshipAdvisorConnectionStatus } = { current: 'connecting' };
         let unsubscribeStatus = () => {};
@@ -46,6 +52,7 @@ export class RelationshipAdvisorClient {
         const cleanup = () => {
             if (ended) return;
             ended = true;
+            this.activeRequests.delete(request.requestId);
             unsubscribeEvent();
             unsubscribeStatus();
             if (streamTimeout) clearTimeout(streamTimeout);
@@ -61,7 +68,14 @@ export class RelationshipAdvisorClient {
         };
         const unsubscribeEvent = this.transport.onMessage('relationship-advisor:event', (event: RelationshipAdvisorEvent) => {
             if (event.requestId !== request.requestId || ended) return;
-            onEvent(event);
+            if (event.type === 'delta' && !hasVisibleText) {
+                if (!event.text.trim()) { leadingWhitespace += event.text; return; }
+                hasVisibleText = true;
+                event = { ...event, text: leadingWhitespace + event.text };
+            }
+            onEvent(event.type === 'done' && !hasVisibleText && !requestState.cancelled
+                ? { requestId: request.requestId, type: 'error', error: 'empty_response' }
+                : event);
             if (event.type === 'done' || event.type === 'error') cleanup();
         });
         unsubscribeStatus = this.transport.onStatusChange((status) => {
@@ -101,6 +115,8 @@ export class RelationshipAdvisorClient {
     }
 
     cancel(requestId: string) {
+        const request = this.activeRequests.get(requestId);
+        if (request) request.cancelled = true;
         this.transport.send('relationship-advisor:cancel', { requestId });
     }
 }

@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { localSettingsDefaults, localSettingsParse } from './localSettings';
 
+it('preserves local advisor image keys across persistence and accepts legacy image counts', () => {
+    const messages = [
+        { id: 'new', role: 'user', text: '', imageCount: 1, imageKeys: ['image-1.jpg'], createdAt: 1 },
+        { id: 'old', role: 'user', text: '', imageCount: 1, createdAt: 2 },
+    ];
+    expect(localSettingsParse({ relationshipAdvisorConversations: [{
+        id: 'test', title: 'test', createdAt: 1, updatedAt: 2, messages,
+    }] }).relationshipAdvisorConversations[0].messages).toEqual(messages);
+});
+
 describe('localSettings public share theme memory', () => {
     it('defaults new public shares to caramel without changing the app theme', () => {
         expect(localSettingsDefaults.lastPublicShareThemePack).toBe('caramel');

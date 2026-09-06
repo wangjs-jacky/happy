@@ -25,6 +25,7 @@ import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlug
 import { Modal } from '@/modal';
 import { shouldShowRelationshipAdvisorEmptyState } from '@/components/relationship-advisor/relationshipAdvisorChatModel';
 import { StreamingMarkdownView } from '@/components/relationship-advisor/StreamingMarkdownView';
+import { RelationshipAdvisorMessageImages } from '@/components/relationship-advisor/RelationshipAdvisorMessageImages';
 import { MAX_RELATIONSHIP_ADVISOR_IMAGE_SIZE } from '@/sync/relationshipAdvisorImages';
 import { t } from '@/text';
 import { useLocalSetting, useLocalSettingUpdater } from '@/sync/storage';
@@ -172,14 +173,7 @@ function RelationshipAdvisorConversationScreen({ conversationId }: { conversatio
                                 style={[styles.messageRow, message.role === 'user' ? styles.userRow : styles.assistantRow]}
                             >
                                 <View style={[styles.bubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-                                    {message.imageCount > 0 && (
-                                        <View style={styles.imageLabel}>
-                                            <Ionicons name="image-outline" size={14} color={theme.colors.textSecondary} />
-                                            <Text style={styles.imageLabelText}>
-                                                {t('relationshipAdvisor.imageCount', { count: message.imageCount })}
-                                            </Text>
-                                        </View>
-                                    )}
+                                    {message.imageCount > 0 && <RelationshipAdvisorMessageImages imageKeys={message.imageKeys} imageCount={message.imageCount} />}
                                     {message.text ? (
                                         message.role === 'assistant'
                                             ? <MarkdownView markdown={message.text} />
@@ -210,7 +204,7 @@ function RelationshipAdvisorConversationScreen({ conversationId }: { conversatio
                         {error && !hasStreamingAssistant && (
                             <View style={styles.errorRow} testID="relationship-advisor-error">
                                 <Ionicons name="cloud-offline-outline" size={15} color={theme.colors.textSecondary} />
-                                <Text style={styles.errorText}>{t('relationshipAdvisor.unavailable')}</Text>
+                                <Text style={styles.errorText}>{t(error === 'empty_response' ? 'relationshipAdvisor.emptyResponse' : 'relationshipAdvisor.unavailable')}</Text>
                                 {canRetry && (
                                     <Pressable
                                         testID="relationship-advisor-retry-button"
@@ -317,17 +311,6 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 16,
         lineHeight: 23,
         ...Typography.default(),
-    },
-    imageLabel: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-        marginBottom: 6,
-    },
-    imageLabelText: {
-        color: theme.colors.textSecondary,
-        fontSize: 12,
-        ...Typography.default('semiBold'),
     },
     errorRow: {
         alignSelf: 'center',
