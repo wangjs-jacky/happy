@@ -178,6 +178,22 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flex: 1,
         overflow: 'hidden',
     },
+    machineLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        height: 32,
+        maxWidth: 230,
+        minWidth: 0,
+        flexShrink: 1,
+        paddingHorizontal: 10,
+        gap: 6,
+    },
+    machineLabelText: {
+        flexShrink: 1,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        ...Typography.default('semiBold'),
+    },
     actionButtonsRight: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -376,7 +392,7 @@ type ContextChipsProps = {
 
 const AgentInputContextChips = React.memo(function AgentInputContextChips(p: ContextChipsProps) {
     const { theme } = useUnistyles();
-    if (p.machineName === undefined && !p.currentPath) {
+    if (!(p.machineName !== undefined && p.onMachineClick) && !(p.currentPath && p.onPathClick)) {
         return null;
     }
     return (
@@ -831,6 +847,22 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 {!props.zenMode && <View style={styles.actionButtonsLeft}>
 
                                 {props.leadingControls}
+
+                                {isSession && props.machineName && !props.onMachineClick && supportsDesktopComposerModeSelector({
+                                    isWeb: Platform.OS === 'web',
+                                    windowWidth: screenWidth,
+                                }) ? (
+                                    <View
+                                        testID="session-composer-machine"
+                                        accessibilityLabel={`${t('devTools.machine')}: ${props.machineName}`}
+                                        style={styles.machineLabel}
+                                    >
+                                        <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
+                                        <Text style={styles.machineLabelText} numberOfLines={1} ellipsizeMode="tail">
+                                            {props.machineName}
+                                        </Text>
+                                    </View>
+                                ) : null}
 
                                 {isSession && props.directorySelector && supportsDesktopComposerModeSelector({
                                     isWeb: Platform.OS === 'web',
