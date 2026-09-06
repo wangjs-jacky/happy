@@ -444,6 +444,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const router = useRouter();
     const navigation = useNavigation();
     const session = useSession(sessionId);
+    const { isLoaded: hasLoadedMessageCache } = useSessionMessages(sessionId);
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
@@ -542,6 +543,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             ? 'edge-handle'
             : 'drawer-toggle';
     const compactRightDrawerAvailable = !desktopRightPanelAvailable && isDataReady && !!session;
+    const canRenderCachedSession = !!session
+        && hasLoadedMessageCache
+        && routeOwner?.sessionId === sessionId
+        && sessionResolution !== 'not-found';
     const canShowFilePanel = desktopRightPanelAvailable && fileDiffsSidebarEnabled;
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
@@ -1018,7 +1023,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
-                {sessionResolution === 'error' ? (
+                {sessionResolution === 'error' && !canRenderCachedSession ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 }} testID="session-load-error">
                         <Text style={{ color: theme.colors.textSecondary }}>{t('common.error')}</Text>
                         <Pressable testID="session-retry" onPress={() => setRetryGeneration(value => value + 1)}
@@ -1026,12 +1031,12 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                             <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
                         </Pressable>
                     </View>
-                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId ? (
+                ) : !canRenderCachedSession && (sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId) ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
                     </View>
-                ) : sessionResolution !== 'ready' || !session ? (
+                ) : !canRenderCachedSession && (sessionResolution !== 'ready' || !session) ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>

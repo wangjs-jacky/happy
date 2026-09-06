@@ -112,6 +112,13 @@ import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRange
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
+import {
+    appendSessionWarmMessages,
+    loadSessionWarmCache,
+    removeSessionFromWarmCache,
+    saveSessionWarmLatestPage,
+    saveSessionWarmSnapshots,
+} from './sessionWarmCache';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -480,8 +487,37 @@ class Sync {
         this.encryption = encryption;
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
+        await this.restoreSessionWarmCache();
         await this.#init();
     }
+
+    private restoreSessionWarmCache = async (): Promise<void> => {
+        const warmCache = loadSessionWarmCache(this.serverID);
+        if (warmCache.snapshots.length === 0) return;
+        let restoredSessionCount = 0;
+        for (const snapshot of warmCache.snapshots) {
+            try {
+                const restored = await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false);
+                restoredSessionCount += restored.length;
+            } catch {
+                // The cache is only a startup accelerator. A stale key or one
+                // corrupt ciphertext must not block login or healthy entries;
+                // evict it and let the network bootstrap restore the session.
+                removeSessionFromWarmCache(this.serverID, snapshot.id);
+            }
+        }
+        for (const [sessionId, page] of Object.entries(warmCache.latestPages)) {
+            if (!storage.getState().sessions[sessionId]) continue;
+            try {
+                this.retainSessionMessageCache(sessionId);
+                const lease = this.sessionMessageLoadGate.enter(sessionId);
+                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease));
+            } catch {
+                removeSessionFromWarmCache(this.serverID, sessionId);
+            }
+        }
+        if (restoredSessionCount > 0) storage.getState().applyReady();
+    };
 
     async #init() {
         this.sessionEventCursors.clear();
@@ -1429,7 +1465,7 @@ class Sync {
 
     private fetchActiveSessions = async () => {
         if (!this.credentials) return;
-        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials, 150));
+        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, 150));
     }
 
     public bootstrapSessions = async (): Promise<void> => {
@@ -1547,6 +1583,7 @@ class Sync {
         load: () => Promise<ApiSessionSnapshot[]>,
         options: SessionApplyOptions = { replace: false },
         operation?: SessionRouteOperation,
+        persist = true,
     ): Promise<HydratedSession[]> => {
         const write = { mutationGeneration: this.sessionMutationGeneration };
         const encryptionOwner = this.encryption;
@@ -1574,6 +1611,7 @@ class Sync {
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
                         committed.push(prepared.session);
+                        if (persist && this.serverID) saveSessionWarmSnapshots(this.serverID, [snapshot]);
                         break;
                     }
                 } catch (error) {
@@ -1664,9 +1702,13 @@ class Sync {
         }
         this.retainSessionMessageCache(sessionId);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
+        const hasLoadedMessageCache = storage.getState().sessionMessages[sessionId]?.isLoaded === true
+            && this.getSessionLastMessageSeq(sessionId) !== null;
         if (options.retry) markSessionCriticalPathHydrationRetry();
         markSessionCriticalPathAppStage('web.messages.latest_started');
-        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
+        const latestPagePromise = hasLoadedMessageCache
+            ? Promise.resolve({ messages: [], hasMore: false })
+            : this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
             sessionId,
             owner,
@@ -1687,6 +1729,14 @@ class Sync {
             const found = await this.hydrateSessionSnapshot(sessionId, operation);
             this.assertSessionRouteCurrent(operation);
             if (!found) return 'not-found';
+
+            if (hasLoadedMessageCache) {
+                await this.getMessagesSync(sessionId).invalidateAndAwait();
+                this.assertSessionRouteCurrent(operation);
+                markSessionCriticalPathAppStage('web.messages.latest_completed');
+                markSessionCriticalPathAppStage('web.session.store_committed');
+                return 'ready';
+            }
 
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
@@ -2727,10 +2777,11 @@ class Sync {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
         }
         const data = await response.json() as V3GetSessionMessagesResponse;
-        return {
+        const page = {
             messages: Array.isArray(data.messages) ? data.messages : [],
             hasMore: !!data.hasMore,
         };
+        return page;
     }
 
     private applyLatestMessagePage = async (
@@ -2784,6 +2835,9 @@ class Sync {
             hasMore: frontier.hasMoreOlder,
         });
         this.recordRoutePageCommit(operation, maxSeq);
+        if (this.serverID && decryptedMessages.every(Boolean)) {
+            saveSessionWarmLatestPage(this.serverID, sessionId, data);
+        }
         return true;
     }
 
@@ -2819,6 +2873,11 @@ class Sync {
         while (true) {
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+            if (response.status === 404) {
+                this.removeSessionLocally(sessionId);
+                return;
+            }
             if (!response.ok) {
                 throw new Error(`Failed to forward-sync ${sessionId}: ${response.status}`);
             }
@@ -2861,6 +2920,7 @@ class Sync {
             return { current: false, hasMutableToolResult: false };
         }
         if (messages.length === 0) {
+            if (this.serverID) appendSessionWarmMessages(this.serverID, sessionId, []);
             return { current: true, hasMutableToolResult: false };
         }
         const decryptedMessages = await encryption.createDetached().decryptMessages(messages);
@@ -2881,6 +2941,9 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
         this.recordFetchedMessageRange(sessionId, messages);
+        if (this.serverID && decryptedMessages.every(Boolean)) {
+            appendSessionWarmMessages(this.serverID, sessionId, messages);
+        }
         return {
             current: true,
             hasMutableToolResult: this.containsMutableToolResult(sessionId, normalizedMessages),
@@ -3125,6 +3188,7 @@ class Sync {
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
+                        if (this.serverID) appendSessionWarmMessages(this.serverID, updateData.body.sid, [updateData.body.message]);
                         if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
@@ -3153,14 +3217,7 @@ class Sync {
         } else if (updateData.body.t === 'delete-session') {
             log.log('🗑️ Delete session update received');
             const sessionId = updateData.body.sid;
-            const deletionMutationGeneration = ++this.sessionMutationGeneration;
-            this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
-            this.pruneSessionDeletionTombstones();
-
-            // Remove session from storage
-            storage.getState().deleteSession(sessionId);
-
-            this.clearSessionRuntimeState(sessionId);
+            this.removeSessionLocally(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -3756,6 +3813,15 @@ class Sync {
         this.sendSync.delete(sessionId);
         this.pendingOutbox.delete(sessionId);
     }
+
+    public removeSessionLocally = (sessionId: string): void => {
+        const deletionMutationGeneration = ++this.sessionMutationGeneration;
+        this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
+        storage.getState().deleteSession(sessionId);
+        if (this.serverID) removeSessionFromWarmCache(this.serverID, sessionId);
+        this.clearSessionRuntimeState(sessionId);
+        this.pruneSessionDeletionTombstones();
+    };
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {
         let wasActive = new Set(active.map(s => s.id));
