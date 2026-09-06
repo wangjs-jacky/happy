@@ -11,7 +11,7 @@ import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridg
 import { normalizeRawMessage, type RawRecord } from './typesRaw';
 import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
-import { openLocalHistory } from './localHistoryStore';
+import { openLocalHistory, clearLocalHistoryCaches } from './localHistoryStore';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -569,6 +569,65 @@ describe('message visibility synchronization', () => {
         expect(actual.getState().sessionMessages.past.hasMoreNewer).toBe(true);
         expect(actual.getState().sessionMessages.past.messages).toEqual([]);
     });
+
+    it.each(['account', 'reset', 'logout', 'session-delete'] as const)(
+        'fences delayed forward JSON before persistence after %s', async transition => {
+            globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+            const encryption = installSession('delayed');
+            const original = (await openLocalHistory('server|original'))!;
+            await original.commitPage('delayed', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+            syncForTest.localHistory = original;
+            const body = deferred<{ messages: ApiMessage[]; hasMore: boolean }>();
+            const parsing = deferred<void>();
+            mocks.apiRequest.mockResolvedValue({ ok: true, status: 200,
+                json: () => { parsing.resolve(); return body.promise; } });
+            const lease = syncForTest.sessionMessageLoadGate.enter('delayed');
+            const pending = syncForTest.fetchForwardSince('delayed', encryption, 40, syncForTest.sessionMessageLoadGate.begin(lease));
+            await parsing.promise;
+            if (transition === 'reset') await syncForTest.resetLocalHistory();
+            if (transition === 'logout') await clearLocalHistoryCaches();
+            if (transition === 'session-delete') await original.deleteSession('delayed');
+            const replacement = transition === 'session-delete' ? original
+                : (await openLocalHistory(transition === 'reset' ? 'server|original' : 'server|next'))!;
+            syncForTest.localHistory = replacement;
+            body.resolve({ messages: [apiMessage(41)], hasMore: false });
+            await pending;
+            expect(await replacement.readWindow('delayed')).toBeNull();
+            if (transition === 'account') {
+                expect((await original.readWindow('delayed'))?.newestSeq).toBe(40);
+                original.close();
+            }
+        });
+
+    it.each(['socket', 'socket-recovery', 'forward'] as const)('retains new %s records in a full window when persistence fails', async source => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const encryption = installSession('failed-write');
+        const history = (await openLocalHistory('server|quota'))!;
+        await history.commitPage('failed-write', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 300 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('failed-write');
+        await syncForTest.applyHistoryWindow('failed-write', await history.readWindow('failed-write', { limit: 300 }), syncForTest.sessionMessageLoadGate.begin(lease));
+        if (source !== 'forward') {
+            const append = vi.spyOn(history, 'appendMessages');
+            if (source === 'socket-recovery') append.mockResolvedValueOnce(false);
+            else append.mockResolvedValue(false);
+            await syncForTest.handleUpdate(newMessageUpdate('failed-write', 301));
+            await syncForTest.handleUpdate(newMessageUpdate('failed-write', 302));
+        } else {
+            vi.spyOn(history, 'commitPage').mockResolvedValue(false);
+            mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(301), apiMessage(302)], hasMore: false }));
+            await syncForTest.fetchForwardSince('failed-write', encryption, 300, syncForTest.sessionMessageLoadGate.begin(lease));
+        }
+        const window = syncForTest.historyWindows.get('failed-write');
+        expect(window.newestSeq).toBe(302);
+        expect(window.messages.map((message: ApiMessage) => message.seq)).toContain(301);
+        expect(window.messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.state.sessionMessages['failed-write'].messages.length).toBeLessThanOrEqual(300);
+        expect(syncForTest.resolveRenderedMessageId('failed-write', 'message-302')).not.toBeNull();
+        expect((await history.readWindow('failed-write'))?.newestSeq).toBe(300);
+        expect(await history.readWindow('failed-write', { anchorSeq: 301 })).toBeNull();
+    }, 20000);
 
     it('emits one final store milestone for snapshot plus latest-page opening, after both complete', async () => {
         installSession('attribution-session');

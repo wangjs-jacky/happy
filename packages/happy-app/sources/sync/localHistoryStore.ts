@@ -93,6 +93,21 @@ export class LocalHistory {
             });
         });
     }
+    listSnapshotRefreshIds(): Promise<string[]> {
+        return this.transaction('readonly', [], async tx => {
+            const records = await request<SessionRecord[]>(tx.objectStore('sessions').getAll(sessionRange(this.scope)));
+            return records.flatMap(record => {
+                if (record.deleted || record.change?.deleted) return [];
+                const snapshot = ApiSessionSnapshotSchema.safeParse(record.snapshot);
+                const change = record.change;
+                const pending = change ? !snapshot.success
+                    || change.metadataVersion > snapshot.data.metadataVersion
+                    || change.agentStateVersion > snapshot.data.agentStateVersion
+                    : record.snapshot !== undefined;
+                return pending ? [record.id] : [];
+            });
+        });
+    }
     writeSnapshots(snapshots: ApiSessionSnapshot[]): Promise<boolean> {
         return this.transaction('readwrite', false, async tx => {
             for (const snapshot of snapshots) {
