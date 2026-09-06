@@ -436,7 +436,7 @@ function ImageFileView({ name, image, ref_, sessionId, motionPhoto }: {
                     motionPhoto: effectiveMotionPhoto,
                 }) : undefined}
                 disabled={!uri}
-                style={[styles.inlineWrapper, { borderColor: theme.colors.divider }]}
+                style={[styles.inlineWrapper, { width: displayW, height: displayH, borderColor: theme.colors.divider }]}
             >
                 <Image
                     source={uri ? { uri } : undefined}

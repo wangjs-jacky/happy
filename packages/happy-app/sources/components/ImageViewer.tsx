@@ -575,7 +575,7 @@ function ResolvedViewerImage({ source, width, height, isActive, onRetry, retryDe
     retryDelay: number;
 }) {
     const { theme } = useUnistyles();
-    const { uri, loading, error } = useAttachmentImage(source.sessionId ?? '', source.attachmentRef, { lifetime: 'viewer' });
+    const { uri, loading, error } = useAttachmentImage(source.sessionId ?? '', source.sessionId ? source.attachmentRef : undefined, { lifetime: 'viewer' });
     // A failed historical attachment retries while active; closing or paging
     // away cancels the timer. Remounting restarts the existing decryption hook.
     React.useEffect(() => {
@@ -597,7 +597,9 @@ function ResolvedViewerImage({ source, width, height, isActive, onRetry, retryDe
             /> : null}
             {!displayUri && (loading || error) ? (
                 <View testID="image-viewer-loading" style={[StyleSheet.absoluteFillObject, styles.page]} pointerEvents="none">
-                    <ActivityIndicator size="large" color={theme.colors.text} accessibilityLabel={t('common.loading')} />
+                    <View style={[styles.loadingIndicator, { backgroundColor: theme.colors.surface }]}>
+                        <ActivityIndicator size="large" color={theme.colors.text} accessibilityLabel={t('common.loading')} />
+                    </View>
                 </View>
             ) : null}
         </View>
@@ -662,6 +664,13 @@ const styles = StyleSheet.create({
         width: 48,
         height: 48,
         borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    loadingIndicator: {
+        width: 64,
+        height: 64,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
     },
