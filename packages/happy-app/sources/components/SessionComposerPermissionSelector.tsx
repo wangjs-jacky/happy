@@ -148,7 +148,7 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
                 ]}
             >
                 <Ionicons
-                    name={props.level === 'full-access' ? 'warning-outline' : 'shield-checkmark-outline'}
+                    name={props.level === 'full-access' ? 'play-forward' : 'shield-checkmark-outline'}
                     size={14}
                     color={props.level === 'full-access' ? theme.colors.warning : theme.colors.textSecondary}
                 />
