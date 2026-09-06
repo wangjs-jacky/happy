@@ -130,7 +130,7 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.equal(cleanupStep.id, 'cleanup');
     assert.match(cleanupStep.run, /test "\$legacy_path" = '\/var\/www\/happy-web'/);
     assert.match(cleanupStep.run, /Caddyfile/);
-    assert.match(caddyStep.run, /caddy adapt --config "\$config" --adapter caddyfile/);
+    assert.match(caddyStep.run, /caddy adapt --config "\$candidate" --adapter caddyfile/);
     assert.match(cleanupStep.run, /caddy adapt --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
     assert.doesNotMatch(cleanupStep.run, /grep[^\n]*\/etc\/caddy\/Caddyfile/);
     const liveVerifyStep = job.steps.find((step) => step.name === 'Verify live OSS-backed release and routes');
@@ -161,4 +161,46 @@ test('Caddy activation and rollback enqueue reloads without waiting on old conne
     assert.doesNotMatch(rollbackStep.run, /curl /);
     assert.doesNotMatch(caddyStep.run, /systemctl reload caddy/);
     assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
+});
+
+test('Web and Tunnel configuration share one activation candidate and rollback backup', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    assert.match(step.run, /configure-production-web-caddy\.mjs "\$current_caddy" "\$web_caddy"/);
+    assert.match(step.run, /configure-production-tunnel-caddy\.mjs "\$web_caddy" "\$next_caddy"/);
+    assert.ok(step.run.indexOf('configure-production-web-caddy') < step.run.indexOf('configure-production-tunnel-caddy'));
+    assert.equal(step.run.match(/remote_backup=/g)?.length, 1);
+    assert.equal(step.run.match(/scp -P/g)?.length, 1);
+    assert.ok(step.run.indexOf('caddy validate --config "$candidate"') < step.run.indexOf('install -m 644'));
+    assert.ok(step.run.indexOf('check_tunnel_listeners <<<"$adapted_config"') < step.run.indexOf('install -m 644'));
+    assert.match(step.run, /cmp -s -- "\$candidate" "\$config"/);
+    assert.match(step.run, /wait_for_reload/);
+    assert.match(step.run, /--header 'Host: paws\.rodeo' http:\/\/127\.0\.0\.1:8081\/health/);
+    assert.match(step.run, /--header 'Host: invalid\.example' http:\/\/127\.0\.0\.1:8081\/health/);
+    assert.match(step.run, /= '421'/);
+    assert.match(step.run, /ss -lnt/);
+    const syntax = spawnSync('bash', ['-n'], { input: step.run, encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('candidate listener guard rejects wildcard, nonloopback, absent, and extra Tunnel listeners', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const guard = step.run.match(/check_tunnel_listeners\(\) \{\n[\s\S]*?\n\}/)?.[0];
+    assert.ok(guard, 'remote script must provide the candidate listener guard');
+    for (const [listeners, success] of [
+        [['127.0.0.1:8081'], true],
+        [['0.0.0.0:8081'], false], [['[::]:8081'], false], [[':8081'], false],
+        [['47.115.228.20:8081'], false], [['127.0.0.2:8081'], false],
+        [['127.0.0.1:8081', ':8081'], false], [['127.0.0.1:8081', ':9090'], false],
+        [[':8080-8082'], false], [[], false],
+    ]) {
+        const adapted = { apps: { http: { servers: {
+            public: { listen: [':8443'] }, tunnel: { listen: listeners },
+        } } } };
+        const result = spawnSync('bash', ['-c', `${guard}\ncheck_tunnel_listeners`], {
+            input: JSON.stringify(adapted), encoding: 'utf8',
+        });
+        assert.equal(result.status === 0, success, `${JSON.stringify(listeners)}: ${result.stderr}`);
+    }
 });
