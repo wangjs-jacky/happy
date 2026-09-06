@@ -103,9 +103,14 @@ export async function probeWebSocket(value, { timeoutMs = 10_000 } = {}) {
                 || !response.headers.connection?.toLowerCase().split(/\s*,\s*/).includes('upgrade')
                 || response.headers['sec-websocket-accept'] !== expectedAccept) {
                 reject(new Error('WebSocket upgrade has an invalid status, Upgrade header, or accept key'));
-            } else if (response.headers['cf-mitigated'] || /^(HIT|STALE|UPDATING|REVALIDATED)$/i.test(response.headers['cf-cache-status'] ?? '')) {
-                reject(new Error('WebSocket upgrade was challenged or cached'));
-            } else resolve({ status: 101 });
+            } else if (response.headers['cf-mitigated']) {
+                reject(new Error('WebSocket upgrade was challenged'));
+            } else {
+                try {
+                    assertNoCache('WebSocket upgrade', { headers: responseHeaders(response.headers) }, { requireDirective: false });
+                    resolve({ status: 101 });
+                } catch (error) { reject(error); }
+            }
         });
         request.end();
     });
@@ -124,7 +129,7 @@ function assertStatus(label, response, expected = [200]) {
     if (!expected.includes(response.status)) throw new Error(`${label} returned HTTP ${response.status}`);
 }
 
-function assertNoCache(label, response) {
+function assertNoCache(label, response, { requireDirective = true } = {}) {
     const control = response.headers.get('cache-control') ?? '';
     const directives = control.toLowerCase().split(',').map((part) => part.trim());
     const edge = response.headers.get('cf-cache-status')?.toUpperCase();
@@ -134,7 +139,7 @@ function assertNoCache(label, response) {
         const value = part.match(/^(?:s-maxage|max-age)\s*=\s*(?:"(\d+)"|(\d+))$/);
         return !value || Number(value[1] ?? value[2]) > 0;
     });
-    if (!directives.some((part) => part === 'no-store' || part === 'no-cache')
+    if ((requireDirective && !directives.some((part) => part === 'no-store' || part === 'no-cache'))
         || cacheableTtl || directives.includes('immutable')
         || (edge && !['DYNAMIC', 'BYPASS'].includes(edge))
         || (age !== null && (!/^\d+$/.test(age) || Number(age) > 0))) {
@@ -188,6 +193,7 @@ export async function verifyProductionTunnel({ origin, fallbackOrigin, assetOrig
     ]) {
         const actual = htmlRevision(path, response);
         if (actual !== revision) throw new Error(`${path} release revision mismatch: expected ${revision}, got ${actual}`);
+        assertNoCache(`${path} HTML`, response, { requireDirective: false });
     }
     checks.push(`domain HTML, deep link, and share revision ${revision}`);
 

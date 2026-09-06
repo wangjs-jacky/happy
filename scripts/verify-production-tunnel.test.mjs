@@ -77,6 +77,22 @@ test('rejects API responses without cache bypass headers', async () => {
     await assert.rejects(verifyProductionTunnel(options), /cache/i);
 });
 
+test('rejects cached domain HTML on the homepage, deep link, and share entry', async () => {
+    for (const path of ['/', '/session/tunnel-verification', '/share/public-deployment-probe']) {
+        for (const headers of [
+            { 'cf-cache-status': 'HIT', age: '300', 'cache-control': 'public,max-age=86400' },
+            { 'cf-cache-status': 'HIT' },
+            { age: '300' },
+            { 'cache-control': 'public,max-age=86400' },
+            { 'cf-cache-status': 'MISS' },
+        ]) {
+            const options = fixture((url) => url.hostname === 'pilot.example' && url.pathname === path
+                ? response(html(), { 'content-type': 'text/html', ...headers }) : null);
+            await assert.rejects(verifyProductionTunnel(options), /cache/i, `${path}: ${JSON.stringify(headers)}`);
+        }
+    }
+});
+
 test('rejects unhealthy or SPA health responses', async () => {
     for (const body of ['{}', '{"status":"down","service":"happy-server"}']) {
         const options = fixture((url) => url.pathname === '/health'
@@ -158,6 +174,32 @@ test('WebSocket adapter checks the upgrade accept key and Engine.IO request path
         socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
     });
     assert.equal((await probeWebSocket(`${origin}/v1/updates/?EIO=4&transport=websocket`, { timeoutMs: 200 })).status, 101);
+});
+
+test('WebSocket adapter rejects cache leakage on otherwise valid upgrades', async (t) => {
+    for (const headers of [
+        'Age: 300\r\nCache-Control: public,max-age=86400\r\nCF-Cache-Status: MISS\r\n',
+        'Age: 300\r\n',
+        'Cache-Control: public,max-age=86400\r\n',
+        'Cache-Control: no-cache,s-maxage="60"\r\n',
+        'Cache-Control: immutable\r\n',
+        'CF-Cache-Status: MISS\r\n',
+        'CF-Cache-Status: EXPIRED\r\n',
+    ]) {
+        const origin = await localServer(t, (_req, res) => res.end(), (req, socket) => {
+            const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+            socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n${headers}\r\n`);
+        });
+        await assert.rejects(probeWebSocket(origin, { timeoutMs: 200 }), /cache/i, headers);
+    }
+});
+
+test('WebSocket adapter accepts supplied bypass evidence without requiring a cache-control header', async (t) => {
+    const origin = await localServer(t, (_req, res) => res.end(), (req, socket) => {
+        const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+        socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\nCF-Cache-Status: BYPASS\r\nAge: 0\r\n\r\n`);
+    });
+    assert.equal((await probeWebSocket(origin, { timeoutMs: 200 })).status, 101);
 });
 
 test('WebSocket adapter rejects fake upgrades, challenges, and timeouts', async (t) => {
