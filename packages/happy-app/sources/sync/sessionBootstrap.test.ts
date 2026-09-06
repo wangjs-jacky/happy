@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApiSessionSnapshot } from './apiTypes';
+import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
 import { SessionRouteOwnership } from './sessionRouteOwnership';
+import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -239,6 +240,7 @@ describe('active-first session bootstrap', () => {
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
+        clearSessionWarmCache();
     });
 
     afterEach(() => {
@@ -260,6 +262,52 @@ describe('active-first session bootstrap', () => {
         expect(mocks.state.sessions['active-session']).toMatchObject({ id: 'active-session' });
         expect(mocks.state.sessions['cached-session']).toMatchObject({ id: 'cached-session' });
         expect(history.settled).toBe(false);
+    });
+
+    it('restores encrypted session and message wire cache before network bootstrap', async () => {
+        const cachedSnapshot = snapshot('warm-session');
+        const cachedMessage: ApiMessage = {
+            id: 'message-9', seq: 9, localId: null,
+            content: { t: 'encrypted', c: 'ciphertext' }, createdAt: 9, updatedAt: 9,
+        };
+        syncForTest.serverID = 'warm-account';
+        saveSessionWarmSnapshots('warm-account', [cachedSnapshot]);
+        saveSessionWarmLatestPage('warm-account', 'warm-session', {
+            messages: [cachedMessage], hasMore: true,
+        });
+
+        await syncForTest.restoreSessionWarmCache();
+
+        expect(mocks.state.sessions['warm-session']).toMatchObject({ id: 'warm-session' });
+        expect(mocks.state.sessionMessages['warm-session']).toMatchObject({
+            isLoaded: true, hasMoreOlder: true,
+        });
+        expect(mocks.state.readyCount).toBe(1);
+        expect(mocks.fetchActive).not.toHaveBeenCalled();
+    });
+
+    it('skips a corrupt warm-cache session without blocking other cached sessions', async () => {
+        syncForTest.serverID = 'warm-account';
+        saveSessionWarmSnapshots('warm-account', [
+            snapshot('corrupt-session'),
+            snapshot('healthy-session'),
+        ]);
+        mocks.hydrateRoute.mockImplementation(async (raw: ApiSessionSnapshot) => {
+            if (raw.id === 'corrupt-session') throw new Error('invalid cached ciphertext');
+            return {
+                session: (await mocks.hydrate([raw]))[0],
+                commitEncryption: () => true,
+            };
+        });
+
+        await expect(syncForTest.restoreSessionWarmCache()).resolves.toBeUndefined();
+
+        expect(mocks.state.sessions['corrupt-session']).toBeUndefined();
+        expect(mocks.state.sessions['healthy-session']).toMatchObject({ id: 'healthy-session' });
+        expect(mocks.state.readyCount).toBe(1);
+        expect(loadSessionWarmCache('warm-account').snapshots).toEqual([
+            expect.objectContaining({ id: 'healthy-session' }),
+        ]);
     });
 
     it('does not call the legacy session list during bootstrap', async () => {

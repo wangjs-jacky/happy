@@ -406,6 +406,25 @@ describe('message visibility synchronization', () => {
         ]);
     });
 
+    it('revalidates an already loaded route incrementally instead of downloading the latest page again', async () => {
+        installSession('warm-route');
+        mocks.state.sessionMessages['warm-route'] = {
+            messages: [], messagesMap: {}, reducerState: {}, isLoaded: true,
+            hasMoreOlder: false, isLoadingOlder: false,
+        };
+        syncForTest.sessionMessageFrontiers.set('warm-route', {
+            latestSeq: 42, olderBeforeSeq: 1, hasMoreOlder: false,
+        });
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+
+        await expect(syncForTest.openSession('warm-route')).resolves.toBe('ready');
+
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
+        );
+    });
+
     it.each(['cached', 'shared'] as const)('attributes a route snapshot satisfied by %s hydration exactly once', async (source) => {
         installSession('prehydrated-session');
         mocks.state.currentViewingSessionId = 'prehydrated-session';

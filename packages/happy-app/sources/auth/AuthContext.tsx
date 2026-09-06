@@ -7,6 +7,7 @@ import { unregisterPushToken } from '@/sync/apiPush';
 import { Platform } from 'react-native';
 import { trackLogout } from '@/track';
 import { clearPublicSessionShareJobs } from '@/sync/publicSessionShareQueueRuntime';
+import { clearSessionWarmCache } from '@/sync/sessionWarmCache';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -50,6 +51,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
             }
         }
         clearPersistence();
+        clearSessionWarmCache();
         await TokenStorage.removeCredentials();
         
         // Update React state to ensure UI consistency

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
     session: null as any,
+    messagesLoaded: false,
 }));
 
 vi.mock('react-native', () => ({
@@ -77,7 +78,7 @@ vi.mock('@/sync/storage', () => ({
     useLocalSettingMutable: () => [false, vi.fn()],
     useMachine: () => null,
     useSession: () => mocks.session,
-    useSessionMessages: () => ({ messages: [], isLoaded: false }),
+    useSessionMessages: () => ({ messages: [], isLoaded: mocks.messagesLoaded }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useSettingUpdater: () => vi.fn(),
@@ -203,6 +204,7 @@ describe('SessionView deep-link hydration', () => {
             originalConsoleError(...values);
         });
         mocks.session = null;
+        mocks.messagesLoaded = false;
         const owners = new SessionRouteOwnership();
         mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
         mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
@@ -338,6 +340,28 @@ describe('SessionView deep-link hydration', () => {
         expect(mocks.promoteSessionRoute).toHaveBeenCalledWith(owner);
         expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('loaded-session');
         expect(mocks.promoteSessionRoute.mock.invocationCallOrder[0]).toBeLessThan(mocks.setCurrentViewingSession.mock.invocationCallOrder[0]);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps an already loaded conversation visible while its latest page revalidates', async () => {
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.session = {
+            id: 'warm-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="warm-session" />); });
+
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
+
+        await act(async () => { opening.resolve('ready'); await opening.promise; });
+        expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
         act(() => renderer.unmount());
     });
 
