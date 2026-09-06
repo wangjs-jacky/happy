@@ -182,9 +182,8 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flexDirection: 'row',
         alignItems: 'center',
         height: 32,
-        maxWidth: 230,
+        maxWidth: '100%',
         minWidth: 0,
-        flexShrink: 1,
         paddingHorizontal: 10,
         gap: 6,
     },
@@ -848,22 +847,6 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
 
                                 {props.leadingControls}
 
-                                {isSession && props.machineName && !props.onMachineClick && supportsDesktopComposerModeSelector({
-                                    isWeb: Platform.OS === 'web',
-                                    windowWidth: screenWidth,
-                                }) ? (
-                                    <View
-                                        testID="session-composer-machine"
-                                        accessibilityLabel={`${t('devTools.machine')}: ${props.machineName}`}
-                                        style={styles.machineLabel}
-                                    >
-                                        <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
-                                        <Text style={styles.machineLabelText} numberOfLines={1} ellipsizeMode="tail">
-                                            {props.machineName}
-                                        </Text>
-                                    </View>
-                                ) : null}
-
                                 {isSession && props.directorySelector && supportsDesktopComposerModeSelector({
                                     isWeb: Platform.OS === 'web',
                                     windowWidth: screenWidth,
@@ -1070,6 +1053,22 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                             </View>
                         </View>
                     </View>
+                    {isSession && !props.zenMode && props.machineName && !props.onMachineClick && supportsDesktopComposerModeSelector({
+                        isWeb: Platform.OS === 'web',
+                        windowWidth: screenWidth,
+                    }) ? (
+                        <View
+                            testID="session-composer-machine"
+                            accessibilityLabel={`${t('devTools.machine')}: ${props.machineName}`}
+                            style={styles.machineLabel}
+                        >
+                            <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={styles.machineLabelText} numberOfLines={1} ellipsizeMode="tail">
+                                {props.machineName}
+                            </Text>
+                        </View>
+                    ) : null}
+
                 </View>
                 </Shaker>
             </View>
