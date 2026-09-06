@@ -111,8 +111,8 @@ const controller: DeviceEnvironmentController = {
     phase: 'idle', rows: [], target: { kind: 'unavailable' }, scan: vi.fn(), preview: vi.fn(), applyApproved: vi.fn(), reset: vi.fn(),
 };
 
-function textContent(renderer: TestRenderer.ReactTestRenderer): string[] {
-    return renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+function textContent(node: { findAllByType: (type: string) => Array<{ children: unknown[] }> }): string[] {
+    return node.findAllByType('Text').map((textNode) => textNode.children.join(''));
 }
 
 describe('Device Environment desktop settings modal integration', () => {
@@ -176,16 +176,19 @@ describe('Device Environment desktop settings modal integration', () => {
         render();
 
         act(() => renderer!.root.findByProps({ testID: 'settings-device-environment' }).props.onPress());
-        expect(textContent(renderer!)).toContain('deviceEnvironment.title');
-        expect(renderer!.root.findByProps({ testID: 'environment-summary' })).toBeDefined();
+        expect(renderer!.root.findByType('Modal').props.visible).toBe(true);
+        const deviceEnvironmentPanel = renderer!.root.findByProps({ testID: 'desktop-modal-panel' });
+        expect(textContent(deviceEnvironmentPanel)).toContain('deviceEnvironment.title');
+        expect(deviceEnvironmentPanel.findByProps({ testID: 'environment-summary' })).toBeDefined();
 
-        act(() => mocks.send({ type: 'GO_BACK' }));
-        expect(textContent(renderer!)).toContain('settings.title');
+        act(() => renderer!.root.findByProps({ testID: 'desktop-modal-back' }).props.onPress());
+        const settingsPanel = renderer!.root.findByProps({ testID: 'desktop-modal-panel' });
+        expect(textContent(settingsPanel)).toContain('settings.title');
         expect(renderer!.root.findByProps({ testID: 'settings-device-environment' })).toBeDefined();
 
-        act(() => mocks.send({ type: 'CLOSE_DESKTOP_MODAL' }));
+        act(() => renderer!.root.findByProps({ testID: 'desktop-modal-close' }).props.onPress());
         expect(state.routes).toEqual(workspace);
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
-        expect(textContent(renderer!)).toContain('Workspace content');
+        expect(textContent(renderer!.root)).toContain('Workspace content');
     });
 });
