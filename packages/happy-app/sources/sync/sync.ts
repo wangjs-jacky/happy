@@ -2048,6 +2048,10 @@ class Sync {
         return this.sessionRouteOwnership.promote(owner);
     }
 
+    public isSessionRouteOwner = (owner: SessionRouteOwner): boolean => {
+        return this.sessionRouteOwnership.owns(owner);
+    }
+
     public leaveSessionRoute = (owner: SessionRouteOwner): boolean => {
         if (!this.sessionRouteOwnership.leave(owner)) return false;
         const operation = this.activeOpenSession;

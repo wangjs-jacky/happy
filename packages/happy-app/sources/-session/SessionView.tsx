@@ -559,12 +559,14 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
         let cancelled = false;
         const frame = requestAnimationFrame(() => {
-            if (cancelled) return;
+            // Validation can release this owner before React replaces the
+            // cached route tree or runs this effect's cleanup.
+            if (cancelled || !routeOwner || !sync.isSessionRouteOwner(routeOwner)) return;
             paintedSessionId.current = sessionId;
             markSessionCriticalPathAppStage('web.session.route_painted');
         });
         return () => { cancelled = true; cancelAnimationFrame(frame); };
-    }, [sessionId, paintOwnerEpoch]);
+    }, [sessionId, paintOwnerEpoch, routeOwner]);
     const canShowFilePanel = desktopRightPanelAvailable && fileDiffsSidebarEnabled;
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,

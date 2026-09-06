@@ -9,6 +9,7 @@ import { SessionRouteAbandonedError, SessionRouteCoordinationError, SessionRoute
 const mocks = vi.hoisted(() => ({
     abandonSessionRoute: vi.fn(),
     beginSessionRoute: vi.fn(),
+    isSessionRouteOwner: vi.fn(),
     promoteSessionRoute: vi.fn(),
     leaveSessionRoute: vi.fn(),
     setCurrentViewingSession: vi.fn(),
@@ -98,6 +99,7 @@ vi.mock('@/sync/sync', () => ({
     sync: {
         abandonSessionRoute: mocks.abandonSessionRoute,
         beginSessionRoute: mocks.beginSessionRoute,
+        isSessionRouteOwner: mocks.isSessionRouteOwner,
         promoteSessionRoute: mocks.promoteSessionRoute,
         leaveSessionRoute: mocks.leaveSessionRoute,
         ensureSessionHydrated: mocks.ensureSessionHydrated,
@@ -267,6 +269,7 @@ describe('SessionView deep-link hydration', () => {
         mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
         mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
+        mocks.isSessionRouteOwner.mockImplementation((owner) => owners.owns(owner));
         mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
         mocks.leaveSessionRoute.mockImplementation((owner) => owners.leave(owner));
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -519,6 +522,46 @@ describe('SessionView deep-link hydration', () => {
             expect(renderer.root.findByType('AgentContentView')).toBe(chat);
             mocks.messagesLoaded = true;
             await act(async () => { recovery.resolve('ready'); });
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('rejects a released owner paint before the first frame and paints the successful retry once', async () => {
+        vi.useFakeTimers();
+        const opening = deferred<'ready'>();
+        const retry = deferred<'ready'>();
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockReturnValueOnce(retry.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'local-1', kind: 'user-text', text: 'hello' }];
+        mocks.session = {
+            id: 'released-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="released-paint" />); });
+            const chat = renderer.root.findByType('AgentContentView');
+            await act(async () => { opening.reject(new Error('offline-before-paint')); });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            expect(renderer.root.findByProps({ testID: 'session-retrying-cached' })).toBeTruthy();
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            expect(mocks.openSession).toHaveBeenCalledTimes(2);
+            await act(async () => { retry.resolve('ready'); });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            paint.runAllFrames();
             paint.runAllFrames();
             expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
             expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
