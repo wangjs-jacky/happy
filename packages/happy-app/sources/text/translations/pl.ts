@@ -1088,6 +1088,7 @@ export const pl: TranslationStructure = {
         usedTools: ({ count }: { count: number }) => `${plural({ count, one: 'Użyto 1 narzędzie', few: `Użyto ${count} narzędzia`, many: `Użyto ${count} narzędzi` })}`,
         usedSkills: ({ names }: { names: string }) => `Użyte umiejętności (Skills): ${names}`,
         skillLabel: 'Umiejętność (Skill)',
+        skillBatchLabel: 'Pakiet umiejętności',
         subagentLabel: 'Subagent',
         openSubagentDetails: ({ title }: { title: string }) => `Wyświetl szczegóły subagenta: ${title}`,
         subagentPanelLabel: ({ title }: { title: string }) => `szczegóły subagenta „${title}”`,

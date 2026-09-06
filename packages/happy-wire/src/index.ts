@@ -7,3 +7,4 @@ export * from './plugins';
 export * from './publicSessionShare';
 export * from './interactivePreview';
 export * from './interactivePreviewPrompt';
+export * from './toolFailure';

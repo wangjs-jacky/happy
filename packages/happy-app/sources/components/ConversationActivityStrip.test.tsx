@@ -148,6 +148,20 @@ describe('ConversationActivityStrip', () => {
         act(() => renderer.unmount());
     });
 
+    it('labels a failed batch once and shows its actionable diagnostic', () => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] });
+        batch.tool.state = 'error';
+        batch.tool.result = '---\nname: dev\n---\nsed: /skills/workflow/SKILL.md: No such file or directory';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ConversationActivityStrip messages={[batch]} />); });
+        const texts = renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+        expect(texts.filter((text: string) => text === 'toolGroup.skillBatchLabel')).toHaveLength(1);
+        expect(texts).toContain('dev, workflow');
+        expect(texts).toContain('sed: /skills/workflow/SKILL.md: No such file or directory');
+        expect(renderer.root.findAllByProps({ testID: 'activity-skill-dev' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
     it('keeps summary-only failed Skills non-interactive', () => {
         const failedSkill = toolMessage('1', 'Skill', { skillName: 'gpt-image-2' });
         failedSkill.tool.state = 'error';
