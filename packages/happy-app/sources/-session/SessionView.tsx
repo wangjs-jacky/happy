@@ -1400,6 +1400,11 @@ function SessionViewLoaded({
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
     const machineId = session.metadata?.machineId;
+    const composerMachine = useMachine(machineId ?? '');
+    const composerMachineName = composerMachine?.metadata?.displayName
+        || composerMachine?.metadata?.host
+        || session.metadata?.host
+        || null;
     const isCliOutdated = cliVersion && !isVersionSupported(cliVersion, MINIMUM_CLI_VERSION);
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
@@ -1665,6 +1670,7 @@ function SessionViewLoaded({
             permissionSelector={permissionSelector}
             modeSelector={modeSelector}
             directorySelector={directorySelector}
+            machineName={composerMachineName}
         />
     );
 

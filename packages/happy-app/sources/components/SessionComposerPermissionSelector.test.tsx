@@ -48,8 +48,7 @@ vi.mock('@/text', () => ({
         'agentInput.taskPermission.confirm': 'Needs confirmation',
         'agentInput.taskPermission.confirmShort': 'Ask first',
         'agentInput.taskPermission.confirmDescription': 'Uses the agent confirmation flow for actions that need extra permission. Device and outer sandbox limits still apply.',
-        'agentInput.taskPermission.fullAccess': 'Full access',
-        'agentInput.taskPermission.fullAccessShort': 'Full',
+        'agentInput.codexPermissionMode.badgeYolo': 'yolo',
         'agentInput.taskPermission.fullAccessDescription': 'Bypasses agent confirmations where supported. Device and outer sandbox limits still apply.',
         'agentInput.taskPermission.changesNextMessages': 'Applies to messages sent after this change.',
         'agentInput.taskPermission.unavailable': 'Unavailable',
@@ -145,7 +144,7 @@ describe('SessionComposerPermissionSelector', () => {
         expect(confirmOption.props.accessibilityLabel).toContain('outer sandbox limits still apply');
         expect(fullOption.props.accessibilityRole).toBe('radio');
         expect(fullOption.props.accessibilityState).toEqual({ checked: false });
-        expect(fullOption.props.accessibilityLabel).toContain('Full access.');
+        expect(fullOption.props.accessibilityLabel).toContain('YOLO.');
         expect(fullOption.props.accessibilityLabel).toContain('where supported');
         expect(fullOption.props.accessibilityLabel).toContain('outer sandbox limits still apply');
 
@@ -242,9 +241,9 @@ describe('SessionComposerPermissionSelector', () => {
         const trigger = renderer.root.findByProps({ testID: 'session-composer-permission-trigger' });
         expect(trigger.props.disabled).toBe(true);
         expect(trigger.props.accessibilityHint).toBe('Machine offline');
-        expect(trigger.props.accessibilityLabel).toBe('Task permissions: Full access');
+        expect(trigger.props.accessibilityLabel).toBe('Task permissions: YOLO');
         expect(renderer.root.findByProps({ testID: 'session-composer-permission-trigger-label' }).props.children)
-            .toBe('Full');
+            .toBe('YOLO');
         expect(renderer.root.findAllByProps({ testID: 'session-composer-permission-disabled-reason' })).toHaveLength(0);
     });
 });

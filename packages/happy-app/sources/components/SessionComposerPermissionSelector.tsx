@@ -16,14 +16,14 @@ const LEVELS: TaskPermissionLevel[] = ['confirm', 'full-access'];
 
 function labelForLevel(level: TaskPermissionLevel | null): string {
     if (level === 'full-access') {
-        return t('agentInput.taskPermission.fullAccess');
+        return t('agentInput.codexPermissionMode.badgeYolo').toUpperCase();
     }
     return t('agentInput.taskPermission.confirm');
 }
 
 function shortLabelForLevel(level: TaskPermissionLevel | null): string {
     if (level === 'full-access') {
-        return t('agentInput.taskPermission.fullAccessShort');
+        return t('agentInput.codexPermissionMode.badgeYolo').toUpperCase();
     }
     return t('agentInput.taskPermission.confirmShort');
 }
