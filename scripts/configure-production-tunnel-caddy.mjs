@@ -127,6 +127,12 @@ export function configureProductionTunnelCaddy(source, {
     const site = canonical[0];
     for (const block of blocks) {
         if (block === managed?.site) continue;
+        // Quoted labels need Caddy's full decoding rules before their port can
+        // be trusted. Refuse them instead of letting a same-port host route
+        // precede the generated guard on the shared loopback server.
+        if (block.header.some((token) => token.quoted)) {
+            throw new Error('Unsupported quoted Caddy site address; reconcile before Tunnel activation');
+        }
         const usesTunnelPort = block.header.flatMap((token) => token.text.split(',')).some((address) => {
             const range = /:(\d+)(?:-(\d+))?$/u.exec(address);
             return range && Number(range[1]) <= Number(port) && Number(range[2] ?? range[1]) >= Number(port);

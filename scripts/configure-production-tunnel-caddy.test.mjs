@@ -99,6 +99,18 @@ test('refuses unmanaged listeners on the reserved port even when their address d
     }
 });
 
+test('rejects quoted unmanaged site addresses that could bypass reserved-port detection', () => {
+    for (const address of [
+        '"http://other.example:8081"', '`http://other.example:8081`',
+        '":8081"', '"http://127.0.0.1:8081"', '"http://[::]:8081"',
+        '":8080-8082"', '"http://other.example:8081", :9090',
+        ':9090, "http://other.example:8081"', '"http://other.example:9090"',
+    ]) {
+        const unmanaged = `${address} {\n    bind 127.0.0.1\n    respond 200\n}\n`;
+        assert.throws(() => configureProductionTunnelCaddy(fixture + unmanaged), /unsupported.*quoted.*site address/i, address);
+    }
+});
+
 test('rejects imports and reserved matcher collisions that could bypass the generated guard', () => {
     for (const directive of ['import shared-routes', '@paws_tunnel_wrong_host path /anything']) {
         assert.throws(() => configureProductionTunnelCaddy(fixture.replace('    bind 0.0.0.0', `    ${directive}`)), /unsupported|reserved/i);
