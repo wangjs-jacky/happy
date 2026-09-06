@@ -10,12 +10,14 @@ vi.mock('expo-file-system', () => ({
         write(bytes: Uint8Array) { files.set(this.key, bytes); }
         bytes() { const bytes = files.get(this.key); if (!bytes) throw new Error('Missing'); return bytes; }
         get exists() { return files.has(this.key); }
+        get uri() { return `file://${this.key}`; }
         get size() { return files.get(this.key)?.length ?? 0; }
         delete() { files.delete(this.key); }
     },
 }));
 
-import { writeAdvisorImage, readAdvisorImage, deleteAdvisorImages } from './relationshipAdvisorImageCache';
+import { writeAdvisorImage, readAdvisorImage, deleteAdvisorImages, loadAdvisorImageSource } from './relationshipAdvisorImageCache';
+import { subscribeAdvisorImageChanges } from './relationshipAdvisorImageEvents';
 
 describe('native advisor originals', () => {
     it('stores original bytes in the private document directory', async () => {
@@ -34,5 +36,20 @@ describe('native advisor originals', () => {
         await expect(writeAdvisorImage('../outside.jpg', new Uint8Array([1]))).rejects.toThrow('Invalid');
         files.set('private-documents/relationship-advisor-images/large.jpg', new Uint8Array(10 * 1024 * 1024 + 1));
         await expect(readAdvisorImage('large.jpg')).rejects.toThrow('too large');
+    });
+
+    it('uses a stable local preview URI and notifies mounted messages after save/delete', async () => {
+        const changed: string[] = [];
+        const unsubscribe = subscribeAdvisorImageChanges((key) => changed.push(key));
+        await expect(loadAdvisorImageSource('preview.png')).rejects.toThrow('unavailable');
+        await writeAdvisorImage('preview.png', new Uint8Array([1]));
+        const source = await loadAdvisorImageSource('preview.png');
+        expect(source.uri).toBe('file://private-documents/relationship-advisor-images/preview.png');
+        source.release();
+        expect(files.has('private-documents/relationship-advisor-images/preview.png')).toBe(true);
+        await deleteAdvisorImages(['preview.png']);
+        await expect(loadAdvisorImageSource('preview.png')).rejects.toThrow('unavailable');
+        unsubscribe();
+        expect(changed).toEqual(['preview.png', 'preview.png']);
     });
 });

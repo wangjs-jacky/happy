@@ -1,3 +1,5 @@
+import { notifyAdvisorImageChanged, type AdvisorImageSource } from './relationshipAdvisorImageEvents';
+
 /** IndexedDB stores originals without exhausting localStorage or relying on expiring blob URLs. */
 const deletedKeys = new Set<string>();
 async function withImages<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -28,6 +30,15 @@ export async function writeAdvisorImage(key: string, bytes: Uint8Array): Promise
         // clones the whole backing buffer unless we first copy the exact bytes.
         return store.put(bytes.slice(), key);
     });
+    notifyAdvisorImageChanged(key);
+}
+
+/** The view owns this URL and releases it when the message leaves the screen. */
+export async function loadAdvisorImageSource(key: string): Promise<AdvisorImageSource> {
+    const bytes = await readAdvisorImage(key);
+    const type = key.endsWith('.jpg') ? 'image/jpeg' : key.endsWith('.webp') ? 'image/webp' : 'image/png';
+    const uri = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type }));
+    return { uri, release: () => URL.revokeObjectURL(uri) };
 }
 
 export async function readAdvisorImage(key: string): Promise<Uint8Array> {
@@ -38,5 +49,8 @@ export async function readAdvisorImage(key: string): Promise<Uint8Array> {
 
 export async function deleteAdvisorImages(keys: string[]): Promise<void> {
     keys.forEach((key) => deletedKeys.add(key));
-    for (const key of keys) await withImages('readwrite', (store) => store.delete(key));
+    for (const key of keys) {
+        await withImages('readwrite', (store) => store.delete(key));
+        notifyAdvisorImageChanged(key);
+    }
 }

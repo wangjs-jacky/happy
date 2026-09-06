@@ -1,5 +1,5 @@
 // Isolated visual regression harness. Real screen, hook, cache, transport client,
-// server handler and provider adapter; fixture composer and deterministic upstream.
+// server handler and provider adapter; real composer/picker/preview, deterministic upstream.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -43,27 +43,42 @@ for (const variant of ['before', 'after']) {
     variants.set(variant, await import(pathToFileURL(serverFile).href));
 
     const virtual = {
+        'react-native/Libraries/Image/resolveAssetSource': `import{Image}from'react-native-web';export default Image.resolveAssetSource;`,
         'expo-crypto': `export const randomUUID = () => crypto.randomUUID();`,
         'expo-router': `export const Stack = { Screen: () => null }; export const useLocalSearchParams=()=>({conversationId:'fixture'}); const router={setParams(){},replace(){}}; export const useRouter=()=>router;`,
         'react-native-safe-area-context': `export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});`,
         'react-native-keyboard-controller': `export { View as KeyboardAvoidingView } from 'react-native-web';`,
-        '@expo/vector-icons': `import React from 'react'; export const Ionicons=({name})=><span aria-hidden="true">{name.includes('image')?'▧':name.includes('stop')?'■':'◇'}</span>;`,
-        'react-native-unistyles': `const theme={colors:{surface:'#241c16',surfaceSelected:'#372c21',surfacePressed:'#45372a',text:'#eadfd1',textSecondary:'#b0a08c',divider:'#3d3025',header:{tint:'#eadfd1'}}};export const StyleSheet={create:f=>f(theme),hairlineWidth:1};export const useUnistyles=()=>({theme});`,
+        'react-native-unistyles': `import {appThemes} from '${app}/themePacks';const theme=appThemes.ginghamDark;export const StyleSheet={create:f=>typeof f==='function'?f(theme,{insets:{top:0,bottom:0}}):f,hairlineWidth:1};export const useUnistyles=()=>({theme});`,
         '@/components/layout': `export const layout={maxWidth:1100};`,
         '@/constants/Typography': `export const Typography={default:()=>({fontFamily:'system-ui'})};`,
         '@/modal': `export const Modal={confirm:async()=>true};`,
         '@/hooks/useRelationshipAdvisorPlugin': `export const useRelationshipAdvisorPlugin=()=>({status:{installed:true}});`,
         '@/components/markdown/MarkdownView': `import React from 'react';import {Text} from 'react-native-web';export const MarkdownView=({markdown})=><Text style={{fontSize:16,lineHeight:25,color:'#eadfd1'}}>{markdown}</Text>;`,
-        '@/text': `const s={'relationshipAdvisor.title':'狗头军师','relationshipAdvisor.placeholder':'输入追问…','relationshipAdvisor.imageCount':({count})=>count+' 张图片','relationshipAdvisor.emptyResponse':'模型没有返回内容，请重试。','relationshipAdvisor.unavailable':'暂时无法连接，请稍后重试。','relationshipAdvisor.emptyPrompt':'发送截图，一起分析。','common.retry':'重试','relationshipAdvisor.stopAccessibility':'停止生成','relationshipAdvisor.clearAccessibility':'清空会话'}; export const t=(key,args)=>typeof s[key]==='function'?s[key](args):s[key]??key;`,
+        '@/text': `import{zhHans}from'${app}/text/translations/zh-Hans';export const t=(key,args)=>{const value=key.split('.').reduce((obj,k)=>obj?.[k],zhHans);return typeof value==='function'?value(args):value??key};`,
         '@/sync/storage': `import React from 'react';
           const key='advisor-fixture-${variant}'; let conversations=JSON.parse(localStorage.getItem(key)??'null')??[{id:'fixture',title:'回归测试',createdAt:1,updatedAt:1,messages:[]}];const listeners=new Set();
           const update=fn=>{conversations=fn(conversations);localStorage.setItem(key,JSON.stringify(conversations));listeners.forEach(f=>f());};
           export const useLocalSetting=()=>React.useSyncExternalStore(f=>{listeners.add(f);return()=>listeners.delete(f)},()=>conversations);
-          export const useLocalSettingUpdater=()=>update;
+          export const useLocalSettingUpdater=()=>update; export const useSetting=()=>false;
           window.fixtureHistory=()=>conversations;
         `,
-        '@/hooks/useImagePicker': `import React from 'react';export function useImagePicker(){const [selectedImages,setImages]=React.useState([]);return{selectedImages,pickImages(){},removeImage:id=>setImages(a=>a.filter(x=>x.id!==id)),clearImages:()=>setImages([]),addImages:xs=>setImages(a=>[...a,...xs])}}`,
-        '@/components/MessageComposer': `import React from 'react';import {View,Text,TextInput,Pressable} from 'react-native-web';export const MessageComposer=React.forwardRef((p,ref)=>{const [value,setValue]=React.useState('');React.useImperativeHandle(ref,()=>({setTextAndSelection:x=>setValue(x)}));return <View style={{padding:16,gap:12}}><View style={{flexDirection:'row',gap:12,alignItems:'center'}}><input aria-label="选择测试图片" type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(f)p.onAddImages([{id:crypto.randomUUID(),uri:URL.createObjectURL(f),width:16,height:16,mimeType:f.type,size:f.size,name:f.name}])}}/><Text style={{color:'#b0a08c'}}>{p.selectedImages?.length??0} 张待发送</Text>{p.leadingControls}</View><View style={{flexDirection:'row',gap:12}}><TextInput testID="fixture-input" style={{flex:1,color:'#eadfd1',backgroundColor:'#372c21',padding:14,fontSize:16,borderRadius:8}} value={value} onChangeText={x=>{setValue(x);p.onChangeText(x)}} placeholder={p.placeholder}/><Pressable testID="fixture-send" accessibilityRole="button" disabled={p.isSendDisabled} onPress={p.onSend} style={{padding:14,backgroundColor:'#5c4936',borderRadius:8}}><Text style={{color:'#fff'}}>发送</Text></Pressable></View></View>});`,
+        '@/components/haptics': `export const hapticsLight=()=>{};export const hapticsError=()=>{};`,
+        '@/components/Shaker': `import React from 'react';import{View}from'react-native-web';export const Shaker=React.forwardRef(({children,style},ref)=>{React.useImperativeHandle(ref,()=>({shake(){}}));return <View style={style}>{children}</View>});`,
+        '@/components/autocomplete/useActiveWord': `export const useActiveWord=()=>null;`,
+        '@/components/autocomplete/useActiveSuggestions': `export const useActiveSuggestions=()=>[[],-1,()=>{},()=>{}];`,
+        '@/components/AgentInputAutocomplete': `export const AgentInputAutocomplete=()=>null;`,
+        '@/components/GitStatusBadge': `export const GitStatusBadge=()=>null;export const useHasMeaningfulGitStatus=()=>false;`,
+        '@/components/SessionComposerModeSelector': `export const SessionComposerModeSelector=()=>null;`,
+        '@/components/SessionComposerPermissionSelector': `export const SessionComposerPermissionSelector=()=>null;`,
+        '@/components/SessionComposerDirectorySelector': `export const SessionComposerDirectorySelector=()=>null;`,
+        '@/hooks/useComposerAbortConfirmation': `export const useComposerAbortConfirmation=()=>({confirm(){},handleEscape(){},isArmed:false});`,
+        '@/components/AttachmentSourceSheet': `export const AttachmentSourceSheet=()=>null;`,
+        '@/components/tools/views/MediaAttachmentPlayer': `export const MediaAttachmentPlayer=()=>null;`,
+        '@/hooks/useAttachmentImage': `export const useAttachmentImage=()=>({uri:null,loading:false,error:null});export const releaseImageViewerImageCache=()=>{};`,
+        '@/sync/resolveMotionPhotoAttachmentSource': `export const resolveMotionPhotoAttachmentSource=async()=>null;`,
+        '@/utils/imageDownload': `export const downloadImage=async()=>{};`,
+        '@/components/DesktopShortcutTooltip': `export const DesktopShortcutTooltip=({children})=>children;`,
+        'expo-file-system/legacy': `export const getInfoAsync=async()=>({exists:false});`,
         '@/auth/tokenStorage': `export const TokenStorage={getCredentials:async()=>({token:'fixture-only',secret:'fixture-only'})};`,
         '@/sync/apiAttachments': `export const uploadEncryptedBlob=async(upload,bytes)=>{const response=await fetch(upload.uploadUrl,{method:'PUT',body:bytes});if(!response.ok)throw Error('upload failed')};`,
         '@/sync/apiSocket': `const listeners=new Set();const statuses=new Set(); export const apiSocket={
@@ -74,18 +89,21 @@ for (const variant of ['before', 'after']) {
           send:()=>true};
         `,
     };
-    const clientEntry = `import React from 'react';import{createRoot}from'react-dom/client';import Screen from '${app}/app/(app)/relationship-advisor.tsx';import * as cache from '${app}/sync/relationshipAdvisorImageCache.web.ts';window.advisorFixtureCache=cache;createRoot(document.getElementById('app')).render(<Screen/>);`;
+    const clientEntry = `import React from 'react';import{createRoot}from'react-dom/client';import Screen from '${app}/app/(app)/relationship-advisor.tsx';import{ImageViewerHost}from'${app}/components/ImageViewerHost';import * as cache from '${app}/sync/relationshipAdvisorImageCache.web.ts';import{useImageViewerStore}from'${app}/sync/imageViewer';window.advisorFixtureViewer=useImageViewerStore;window.advisorFixtureCache=cache;createRoot(document.getElementById('app')).render(<><Screen/><ImageViewerHost/></>);`;
     await build({ stdin: { contents: clientEntry, resolveDir: root, loader: 'tsx' }, bundle: true, platform: 'browser', format: 'esm', outfile: path.join(out, `${variant}.js`), define: { 'process.env.NODE_ENV': '"production"', '__DEV__': 'false' },
         plugins: [{ name: 'browser-edges', setup(b) {
             b.onResolve({ filter: /.*/ }, (args) => {
                 let name=args.path;
-                if(name.startsWith('.') && args.resolveDir===path.join(app,'sync')) name='@/sync/'+path.basename(name);
+                if(name.startsWith('.') && args.resolveDir.startsWith(app)) name='@/'+path.relative(app,path.resolve(args.resolveDir,name));
                 if(virtual[name])return{path:name,namespace:'fixture'};
                 if(/relationshipAdvisorImageCache$/.test(name))return{path:path.join(app,'sync/relationshipAdvisorImageCache.web.ts')};
                 if(name==='@/utils/readFileBytes')return{path:path.join(app,'utils/readFileBytes.web.ts')};
             });
             b.onLoad({ filter: /.*/,namespace:'fixture' }, ({path:name})=>({contents:virtual[name],loader:'tsx',resolveDir:root}));
         } }, baselinePlugin(before)], alias: { '@': app, 'react-native': 'react-native-web' },
+        resolveExtensions:['.web.tsx','.tsx','.web.ts','.ts','.web.js','.js','.json'],
+        loader:{'.ttf':'dataurl','.png':'dataurl','.js':'jsx'},
+        banner: { js: 'globalThis.global=globalThis;globalThis.process ??= {env:{NODE_ENV:"production",EXPO_OS:"web"}};' },
     });
 }
 
