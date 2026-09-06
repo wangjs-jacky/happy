@@ -1,0 +1,29 @@
+name: Release notification tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/pr-feature-context*'
+      - '.github/workflows/ota-preview.yml'
+      - '.github/workflows/ota-production.yml'
+      - '.github/workflows/web-production-deploy.yml'
+      - '.github/workflows/release-notifications-test.yml'
+      - '.github/pull_request_template.md'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/pr-feature-context*'
+      - '.github/workflows/release-notifications-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --test scripts/pr-feature-context.test.cjs
