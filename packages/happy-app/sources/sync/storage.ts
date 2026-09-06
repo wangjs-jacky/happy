@@ -87,6 +87,11 @@ interface SessionMessages {
     // chat list to render a loading footer at the top of the inverted list
     // and to suppress duplicate triggers from FlatList onEndReached.
     isLoadingOlder: boolean;
+    hasMoreNewer?: boolean;
+    isLoadingNewer?: boolean;
+    isAtLatest?: boolean;
+    olderError?: string | null;
+    newerError?: string | null;
 }
 
 // Machine type is now imported from storageTypes - represents persisted machine data
@@ -547,7 +552,7 @@ export const storage = create<StorageState>()((set, get) => {
 
                 // Check if sessionMessages exists AND agentStateVersion is newer
                 const existingSessionMessages = updatedSessionMessages[session.id];
-                if (existingSessionMessages && newSession.agentState &&
+                if (existingSessionMessages && existingSessionMessages.isAtLatest !== false && newSession.agentState &&
                     (!oldSession || newSession.agentStateVersion > (oldSession.agentStateVersion || 0))) {
 
                     // Check for NEW permission requests before processing
@@ -595,6 +600,7 @@ export const storage = create<StorageState>()((set, get) => {
                         .sort((a, b) => b.createdAt - a.createdAt);
 
                     updatedSessionMessages[session.id] = {
+                        ...existingSessionMessages,
                         messages: messagesArray,
                         messagesMap: mergedMessagesMap,
                         reducerState: existingSessionMessages.reducerState, // The reducer modifies state in-place, so this has the updates
@@ -1519,7 +1525,12 @@ export function useSessionMessages(sessionId: string): {
     messages: Message[],
     isLoaded: boolean,
     hasMoreOlder: boolean,
-    isLoadingOlder: boolean
+    isLoadingOlder: boolean,
+    hasMoreNewer: boolean,
+    isLoadingNewer: boolean,
+    isAtLatest: boolean,
+    olderError: string | null,
+    newerError: string | null
 } {
     return storage(useShallow((state) => {
         const session = state.sessionMessages[sessionId];
@@ -1527,7 +1538,12 @@ export function useSessionMessages(sessionId: string): {
             messages: session?.messages ?? emptyArray,
             isLoaded: session?.isLoaded ?? false,
             hasMoreOlder: session?.hasMoreOlder ?? false,
-            isLoadingOlder: session?.isLoadingOlder ?? false
+            isLoadingOlder: session?.isLoadingOlder ?? false,
+            hasMoreNewer: session?.hasMoreNewer ?? false,
+            isLoadingNewer: session?.isLoadingNewer ?? false,
+            isAtLatest: session?.isAtLatest ?? true,
+            olderError: session?.olderError ?? null,
+            newerError: session?.newerError ?? null
         };
     }));
 }

@@ -111,6 +111,10 @@ import { SessionMessageRetention } from './sessionMessageRetention';
 import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRangeFrontier } from './sessionMessageFrontier';
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
+import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
+import { fetchSessionChanges } from './apiSessionChanges';
+import { reconcileSessionHistory } from './sessionHistoryReconciliation';
+import { createReducer, reducer } from './reducer/reducer';
 import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
 import {
     appendSessionWarmMessages,
@@ -120,14 +124,28 @@ import {
     saveSessionWarmLatestPage,
     saveSessionWarmSnapshots,
     touchSessionWarmLatestPage,
+    clearSessionWarmCache,
 } from './sessionWarmCache';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
     hasMore: boolean;
+    localWindow?: HistoryWindow;
+    revalidateTail?: boolean;
 };
 
 type SessionOpenResolution = 'ready' | 'not-found';
+function memoryHistoryPage(current: HistoryWindow | undefined, page: V3GetSessionMessagesResponse,
+    direction: 'older' | 'newer' | 'latest'): HistoryWindow {
+    const combined = direction === 'latest' ? page.messages : [...(current?.messages ?? []), ...page.messages];
+    const unique = [...new Map(combined.map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
+    const messages = direction === 'older' ? unique.slice(0, 300) : unique.slice(-300);
+    return { messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null,
+        hasMoreOlder: direction === 'older' || direction === 'latest' ? page.hasMore : (current?.hasMoreOlder ?? false) || unique.length > 300,
+        hasMoreNewer: direction === 'older' ? (current?.hasMoreNewer ?? false) || unique.length > 300 : direction === 'newer' && page.hasMore,
+        isAtLatest: direction === 'latest' || (direction === 'older' ? current?.isAtLatest === true && unique.length <= 300 : !page.hasMore),
+    };
+}
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
@@ -316,6 +334,12 @@ class Sync {
     encryption!: Encryption;
     serverID!: string;
     private sessionWarmCacheAccountKey: string | null = null;
+    private localHistory: LocalHistory | null = null;
+    private historyWindows = new Map<string, HistoryWindow>();
+    private historyWindowLoads = new Map<string, Promise<void>>();
+    private changesInFlight: Promise<void> | null = null;
+    private changesSupported: boolean | null = null;
+    private pendingHistoryTargets = new Map<string, number>();
     anonID!: string;
     private credentials!: AuthCredentials;
     public encryptionCache = new EncryptionCache();
@@ -387,6 +411,14 @@ class Sync {
     private lastRecalculationTime = 0;
 
     constructor() {
+        subscribeLocalHistoryInvalidation(event => {
+            if (event.scope !== this.localHistory?.scope || event.kind === 'session-deleted') return;
+            const owner = this.sessionRouteOwnership.current();
+            if (owner) this.leaveSessionRoute(owner);
+            for (const id of [...this.historyWindows.keys()]) this.releaseSessionMessageCache(id);
+            this.localHistory = null;
+            this.sessionWarmCacheAccountKey = null;
+        });
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
         this.sessionBootstrapSync = new InvalidateSync(this.fetchActiveSessions);
         this.settingsSync = new InvalidateSync(this.syncSettings);
@@ -418,6 +450,7 @@ class Sync {
             apiSocket.sendAppState(getCurrentAppState());
 
             if (nextAppState === 'active') {
+                if (this.localHistory) void this.reconcileHistory().catch(() => undefined);
                 const shouldFailAfterResume = this.backgroundSendStartedAt !== null
                     && this.hasPendingOutboxMessages()
                     && (Date.now() - this.backgroundSendStartedAt) >= Sync.BACKGROUND_SEND_TIMEOUT_MS;
@@ -472,6 +505,7 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        await this.initializeLocalHistory();
         await this.#init();
 
         // Await settings sync to have fresh settings
@@ -492,9 +526,218 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
-        await this.restoreSessionWarmCache();
+        await this.initializeLocalHistory();
+        if (!this.localHistory) await this.restoreSessionWarmCache();
         await this.#init();
     }
+
+    private initializeLocalHistory = async (): Promise<void> => {
+        const previous = this.localHistory;
+        this.localHistory = null;
+        previous?.close();
+        this.localHistory = Platform.OS === 'web' && this.sessionWarmCacheAccountKey
+            ? await openLocalHistory(this.sessionWarmCacheAccountKey) : null;
+        this.historyWindows.clear();
+        this.changesSupported = null;
+        const history = this.localHistory;
+        if (!history || !this.sessionWarmCacheAccountKey) return;
+        await history.importLegacyWarmCache(loadSessionWarmCache(this.sessionWarmCacheAccountKey));
+        // The routed session is restored before the background list. Other
+        // snapshots never hold the first readable conversation behind crypto.
+        const id = typeof window !== 'undefined' ? window.location.pathname.match(/\/session\/([^/]+)/)?.[1] : undefined;
+        if (id) {
+            const snapshot = await history.readSnapshot(decodeURIComponent(id));
+            if (snapshot) await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false);
+        }
+        void history.listSnapshots().then(async snapshots => {
+            for (const snapshot of snapshots) {
+                if (this.localHistory !== history) return;
+                try { await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false); }
+                catch { /* one corrupt snapshot must not block other sessions */ }
+            }
+            if (snapshots.length) storage.getState().applyReady();
+        }).catch(() => undefined);
+    };
+
+    public resetLocalHistory = async (): Promise<void> => {
+        clearSessionWarmCache();
+        const clearing = clearLocalHistoryCaches();
+        this.localHistory = null;
+        for (const id of [...this.historyWindows.keys()]) this.releaseSessionMessageCache(id);
+        this.historyWindows.clear();
+        await clearing;
+    };
+
+    public readSessionReadingState = (id: string): Promise<ReadingState | null> => this.localHistory?.readReadingState(id) ?? Promise.resolve(null);
+    public saveSessionReadingState = async (id: string, state: ReadingState): Promise<void> => { await this.localHistory?.writeReadingState(id, state); };
+    public getLocalHistoryScope = (): LocalHistory | null => this.localHistory;
+    public getMessageWireId = (id: string, renderedId: string): string | null => {
+        return storage.getState().sessionMessages[id]?.reducerState.messages.get(renderedId)?.realID ?? null;
+    };
+    public getMessageWireSeq = (id: string, renderedId: string): number | null => {
+        const wireId = this.getMessageWireId(id, renderedId);
+        return this.historyWindows.get(id)?.messages.find(message => message.id === wireId)?.seq ?? null;
+    };
+    public resolveRenderedMessageId = (id: string, wireId: string): string | null => {
+        const state = storage.getState().sessionMessages[id];
+        return state?.messages.find(message => state.reducerState.messages.get(message.id)?.realID === wireId)?.id ?? null;
+    };
+
+    private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation): Promise<boolean> => {
+        const encryption = this.encryption.getSessionEncryption(id);
+        if (!encryption) return false;
+        const decrypted = await encryption.createDetached().decryptMessages(window.messages);
+        if (!this.sessionMessageLoadGate.isCurrent(operation) || this.encryption.getSessionEncryption(id) !== encryption) return false;
+        if (decrypted.length !== window.messages.length || decrypted.some(message => !message || message.content === null)) throw new Error('history-window-decrypt-failed');
+        const normalized = decrypted.flatMap(message => {
+            const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
+            return value ? [value] : [];
+        });
+        // Reproject only the bounded window; historical replay must not change
+        // live session thinking/usage/permission mode or retain evicted reducer rows.
+        const state = createReducer();
+        const projected = reducer(state, normalized, window.isAtLatest ? storage.getState().sessions[id]?.agentState : null);
+        const messages = projected.messages.sort((a, b) => b.createdAt - a.createdAt);
+        this.historyWindows.set(id, window);
+        this.sessionMessageFrontiers.set(id, { latestSeq: window.newestSeq ?? 0, olderBeforeSeq: window.oldestSeq,
+            hasMoreOlder: window.hasMoreOlder });
+        this.sessionCachedMessageSeqs.set(id, new Set(window.messages.map(message => message.seq)));
+        storage.setState(current => ({ sessionMessages: { ...current.sessionMessages, [id]: {
+            messages, messagesMap: Object.fromEntries(messages.map(message => [message.id, message])), reducerState: state,
+            isLoaded: true, hasMoreOlder: window.hasMoreOlder, isLoadingOlder: false,
+            hasMoreNewer: window.hasMoreNewer, isLoadingNewer: false, isAtLatest: window.isAtLatest,
+        } } }));
+        this.recordRoutePageCommit(operation, window.newestSeq ?? 0);
+        return true;
+    };
+
+    private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest'): Promise<void> => {
+        const existing = this.historyWindowLoads.get(id);
+        if (existing) return existing;
+        const history = this.localHistory;
+        if (!history) return Promise.resolve();
+        const pending = (async () => {
+            const current = this.historyWindows.get(id);
+            if (!current && direction !== 'latest') return;
+            const lease = this.sessionMessageLoadGate.currentLease(id) ?? this.sessionMessageLoadGate.enter(id);
+            const operation = this.sessionMessageLoadGate.begin(lease);
+            const boundary = direction === 'older' ? current!.oldestSeq : direction === 'newer' ? current!.newestSeq : SEQ_BACKWARD_INITIAL_SENTINEL;
+            if (boundary === null) return;
+            const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
+            const patch = (values: object) => storage.setState(state => state.sessionMessages[id] ? ({ sessionMessages: {
+                ...state.sessionMessages, [id]: { ...state.sessionMessages[id], ...values },
+            } }) : state);
+            patch({ [field]: true, [direction === 'older' ? 'olderError' : 'newerError']: null });
+            try {
+                let latest = direction === 'latest' ? await history.readWindow(id) : null;
+                if (latest && !latest.isAtLatest) {
+                    const afterSeq = latest.newestSeq ?? 0;
+                    const response = await apiSocket.request(`/v3/sessions/${id}/messages?after_seq=${afterSeq}&limit=100`);
+                    if (response.status === 404) { this.removeSessionLocally(id); return; }
+                    if (!response.ok) throw new Error(`Latest history failed: ${response.status}`);
+                    const data = await response.json() as V3GetSessionMessagesResponse;
+                    if (!this.sessionMessageLoadGate.isCurrent(operation) || this.localHistory !== history) return;
+                    let committed = await history.commitPage(id, { ...data, direction: 'newer', boundary: afterSeq });
+                    let fallback = memoryHistoryPage(latest, data, 'newer');
+                    // An explicit jump may skip an unread gap. At most two pages
+                    // are requested; never walk all intervening history in the background.
+                    if (data.hasMore) {
+                        const tail = await this.fetchLatestMessagePageRaw(id);
+                        if (!this.sessionMessageLoadGate.isCurrent(operation) || this.localHistory !== history) return;
+                        committed = await history.commitPage(id, { ...tail, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
+                        fallback = memoryHistoryPage(undefined, tail, 'latest');
+                    }
+                    latest = committed ? await history.readWindow(id, { limit: 300 }) ?? fallback : fallback;
+                }
+                if (direction !== 'latest' || !latest) {
+                    let page: HistoryPage | null = direction === 'older' ? await history.readOlderPage(id, boundary!, 100)
+                        : direction === 'newer' ? await history.readNewerPage(id, boundary!, 100) : null;
+                    if (!page) {
+                        const response = await apiSocket.request(`/v3/sessions/${id}/messages?${direction === 'newer' ? 'after_seq' : 'before_seq'}=${boundary}&limit=100`);
+                        if (response.status === 404) { this.removeSessionLocally(id); return; }
+                        if (!response.ok) throw new Error(`History ${direction} failed: ${response.status}`);
+                        const data = await response.json() as V3GetSessionMessagesResponse;
+                        if (!this.sessionMessageLoadGate.isCurrent(operation) || this.localHistory !== history) return;
+                        page = { direction: direction === 'newer' ? 'newer' : 'older', boundary: boundary!, ...data };
+                        const committed = await history.commitPage(id, page);
+                        if (!committed) {
+                            // Quota failures keep the visible records and use the network
+                            // page in memory. The durable cursor/coverage remains unchanged.
+                            latest = memoryHistoryPage(current, page, direction);
+                        }
+                    }
+                    if (!latest) {
+                        // Keep the previous visible edge within the next bounded window.
+                        const anchorSeq = direction === 'latest' ? undefined : direction === 'older'
+                            ? page!.messages[Math.max(0, page!.messages.length - 50)]?.seq ?? boundary!
+                            : page!.messages[Math.min(49, page!.messages.length - 1)]?.seq ?? boundary!;
+                        latest = await history.readWindow(id, { anchorSeq, limit: 300 });
+                    }
+                }
+                if (latest && direction !== 'latest') {
+                    const reading = await history.readReadingState(id);
+                    if (reading && current?.messages.some(message => message.seq === reading.anchorSeq)
+                        && !latest.messages.some(message => message.seq === reading.anchorSeq)) {
+                        latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: 300 }) ?? latest;
+                    }
+                }
+                if (latest) await this.applyHistoryWindow(id, latest, operation);
+            } catch (error) {
+                patch({ [direction === 'older' ? 'olderError' : 'newerError']: error instanceof Error ? error.message : 'History unavailable' });
+            } finally {
+                if (this.sessionMessageLoadGate.isCurrent(operation)) patch({ [field]: false });
+            }
+        })().finally(() => { if (this.historyWindowLoads.get(id) === pending) this.historyWindowLoads.delete(id); });
+        this.historyWindowLoads.set(id, pending); return pending;
+    };
+    public loadNewerMessages = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'newer');
+    public jumpToLatestMessages = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'latest');
+
+    private reconcileHistory = (): Promise<void> => {
+        if (this.changesInFlight) return this.changesInFlight;
+        const history = this.localHistory;
+        const credentials = this.credentials;
+        if (!history || !credentials) return Promise.resolve();
+        const request = (async () => {
+            const capability = await reconcileSessionHistory(history, {
+                fetchChanges: cursor => fetchSessionChanges(credentials, cursor),
+                fetchSnapshot: id => fetchSessionSnapshot(credentials, id),
+                applySnapshot: async snapshot => { await this.writeSessionSnapshots(async () => [snapshot]); },
+                deleteSession: id => this.removeSessionLocally(id),
+                isCurrent: () => this.localHistory === history,
+            });
+            if (this.localHistory !== history) return;
+            this.changesSupported = capability === 'supported';
+            if (capability === 'unsupported') {
+                // Old servers still support lightweight per-session snapshots.
+                // Their seq includes metadata events, so an ambiguous increase may
+                // require an empty forward request, but unchanged seq never does.
+                const id = storage.getState().currentViewingSessionId;
+                if (id) {
+                    const previous = await history.readSnapshot(id);
+                    const fresh = await fetchSessionSnapshot(credentials, id);
+                    if (!fresh) this.removeSessionLocally(id);
+                    else {
+                        await this.writeSessionSnapshots(async () => [fresh]);
+                        if (!previous || fresh.seq > previous.seq) await this.loadHistoryBoundary(id, 'newer');
+                    }
+                }
+                return;
+            }
+            const id = storage.getState().currentViewingSessionId ?? this.sessionRouteOwnership.current()?.sessionId;
+            if (id) {
+                const window = this.historyWindows.get(id);
+                const change = await history.readChange(id);
+                if (window && change && change.lastMessageSeq > (window.newestSeq ?? 0)) {
+                    if (window.isAtLatest) await this.loadHistoryBoundary(id, 'latest');
+                    else storage.setState(state => ({ sessionMessages: { ...state.sessionMessages, [id]: {
+                        ...state.sessionMessages[id], hasMoreNewer: true, isAtLatest: false,
+                    } } }));
+                }
+            }
+        })().finally(() => { if (this.changesInFlight === request) this.changesInFlight = null; });
+        this.changesInFlight = request; return request;
+    };
 
     private restoreSessionWarmCache = async (): Promise<void> => {
         const accountKey = this.sessionWarmCacheAccountKey;
@@ -689,6 +932,7 @@ class Sync {
     }
 
     private releaseSessionMessageCache(sessionId: string, removeFromRetention = true): void {
+        this.historyWindows.delete(sessionId);
         const messageSync = this.messagesSync.get(sessionId);
         messageSync?.stop();
         this.messagesSync.delete(sessionId);
@@ -1480,6 +1724,7 @@ class Sync {
     }
 
     public bootstrapSessions = async (): Promise<void> => {
+        if (this.localHistory) void this.reconcileHistory().catch(() => undefined);
         this.nextSessionHistoryCursor = undefined;
         this.initialSessionHistoryScheduled = false;
         await this.sessionBootstrapSync.invalidateAndAwait();
@@ -1540,6 +1785,10 @@ class Sync {
 
     private fetchSessions = async () => {
         if (!this.credentials) return;
+        if (this.localHistory) {
+            await this.reconcileHistory();
+            if (this.changesSupported) return;
+        }
         await this.writeSessionSnapshots(async () => {
             const API_ENDPOINT = getServerUrl();
             const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
@@ -1556,7 +1805,7 @@ class Sync {
 
             const data = await response.json();
             return data.sessions as ApiSessionSnapshot[];
-        }, { replace: true });
+        }, { replace: false });
     }
 
     public refreshMachines = async () => {
@@ -1598,6 +1847,8 @@ class Sync {
     ): Promise<HydratedSession[]> => {
         const write = { mutationGeneration: this.sessionMutationGeneration };
         const encryptionOwner = this.encryption;
+        const historyOwner = this.localHistory;
+        const warmAccount = this.sessionWarmCacheAccountKey;
         this.inFlightSessionRefreshes.add(write);
         const committed: HydratedSession[] = [];
         const committedWireSnapshots: ApiSessionSnapshot[] = [];
@@ -1631,8 +1882,9 @@ class Sync {
                 }
             }
             if (options.replace) this.applySessions(committed, options, write.mutationGeneration);
-            if (persist && this.sessionWarmCacheAccountKey && committedWireSnapshots.length > 0) {
-                saveSessionWarmSnapshots(this.sessionWarmCacheAccountKey, committedWireSnapshots);
+            if (persist && warmAccount && this.sessionWarmCacheAccountKey === warmAccount && committedWireSnapshots.length > 0) {
+                saveSessionWarmSnapshots(warmAccount, committedWireSnapshots);
+                await historyOwner?.writeSnapshots(committedWireSnapshots);
             }
             return committed;
         } finally {
@@ -1666,10 +1918,24 @@ class Sync {
             this.assertSessionRouteCurrent(operation);
             if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return complete(true);
         }
-        await this.writeSessionSnapshots(async () => {
-            const raw = await fetchSessionSnapshot(this.credentials, sessionId);
-            return raw ? [raw] : [];
-        }, { replace: false }, operation);
+        let usedCache = false;
+        try {
+            await this.writeSessionSnapshots(async () => {
+                const cached = await this.localHistory?.readSnapshot(sessionId);
+                if (cached) { usedCache = true; return [cached]; }
+                const raw = await fetchSessionSnapshot(this.credentials, sessionId);
+                return raw ? [raw] : [];
+            }, { replace: false }, operation);
+        } catch (error) {
+            if (!usedCache) throw error;
+            if (operation) this.assertSessionRouteCurrent(operation);
+        }
+        if (usedCache && !(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId))) {
+            await this.writeSessionSnapshots(async () => {
+                const raw = await fetchSessionSnapshot(this.credentials, sessionId);
+                return raw ? [raw] : [];
+            }, { replace: false }, operation);
+        }
         return complete(Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)));
     }
 
@@ -1721,9 +1987,16 @@ class Sync {
             && this.getSessionLastMessageSeq(sessionId) !== null;
         if (options.retry) markSessionCriticalPathHydrationRetry();
         markSessionCriticalPathAppStage('web.messages.latest_started');
-        const latestPagePromise = hasLoadedMessageCache
+        const historyOwner = this.localHistory;
+        const latestPagePromise: Promise<V3GetSessionMessagesResponse> = hasLoadedMessageCache
             ? Promise.resolve({ messages: [], hasMore: false })
-            : this.fetchLatestMessagePageRaw(sessionId);
+            : historyOwner ? (async (): Promise<V3GetSessionMessagesResponse> => {
+                const reading = await historyOwner.readReadingState(sessionId);
+                const window = await historyOwner.readWindow(sessionId, { anchorSeq: reading?.anchorSeq });
+                if (window) return { messages: window.messages, hasMore: window.hasMoreOlder, localWindow: window,
+                    revalidateTail: (!reading || reading.followLatest === true) && !window.isAtLatest };
+                return this.fetchLatestMessagePageRaw(sessionId);
+            })() : this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
             sessionId,
             owner,
@@ -1746,15 +2019,34 @@ class Sync {
             if (!found) return 'not-found';
 
             if (hasLoadedMessageCache) {
-                await this.getMessagesSync(sessionId).invalidateAndAwait();
+                if (!this.localHistory) await this.getMessagesSync(sessionId).invalidateAndAwait();
                 this.assertSessionRouteCurrent(operation);
                 markSessionCriticalPathAppStage('web.messages.latest_completed');
                 markSessionCriticalPathAppStage('web.session.store_committed');
                 return 'ready';
             }
 
-            const latestPage = await latestPagePromise;
+            let latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
+            if (latestPage.localWindow) {
+                try {
+                    await this.applyHistoryWindow(sessionId, latestPage.localWindow, operation.messageLoad);
+                    this.assertSessionRouteCurrent(operation);
+                    markSessionCriticalPathAppStage('web.messages.latest_completed');
+                    markSessionCriticalPathAppStage('web.session.store_committed');
+                    if (latestPage.revalidateTail) setTimeout(() => {
+                        if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)) {
+                            void this.jumpToLatestMessages(sessionId);
+                        }
+                    }, 0);
+                    return 'ready';
+                } catch {
+                    this.assertSessionRouteCurrent(operation);
+                    await this.localHistory?.invalidateMessages(sessionId);
+                    latestPage = await this.fetchLatestMessagePageRaw(sessionId);
+                    this.assertSessionRouteCurrent(operation);
+                }
+            }
             const applied = await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
             this.assertSessionRouteCurrent(operation);
             if (!applied || operation.foregroundTarget > 0) {
@@ -2683,6 +2975,7 @@ class Sync {
         }
 
         const batch = pending.slice();
+        const historyOwner = this.localHistory;
         const cacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
         this.sessionMessageCacheGenerations.set(sessionId, cacheGeneration);
         const controller = new AbortController();
@@ -2709,6 +3002,14 @@ class Sync {
             // A deletion can remove this queue while the server acknowledgement
             // is in flight. It must not recreate message runtime afterwards.
             if (this.pendingOutbox.get(sessionId) !== pending) return;
+            if (historyOwner && Array.isArray(data.messages)) {
+                const contents = new Map(batch.map(message => [message.localId, message.content]));
+                await historyOwner.appendMessages(sessionId, data.messages.flatMap(message => {
+                    const content = message.localId ? contents.get(message.localId) : undefined;
+                    return content ? [{ ...message, content: { t: 'encrypted' as const, c: content } }] : [];
+                }));
+                if (this.pendingOutbox.get(sessionId) !== pending) return;
+            }
             pending.splice(0, batch.length);
             // The outbox survives eviction, but an old acknowledgement does not
             // own the released or subsequently remounted message cache.
@@ -2750,6 +3051,25 @@ class Sync {
         const lock = this.getSessionMessageLock(sessionId);
         await lock.inLock(async () => {
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+            if (this.localHistory && !this.historyWindows.has(sessionId)) {
+                const history = this.localHistory;
+                const reading = await history.readReadingState(sessionId);
+                const window = await history.readWindow(sessionId, { anchorSeq: reading?.anchorSeq });
+                if (window) {
+                    try { if (await this.applyHistoryWindow(sessionId, window, operation)) return; }
+                    catch { await history.invalidateMessages(sessionId); }
+                }
+                if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+            }
+            if (this.localHistory && this.historyWindows.has(sessionId)) {
+                const window = this.historyWindows.get(sessionId)!;
+                const change = await this.localHistory.readChange(sessionId);
+                if (change?.deleted) { this.removeSessionLocally(sessionId); return; }
+                const target = Math.max(change?.lastMessageSeq ?? 0, this.pendingHistoryTargets.get(sessionId) ?? 0);
+                if (!window.isAtLatest || (change && target <= (window.newestSeq ?? 0))) return;
+                // Unknown target is reconciled through metadata, never by probing old bodies.
+                if (this.changesSupported !== false && !change && target <= (window.newestSeq ?? 0)) return;
+            }
             const encryption = this.encryption.getSessionEncryption(sessionId);
             if (!encryption) {
                 log.log(`💬 fetchMessages: Session encryption not ready for ${sessionId}, will retry`);
@@ -2858,6 +3178,12 @@ class Sync {
         if (this.sessionWarmCacheAccountKey) {
             saveSessionWarmLatestPage(this.sessionWarmCacheAccountKey, sessionId, data);
         }
+        if (this.localHistory) {
+            await this.localHistory.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
+            const window = await this.localHistory.readWindow(sessionId);
+            if (window) await this.applyHistoryWindow(sessionId, window, operation);
+        }
         return true;
     }
 
@@ -2904,6 +3230,8 @@ class Sync {
             const data = await response.json() as V3GetSessionMessagesResponse;
             const messages = Array.isArray(data.messages) ? data.messages : [];
 
+            if (this.localHistory) await this.localHistory.commitPage(sessionId, { messages, hasMore: data.hasMore, direction: 'newer', boundary: afterSeq });
+
             const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
             if (!applied.current) return;
             if (!didInvalidateGit
@@ -2927,6 +3255,10 @@ class Sync {
                 break;
             }
             afterSeq = maxSeq;
+        }
+        if (this.localHistory && this.historyWindows.get(sessionId)?.isAtLatest) {
+            const window = await this.localHistory.readWindow(sessionId, { limit: 300 });
+            if (window) await this.applyHistoryWindow(sessionId, window, operation);
         }
     }
 
@@ -2985,6 +3317,7 @@ class Sync {
      * older-fetch is already in flight for this session.
      */
     loadOlderMessages = async (sessionId: string) => {
+        if (this.localHistory && this.historyWindows.has(sessionId)) return this.loadHistoryBoundary(sessionId, 'older');
         const frontier = this.sessionMessageFrontiers.get(sessionId);
         if (!frontier?.hasMoreOlder || frontier.olderBeforeSeq == null || frontier.olderBeforeSeq <= 1) {
             return;
@@ -3133,6 +3466,12 @@ class Sync {
 
         if (updateData.body.t === 'new-message') {
 
+            if (updateData.body.message && this.localHistory) {
+                await this.localHistory.appendMessages(updateData.body.sid, [updateData.body.message]);
+                assertCurrent();
+                this.pendingHistoryTargets.set(updateData.body.sid, Math.max(this.pendingHistoryTargets.get(updateData.body.sid) ?? 0, updateData.body.message.seq));
+            }
+
             // Get encryption — may not be ready if sessions are still syncing
             if (!await this.ensureRealtimeSessionReady(updateData.body.sid)) {
                 console.error(`Session ${updateData.body.sid} not found after bootstrap`);
@@ -3203,6 +3542,14 @@ class Sync {
                         }])
                     }
 
+                    const historyWindow = this.historyWindows.get(updateData.body.sid);
+                    if (historyWindow && !historyWindow.isAtLatest) {
+                        const sid = updateData.body.sid;
+                        storage.setState(state => ({ sessionMessages: { ...state.sessionMessages,
+                            [sid]: { ...state.sessionMessages[sid], hasMoreNewer: true, isAtLatest: false },
+                        } }));
+                        return;
+                    }
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
                     const currentLastSeq = this.getSessionLastMessageSeq(updateData.body.sid);
                     const incomingSeq = updateData.body.message.seq;
@@ -3213,6 +3560,22 @@ class Sync {
                         // owns this sequence, so neither history nor Git needs
                         // to be refreshed.
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
+                        if (historyWindow) {
+                            const messages = [...historyWindow.messages, updateData.body.message];
+                            if (messages.length > 300 && this.localHistory) {
+                                const sid = updateData.body.sid;
+                                let bounded = await this.localHistory.readWindow(sid, { limit: 300 });
+                                const reading = await this.localHistory.readReadingState(sid);
+                                if (reading && bounded?.oldestSeq && reading.anchorSeq < bounded.oldestSeq) {
+                                    bounded = await this.localHistory.readWindow(sid, { anchorSeq: reading.anchorSeq, limit: 300 });
+                                }
+                                assertCurrent();
+                                const lease = this.sessionMessageLoadGate.currentLease(sid);
+                                if (bounded && lease) await this.applyHistoryWindow(sid, bounded, this.sessionMessageLoadGate.begin(lease));
+                                return;
+                            }
+                            this.historyWindows.set(updateData.body.sid, { ...historyWindow, messages, newestSeq: incomingSeq });
+                        }
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
@@ -3287,6 +3650,17 @@ class Sync {
                     updatedAt: updateData.createdAt,
                     seq: session.seq
                 }]);
+
+                const history = this.localHistory;
+                if (history) {
+                    const wire = await history.readSnapshot(updateData.body.id);
+                    assertCurrent();
+                    if (wire) await history.writeSnapshots([{
+                        ...wire, updatedAt: updateData.createdAt,
+                        ...(updateData.body.metadata ? { metadata: updateData.body.metadata.value, metadataVersion: updateData.body.metadata.version } : {}),
+                        ...(updateData.body.agentState ? { agentState: updateData.body.agentState.value, agentStateVersion: updateData.body.agentState.version } : {}),
+                    }]);
+                }
 
                 // Agent-state updates carry permissions/control state, not a
                 // concrete mutable tool result, so they do not refresh Git.
@@ -3842,6 +4216,7 @@ class Sync {
     }
 
     public removeSessionLocally = (sessionId: string): void => {
+        void this.localHistory?.deleteSession(sessionId);
         const deletionMutationGeneration = ++this.sessionMutationGeneration;
         this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
         storage.getState().deleteSession(sessionId);

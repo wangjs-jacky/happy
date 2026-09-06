@@ -10,6 +10,8 @@ import { installPhase2Probe } from './phase2Probe.testSupport';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 import { normalizeRawMessage, type RawRecord } from './typesRaw';
 import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { openLocalHistory } from './localHistoryStore';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -376,9 +378,18 @@ describe('message visibility synchronization', () => {
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
         syncForTest.sessionWarmCacheAccountKey = null;
+        syncForTest.localHistory = null;
+        syncForTest.historyWindows = new Map();
+        syncForTest.historyWindowLoads = new Map();
+        syncForTest.pendingHistoryTargets = new Map();
+        syncForTest.changesInFlight = null;
+        syncForTest.changesSupported = null;
     });
 
     afterEach(() => {
+        vi.unstubAllGlobals();
+        syncForTest.localHistory?.close();
+        syncForTest.localHistory = null;
         clearSessionWarmCache();
         syncForTest.serverID = undefined;
         syncForTest.sessionWarmCacheAccountKey = null;
@@ -387,6 +398,176 @@ describe('message visibility synchronization', () => {
         for (const messageSync of syncForTest.messagesSync.values()) {
             messageSync.stop();
         }
+    });
+
+    it('restores an archived reading window and navigates cached history with zero body requests', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('archive');
+        const history = await openLocalHistory('server|account');
+        await history!.commitPage('archive', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 400 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        await history!.writeReadingState('archive', { version: 1, anchorId: 'message-150',
+            anchorSeq: 150, offset: 12, expandedGroupIds: [] });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(false);
+        expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(300);
+        await syncForTest.loadNewerMessages('archive');
+        await syncForTest.jumpToLatestMessages('archive');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
+        await syncForTest.loadOlderMessages('archive');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(300);
+    }, 20000);
+
+    it('jumps from a stale cached tail by requesting only newer records', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('archive');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('archive', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'archive', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('archive');
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
+        await syncForTest.jumpToLatestMessages('archive');
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/archive/messages?after_seq=40&limit=100');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
+        expect(syncForTest.historyWindows.get('archive').messages.map((m: ApiMessage) => m.seq)).toEqual([40, 41, 42]);
+    });
+
+    it('drops corrupt archived page coverage and retries from the network', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const encryption = installSession('archive');
+        encryption.decryptMessages.mockResolvedValueOnce([null]);
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('archive', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        syncForTest.localHistory = history;
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(40)], hasMore: false }));
+        await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
+    });
+
+    it('makes zero body requests across ten cached opens, visibility signals and unchanged reconnect reconciliations', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('budget');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('budget')]);
+        await history.commitPage('budget', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'budget', revision: '1', deleted: false,
+            lastMessageSeq: 40, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        let reconciliations = 0;
+        vi.stubGlobal('fetch', async (url: string) => {
+            expect(url).toContain('/v3/sessions/changes?');
+            reconciliations++;
+            return new Response(JSON.stringify({ changes: [], nextCursor: '1', hasMore: false }));
+        });
+        syncForTest.localHistory = history;
+        mocks.state.currentViewingSessionId = 'budget';
+        for (let i = 0; i < 10; i++) {
+            await syncForTest.openSession('budget');
+            syncForTest.onSessionVisible('budget');
+            await syncForTest.getMessagesSync('budget').awaitQueue();
+            await syncForTest.fetchSessions(); // reconnect's existing invalidator target
+        }
+        expect(reconciliations).toBe(10);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
+        expect(mocks.state.sessionMessages.budget.isLoaded).toBe(true);
+        syncForTest.releaseSessionMessageCache('budget');
+        await syncForTest.ensureMessagesLoaded('budget');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps realtime tail windows bounded and gives replayed rows stable wire identity', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('bounded');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('bounded', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 300 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        await syncForTest.jumpToLatestMessages('bounded');
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('bounded');
+        await syncForTest.applyHistoryWindow('bounded', await history.readWindow('bounded', { limit: 300 }), syncForTest.sessionMessageLoadGate.begin(lease));
+        const rendered = syncForTest.resolveRenderedMessageId('bounded', 'message-300');
+        expect(syncForTest.getMessageWireSeq('bounded', rendered)).toBe(300);
+        await syncForTest.handleUpdate(newMessageUpdate('bounded', 301));
+        await syncForTest.handleUpdate(newMessageUpdate('bounded', 302));
+        expect(syncForTest.historyWindows.get('bounded').messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.state.sessionMessages.bounded.messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('persists encrypted metadata updates received while the session is off screen', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('metadata');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('metadata')]);
+        syncForTest.localHistory = history;
+        await syncForTest.handleUpdate({ id: 'event', seq: 100, createdAt: 100, body: {
+            t: 'update-session', id: 'metadata', metadata: { value: 'new-cipher', version: 99 },
+        } });
+        expect((await history.readSnapshot('metadata'))?.metadata).toBe('new-cipher');
+        expect((await history.readSnapshot('metadata'))?.metadataVersion).toBe(99);
+    });
+
+    it('archives acknowledged outbound ciphertext without certifying an unseen sequence gap', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('outbound');
+        const history = (await openLocalHistory('server|account'))!;
+        syncForTest.localHistory = history;
+        syncForTest.pendingOutbox.set('outbound', [{ localId: 'local', content: 'sent-cipher' }]);
+        mocks.apiRequest.mockResolvedValue(response({ messages: [{ id: 'ack', seq: 5, localId: 'local', createdAt: 5, updatedAt: 5 }] }));
+        await syncForTest.flushOutbox('outbound');
+        expect((await history.readWindow('outbound', { anchorSeq: 5 }))?.messages[0].content.c).toBe('sent-cipher');
+        expect(await history.readNewerPage('outbound', 0)).toBeNull();
+    });
+
+    it('falls back to the point snapshot when a cached encryption key cannot be hydrated', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('bad-key');
+        delete mocks.state.sessions['bad-key'];
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('bad-key')]);
+        syncForTest.localHistory = history;
+        mocks.hydrateRoute.mockResolvedValueOnce(null);
+        mocks.fetchSnapshot.mockResolvedValue(snapshot('bad-key'));
+        await expect(syncForTest.ensureSessionHydrated('bad-key')).resolves.toBe(true);
+        expect(mocks.fetchSnapshot).toHaveBeenCalledOnce();
+    });
+
+    it('keeps new network content readable when persistence fails at a stale tail', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('quota');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('quota', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'quota', revision: '1', deleted: false,
+            lastMessageSeq: 41, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('quota');
+        vi.spyOn(history, 'commitPage').mockResolvedValue(false);
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(41)], hasMore: false }));
+        await syncForTest.jumpToLatestMessages('quota');
+        expect(syncForTest.historyWindows.get('quota').newestSeq).toBe(41);
+        expect(mocks.state.sessionMessages.quota.isAtLatest).toBe(true);
+        expect((await history.readWindow('quota'))?.newestSeq).toBe(40);
+    });
+
+    it('keeps live permission updates outside a historical window and preserves its boundary flags', async () => {
+        const actual = await useRealMessageComposition();
+        actual.getState().applySessions([hydrated(snapshot('past'))]);
+        actual.getState().applyMessagesLoaded('past');
+        actual.setState(state => ({ sessionMessages: { ...state.sessionMessages, past: {
+            ...state.sessionMessages.past, isAtLatest: false, hasMoreNewer: true,
+        } } }));
+        actual.getState().applySessions([{ ...actual.getState().sessions.past, agentStateVersion: 99,
+            agentState: { controlledByUser: false, requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: 100 } } },
+        }]);
+        expect(actual.getState().sessionMessages.past.isAtLatest).toBe(false);
+        expect(actual.getState().sessionMessages.past.hasMoreNewer).toBe(true);
+        expect(actual.getState().sessionMessages.past.messages).toEqual([]);
     });
 
     it('emits one final store milestone for snapshot plus latest-page opening, after both complete', async () => {
