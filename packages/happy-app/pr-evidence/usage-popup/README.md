@@ -8,13 +8,13 @@ Visible UI cases: 1
 - Before: selecting **使用情况** navigates away to `/settings/usage`.
 - After: selecting **使用情况** closes the account menu and opens an in-place dialog while preserving the current URL.
 - Shared conditions: 1280 × 900 viewport, DPR 1, `zh-CN`, dark color scheme, `ginghamDark`, deterministic PLUS quota with 63% remaining.
-- Interaction checks: menu rest/hover/pressed surfaces, one named modal owner, complete URL preservation, focus containment, theme-pack dialog and close-control colors, close-button/backdrop/Escape dismissal, and focus return to the account trigger.
+- Interaction checks: menu rest/hover/pressed surfaces, one named modal owner, complete URL preservation, focus loop, non-tabbable backdrop, theme-pack close-control rest/focus/hover/pressed colors, close-button/backdrop/Escape dismissal, and focus return to the account trigger.
 
 ## Artifacts
 
 - `case-1-before.png`
 - `case-1-after.png`
-- `usage-popup-e2e.mp4` — 1280 × 720, 25 fps, H.264/yuv420p/faststart, 23.72 seconds; full decode passed.
+- `usage-popup-e2e.mp4` — 1280 × 720, 25 fps, H.264/yuv420p/faststart, 20.40 seconds; full decode passed.
 
 ## Reproduction
 

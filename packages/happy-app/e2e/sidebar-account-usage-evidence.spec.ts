@@ -155,6 +155,7 @@ test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ pag
             const closeButton = page.getByTestId('sidebar-account-usage-dialog-close');
             await expect(closeButton).toHaveCSS('color', 'rgb(143, 162, 176)');
             await expect(closeButton).toBeFocused();
+            await expect(closeButton).toHaveCSS('background-color', 'rgb(40, 53, 68)');
             await closeButton.hover();
             await expect(closeButton).toHaveCSS('background-color', 'rgb(31, 42, 56)');
             await page.mouse.down();
@@ -169,6 +170,12 @@ test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ pag
                 const owner = document.querySelector('[role="dialog"]');
                 return Boolean(owner && (owner === document.activeElement || owner.contains(document.activeElement)));
             })).toBe(true);
+            await expect(page.getByTestId('sidebar-account-usage-dialog-backdrop')).not.toBeFocused();
+            await expect(closeButton).toBeFocused();
+            await expect(closeButton).toHaveCSS('background-color', 'rgb(40, 53, 68)');
+            await page.keyboard.press('Tab');
+            await expect(closeButton).toBeFocused();
+            await expect(closeButton).toHaveCSS('background-color', 'rgb(40, 53, 68)');
             await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
         }
         await expect(page.getByText('63%', { exact: true })).toBeVisible();

@@ -31,12 +31,15 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
 }) {
     const viewport = useWindowDimensions();
     const closeButtonRef = React.useRef<any>(null);
+    const dialogRef = React.useRef<any>(null);
+    const [closeFocused, setCloseFocused] = React.useState(false);
     const [closeHovered, setCloseHovered] = React.useState(false);
     const layout = React.useMemo(
         () => getUsageDialogLayout(viewport),
         [viewport.height, viewport.width],
     );
     const closeAndRestoreFocus = React.useCallback(() => {
+        setCloseFocused(false);
         setCloseHovered(false);
         props.onClose();
         if (Platform.OS === 'web') {
@@ -50,6 +53,33 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
         return () => clearTimeout(timeout);
     }, [props.open]);
 
+    const keepTabFocusInsideDialog = React.useCallback((event: any) => {
+        const nativeEvent = event.nativeEvent ?? event;
+        if (Platform.OS !== 'web' || nativeEvent.key !== 'Tab' || typeof document === 'undefined') return;
+
+        const dialog = dialogRef.current as HTMLElement | null;
+        if (!dialog) return;
+        const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+            'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        )).filter((element) => (
+            element.tabIndex >= 0
+            && !element.hasAttribute('disabled')
+            && element.getAttribute('aria-hidden') !== 'true'
+        ));
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) return;
+
+        const backwards = Boolean(nativeEvent.shiftKey ?? event.shiftKey);
+        if (backwards && document.activeElement === first) {
+            event.preventDefault?.();
+            last.focus();
+        } else if (!backwards && document.activeElement === last) {
+            event.preventDefault?.();
+            first.focus();
+        }
+    }, []);
+
     if (!props.open) return null;
 
     return (
@@ -61,18 +91,21 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
             visible
         >
             <View style={styles.overlay}>
-                <Pressable
-                    accessibilityLabel={t('common.cancel')}
-                    onPress={closeAndRestoreFocus}
+                <View
+                    accessible={false}
+                    onTouchEnd={Platform.OS === 'web' ? undefined : closeAndRestoreFocus}
                     style={styles.scrim}
                     testID="sidebar-account-usage-dialog-backdrop"
+                    {...(Platform.OS === 'web' ? { onClick: closeAndRestoreFocus } as any : {})}
                 />
                 <View
+                    ref={dialogRef}
                     style={[
                         styles.dialog,
                         layout,
                     ]}
                     testID="sidebar-account-usage-dialog"
+                    {...(Platform.OS === 'web' ? { onKeyDown: keepTabFocusInsideDialog } as any : {})}
                 >
                     <View style={styles.header}>
                         <Text style={styles.title}>{t('settings.usage')}</Text>
@@ -81,11 +114,14 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
                             accessibilityLabel={t('common.cancel')}
                             accessibilityRole="button"
                             hitSlop={8}
+                            onBlur={Platform.OS === 'web' ? () => setCloseFocused(false) : undefined}
+                            onFocus={Platform.OS === 'web' ? () => setCloseFocused(true) : undefined}
                             onHoverIn={Platform.OS === 'web' ? () => setCloseHovered(true) : undefined}
                             onHoverOut={Platform.OS === 'web' ? () => setCloseHovered(false) : undefined}
                             onPress={closeAndRestoreFocus}
                             style={({ pressed }) => [
                                 styles.closeButton,
+                                closeFocused && styles.closeButtonFocused,
                                 (pressed || closeHovered) && styles.closeButtonPressed,
                             ]}
                             testID="sidebar-account-usage-dialog-close"
@@ -143,11 +179,15 @@ const styles = StyleSheet.create((theme) => ({
     },
     closeButton: {
         alignItems: 'center',
+        backgroundColor: theme.colors.surface,
         borderRadius: 8,
         color: theme.colors.textSecondary,
         height: 30,
         justifyContent: 'center',
         width: 30,
+    },
+    closeButtonFocused: {
+        backgroundColor: theme.colors.surfaceSelected,
     },
     closeButtonPressed: {
         backgroundColor: theme.colors.surfacePressed,

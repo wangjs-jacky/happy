@@ -37,6 +37,7 @@ vi.mock('react-native-unistyles', () => {
             shadow: { color: '#000', opacity: 0.3 },
             surface: '#1a2330',
             surfacePressed: '#1f2a38',
+            surfaceSelected: '#283544',
             text: '#fff',
             textSecondary: '#aaa',
         },
@@ -54,6 +55,7 @@ vi.mock('react-native-unistyles', () => {
                     shadow: { color: '#000', opacity: 0.3 },
                     surface: '#271b12',
                     surfacePressed: '#35261a',
+                    surfaceSelected: '#3f2d20',
                     text: '#f5dfca',
                     textSecondary: '#c8a98a',
                 },
@@ -133,17 +135,30 @@ describe('UsageDialog', () => {
         }));
     });
 
-    it('uses the pressed surface while the close button is hovered on Web', () => {
+    it('uses semantic rest, focus, hover, and pressed surfaces for the close button on Web', () => {
         act(() => {
             renderer = TestRenderer.create(<UsageDialog onClose={mocks.close} open />);
         });
 
         let closeButton = renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' });
+        expect(closeButton.props.style({ pressed: false })).toContainEqual(expect.objectContaining({
+            backgroundColor: '#1a2330',
+        }));
+        expect(closeButton.props.onFocus).toEqual(expect.any(Function));
+        act(() => closeButton.props.onFocus());
+
+        closeButton = renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' });
+        expect(closeButton.props.style({ pressed: false })).toContainEqual(expect.objectContaining({
+            backgroundColor: '#283544',
+        }));
         expect(closeButton.props.onHoverIn).toEqual(expect.any(Function));
         act(() => closeButton.props.onHoverIn());
 
         closeButton = renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' });
         expect(closeButton.props.style({ pressed: false })).toContainEqual(expect.objectContaining({
+            backgroundColor: '#1f2a38',
+        }));
+        expect(closeButton.props.style({ pressed: true })).toContainEqual(expect.objectContaining({
             backgroundColor: '#1f2a38',
         }));
     });

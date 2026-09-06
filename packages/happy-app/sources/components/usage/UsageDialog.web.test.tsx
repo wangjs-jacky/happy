@@ -16,14 +16,14 @@ vi.mock('react-native-unistyles', () => ({
         hairlineWidth: 1,
         create: (factory: any) => factory({ colors: {
             divider: '#ddd', shadow: { color: '#000', opacity: 0.2 }, surface: '#fff',
-            surfacePressed: '#eee', text: '#111', textSecondary: '#666',
+            surfacePressed: '#eee', surfaceSelected: '#ddd', text: '#111', textSecondary: '#666',
         } }),
     },
 }));
 vi.mock('@/text', () => ({
     t: (key: string) => key === 'settings.usage' ? 'Usage' : 'Close usage',
 }));
-vi.mock('./UsagePanel', () => ({ UsagePanel: () => <div>usage</div> }));
+vi.mock('./UsagePanel', () => ({ UsagePanel: () => <button data-testid="usage-action">usage</button> }));
 
 import { UsageDialog } from './UsageDialog';
 
@@ -59,7 +59,26 @@ describe('UsageDialog web dialog semantics', () => {
         expect(inner?.getAttribute('aria-modal')).toBeNull();
         expect(inner?.getAttribute('aria-label')).toBeNull();
 
-        document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true }));
+        const backdrop = document.querySelector<HTMLElement>('[data-testid="sidebar-account-usage-dialog-backdrop"]');
+        expect(backdrop?.tabIndex).toBe(-1);
+
+        const close = document.querySelector<HTMLElement>('[data-testid="sidebar-account-usage-dialog-close"]');
+        const usageAction = document.querySelector<HTMLElement>('[data-testid="usage-action"]');
+        close?.focus();
+        act(() => close?.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Tab',
+            shiftKey: true,
+        })));
+        expect(document.activeElement).toBe(usageAction);
+
+        act(() => usageAction?.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Tab',
+        })));
+        expect(document.activeElement).toBe(close);
+
+        act(() => document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true })));
         expect(onClose).toHaveBeenCalledOnce();
     });
 });
