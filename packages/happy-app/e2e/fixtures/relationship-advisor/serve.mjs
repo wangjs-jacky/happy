@@ -20,7 +20,7 @@ function baselinePlugin(before) {
         if (!before) return;
         b.onLoad({ filter: /packages\/happy-(?:app|server)\/sources\/.*\.tsx?$/ }, async ({ path: filename }) => {
             const relative = path.relative(root, filename);
-            try { return { contents: execFileSync('git', ['show', `${baseline}:${relative}`], { cwd: root, encoding: 'utf8' }), loader: filename.endsWith('tsx') ? 'tsx' : 'ts', resolveDir: path.dirname(filename) }; }
+            try { return { contents: execFileSync('git', ['show', `${baseline}:${relative}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }), loader: filename.endsWith('tsx') ? 'tsx' : 'ts', resolveDir: path.dirname(filename) }; }
             catch { return undefined; }
         });
     } };
@@ -74,7 +74,7 @@ for (const variant of ['before', 'after']) {
           send:()=>true};
         `,
     };
-    const clientEntry = `import React from 'react';import{createRoot}from'react-dom/client';import Screen from '${app}/app/(app)/relationship-advisor.tsx';createRoot(document.getElementById('app')).render(<Screen/>);`;
+    const clientEntry = `import React from 'react';import{createRoot}from'react-dom/client';import Screen from '${app}/app/(app)/relationship-advisor.tsx';import * as cache from '${app}/sync/relationshipAdvisorImageCache.web.ts';window.advisorFixtureCache=cache;createRoot(document.getElementById('app')).render(<Screen/>);`;
     await build({ stdin: { contents: clientEntry, resolveDir: root, loader: 'tsx' }, bundle: true, platform: 'browser', format: 'esm', outfile: path.join(out, `${variant}.js`), define: { 'process.env.NODE_ENV': '"production"', '__DEV__': 'false' },
         plugins: [{ name: 'browser-edges', setup(b) {
             b.onResolve({ filter: /.*/ }, (args) => {

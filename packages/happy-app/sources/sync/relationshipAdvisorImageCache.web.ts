@@ -24,7 +24,9 @@ export async function writeAdvisorImage(key: string, bytes: Uint8Array): Promise
     if (deletedKeys.has(key)) throw new Error('Image was removed');
     await withImages('readwrite', (store) => {
         if (deletedKeys.has(key)) throw new Error('Image was removed');
-        return store.put(bytes, key);
+        // Bounded reads may return a small view onto a 10 MB buffer. IndexedDB
+        // clones the whole backing buffer unless we first copy the exact bytes.
+        return store.put(bytes.slice(), key);
     });
 }
 
