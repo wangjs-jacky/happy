@@ -31,6 +31,7 @@ export const ca: TranslationStructure = {
         emptyPrompt: 'Explica la situació i veurem directament què pots respondre.',
         imageCount: ({ count }: { count: number }) => `${count} ${count === 1 ? 'imatge' : 'imatges'}`,
         unavailable: 'Ara mateix no es pot connectar. Torna-ho a provar més tard.',
+        emptyResponse: 'El model no ha retornat cap text. Torna-ho a provar.',
         stopAccessibility: 'Atura la generació',
         installSubtitle: 'Instal·la el complement per utilitzar el conseller sentimental',
     },

@@ -210,7 +210,7 @@ function RelationshipAdvisorConversationScreen({ conversationId }: { conversatio
                         {error && !hasStreamingAssistant && (
                             <View style={styles.errorRow} testID="relationship-advisor-error">
                                 <Ionicons name="cloud-offline-outline" size={15} color={theme.colors.textSecondary} />
-                                <Text style={styles.errorText}>{t('relationshipAdvisor.unavailable')}</Text>
+                                <Text style={styles.errorText}>{t(error === 'empty_response' ? 'relationshipAdvisor.emptyResponse' : 'relationshipAdvisor.unavailable')}</Text>
                                 {canRetry && (
                                     <Pressable
                                         testID="relationship-advisor-retry-button"

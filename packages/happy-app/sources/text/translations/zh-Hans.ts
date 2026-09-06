@@ -33,6 +33,7 @@ export const zhHans: TranslationStructure = {
         emptyPrompt: '把局面发来，我们直接看怎么回。',
         imageCount: ({ count }: { count: number }) => `${count} 张图片`,
         unavailable: '暂时连接不上，请稍后重试',
+        emptyResponse: '模型没有返回内容，请重试。',
         stopAccessibility: '停止生成',
         installSubtitle: '安装插件后才能使用狗头军师',
     },

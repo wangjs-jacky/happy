@@ -31,6 +31,7 @@ export const it: TranslationStructure = {
         emptyPrompt: 'Raccontami la situazione e vediamo subito cosa rispondere.',
         imageCount: ({ count }: { count: number }) => `${count} ${count === 1 ? 'immagine' : 'immagini'}`,
         unavailable: 'Impossibile connettersi al momento. Riprova più tardi.',
+        emptyResponse: 'Il modello non ha restituito alcun testo. Riprova.',
         stopAccessibility: 'Interrompi la generazione',
         installSubtitle: 'Installa il plug-in per usare il consulente sentimentale',
     },

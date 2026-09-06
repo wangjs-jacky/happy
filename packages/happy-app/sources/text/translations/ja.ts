@@ -34,6 +34,7 @@ export const ja: TranslationStructure = {
         emptyPrompt: '状況を送ってください。どう返すか一緒に考えましょう。',
         imageCount: ({ count }: { count: number }) => `画像 ${count} 枚`,
         unavailable: '現在接続できません。しばらくしてからもう一度お試しください。',
+        emptyResponse: 'モデルからテキストが返されませんでした。もう一度お試しください。',
         stopAccessibility: '生成を停止',
         installSubtitle: 'プラグインをインストールすると恋愛相談を利用できます',
     },

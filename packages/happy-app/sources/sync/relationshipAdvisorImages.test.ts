@@ -5,6 +5,15 @@ const mocks = vi.hoisted(() => ({
     readFileBytes: vi.fn(),
     uploadEncryptedBlob: vi.fn(),
     getCredentials: vi.fn(),
+    readAdvisorImage: vi.fn(),
+    writeAdvisorImage: vi.fn(),
+    deleteAdvisorImages: vi.fn(),
+}));
+
+vi.mock('./relationshipAdvisorImageCache', () => ({
+    readAdvisorImage: mocks.readAdvisorImage,
+    writeAdvisorImage: mocks.writeAdvisorImage,
+    deleteAdvisorImages: mocks.deleteAdvisorImages,
 }));
 
 vi.mock('./apiSocket', () => ({ apiSocket: { request: mocks.request } }));
@@ -16,6 +25,8 @@ import {
     discardRelationshipAdvisorImages,
     uploadRelationshipAdvisorImage,
     uploadRelationshipAdvisorImages,
+    uploadRelationshipAdvisorHistory,
+    saveRelationshipAdvisorImages,
 } from './relationshipAdvisorImages';
 
 const image = (id: string) => ({
@@ -30,6 +41,31 @@ const image = (id: string) => ({
 
 describe('uploadRelationshipAdvisorImage', () => {
     beforeEach(() => vi.clearAllMocks());
+    it('reuploads a cached original onto its historical message without needing the picker URI', async () => {
+        const bytes = new Uint8Array([8, 9]);
+        mocks.readAdvisorImage.mockResolvedValue(bytes);
+        mocks.getCredentials.mockResolvedValue({ token: 'test', secret: 'test' });
+        mocks.request.mockImplementation(async () => new Response(JSON.stringify({ ref: 'advisor/user-1/fresh.jpg', uploadUrl: 'https://oss.test', method: 'POST' })));
+        const messages = await uploadRelationshipAdvisorHistory([
+            { id: 'image', role: 'user', text: '', createdAt: 1, imageCount: 1, imageKeys: ['saved.jpg'] },
+            { id: 'next', role: 'user', text: '刚才那张呢', createdAt: 2, imageCount: 0 },
+        ], { isCancelled: () => false });
+        expect(mocks.readAdvisorImage).toHaveBeenCalledWith('saved.jpg');
+        expect(mocks.readFileBytes).not.toHaveBeenCalled();
+        expect(messages).toEqual([
+            { role: 'user', text: '', imageRefs: ['advisor/user-1/fresh.jpg'] },
+            { role: 'user', text: '刚才那张呢' },
+        ]);
+        expect(mocks.uploadEncryptedBlob.mock.calls[0][1]).toEqual(bytes);
+    });
+
+    it('saves bounded original bytes and removes a partial local batch on failure', async () => {
+        mocks.readFileBytes.mockResolvedValueOnce(new Uint8Array([1])).mockRejectedValueOnce(new Error('read failed'));
+        mocks.deleteAdvisorImages.mockResolvedValue(undefined);
+        await expect(saveRelationshipAdvisorImages([image('one'), image('two')], ['one.jpg', 'two.jpg'])).rejects.toThrow('read failed');
+        expect(mocks.writeAdvisorImage).toHaveBeenCalledWith('one.jpg', new Uint8Array([1]));
+        expect(mocks.deleteAdvisorImages).toHaveBeenCalledWith(['one.jpg', 'two.jpg']);
+    });
     it('uploads normalized image bytes without applying session encryption', async () => {
         const bytes = new Uint8Array([1, 2, 3]);
         const upload = {

@@ -31,6 +31,7 @@ export const es: TranslationStructure = {
         emptyPrompt: 'Cuéntame la situación y vemos directamente qué responder.',
         imageCount: ({ count }: { count: number }) => `${count} ${count === 1 ? 'imagen' : 'imágenes'}`,
         unavailable: 'No se puede conectar ahora. Inténtalo de nuevo más tarde.',
+        emptyResponse: 'El modelo no ha devuelto ningún texto. Inténtalo de nuevo.',
         stopAccessibility: 'Detener la generación',
         installSubtitle: 'Instala el complemento para usar el consejero sentimental',
     },

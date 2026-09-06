@@ -33,6 +33,7 @@ export const zhHant: TranslationStructure = {
         emptyPrompt: '把局面傳來，我們直接看怎麼回。',
         imageCount: ({ count }: { count: number }) => `${count} 張圖片`,
         unavailable: '暫時連不上，請稍後再試',
+        emptyResponse: '模型未傳回內容，請再試一次。',
         stopAccessibility: '停止生成',
         installSubtitle: '安裝外掛後才能使用狗頭軍師',
     },

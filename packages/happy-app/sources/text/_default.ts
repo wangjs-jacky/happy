@@ -31,6 +31,7 @@ export const en = {
         emptyPrompt: "Share the situation and let's work out what to say.",
         imageCount: ({ count }: { count: number }) => `${count} image${count === 1 ? '' : 's'}`,
         unavailable: "Can't connect right now. Try again soon.",
+        emptyResponse: 'The model returned no text. Please retry.',
         stopAccessibility: 'Stop generating',
         installSubtitle: 'Install the plugin to use Relationship Advisor',
     },
