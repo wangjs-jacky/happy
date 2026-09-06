@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     helpFirstActionFocus: vi.fn(),
     helpTriggerFocus: vi.fn(),
     navigate: vi.fn(),
+    pathname: '/',
     openCommandPalette: vi.fn(),
     openSettings: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
@@ -57,7 +58,7 @@ vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: mocks.dispatch }),
     useRouter: () => ({ navigate: mocks.navigate }),
     useGlobalSearchParams: () => ({}),
-    usePathname: () => '/',
+    usePathname: () => mocks.pathname,
 }));
 vi.mock('@react-navigation/native', () => ({
     DrawerActions: { closeDrawer: () => ({ type: 'CLOSE_DRAWER' }) },
@@ -185,6 +186,7 @@ describe('SidebarView Agent space exit', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.pathname = '/';
         mocks.focusHistory.length = 0;
         mocks.spaceAgent = {
             id: 'health',
@@ -440,6 +442,27 @@ describe('SidebarView Agent space exit', () => {
         expect(mocks.openCommandPalette).toHaveBeenCalledOnce();
         expect(mocks.navigate).not.toHaveBeenCalledWith('/session/search');
 
+        act(() => renderer.unmount());
+    });
+
+    it('shows only advisor history on its desktop route and restores sessions when leaving', () => {
+        mocks.spaceAgent = null;
+        mocks.pathname = '/relationship-advisor';
+        let renderer: any;
+        const renderSidebar = () => <SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation />;
+        act(() => { renderer = TestRenderer.create(renderSidebar()); });
+
+        const secondary = renderer.root.findByProps({ testID: 'desktop-secondary-navigation-column' });
+        expect(secondary.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
+        expect(secondary.findByType('PluginLeftSidebarSlot').props.fillAvailableSpace).toBe(true);
+        act(() => renderer.root.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+        expect(mocks.navigate).toHaveBeenCalledWith('/');
+
+        mocks.pathname = '/session/ordinary-session';
+        act(() => renderer.update(<SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation key="ordinary" />));
+        expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
         act(() => renderer.unmount());
     });
 

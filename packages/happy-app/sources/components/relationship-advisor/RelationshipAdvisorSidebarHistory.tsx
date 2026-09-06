@@ -17,6 +17,7 @@ import {
 
 interface Props {
     desktopDensity?: boolean;
+    fillAvailableSpace?: boolean;
     onNavigate: (path: string) => void;
 }
 
@@ -26,6 +27,7 @@ function conversationPath(conversationId: string): string {
 
 export const RelationshipAdvisorSidebarHistory = React.memo(function RelationshipAdvisorSidebarHistory({
     desktopDensity = false,
+    fillAvailableSpace = false,
     onNavigate,
 }: Props) {
     const { theme } = useUnistyles();
@@ -67,7 +69,7 @@ export const RelationshipAdvisorSidebarHistory = React.memo(function Relationshi
     }, [onNavigate, selectedId, updateConversations]);
 
     return (
-        <View style={[styles.section, desktopDensity && styles.sectionDesktop]} testID="relationship-advisor-sidebar-history">
+        <View style={[styles.section, desktopDensity && styles.sectionDesktop, fillAvailableSpace && styles.sectionFullHeight]} testID="relationship-advisor-sidebar-history">
             <View style={styles.header}>
                 <View style={styles.headerTitleWrap}>
                     <Ionicons name="chatbubbles-outline" size={16} color={theme.colors.textSecondary} />
@@ -85,7 +87,7 @@ export const RelationshipAdvisorSidebarHistory = React.memo(function Relationshi
                 </Pressable>
             </View>
             {conversations.length > 0 ? (
-                <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+                <ScrollView style={[styles.list, fillAvailableSpace && styles.listFullHeight]} contentContainerStyle={styles.listContent}>
                     {conversations.map((conversation) => {
                         const selected = conversation.id === selectedId;
                         const preview = conversation.messages.at(-1)?.text || t('relationshipAdvisor.cloudSubtitle');
@@ -138,6 +140,16 @@ const styles = StyleSheet.create((theme) => ({
     sectionDesktop: {
         marginHorizontal: 10,
         maxHeight: 208,
+    },
+    sectionFullHeight: {
+        flex: 1,
+        minHeight: 0,
+        maxHeight: '100%',
+    },
+    listFullHeight: {
+        flex: 1,
+        flexGrow: 1,
+        minHeight: 0,
     },
     header: {
         height: 36,
