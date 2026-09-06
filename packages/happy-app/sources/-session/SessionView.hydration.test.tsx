@@ -617,6 +617,10 @@ describe('SessionView deep-link hydration', () => {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="warm-paint-session" />); });
 
             expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(0);
+            // Keep route verification pending while the real message boundary mounts.
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
             runAllFrames();
             expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
         } finally {
