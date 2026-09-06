@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
     AppState,
+    ActivityIndicator,
     FlatList,
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -29,6 +30,8 @@ import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
 import { AttachmentGalleryView } from './AttachmentGalleryView';
 import { AnchorListSheet } from './AnchorListSheet';
+import { setGroupExpansion, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
+    TranscriptGroupExpansionContext, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
 
 const SCROLL_THRESHOLD = 300;
 const ANCHOR_PILL_LINGER_MS = 1600;
@@ -45,12 +48,20 @@ export type ConversationTranscriptProps = {
     metadata: Metadata | null;
     sessionId?: string;
     messages: Message[];
+    reading?: TranscriptReadingAdapter;
     groupToolCalls?: boolean;
     currentTurnActive?: boolean;
     hasPendingPermission?: boolean;
     onLoadOlder?: () => void;
     hasMoreOlder?: boolean;
     isLoadingOlder?: boolean;
+    onLoadNewer?: () => void;
+    hasMoreNewer?: boolean;
+    isLoadingNewer?: boolean;
+    isAtLatest?: boolean;
+    onJumpToLatest?: () => Promise<void>;
+    olderError?: string | null;
+    newerError?: string | null;
     visualTop?: React.ReactElement | null;
     visualBottom?: React.ReactElement | null;
     showMessageActions?: boolean;
@@ -67,18 +78,37 @@ export type ConversationTranscriptProps = {
 export const ConversationTranscript = React.memo((props: ConversationTranscriptProps) => {
     const { theme } = useUnistyles();
     const flatListRef = React.useRef<FlatList>(null);
+    const viewportRef = React.useRef<View>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const showScrollButtonRef = React.useRef(false);
     const [showAnchorPill, setShowAnchorPill] = React.useState(false);
     const [anchorSheetOpen, setAnchorSheetOpen] = React.useState(false);
     const anchorPillVisibleRef = React.useRef(false);
     const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const indexRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const groupingOptions = React.useMemo(
         () => ({ currentTurnActive: props.currentTurnActive ?? false }),
         [props.currentTurnActive],
     );
     const displayItems = useGroupedMessages(props.messages, props.groupToolCalls ?? true, groupingOptions);
     const inverted = props.inverted ?? true;
+    const isAtLatest = props.isAtLatest ?? true;
+    const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
+    const attempted = React.useRef(new Set<string>());
+    const jumpPending = React.useRef(false);
+    const loadBoundary = React.useCallback((direction: 'older' | 'newer', retry = false) => {
+        const loading = direction === 'older' ? props.isLoadingOlder : props.isLoadingNewer;
+        const more = direction === 'older' ? props.hasMoreOlder : props.hasMoreNewer;
+        const error = direction === 'older' ? props.olderError : props.newerError;
+        const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
+        const boundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const key = JSON.stringify([props.sessionId, direction, boundary]);
+        if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
+        attempted.current.add(key);
+        if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
+        load();
+    }, [props.sessionId, props.messages, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
+        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
     const listItems = React.useMemo(
         () => inverted ? displayItems : [...displayItems].reverse(),
         [displayItems, inverted],
@@ -102,9 +132,17 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         return initial;
     });
     const manuallyCollapsedRef = React.useRef<Set<string>>(new Set());
+    const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
+    const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
+        listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
         displayItems.filter(isCollapsibleDisplayItem).map((item) => item.id),
     ));
+    React.useEffect(() => {
+        if (!props.reading) return;
+        setExpandedKeys(previous => displayItems.reduce((keys, item) => groupIsExpanded(item, keys, props.reading!.wireId)
+            ? setGroupExpansion(keys, item, true, props.reading!.wireId) : keys, previous));
+    }, [displayItems, props.reading]);
 
     React.useEffect(() => {
         setCollapsedGroups((previous) => {
@@ -112,9 +150,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             const next = new Set(previous);
             for (const item of displayItems) {
                 if (!isCollapsibleDisplayItem(item)) continue;
+                if (props.reading && groupIsExpanded(item, expandedKeys, props.reading.wireId)) {
+                    if (next.delete(item.id)) changed = true;
+                    seenCollapsibleGroupsRef.current.add(item.id);
+                    continue;
+                }
                 const isNew = !seenCollapsibleGroupsRef.current.has(item.id);
                 if (isNew) seenCollapsibleGroupsRef.current.add(item.id);
-                if (item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedRef.current.has(item.id)) {
+                if (isAtLatest && item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedRef.current.has(item.id)) {
                     next.delete(item.id);
                     changed = true;
                 } else if (isNew && !item.hasPendingPermission) {
@@ -124,13 +167,13 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             }
             return changed ? next : previous;
         });
-    }, [displayItems]);
+    }, [displayItems, expandedKeys, props.reading, isAtLatest]);
 
     const displayItemsRef = React.useRef(displayItems);
     displayItemsRef.current = displayItems;
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (state) => {
-            if (state === 'active') return;
+            if (state === 'active' || props.reading) return;
             setCollapsedGroups((previous) => {
                 const next = new Set(previous);
                 for (const item of displayItemsRef.current) {
@@ -140,7 +183,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             });
         });
         return () => subscription.remove();
-    }, []);
+    }, [props.reading]);
 
     const latestUserMessageId = React.useMemo(() => {
         for (const message of props.messages) {
@@ -152,6 +195,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     React.useEffect(() => {
         if (!latestUserMessageId || latestUserMessageId === previousUserMessageIdRef.current) return;
         previousUserMessageIdRef.current = latestUserMessageId;
+        if (!isAtLatest || props.reading) return;
         manuallyCollapsedRef.current.clear();
         setCollapsedGroups((previous) => {
             const next = new Set(previous);
@@ -160,9 +204,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             }
             return next;
         });
-    }, [latestUserMessageId]);
+    }, [latestUserMessageId, isAtLatest, props.reading]);
 
     const handleToggleGroup = React.useCallback((groupId: string) => {
+        reading.pin();
+        if (props.reading) {
+            const item = displayItemsRef.current.find(item => item.id === groupId);
+            if (item) setExpandedKeys(previous => setGroupExpansion(previous, item, collapsedGroups.has(groupId), props.reading!.wireId));
+        }
         setCollapsedGroups((previous) => {
             const next = new Set(previous);
             if (next.has(groupId)) {
@@ -174,7 +223,19 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             }
             return next;
         });
-    }, []);
+    }, [collapsedGroups, props.reading, reading]);
+    const nestedExpansion = props.reading ? {
+        isExpanded: (item: DisplayItem) => groupIsExpanded(item, expandedKeys, props.reading!.wireId)
+            || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id)),
+        toggle: (item: DisplayItem) => {
+            reading.pin();
+            const expanded = groupIsExpanded(item, expandedKeys, props.reading!.wireId)
+                || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id));
+            if (expanded) manuallyCollapsedRef.current.add(item.id); else manuallyCollapsedRef.current.delete(item.id);
+            setExpandedKeys(previous => setGroupExpansion(previous, item, !expanded, props.reading!.wireId));
+        },
+        observe: (item: DisplayItem) => setExpandedKeys(previous => setGroupExpansion(previous, item, true, props.reading!.wireId)),
+    } : null;
     const agentForkTargets = React.useMemo<Map<string, MessageForkTarget>>(
         () => getAgentMessageForkTargets(props.messages, {
             flavor: props.metadata?.flavor === 'codex' ? 'codex' : 'claude',
@@ -182,7 +243,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         }),
         [props.messages, props.metadata?.flavor],
     );
-    const renderItem = React.useCallback(({ item }: { item: DisplayItem }) => {
+    const renderItemContent = React.useCallback(({ item }: { item: DisplayItem }) => {
         if (item.type === 'tool-group') {
             return (
                 <ToolGroupView
@@ -249,12 +310,23 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         props.sessionId,
         props.showMessageActions,
     ]);
+    const renderItem = React.useCallback(({ item }: { item: DisplayItem }) => (
+        <TranscriptReadingMarker messageId={itemMessages(item)[0]?.id ?? item.id}>
+            {renderItemContent({ item })}
+        </TranscriptReadingMarker>
+    ), [renderItemContent]);
 
     const handleScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
         const distanceFromBottom = inverted
             ? contentOffset.y
             : Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
+        reading.scroll(contentOffset.y, distanceFromBottom);
+        const distanceFromTop = inverted ? Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y) : contentOffset.y;
+        setBoundaries(previous => previous.older === (distanceFromTop <= 24) && previous.newer === (distanceFromBottom <= 24)
+            ? previous : { older: distanceFromTop <= 24, newer: distanceFromBottom <= 24 });
+        if (!isAtLatest && distanceFromBottom <= 2 * layoutMeasurement.height) loadBoundary('newer');
+        if (props.hasMoreOlder && ((!inverted && distanceFromTop <= 2 * layoutMeasurement.height) || distanceFromTop <= 24)) loadBoundary('older');
         const next = distanceFromBottom > SCROLL_THRESHOLD;
         if (next !== showScrollButtonRef.current) {
             showScrollButtonRef.current = next;
@@ -271,16 +343,35 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 setShowAnchorPill(false);
             }, ANCHOR_PILL_LINGER_MS);
         }
-    }, [hasAnchorNavigation, inverted, props.showAnchorNavigation]);
+    }, [hasAnchorNavigation, inverted, isAtLatest, loadBoundary, reading, props.hasMoreOlder, props.showAnchorNavigation]);
 
     React.useEffect(() => () => {
         if (anchorPillTimerRef.current) clearTimeout(anchorPillTimerRef.current);
+        if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
     }, []);
 
-    const scrollToBottom = React.useCallback(() => {
+    const scrollLatest = React.useCallback(() => {
+        reading.jumpLatest();
         if (inverted) flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
         else flatListRef.current?.scrollToEnd({ animated: true });
-    }, [inverted]);
+    }, [inverted, reading]);
+    const sessionRef = React.useRef(props.sessionId); sessionRef.current = props.sessionId;
+    const scrollToBottom = React.useCallback(async () => {
+        if (isAtLatest) { scrollLatest(); return; }
+        if (!props.onJumpToLatest || jumpPending.current) return;
+        const session = props.sessionId;
+        jumpPending.current = true;
+        try { await props.onJumpToLatest(); }
+        catch { if (sessionRef.current === session) jumpPending.current = false; }
+    }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
+    const onContentSizeChange = React.useCallback(() => {
+        if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
+        else void reading.layout();
+    }, [isAtLatest, scrollLatest, reading]);
+    React.useEffect(() => {
+        if (props.newerError) jumpPending.current = false;
+        else if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
+    }, [isAtLatest, props.newerError, scrollLatest]);
     const scrollToAnchor = React.useCallback((anchor: UserMessageAnchor) => {
         // History loads and incoming messages can shift indexes while the
         // sheet is open. Resolve the stable id against the current transcript.
@@ -291,7 +382,10 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, [inverted]);
     const handleScrollToIndexFailed = React.useCallback((info: { index: number; averageItemLength: number }) => {
         flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
-        setTimeout(() => {
+        if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
+        const session = sessionRef.current;
+        indexRetryTimerRef.current = setTimeout(() => {
+            if (sessionRef.current !== session) return;
             flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
         }, 120);
     }, []);
@@ -300,6 +394,10 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
 
     React.useEffect(() => {
         setAnchorSheetOpen(false);
+        if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
+        jumpPending.current = false;
+        attempted.current.clear();
+        setBoundaries({ older: false, newer: false });
     }, [props.sessionId]);
 
     React.useEffect(() => {
@@ -317,7 +415,9 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, []);
 
     return (
-        <View style={styles.container}>
+        <TranscriptReadingContext.Provider value={reading.markers}>
+        <TranscriptGroupExpansionContext.Provider value={nestedExpansion}>
+        <View ref={viewportRef} collapsable={false} style={styles.container}>
             <FlatList
                 ref={flatListRef}
                 testID="conversation-transcript-list"
@@ -325,17 +425,19 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 inverted={inverted}
                 keyExtractor={(item) => item.id}
                 maintainVisibleContentPosition={inverted
-                    ? { minIndexForVisible: 1, autoscrollToTopThreshold: 50 }
+                    ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
                 contentContainerStyle={props.contentContainerStyle}
                 renderItem={renderItem}
                 onScroll={handleScroll}
+                onScrollBeginDrag={reading.cancelRestore}
+                onContentSizeChange={onContentSizeChange}
                 scrollEventThrottle={16}
                 ListHeaderComponent={(inverted ? props.visualBottom : props.visualTop) ?? undefined}
                 ListFooterComponent={(inverted ? props.visualTop : props.visualBottom) ?? undefined}
-                onEndReached={props.onLoadOlder}
+                onEndReached={() => loadBoundary(inverted ? 'older' : 'newer')}
                 // Start the next backward page before the user reaches the
                 // visual top. Existing messages stay interactive while the
                 // request runs, and the loading affordance is normally kept
@@ -343,6 +445,10 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 onEndReachedThreshold={2}
                 onScrollToIndexFailed={handleScrollToIndexFailed}
             />
+            <HistoryBoundary direction="older" reached={boundaries.older} loading={props.isLoadingOlder}
+                error={props.olderError} retry={() => loadBoundary('older', true)} />
+            <HistoryBoundary direction="newer" reached={boundaries.newer && !isAtLatest} loading={props.isLoadingNewer}
+                error={props.newerError} retry={() => loadBoundary('newer', true)} />
             {props.showAnchorNavigation !== false && showAnchorPill && hasAnchorNavigation ? (
                 <Animated.View
                     entering={FadeIn.duration(180)}
@@ -368,22 +474,42 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                     />
                 </BaseModal>
             ) : null}
-            {props.showScrollToBottom !== false && showScrollButton ? (
+            {props.showScrollToBottom !== false && (showScrollButton || !isAtLatest) ? (
                 <View style={styles.scrollButtonContainer}>
                     <Pressable
                         testID="conversation-scroll-to-bottom"
                         accessibilityRole="button"
                         accessibilityLabel={t('session.scrollToBottom')}
                         style={({ pressed }) => [styles.scrollButton, pressed ? styles.scrollButtonPressed : styles.scrollButtonDefault]}
-                        onPress={scrollToBottom}
+                        onPress={() => { void scrollToBottom(); }}
                     >
                         <Octicons testID="conversation-scroll-to-bottom-icon" name="arrow-down" size={14} color={theme.colors.text} />
                     </Pressable>
                 </View>
             ) : null}
         </View>
+        </TranscriptGroupExpansionContext.Provider>
+        </TranscriptReadingContext.Provider>
     );
 });
+
+function HistoryBoundary(props: { direction: 'older' | 'newer'; reached: boolean; loading?: boolean; error?: string | null; retry: () => void }) {
+    const { theme } = useUnistyles();
+    const [visible, setVisible] = React.useState(false);
+    React.useEffect(() => {
+        setVisible(false);
+        if (!props.reached || !props.loading) return;
+        const timer = setTimeout(() => setVisible(true), 250);
+        return () => clearTimeout(timer);
+    }, [props.reached, props.loading]);
+    if (!props.reached || (!visible && !props.error)) return null;
+    return <View style={{ position: 'absolute', [props.direction === 'older' ? 'top' : 'bottom']: 0, left: 0, right: 0,
+        height: 36, alignItems: 'center', justifyContent: 'center' }}>
+        {props.error ? <Pressable testID={`history-${props.direction}-retry`} accessibilityRole="button" onPress={props.retry}>
+            <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
+        </Pressable> : <ActivityIndicator testID={`history-${props.direction}-loading`} size="small" />}
+    </View>;
+}
 
 function isCollapsibleDisplayItem(
     item: DisplayItem,

@@ -14,6 +14,7 @@ import { AuthCredentials } from '@/auth/tokenStorage';
 import { getServerUrl } from './serverConfig';
 import { appendFormFile } from './uploadFormFile';
 import type { AttachmentKind } from './attachmentTypes';
+import { captureAttachmentContext } from './attachmentCacheContext';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — encrypted image lane
 export const MAX_MEDIA_FILE_SIZE = 500 * 1024 * 1024; // 500MB — plaintext audio/video lane
@@ -26,13 +27,13 @@ export const MAX_MEDIA_FILE_SIZE = 500 * 1024 * 1024; // 500MB — plaintext aud
  * that address is by definition reachable from here. No-op for any non-
  * loopback URL (presigned S3 GET URLs, properly configured PUBLIC_URL, etc.).
  */
-function rewriteLoopbackHost(url: string): string {
+function rewriteLoopbackHost(url: string, server = getServerUrl()): string {
     try {
         const target = new URL(url);
         if (target.hostname !== 'localhost' && target.hostname !== '127.0.0.1' && target.hostname !== '::1') {
             return url;
         }
-        const reachable = new URL(getServerUrl());
+        const reachable = new URL(server);
         target.protocol = reachable.protocol;
         target.host = reachable.host; // includes port
         return target.toString();
@@ -54,10 +55,8 @@ export type AttachmentDownloadSource = {
     headers: Record<string, string>;
 };
 
-const downloadSourceInFlight = new Map<
-    string,
-    Map<string, Map<string, Promise<AttachmentDownloadSource>>>
->();
+const downloadSourceInFlight = new Map<string, Promise<AttachmentDownloadSource>>();
+const encryptedDownloadInFlight = new Map<string, Promise<Uint8Array>>();
 
 /**
  * Request a presigned (or server-hosted) upload URL for an attachment.
@@ -201,30 +200,41 @@ export async function downloadEncryptedAttachment(
     sessionId: string,
     ref: string,
 ): Promise<Uint8Array> {
-    const source = await requestAttachmentDownloadSource(credentials, sessionId, ref);
-
-    let blobRes: Response;
-    try {
-        blobRes = await fetch(source.uri, { headers: source.headers });
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Attachment download network error from ${source.uri}: ${message}`);
-    }
-    if (!blobRes.ok) {
-        throw new Error(`Attachment download failed: ${blobRes.status} ${blobRes.statusText} from ${source.uri}`);
-    }
-    const buffer = await blobRes.arrayBuffer();
-    return new Uint8Array(buffer);
+    const context = captureAttachmentContext(credentials, sessionId);
+    const key = JSON.stringify([context.key, ref]);
+    const existing = encryptedDownloadInFlight.get(key);
+    if (existing) return existing;
+    const download = (async () => {
+        await context.assertCurrent();
+        const cached = await context.history?.readAttachment(sessionId, ref);
+        if (cached) { await context.assertCurrent(); return cached; }
+        const source = await requestDownloadSourceAt(context.token, context.server, sessionId, ref);
+        await context.assertCurrent();
+        let blobRes: Response;
+        try {
+            blobRes = await fetch(source.uri, { headers: source.headers });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new Error(`Attachment download network error from ${source.uri}: ${message}`);
+        }
+        if (!blobRes.ok) throw new Error(`Attachment download failed: ${blobRes.status} ${blobRes.statusText} from ${source.uri}`);
+        const bytes = new Uint8Array(await blobRes.arrayBuffer());
+        await context.assertCurrent();
+        if (context.history) await context.history.writeAttachment(sessionId, ref, bytes, context.fence!);
+        await context.assertCurrent();
+        return bytes;
+    })().finally(() => { if (encryptedDownloadInFlight.get(key) === download) encryptedDownloadInFlight.delete(key); });
+    encryptedDownloadInFlight.set(key, download);
+    return download;
 }
 
 /** Resolve an authenticated local URL or a presigned object-storage URL. */
 async function requestAttachmentDownloadSourceUncached(
-    credentials: AuthCredentials,
+    token: string,
+    API_ENDPOINT: string,
     sessionId: string,
     ref: string,
 ): Promise<AttachmentDownloadSource> {
-    const token = credentials.token;
-    const API_ENDPOINT = getServerUrl();
     const requestRes = await fetch(`${API_ENDPOINT}/v1/sessions/${sessionId}/attachments/request-download`, {
         method: 'POST',
         headers: {
@@ -237,7 +247,7 @@ async function requestAttachmentDownloadSourceUncached(
         throw new Error(`request-download failed: ${requestRes.status}`);
     }
     const { downloadUrl: rawDownloadUrl } = await requestRes.json() as { downloadUrl: string };
-    const downloadUrl = rewriteLoopbackHost(rawDownloadUrl);
+    const downloadUrl = rewriteLoopbackHost(rawDownloadUrl, API_ENDPOINT);
 
     const isServerUrl = downloadUrl.startsWith(API_ENDPOINT);
     const headers: Record<string, string> = {};
@@ -252,31 +262,18 @@ export function requestAttachmentDownloadSource(
     sessionId: string,
     ref: string,
 ): Promise<AttachmentDownloadSource> {
-    let byRef = downloadSourceInFlight.get(sessionId);
-    if (!byRef) {
-        byRef = new Map();
-        downloadSourceInFlight.set(sessionId, byRef);
-    }
+    return requestDownloadSourceAt(credentials.token, getServerUrl(), sessionId, ref);
+}
 
-    let byToken = byRef.get(ref);
-    if (!byToken) {
-        byToken = new Map();
-        byRef.set(ref, byToken);
-    }
-
-    const token = credentials.token;
-    const existing = byToken.get(token);
+function requestDownloadSourceAt(token: string, server: string, sessionId: string, ref: string) {
+    const key = JSON.stringify([server, sessionId, ref, token]);
+    const existing = downloadSourceInFlight.get(key);
     if (existing) return existing;
 
-    const request = requestAttachmentDownloadSourceUncached(credentials, sessionId, ref)
+    const request = requestAttachmentDownloadSourceUncached(token, server, sessionId, ref)
         .finally(() => {
-            if (byToken.get(token) !== request) return;
-            byToken.delete(token);
-            if (byToken.size === 0) {
-                byRef.delete(ref);
-                if (byRef.size === 0) downloadSourceInFlight.delete(sessionId);
-            }
+            if (downloadSourceInFlight.get(key) === request) downloadSourceInFlight.delete(key);
         });
-    byToken.set(token, request);
+    downloadSourceInFlight.set(key, request);
     return request;
 }

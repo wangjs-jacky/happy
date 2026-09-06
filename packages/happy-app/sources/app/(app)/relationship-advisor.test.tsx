@@ -98,6 +98,9 @@ vi.mock('@/components/relationship-advisor/relationshipAdvisorChatModel', () => 
 vi.mock('@/components/relationship-advisor/StreamingMarkdownView', () => ({
     StreamingMarkdownView: 'StreamingMarkdownView',
 }));
+// This screen suite covers composer layout and plugin routing, not the native
+// image child (whose Expo Image/FileSystem imports require a mobile runtime).
+// Image loading/viewer behavior has its own component and hook regressions.
 vi.mock('@/components/relationship-advisor/RelationshipAdvisorMessageImages', () => ({
     RelationshipAdvisorMessageImages: 'RelationshipAdvisorMessageImages',
 }));

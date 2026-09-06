@@ -228,6 +228,7 @@
     "babel-plugin-transform-remove-console": "^6.9.4",
     "cross-env": "^10.1.0",
     "esbuild": "0.27.2",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^26.1.0",
     "patch-package": "^8.0.0",
     "react-test-renderer": "19.0.0",
