@@ -612,6 +612,8 @@ export const ja: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: 'マシンがオフラインです',
         sessionHydrationFailed: 'セッションは作成されましたが、ページの同期が完了していません。再試行して入ってください。',
+        firstMessageFailed: 'セッションは作成されましたが、メッセージはまだ送信されていません。送信を再試行してください。',
+        sessionOpenFailed: 'メッセージは送信処理に渡されましたが、セッションページを開けませんでした。もう一度開いてください。',
         switchMachinesHint: '• 上のマシンをクリックしてマシンを切り替えてください',
     },
 
@@ -1640,10 +1642,10 @@ export const ja: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}"は${maxMb}MBの制限を超えているため追加されませんでした。`,
         uploadFailedTitle: 'アップロードに失敗しました',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? '1枚の画像をアップロードできず、送信されませんでした。'
-            : `${count}枚の画像をアップロードできず、送信されませんでした。`,
-        notSupportedTitle: '画像はサポートされていません',
-        notSupportedMessage: 'このエージェントは画像の添付に対応していません。テキストのみが送信されました。',
+            ? '1件の添付ファイルをアップロードできませんでした。メッセージはまだ送信されていません。再試行してください。'
+            : `${count}件の添付ファイルをアップロードできませんでした。メッセージはまだ送信されていません。再試行してください。`,
+        notSupportedTitle: '添付ファイルはサポートされていません',
+        notSupportedMessage: 'このエージェントは添付ファイルに対応していません。添付ファイルを削除して再試行してください。',
         normalizeFailedTitle: '画像を処理できません',
         normalizeFailedMessage: ({ count }: { count: number }) => `${count} 枚の画像を処理できず、スキップしました。`,
         viewAvatar: 'View profile picture',

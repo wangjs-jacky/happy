@@ -169,7 +169,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         rightWidth: desktopRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { sending, hydrationError, retryHydration, spawn } = useSpawnSession();
+    const { sending, recoveryError, retryPending, spawn } = useSpawnSession();
     const { text, setText, images: draftImages, setImages: setDraftImages } = useComposeDraft();
     const pendingSubmissionRef = React.useRef<SubmittedComposeSnapshot | null>(null);
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
@@ -681,13 +681,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }
     }, [removeImage]);
 
-    const handleSend = React.useCallback(() => {
+    const handleSend = React.useCallback((retrySubmission = false) => {
         const trimmed = text.trim();
         const userImages = hasImages ? selectedImages : [];
         const images = activeImageAgent
             ? [...selectedCustomReferenceImages, ...userImages]
             : userImages.length > 0 ? userImages : undefined;
-        if ((!trimmed && !images) || sending || hydrationError) return;
+        if ((!trimmed && !images) || sending || (recoveryError && !retrySubmission)) return;
         if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
         const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
@@ -724,7 +724,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             && !!machine
             && isMachineOnline(machine)
             && spawnSettings.worktreeKey !== '__new__';
-        if (!canSpawn) return;
+        if (!canSpawn && !retrySubmission) return;
 
         // Clear only after the encrypted first message reaches the local outbox.
         // A hydration failure keeps the draft available for the retry action.
@@ -734,7 +734,14 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             userAttachmentIds: userImages.map((image) => image.id),
         };
         pendingSubmissionRef.current = submittedSnapshot;
-        spawn({
+        const onQueued = () => {
+            clearQueuedSubmission(submittedSnapshot);
+            if (pendingSubmissionRef.current === submittedSnapshot) {
+                pendingSubmissionRef.current = null;
+            }
+        };
+        if (retrySubmission) return retryPending({ prompt, images, onQueued });
+        return spawn({
             machineId: draft.selectedMachineId!,
             machine: machine!,
             path: draft.selectedPath,
@@ -744,17 +751,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             images,
             environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
             sidebarListId,
-        }, false, () => {
-            clearQueuedSubmission(submittedSnapshot);
-            if (pendingSubmissionRef.current === submittedSnapshot) {
-                pendingSubmissionRef.current = null;
-            }
-        });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, hydrationError, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission]);
+        }, false, onQueued);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, recoveryError, machines, spawn, retryPending, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission]);
 
-    const handleRetryHydration = React.useCallback(async () => {
-        await retryHydration();
-    }, [retryHydration]);
+    const handleRetryPending = React.useCallback(async () => {
+        if (recoveryError?.stage === 'send') await handleSend(true);
+        else await retryPending();
+    }, [handleSend, recoveryError, retryPending]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -1069,17 +1072,17 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             ))}
                         </View>
                     )}
-                    {hydrationError && (
+                    {recoveryError && (
                         <View
                             style={styles.sessionHydrationError}
                             testID="compose-home-session-hydration-error"
                         >
                             <Text style={styles.sessionHydrationErrorText}>
-                                {t('newSession.sessionHydrationFailed')}
+                                {recoveryError.message}
                             </Text>
                             <Pressable
                                 accessibilityRole="button"
-                                onPress={handleRetryHydration}
+                                onPress={handleRetryPending}
                                 disabled={sending}
                                 style={({ pressed }) => [
                                     styles.sessionHydrationRetry,
@@ -1103,7 +1106,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onChangeText={handleTextChange}
                         onSend={handleSend}
                         isSending={sending}
-                        isSendDisabled={!canSubmit || Boolean(hydrationError)}
+                        isSendDisabled={!canSubmit || Boolean(recoveryError)}
                         selectedImages={hasImages ? selectedImages : undefined}
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         // Image agent needs images only; the normal composer

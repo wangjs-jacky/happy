@@ -636,6 +636,8 @@ export const en: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: 'Machine is offline',
         sessionHydrationFailed: 'The session was created, but the page has not finished syncing. Retry to enter.',
+        firstMessageFailed: 'The session was created, but the message has not been sent. Please try sending again.',
+        sessionOpenFailed: 'The message was submitted, but the session page could not be opened. Please try opening it again.',
         switchMachinesHint: '• Switch machines by clicking on the machine above',
     },
 
@@ -1673,10 +1675,10 @@ export const en: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" exceeds the ${maxMb}MB limit and was not added.`,
         uploadFailedTitle: 'Upload Failed',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'One image could not be uploaded and was not sent.'
-            : `${count} images could not be uploaded and were not sent.`,
-        notSupportedTitle: 'Images Not Supported',
-        notSupportedMessage: 'This agent does not support image attachments. Only the text was sent.',
+            ? 'One attachment could not be uploaded. The message has not been sent. Please try again.'
+            : `${count} attachments could not be uploaded. The message has not been sent. Please try again.`,
+        notSupportedTitle: 'Attachments Not Supported',
+        notSupportedMessage: 'This agent does not support attachments. Remove the attachments and try again.',
         normalizeFailedTitle: 'Image Not Readable',
         normalizeFailedMessage: ({ count }: { count: number }) => count === 1 ? 'One image could not be processed and was skipped.' : `${count} images could not be processed and were skipped.`,
         viewAvatar: 'View profile picture',

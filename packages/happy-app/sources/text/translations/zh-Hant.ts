@@ -611,6 +611,8 @@ export const zhHant: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: '裝置離線',
         sessionHydrationFailed: '工作階段已建立，但頁面尚未同步完成。請重試進入。',
+        firstMessageFailed: '工作階段已建立，但訊息尚未傳送。請重試傳送。',
+        sessionOpenFailed: '訊息已提交，但工作階段頁面未能開啟。請重試進入。',
         switchMachinesHint: '• 點擊上方的裝置來切換裝置',
     },
 
@@ -1747,10 +1749,10 @@ export const zhHant: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}"超過了 ${maxMb}MB 的限制，未能新增。`,
         uploadFailedTitle: '上傳失敗',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? '一張圖片上傳失敗，未傳送。'
-            : `${count} 張圖片上傳失敗，未傳送。`,
-        notSupportedTitle: '不支援圖片',
-        notSupportedMessage: '此代理不支援圖片附件。僅傳送了文字。',
+            ? '一個附件上傳失敗，訊息尚未傳送。請重試。'
+            : `${count} 個附件上傳失敗，訊息尚未傳送。請重試。`,
+        notSupportedTitle: '不支援附件',
+        notSupportedMessage: '此代理不支援附件。請移除附件後重試。',
         normalizeFailedTitle: '圖片無法處理',
         normalizeFailedMessage: ({ count }: { count: number }) => `${count} 張圖片無法處理，已略過。`,
         viewAvatar: '查看頭像',

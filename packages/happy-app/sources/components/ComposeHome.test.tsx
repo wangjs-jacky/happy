@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { AttachmentSendError } from '@/sync/messageSendError';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
@@ -224,6 +225,34 @@ describe('ComposeHome session hydration recovery', () => {
         mocks.onDismiss = null;
         vi.useRealTimers();
         consoleErrorSpy.mockRestore();
+    });
+
+    it('附件失败显示专用提示，移除附件并编辑文字后重试原会话', async () => {
+        mocks.ensureSessionHydrated.mockResolvedValue(true);
+        mocks.sendMessage.mockRejectedValueOnce(new AttachmentSendError('attachment-upload-failed', 1));
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => { renderer.root.findByType('MessageComposer').props.onChangeText('原始文字'); });
+        await act(async () => { await renderer.root.findByType('MessageComposer').props.onSend(); });
+        const notice = renderer.root.findByProps({ testID: 'compose-home-session-hydration-error' });
+        expect(notice.findAllByType('Text')[0].props.children).toBe('imageUpload.uploadFailedMessage');
+        expect(mocks.clearImages).not.toHaveBeenCalled();
+        act(() => {
+            const composer = renderer.root.findByType('MessageComposer');
+            composer.props.onChangeText('移除附件后的文字');
+            composer.props.onRemoveImage('image-a');
+            composer.props.onRemoveImage('image-b');
+        });
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress();
+        });
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenLastCalledWith('session-1', '移除附件后的文字', {
+            source: 'new_session', attachments: undefined,
+        });
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
+        act(() => renderer.unmount());
     });
 
     it('defers first history load until active bootstrap is ready', async () => {

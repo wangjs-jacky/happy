@@ -610,6 +610,8 @@ export const pt: TranslationStructure = {
         agentMode: 'Agente',
         machineOffline: 'A máquina está offline',
         sessionHydrationFailed: 'A sessão foi criada, mas a página ainda não terminou de sincronizar. Tente novamente para entrar.',
+        firstMessageFailed: 'A sessão foi criada, mas a mensagem ainda não foi enviada. Tente enviá-la novamente.',
+        sessionOpenFailed: 'A mensagem foi enviada, mas não foi possível abrir a página da sessão. Tente abri-la novamente.',
         switchMachinesHint: '• Troque de máquina clicando na máquina acima',
     },
 
@@ -1637,10 +1639,10 @@ export const pt: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" excede o limite de ${maxMb}MB e não foi adicionado.`,
         uploadFailedTitle: 'Falha no envio',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'Não foi possível enviar uma imagem e não foi enviada.'
-            : `Não foi possível enviar ${count} imagens e não foram enviadas.`,
-        notSupportedTitle: 'Imagens não suportadas',
-        notSupportedMessage: 'Este agente não suporta anexos de imagem. Apenas o texto foi enviado.',
+            ? 'Não foi possível carregar um anexo. A mensagem ainda não foi enviada. Tente novamente.'
+            : `Não foi possível carregar ${count} anexos. A mensagem ainda não foi enviada. Tente novamente.`,
+        notSupportedTitle: 'Anexos não suportados',
+        notSupportedMessage: 'Este agente não suporta anexos. Remova os anexos e tente novamente.',
         normalizeFailedTitle: 'Imagem não processável',
         normalizeFailedMessage: ({ count }: { count: number }) => `Não foi possível processar ${count} imagem(ns) e foram ignoradas.`,
         viewAvatar: 'View profile picture',

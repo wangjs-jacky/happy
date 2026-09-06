@@ -5,6 +5,7 @@ import type { Machine } from '@/sync/storageTypes';
 import type { SpawnSessionResult } from '@/sync/ops';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { useSpawnSession, type SpawnSessionArgs } from './useSpawnSession';
+import { AttachmentSendError } from '@/sync/messageSendError';
 import { sessionStartupTraceRuntime } from '@/sync/sessionStartupTraceRuntime';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
@@ -165,14 +166,77 @@ describe('useSpawnSession', () => {
         delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
     });
 
+    it('将首条消息失败与同步失败分开，并在原会话重试同一份附件', async () => {
+        mocks.sendMessage.mockRejectedValueOnce(new AttachmentSendError('attachment-upload-failed', 1));
+        const onQueued = vi.fn();
+        const hook = renderHook();
+        await act(async () => { expect(await hook.current().spawn(args, false, onQueued)).toBe(false); });
+        expect(hook.current().recoveryError).toMatchObject({ sessionId: 'session-1', stage: 'send', message: 'imageUpload.uploadFailedMessage' });
+        expect(mocks.alert).not.toHaveBeenCalled();
+        expect(onQueued).not.toHaveBeenCalled();
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+
+        await act(async () => { expect(await hook.current().retryPending()).toBe(true); });
+        expect(hook.current().recoveryError).toBeNull();
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenNthCalledWith(2, 'session-1', args.prompt, {
+            source: 'new_session', attachments: args.images,
+        });
+        expect(onQueued).toHaveBeenCalledTimes(1);
+        expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('发送失败后允许明确提交修正后的草稿，复用原会话且不重发旧附件', async () => {
+        mocks.sendMessage.mockRejectedValueOnce(new AttachmentSendError('attachment-upload-failed', 1));
+        const originalQueued = vi.fn();
+        const replacementQueued = vi.fn();
+        const hook = renderHook();
+        await act(async () => { await hook.current().spawn(args, false, originalQueued); });
+        await act(async () => {
+            expect(await hook.current().retryPending({ prompt: '修正后的文字', images: [], onQueued: replacementQueued })).toBe(true);
+        });
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenLastCalledWith('session-1', '修正后的文字', {
+            source: 'new_session', attachments: undefined,
+        });
+        expect(originalQueued).not.toHaveBeenCalled();
+        expect(replacementQueued).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('同步重试成功但发送失败时更新失败阶段，不泄露内部异常', async () => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        const hook = renderHook();
+        try {
+            await act(async () => {
+                const operation = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                await operation;
+            });
+            expect(hook.current().recoveryError?.stage).toBe('hydration');
+            mocks.ensureSessionHydrated.mockResolvedValue(true);
+            mocks.sendMessage.mockRejectedValueOnce(new Error('private-network-detail'));
+            await act(async () => { expect(await hook.current().retryPending()).toBe(false); });
+            expect(hook.current().recoveryError).toMatchObject({
+                stage: 'send', message: 'newSession.firstMessageFailed',
+            });
+            expect(mocks.alert).not.toHaveBeenCalled();
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
     it('retains the first created session after local queue failure and retries without respawning', async () => {
         mocks.sendMessage.mockRejectedValueOnce(new Error('synthetic-queue-failure'));
         const hook = renderHook();
         await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
-        expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+        expect(hook.current().recoveryError).toMatchObject({ sessionId: 'session-1' });
         await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
         mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
-        await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
+        await act(async () => { expect(await hook.current().retryPending()).toBe(true); });
         expect(mocks.machineSpawnNewSession.mock.calls.length).toBe(1);
         expect(mocks.navigateToSession.mock.calls.length).toBe(1);
         hook.unmount();
@@ -232,8 +296,8 @@ describe('useSpawnSession', () => {
         mocks.navigateToSession.mockImplementationOnce(() => { throw new Error('synthetic-navigation-failure'); });
         const hook = renderHook();
         await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
-        expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
-        await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
+        expect(hook.current().recoveryError).toMatchObject({ sessionId: 'session-1' });
+        await act(async () => { expect(await hook.current().retryPending()).toBe(true); });
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.navigateToSession).toHaveBeenCalledTimes(2);
@@ -493,12 +557,12 @@ describe('useSpawnSession', () => {
             mocks.ensureSessionHydrated.mockResolvedValue(true);
             mocks.sendMessage.mockRejectedValueOnce(new Error('queue failed'));
             await act(async () => {
-                expect(await hook.current().retryHydration()).toBe(false);
+                expect(await hook.current().retryPending()).toBe(false);
             });
 
             mocks.sendMessage.mockResolvedValueOnce({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
             await act(async () => {
-                expect(await hook.current().retryHydration()).toBe(true);
+                expect(await hook.current().retryPending()).toBe(true);
             });
 
             const hydratedEvents = mocks.traceStartup.mock.calls
@@ -527,7 +591,7 @@ describe('useSpawnSession', () => {
             });
 
             expect(firstResult).toBe(false);
-            expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+            expect(hook.current().recoveryError).toMatchObject({ sessionId: 'session-1' });
             expect(mocks.updatePermission).not.toHaveBeenCalled();
             expect(mocks.sendMessage).not.toHaveBeenCalled();
             expect(mocks.navigateToSession).not.toHaveBeenCalled();
@@ -535,11 +599,11 @@ describe('useSpawnSession', () => {
             mocks.ensureSessionHydrated.mockResolvedValue(true);
             let retryResult;
             await act(async () => {
-                retryResult = await hook.current().retryHydration();
+                retryResult = await hook.current().retryPending();
             });
 
             expect(retryResult).toBe(true);
-            expect(hook.current().hydrationError).toBeNull();
+            expect(hook.current().recoveryError).toBeNull();
             expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
             expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
             expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
@@ -550,7 +614,7 @@ describe('useSpawnSession', () => {
             expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
 
             await act(async () => {
-                await hook.current().retryHydration();
+                await hook.current().retryPending();
             });
             expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
             expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
@@ -583,7 +647,7 @@ describe('useSpawnSession', () => {
 
             mocks.ensureSessionHydrated.mockResolvedValue(true);
             await act(async () => {
-                expect(await hook.current().retryHydration()).toBe(true);
+                expect(await hook.current().retryPending()).toBe(true);
             });
             expect(retryCount).toBe(4);
         } finally {
@@ -611,9 +675,9 @@ describe('useSpawnSession', () => {
             let firstRetry!: Promise<boolean>;
             let secondResult;
             await act(async () => {
-                firstRetry = hook.current().retryHydration();
+                firstRetry = hook.current().retryPending();
                 await Promise.resolve();
-                secondResult = await hook.current().retryHydration();
+                secondResult = await hook.current().retryPending();
             });
 
             expect(secondResult).toBe(false);

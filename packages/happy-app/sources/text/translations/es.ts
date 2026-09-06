@@ -611,6 +611,8 @@ export const es: TranslationStructure = {
         agentMode: 'Agente',
         machineOffline: 'La máquina está desconectada',
         sessionHydrationFailed: 'La sesión se creó, pero la página aún no terminó de sincronizarse. Reintenta para entrar.',
+        firstMessageFailed: 'La sesión se ha creado, pero el mensaje aún no se ha enviado. Intenta enviarlo de nuevo.',
+        sessionOpenFailed: 'El mensaje se ha enviado, pero no se ha podido abrir la página de la sesión. Intenta abrirla de nuevo.',
         switchMachinesHint: '• Cambia de máquina haciendo clic en la máquina de arriba',
     },
 
@@ -1639,10 +1641,10 @@ export const es: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" supera el límite de ${maxMb}MB y no se añadió.`,
         uploadFailedTitle: 'Error al subir',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'No se pudo subir una imagen y no se envió.'
-            : `No se pudieron subir ${count} imágenes y no se enviaron.`,
-        notSupportedTitle: 'Imágenes no compatibles',
-        notSupportedMessage: 'Este agente no admite imágenes adjuntas. Solo se envió el texto.',
+            ? 'No se ha podido subir un archivo adjunto. El mensaje aún no se ha enviado. Inténtalo de nuevo.'
+            : `No se han podido subir ${count} archivos adjuntos. El mensaje aún no se ha enviado. Inténtalo de nuevo.`,
+        notSupportedTitle: 'Archivos adjuntos no compatibles',
+        notSupportedMessage: 'Este agente no admite archivos adjuntos. Elimina los adjuntos e inténtalo de nuevo.',
         normalizeFailedTitle: 'Imagen no procesable',
         normalizeFailedMessage: ({ count }: { count: number }) => `No se pudieron procesar ${count} imagen(es) y se omitieron.`,
         viewAvatar: 'View profile picture',
