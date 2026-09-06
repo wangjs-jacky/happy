@@ -179,6 +179,9 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     const navigate = React.useCallback((direction: number) => {
         const next = Math.max(0, Math.min(currentIndex + direction, sources.length - 1));
         if (next === currentIndex) return;
+        // An edge button becomes disabled after paging. Move focus before that
+        // update so browser arrow keys continue to reach the modal.
+        if (Platform.OS === 'web') rootRef.current?.focus();
         stopMotionPhoto();
         setPagingEnabled(true);
         setCurrentIndex(next);
