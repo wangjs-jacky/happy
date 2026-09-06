@@ -1,5 +1,16 @@
 # Session critical-path acceptance gate
 
+For Phase 2 PR C use [the C1–C7 attribution contract](phase-2-pr-c.md). Its explicit
+`print-phase-2-ego-probe` / `evaluate-phase-2-attribution-json` modes require independent
+cold/warm samples, mandatory app stages, browser-clock route/ready metrics,
+zero retries, and redacted resource paths. Attribution completeness and final
+latency success are separate verdicts; PR D owns the latter.
+
+## Phase 1 compatibility procedure
+
+The commands and two-duration schema below remain the explicit Phase 1 contract.
+Do not mix probe versions in one document or reinterpret Phase 1 JSON as Phase 2.
+
 Task 10 runs this acceptance procedure with the existing authenticated Ego workflow, an online selectable machine, and a known deep-link session. Do not use Playwright or another browser runner.
 
 Before collecting or storing evidence, redact it. Never include login or account data, browser storage, credentials, cookies, tokens, device identifiers, private prompts, internal addresses, server addresses, or screenshots that reveal any of them. Evidence is limited to resource URLs and the two durations below. Use a safe HTTPS origin and known session ID only as command parameters; do not put them into this document or a checked-in evidence file.

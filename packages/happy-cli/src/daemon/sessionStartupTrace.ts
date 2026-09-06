@@ -1,14 +1,16 @@
 import { logger } from '@/ui/logger';
+import { performance } from 'node:perf_hooks';
 
 const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type DaemonStartupTraceContext = {
     traceId: string;
     startedAt: number;
+    lastStageAt: number;
     machineId?: string;
 };
 
-type DaemonStartupStage = 'daemon.spawn.child_started' | 'daemon.spawn.webhook_received';
+type DaemonStartupStage = 'daemon.spawn.request_received' | 'daemon.spawn.child_started' | 'daemon.spawn.webhook_received';
 export type StartupTraceWriter = (label: string, event: Record<string, unknown>) => void;
 
 const defaultWriter: StartupTraceWriter = (label, event) => logger.debug(label, event);
@@ -19,13 +21,15 @@ export function validStartupTraceId(value: unknown): string | undefined {
 
 export function createDaemonStartupTraceContext(
     options: { traceId?: unknown; machineId?: unknown },
-    now: () => number = Date.now,
+    now: () => number = () => performance.now(),
 ): DaemonStartupTraceContext | undefined {
     const traceId = validStartupTraceId(options.traceId);
     if (!traceId) return undefined;
+    const startedAt = now();
     return {
         traceId,
-        startedAt: now(),
+        startedAt,
+        lastStageAt: startedAt,
         ...(typeof options.machineId === 'string' && options.machineId.length > 0
             ? { machineId: options.machineId }
             : {}),
@@ -49,16 +53,20 @@ export function logDaemonStartupStage(
     stage: DaemonStartupStage,
     options: { outcome: 'success' | 'error'; sessionId?: string; errorCode?: string },
     write: StartupTraceWriter = defaultWriter,
-    now: () => number = Date.now,
+    now: () => number = () => performance.now(),
+    wallNow: () => number = Date.now,
 ): void {
     if (!trace) return;
     try {
-        const timestamp = now();
+        const currentStageAt = now();
+        const previousStageAt = trace.lastStageAt;
+        trace.lastStageAt = currentStageAt;
         write('[SESSION STARTUP]', {
             traceId: trace.traceId,
             stage,
-            timestamp,
-            duration: timestamp - trace.startedAt,
+            timestamp: wallNow(),
+            duration: currentStageAt - trace.startedAt,
+            spanDuration: currentStageAt - previousStageAt,
             outcome: options.outcome,
             ...(options.sessionId ? { sessionId: options.sessionId } : {}),
             ...(trace.machineId ? { machineId: trace.machineId } : {}),
@@ -74,7 +82,8 @@ export class DaemonStartupTraceRegistry {
 
     constructor(
         private readonly write: StartupTraceWriter = defaultWriter,
-        private readonly now: () => number = Date.now,
+        private readonly now: () => number = () => performance.now(),
+        private readonly wallNow: () => number = Date.now,
     ) {}
 
     get size(): number {
@@ -95,6 +104,7 @@ export class DaemonStartupTraceRegistry {
             { outcome: 'success', sessionId },
             this.write,
             this.now,
+            this.wallNow,
         );
         return true;
     }

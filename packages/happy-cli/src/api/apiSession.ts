@@ -332,6 +332,14 @@ export class ApiSessionClient extends EventEmitter {
         this.socket.connect();
     }
 
+    processorStarting(): boolean {
+        return this.startupLifecycle?.processorStarting(this.sessionId, this.metadata?.machineId) ?? false;
+    }
+
+    processorReady(): boolean {
+        return this.startupLifecycle?.processorReady(this.sessionId, this.metadata?.machineId) ?? false;
+    }
+
     onUserMessage(callback: (data: UserMessage) => void) {
         this.pendingMessageCallback = callback;
         while (this.pendingMessages.length > 0) {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   mockAuthAndSetupMachineIfNeeded: vi.fn(),
@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   mockExtractCodexResumeFlag: vi.fn(),
   mockExtractNoSandboxFlag: vi.fn(),
   mockEnsureDaemonRunning: vi.fn(),
+  mockLoggerDebug: vi.fn(),
+}))
+
+vi.mock('@/ui/logger', () => ({
+  logger: { debug: mocks.mockLoggerDebug },
 }))
 
 vi.mock('@/ui/auth', () => ({
@@ -35,6 +40,7 @@ describe('handleCodexCommand', () => {
     vi.clearAllMocks()
     mocks.mockAuthAndSetupMachineIfNeeded.mockResolvedValue({
       credentials: { token: 'token' },
+      machineId: 'machine-1',
     })
     mocks.mockExtractNoSandboxFlag.mockImplementation((args: string[]) => ({
       noSandbox: false,
@@ -46,6 +52,36 @@ describe('handleCodexCommand', () => {
     }))
     mocks.mockEnsureDaemonRunning.mockResolvedValue(undefined)
     mocks.mockRunCodex.mockResolvedValue(undefined)
+    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID
+  })
+
+  afterEach(() => {
+    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID
+    vi.restoreAllMocks()
+  })
+
+  it('creates worker timing before auth and passes the same lifecycle through to Codex', async () => {
+    process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001'
+    let authLifecycle: any
+    mocks.mockAuthAndSetupMachineIfNeeded.mockImplementation(async (startupLifecycle) => {
+      authLifecycle = startupLifecycle
+      startupLifecycle.authReady()
+      startupLifecycle.machineReady('machine-1')
+      return { credentials: { token: 'token' }, machineId: 'machine-1' }
+    })
+
+    await handleCodexCommand(['--started-by', 'daemon'])
+
+    const events = mocks.mockLoggerDebug.mock.calls
+      .filter(([label]) => label === '[SESSION STARTUP]')
+      .map(([, event]) => event)
+    expect(events.map((event) => event.stage)).toEqual([
+      'worker.entry.started',
+      'worker.auth.ready',
+      'worker.machine.ready',
+    ])
+    expect(authLifecycle).toBeDefined()
+    expect(mocks.mockRunCodex.mock.calls[0][0].startupLifecycle).toBe(authLifecycle)
   })
 
   it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {

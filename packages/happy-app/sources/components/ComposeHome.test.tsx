@@ -2,7 +2,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
-import { useComposeDraft } from '@/sync/composeDraft';
+import { clearComposeDraft, useComposeDraft } from '@/sync/composeDraft';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     updateFastMode: vi.fn(),
     selectedImages: [] as Array<{ id: string; uri: string }>,
     setSelectedImages: null as React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> | null,
+    imagePickerGeneration: null as null | { currentDraftEpoch(): number; invalidate(): void },
     clearImages: vi.fn(),
     removeImage: vi.fn(),
     setPendingReferences: vi.fn(),
@@ -106,6 +107,7 @@ vi.mock('@/hooks/useImagePicker', async () => {
             const selectedImages = options?.selection?.images ?? localImages;
             const setSelectedImages: React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> = options?.selection?.setImages ?? setLocalImages;
             mocks.setSelectedImages = setSelectedImages;
+            mocks.imagePickerGeneration = options?.selection?.generation ?? null;
             return {
                 selectedImages,
                 pickImages: vi.fn(),
@@ -205,6 +207,7 @@ describe('ComposeHome session hydration recovery', () => {
             { id: 'image-b', uri: 'file:///b.png' },
         ];
         mocks.setSelectedImages = null;
+        mocks.imagePickerGeneration = null;
         useComposeDraft.setState({ text: '', revision: 0, images: mocks.selectedImages as any });
         mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'session-1' });
         mocks.ensureSessionHydrated.mockResolvedValue(false);
@@ -234,6 +237,24 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => { renderer.update(<ComposeHome variant="home" />); });
         await act(async () => { await vi.runAllTimersAsync(); });
         expect(mocks.sessionRouteBecameInteractive).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('wires attachment invalidation to draft replacement without coupling it to text edits', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        const generation = mocks.imagePickerGeneration;
+        expect(generation).not.toBeNull();
+        if (!generation) return;
+        const initialEpoch = generation.currentDraftEpoch();
+
+        act(() => {
+            renderer.root.findByType('MessageComposer').props.onChangeText('text-only edit');
+        });
+        expect(generation.currentDraftEpoch()).toBe(initialEpoch);
+
+        act(() => { clearComposeDraft(); });
+        expect(generation.currentDraftEpoch()).toBeGreaterThan(initialEpoch);
         act(() => renderer.unmount());
     });
 
@@ -276,6 +297,7 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => {
             renderer.root.findByType('MessageComposer').props.onChangeText('Keep this draft');
         });
+        const attachmentEpochBeforeSubmit = mocks.imagePickerGeneration?.currentDraftEpoch();
         await act(async () => {
             renderer.root.findByType('MessageComposer').props.onSend();
             await vi.runAllTimersAsync();
@@ -327,6 +349,7 @@ describe('ComposeHome session hydration recovery', () => {
         expect.soft(renderer.root.findByType('MessageComposer').props.selectedImages).toEqual([
             { id: 'image-c', uri: 'file:///c.png' },
         ]);
+        expect(mocks.imagePickerGeneration?.currentDraftEpoch()).toBeGreaterThan(attachmentEpochBeforeSubmit!);
         act(() => renderer.unmount());
     });
 

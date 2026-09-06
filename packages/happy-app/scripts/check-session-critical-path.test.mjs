@@ -12,6 +12,419 @@ const scriptPath = new URL('./check-session-critical-path.mjs', import.meta.url)
 const origin = 'https://example.test';
 const sessionId = 'known-session-123';
 
+// Literal observations; nearest-rank p50 is item 5 and p95 is item 10.
+const phase2Samples = [
+  { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 1500 },
+  { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 1700 },
+  { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 1800 },
+  { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 1900 },
+  { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 3800 },
+  { kind: 'deep-link', cache: 'warm', retryCount: 0, deepLinkInteractiveMs: 1500 },
+  { kind: 'deep-link', cache: 'warm', retryCount: 0, deepLinkInteractiveMs: 1700 },
+  { kind: 'deep-link', cache: 'warm', retryCount: 0, deepLinkInteractiveMs: 1850 },
+  { kind: 'deep-link', cache: 'warm', retryCount: 0, deepLinkInteractiveMs: 1900 },
+  { kind: 'deep-link', cache: 'warm', retryCount: 0, deepLinkInteractiveMs: 3900 },
+  { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 5000, processorReadyMs: 8000 },
+  { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 6000, processorReadyMs: 8500 },
+  { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 6500, processorReadyMs: 9000 },
+  { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 8000, processorReadyMs: 12000 },
+  { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 9400, processorReadyMs: 13900 },
+  { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 5000, processorReadyMs: 8000 },
+  { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 6000, processorReadyMs: 8500 },
+  { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 6600, processorReadyMs: 9100 },
+  { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 8000, processorReadyMs: 12000 },
+  { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 9500, processorReadyMs: 14000 },
+];
+const phase2Evidence = () => ({ resources: [], samples: structuredClone(phase2Samples) });
+
+test('Phase 2 explicitly reports literal nearest-rank metrics without changing Phase 1', async () => {
+  const evaluate = (await evaluator()).evaluatePhase2CriticalPath;
+  assert.equal(typeof evaluate, 'function');
+  assert.deepEqual(evaluate(phase2Evidence()), {
+    ok: true, sampleCount: 20,
+    deepLink: { min: 1500, p50: 1800, p95: 3900, max: 3900 },
+    spawnRoutePaint: { min: 5000, p50: 6500, p95: 9500, max: 9500 },
+    processorReady: { min: 8000, p50: 9000, p95: 14000, max: 14000 },
+    legacySessionCalls: 0,
+  });
+  await withMeasurement(JSON.stringify(phase2Evidence()), input => {
+    assertFailure(runCli(evaluateArgs(input)), 'INVALID_EVIDENCE');
+    const result = runCli(evaluateArgs(input).map(x => x === 'evaluate-json' ? 'evaluate-phase-2-json' : x));
+    assert.equal(result.status, 0);
+    assert.equal(JSON.parse(result.stdout).sampleCount, 20);
+  });
+});
+
+for (const [field, p50, p95] of [
+  ['deepLinkInteractiveMs', 2000, 4000], ['spawnRoutePaintMs', 7000, 10000], ['processorReadyMs', 10000, 15000],
+]) {
+  for (const percentile of ['p50', 'p95']) {
+    test(`Phase 2 ${field} ${percentile} allows boundary but fails +1 ms`, async () => {
+      const evaluate = (await evaluator()).evaluatePhase2CriticalPath;
+      const evidence = phase2Evidence();
+      const relevant = evidence.samples.filter(sample => field in sample);
+      for (const cache of ['cold', 'warm']) {
+        const group = relevant.filter(sample => sample.cache === cache);
+        if (percentile === 'p50') for (const sample of group) sample[field] = p50;
+        else group[4][field] = p95;
+      }
+      assert.equal(evaluate(evidence).ok, true);
+      if (percentile === 'p50') for (const sample of relevant) sample[field] = p50 + 1;
+      else relevant[9][field] = p95 + 1;
+      assert.equal(evaluate(evidence).ok, false);
+    });
+  }
+}
+
+test('Phase 2 fails latency for a slow cold cohort even if pooled median passes', async () => {
+  const evidence = phase2Evidence();
+  for (const sample of evidence.samples.slice(0, 5)) sample.deepLinkInteractiveMs = 2001;
+  assert.equal((await evaluator()).evaluatePhase2CriticalPath(evidence).ok, false);
+});
+
+for (const kind of ['deep-link', 'spawn']) for (const cache of ['cold', 'warm']) {
+  test(`Phase 2 rejects fewer than five ${cache} ${kind} samples`, async () => {
+    const evidence = phase2Evidence();
+    evidence.samples.splice(evidence.samples.findIndex(s => s.kind === kind && s.cache === cache), 1);
+    assert.throws(() => (globalPhase2)(evidence), { code: 'INSUFFICIENT_SAMPLES' });
+  });
+}
+let globalPhase2;
+test.before(async () => { globalPhase2 = (await evaluator()).evaluatePhase2CriticalPath; });
+
+for (const [label, mutate, code] of [
+  ['retry', e => { e.samples[0].retryCount = 1; }, 'RETRY_DETECTED'],
+  ['missing retry', e => { delete e.samples[0].retryCount; }, 'INVALID_EVIDENCE'],
+  ['fractional retry', e => { e.samples[0].retryCount = 0.5; }, 'INVALID_EVIDENCE'],
+  ['unknown field', e => { e.samples[0].secret = 'private-sentinel'; }, 'INVALID_EVIDENCE'],
+  ['unknown root', e => { e.token = 'private-sentinel'; }, 'INVALID_EVIDENCE'],
+  ['missing duration', e => { delete e.samples[0].deepLinkInteractiveMs; }, 'INVALID_EVIDENCE'],
+  ['mixed duration', e => { e.samples[0].spawnRoutePaintMs = 1; }, 'INVALID_EVIDENCE'],
+  ['missing ready', e => { delete e.samples[10].processorReadyMs; }, 'INVALID_EVIDENCE'],
+  ['unknown kind', e => { e.samples[0].kind = 'unknown'; }, 'INVALID_EVIDENCE'],
+  ['unknown cache', e => { e.samples[0].cache = 'hot'; }, 'INVALID_EVIDENCE'],
+  ['negative', e => { e.samples[0].deepLinkInteractiveMs = -1; }, 'INVALID_EVIDENCE'],
+  ['nonfinite', e => { e.samples[0].deepLinkInteractiveMs = Infinity; }, 'INVALID_EVIDENCE'],
+  ['string', e => { e.samples[0].deepLinkInteractiveMs = '123'; }, 'INVALID_EVIDENCE'],
+  ['raw resource', e => { e.resources = [{ name: 'https://private-sentinel/session/id' }]; }, 'INVALID_EVIDENCE'],
+  ['resource extra field', e => { e.resources = [{ name: 'https://redacted.invalid/resource', token: 'private-sentinel' }]; }, 'INVALID_EVIDENCE'],
+]) {
+  test(`Phase 2 rejects ${label} with a fixed error`, async () => {
+    const evidence = phase2Evidence(); mutate(evidence);
+    assert.throws(() => globalPhase2(evidence), { code });
+    await withMeasurement(JSON.stringify(evidence), input => {
+      assertFailure(runCli(evaluateArgs(input).map(x => x === 'evaluate-json' ? 'evaluate-phase-2-json' : x)), code);
+    });
+  });
+}
+
+test('Phase 2 exact legacy resource fails with a fixed code', () => {
+  const evidence = phase2Evidence();
+  evidence.resources = [{ name: 'https://redacted.invalid/v1/sessions' }];
+  assert.throws(() => globalPhase2(evidence), { code: 'LEGACY_SESSION_REQUEST' });
+});
+
+function accessorObject(entries, throwingField) {
+  const value = {};
+  for (const [key, fieldValue] of Object.entries(entries)) {
+    Object.defineProperty(value, key, {
+      enumerable: true,
+      get() {
+        if (key === throwingField) throw new Error('private-evidence-sentinel');
+        return fieldValue;
+      },
+    });
+  }
+  return value;
+}
+
+function customArray(values) {
+  const value = [...values];
+  Object.setPrototypeOf(value, Object.create(Array.prototype));
+  return value;
+}
+
+test('Phase 2 rejects unsafe direct evaluator objects with only INVALID_EVIDENCE', () => {
+  const base = phase2Evidence();
+  const rootCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), base),
+    Object.assign([], base),
+    accessorObject(base),
+    accessorObject(base, 'resources'),
+  ];
+  const resourcesCases = [
+    customArray([]),
+    Object.assign([], { privateField: 'private-evidence-sentinel' }),
+    Object.defineProperty([], '0', { enumerable: true, get() { throw new Error('private-evidence-sentinel'); } }),
+  ];
+  resourcesCases[2].length = 1;
+  const sampleBase = base.samples[0];
+  const sampleCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), sampleBase),
+    Object.assign([], sampleBase),
+    accessorObject(sampleBase),
+    accessorObject(sampleBase, 'kind'),
+  ];
+  const resourceBase = { name: 'https://redacted.invalid/resource' };
+  const resourceCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), resourceBase),
+    Object.assign([], resourceBase),
+    accessorObject(resourceBase),
+    accessorObject(resourceBase, 'name'),
+  ];
+  const cases = [
+    ...rootCases,
+    ...resourcesCases.map(resources => ({ ...phase2Evidence(), resources })),
+    ...sampleCases.map(sample => ({ ...phase2Evidence(), samples: [sample, ...phase2Evidence().samples.slice(1)] })),
+    ...resourceCases.map(resource => ({ ...phase2Evidence(), resources: [resource] })),
+  ];
+  for (const evidence of cases) {
+    assert.throws(() => globalPhase2(evidence), error => {
+      assert.equal(error.code, 'INVALID_EVIDENCE');
+      assert.equal(error.message, 'INVALID_EVIDENCE');
+      assert.doesNotMatch(`${error}\n${error.stack}`, /private-evidence-sentinel/);
+      return true;
+    });
+  }
+});
+
+function phase2Probe() {
+  const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-phase-2-ego-probe']);
+  assert.equal(result.status, 0);
+  let time = 0;
+  const observer = createObserverHarness();
+  const context = { ...browserRequests(), PerformanceObserver: observer.PerformanceObserver,
+    performance: { now: () => time, getEntriesByType: type => type === 'navigation' ? [{ startTime: 0 }] : [] } };
+  return { probe: vm.runInNewContext(result.stdout, context), context, observer, at: value => { time = value; } };
+}
+
+test('Phase 2 rejects every pre-existing partial or fabricated document probe', () => {
+  const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-phase-2-ego-probe']);
+  assert.equal(result.status, 0);
+  const methods = [
+    'configureSample', 'initFreshDeepLink', 'startNewTextSession', 'markAppStage',
+    'markFreshHeaderVisible', 'markFreshLatestMessageComplete', 'markNewSessionEvent',
+    'markLocalQueue', 'markRouteNavigation', 'markProcessorReady', 'markFirstAgentEvent',
+    'markTurnCompletion', 'markRetry', 'collect',
+  ];
+  const fabricated = Object.fromEntries(methods.map(method => [method, () => ({ resources: [], samples: [] })]));
+  for (const existing of [{}, { phase: 2 }, { phase: 2, ...fabricated }]) {
+    assert.throws(() => vm.runInNewContext(result.stdout, { __happySessionCriticalPathProbe: existing }), {
+      code: 'INVALID_PROBE_MODE',
+    });
+  }
+});
+
+test('Phase 2 permanently rejects replacement of the installed probe global', () => {
+  const h = phase2Probe();
+  h.probe.configureSample({ kind: 'spawn', cache: 'cold' });
+  h.context.__happySessionCriticalPathProbe = { phase: 2 };
+  assert.throws(() => h.probe.startNewTextSession(), { code: 'RESOURCE_COLLECTION_FAILED' });
+  h.context.__happySessionCriticalPathProbe = h.probe;
+  assert.throws(() => h.probe.startNewTextSession(), { code: 'RESOURCE_COLLECTION_FAILED' });
+});
+
+test('Phase 2 rejects inherited classification, arrays and throwing classification accessors', () => {
+  const inherited = Object.assign(Object.create({ kind: 'spawn', cache: 'cold' }), { private: 1, extra: 2 });
+  const array = Object.assign([], { kind: 'spawn', cache: 'cold' });
+  const accessor = { get kind() { throw new Error('private-sentinel'); }, cache: 'cold' };
+  for (const value of [inherited, array, accessor]) {
+    const h = phase2Probe();
+    assert.throws(() => h.probe.configureSample(value), { code: 'INVALID_SAMPLE' });
+    assert.throws(() => h.probe.collect(), { code: 'INVALID_SAMPLE' });
+  }
+});
+
+function deepStages(harness) {
+  const { probe, at } = harness;
+  probe.configureSample({ kind: 'deep-link', cache: 'cold' });
+  at(100); probe.initFreshDeepLink();
+  at(110); probe.markAppStage('web.fonts.critical_ready');
+  at(120); probe.markAppStage('web.crypto.ready');
+  at(130); probe.markAppStage('web.credentials.ready');
+  at(140); probe.markFreshHeaderVisible();
+  at(150); probe.markAppStage('web.session.snapshot_started');
+  at(160); probe.markAppStage('web.session.snapshot_completed');
+  at(170); probe.markAppStage('web.messages.latest_started');
+  at(180); probe.markAppStage('web.messages.latest_completed');
+  at(190); probe.markAppStage('web.session.store_committed');
+}
+
+test('Phase 2 retains immutable identifier-free stage durations after later samples start', () => {
+  const h = phase2Probe(); deepStages(h);
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  const sample = h.probe.collect().samples[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(sample.stages)), [
+    { stage: 'web.deep_link.navigation_started', duration: 0 },
+    { stage: 'web.root.module_ready', duration: 100 },
+    { stage: 'web.fonts.critical_ready', duration: 110 },
+    { stage: 'web.crypto.ready', duration: 120 },
+    { stage: 'web.credentials.ready', duration: 130 },
+    { stage: 'web.route.mounted', duration: 140 },
+    { stage: 'web.session.snapshot_started', duration: 150 },
+    { stage: 'web.session.snapshot_completed', duration: 160 },
+    { stage: 'web.messages.latest_started', duration: 170 },
+    { stage: 'web.messages.latest_completed', duration: 180 },
+    { stage: 'web.session.store_committed', duration: 190 },
+    { stage: 'web.session.latest_message_painted', duration: 200 },
+  ]);
+  assert.ok(Object.isFrozen(sample.stages));
+  assert.ok(sample.stages.every(Object.isFrozen));
+  assert.throws(() => { sample.stages[0].duration = 999; }, TypeError);
+  h.probe.configureSample({ kind: 'spawn', cache: 'warm' });
+  h.at(1000); h.probe.startNewTextSession();
+  assert.equal(sample.stages.at(-1).duration, 200);
+});
+
+test('Phase 2 attribution gate requires valid causal stage evidence and stays independent of latency', async () => {
+  const { evaluatePhase2Attribution } = await evaluator();
+  assert.equal(typeof evaluatePhase2Attribution, 'function');
+  const h = phase2Probe(); deepStages(h);
+  h.at(50000); h.probe.markFreshLatestMessageComplete();
+  const deep = JSON.parse(JSON.stringify(h.probe.collect().samples[0]));
+  const spawn = {
+    kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 500, processorReadyMs: 100,
+    stages: [
+      { stage: 'web.spawn.clicked', duration: 0 }, { stage: 'web.processor.ready_received', duration: 100 },
+      { stage: 'web.session.hydrated', duration: 200 }, { stage: 'web.first_message.queued', duration: 300 },
+      { stage: 'web.session.navigated', duration: 400 }, { stage: 'web.session.route_painted', duration: 500 },
+      { stage: 'web.first_agent_event_received', duration: 600 }, { stage: 'web.turn.completed', duration: 700 },
+    ],
+  };
+  const evidence = { resources: [], samples: ['cold', 'warm'].flatMap(cache => [deep, spawn].flatMap(sample =>
+    Array.from({ length: 5 }, () => ({ ...structuredClone(sample), cache })))) };
+  assert.equal(evaluatePhase2Attribution(evidence).ok, true);
+  assert.equal(globalPhase2(evidence).ok, false);
+  for (const mutate of [
+    s => { delete s.stages; }, s => s.stages.pop(),
+    s => s.stages.push({ ...s.stages[0] }),
+    s => { s.stages[1].stage = 'private-sentinel'; },
+    s => { s.stages[1].duration = -1; }, s => { s.stages[1].duration = Infinity; },
+    s => { s.stages[1].duration = '100'; }, s => { s.stages[1].secret = 'private-sentinel'; },
+    s => { s.stages[2].duration = 99; }, s => { s.stages[1].duration = 50001; },
+    s => { s.stages[1] = accessorObject(s.stages[1], 'duration'); },
+    s => { s.stages = customArray(s.stages); },
+    s => { s.deepLinkInteractiveMs = 1; },
+  ]) {
+    const invalid = structuredClone(evidence); mutate(invalid.samples[0]);
+    assert.throws(() => evaluatePhase2Attribution(invalid), { code: 'INVALID_EVIDENCE' });
+  }
+  await withMeasurement(JSON.stringify(evidence), input => {
+    const result = runCli(evaluateArgs(input).map(x => x === 'evaluate-json' ? 'evaluate-phase-2-attribution-json' : x));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).ok, true);
+  });
+});
+
+test('Phase 2 consumes app stages and freezes independent redacted samples', async () => {
+  const h = phase2Probe(); deepStages(h);
+  h.observer.emit([{ name: 'https://secret.example/private-sentinel?token=private', startTime: 155 }]);
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  const first = h.probe.collect();
+  assert.equal(Object.isFrozen(first.samples[0]), true);
+  h.probe.configureSample({ kind: 'spawn', cache: 'warm' });
+  h.at(1000); h.probe.startNewTextSession();
+  h.at(1100); h.probe.markNewSessionEvent();
+  h.at(1200); h.probe.markLocalQueue();
+  h.at(1300); h.probe.markAppStage('web.session.navigated');
+  h.at(1500); h.probe.markRouteNavigation();
+  h.at(1800); h.probe.markProcessorReady();
+  h.at(1900); h.probe.markFirstAgentEvent();
+  h.at(2100); h.probe.markTurnCompletion();
+  await h.context.fetch('/v1/sessions'); // After frozen intervals must be excluded.
+  const collected = JSON.parse(JSON.stringify(h.probe.collect()));
+  assert.deepEqual({ ...collected, samples: collected.samples.map(({ stages, ...sample }) => sample) }, {
+    resources: [{ name: 'https://redacted.invalid/resource' }],
+    samples: [
+      { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 200 },
+      { kind: 'spawn', cache: 'warm', retryCount: 0, spawnRoutePaintMs: 500, processorReadyMs: 800 },
+    ],
+  });
+  assert.equal(first.samples.length, 1);
+});
+
+for (const [label, action, code] of [
+  ['missing stage', h => h.probe.collect(), 'MISSING_APP_STAGE'],
+  ['duplicate stage', h => h.probe.markAppStage('web.crypto.ready'), 'DUPLICATE_APP_STAGE'],
+  ['unknown stage', h => h.probe.markAppStage('private-sentinel'), 'INVALID_APP_STAGE'],
+  ['out of order', h => { h.at(10); h.probe.markFreshLatestMessageComplete(); }, 'OUT_OF_ORDER_APP_STAGE'],
+  ['hidden retry', h => h.probe.initFreshDeepLink(), 'RETRY_DETECTED'],
+]) {
+  test(`Phase 2 latches ${label} even when the app bridge catches the error`, () => {
+    const h = phase2Probe(); deepStages(h);
+    assert.throws(() => action(h), { code });
+    assert.throws(() => h.probe.collect(), { code });
+  });
+}
+
+test('Phase 2 records a reported real spawn retry for evaluator rejection', () => {
+  const h = phase2Probe();
+  h.probe.configureSample({ kind: 'spawn', cache: 'cold' });
+  h.at(1000); h.probe.startNewTextSession();
+  h.at(1050); h.probe.markRetry();
+  h.at(1100); h.probe.markNewSessionEvent();
+  h.at(1200); h.probe.markLocalQueue();
+  h.at(1300); h.probe.markAppStage('web.session.navigated');
+  h.at(1500); h.probe.markRouteNavigation();
+  h.at(1800); h.probe.markProcessorReady();
+  h.at(1900); h.probe.markFirstAgentEvent();
+  h.at(2100); h.probe.markTurnCompletion();
+  const evidence = JSON.parse(JSON.stringify(h.probe.collect()));
+  assert.deepEqual(evidence.samples.map(({ stages, ...sample }) => sample), [
+    { kind: 'spawn', cache: 'cold', retryCount: 1, spawnRoutePaintMs: 500, processorReadyMs: 800 },
+  ]);
+  assert.throws(() => globalPhase2(evidence), { code: 'RETRY_DETECTED' });
+});
+
+test('Phase 2 rejects completed operations before their start', () => {
+  const h = phase2Probe();
+  h.probe.configureSample({ kind: 'deep-link', cache: 'cold' }); h.probe.initFreshDeepLink();
+  assert.throws(() => h.probe.markAppStage('web.messages.latest_completed'), { code: 'OUT_OF_ORDER_APP_STAGE' });
+});
+
+test('Phase 2 rejects duplicate producer route/store events rather than hiding them', () => {
+  for (const stage of ['web.route.mounted', 'web.session.store_committed']) {
+    const h = phase2Probe(); deepStages(h);
+    assert.throws(() => h.probe.markAppStage(stage), { code: 'DUPLICATE_APP_STAGE' });
+    assert.throws(() => h.probe.collect(), { code: 'DUPLICATE_APP_STAGE' });
+  }
+});
+
+test('Phase 2 pending exact-path legacy calls are redacted; subpaths are allowed', async () => {
+  const h = phase2Probe(); deepStages(h);
+  await h.context.fetch('/v1/sessions/one?private-sentinel');
+  await h.context.fetch('/v1/sessions?private-sentinel');
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.probe.collect().resources)), [{ name: 'https://redacted.invalid/v1/sessions' }]);
+});
+
+test('Phase 2 rejects instrumentation replacement', () => {
+  const h = phase2Probe(); deepStages(h);
+  h.context.fetch = () => undefined;
+  assert.throws(() => h.probe.collect(), { code: 'RESOURCE_COLLECTION_FAILED' });
+});
+
+test('Phase 2 deep-link paint does not require unrelated spawn navigation', () => {
+  const h = phase2Probe(); deepStages(h);
+  h.probe.markRouteNavigation();
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  assert.equal(h.probe.collect().samples[0].deepLinkInteractiveMs, 200);
+});
+
+test('Phase 2 can boot on the compose page before explicitly arming a spawn sample', () => {
+  const h = phase2Probe();
+  h.probe.initFreshDeepLink();
+  h.probe.markAppStage('web.fonts.critical_ready');
+  h.probe.configureSample({ kind: 'spawn', cache: 'cold' });
+  h.probe.startNewTextSession();
+  h.probe.markAppStage('web.session.snapshot_started');
+  h.probe.markAppStage('web.session.snapshot_completed');
+  h.probe.markNewSessionEvent(); h.probe.markLocalQueue();
+  h.probe.markAppStage('web.session.navigated'); h.probe.markRouteNavigation();
+  h.probe.markProcessorReady(); h.probe.markFirstAgentEvent(); h.probe.markTurnCompletion();
+  assert.equal(h.probe.collect().samples[0].kind, 'spawn');
+});
+
 function browserRequests() {
   return {
     document: { readyState: 'loading', scripts: [], baseURI: origin },

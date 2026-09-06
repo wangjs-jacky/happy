@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     sessionRouteBecameInteractive: vi.fn(),
     navigateToSession: vi.fn(),
     pathname: '/session/older',
+    platform: 'web',
     sessions: [
         { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session' },
         { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session' },
@@ -29,6 +30,7 @@ vi.mock('react-native', async () => {
                 renderItem({ item, index }),
             )),
         ),
+        Platform: { get OS() { return mocks.platform; } },
         Pressable: ({ children, ...props }: any) => ReactModule.createElement(
             'Pressable',
             props,
@@ -79,6 +81,7 @@ describe('SessionHistoryList', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date(2026, 8, 4, 12));
         mocks.pathname = '/session/older';
+        mocks.platform = 'web';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -111,14 +114,61 @@ describe('SessionHistoryList', () => {
         act(() => renderer.unmount());
     });
 
-    it('requests the next history page only when the sidebar reaches its near-end threshold', () => {
+    it('ignores native offset changes without a drag and consumes one native drag', () => {
+        mocks.platform = 'ios';
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
 
         const list = renderer.root.findByType('FlatList');
         expect(list.props.onEndReachedThreshold).toBe(0.5);
+        act(() => list.props.onScroll?.({ nativeEvent: { contentOffset: { y: 120 } } }));
+        act(() => list.props.onEndReached());
         expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
         act(() => list.props.onScrollBeginDrag());
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+        act(() => list.props.onScroll?.({ nativeEvent: { contentOffset: { y: 240 } } }));
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.unmount());
+    });
+
+    it('clears pending intent and prior offset when the internal list disappears and reappears', () => {
+        const previous = mocks.sessions;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="page" />); });
+
+        const initialList = renderer.root.findByType('FlatList');
+        act(() => initialList.props.onScroll({ nativeEvent: { contentOffset: { y: 120 } } }));
+
+        mocks.sessions = [];
+        act(() => renderer.update(<SessionHistoryList variant="sidebar" />));
+        expect(renderer.root.findAllByType('FlatList')).toHaveLength(0);
+
+        mocks.sessions = previous;
+        act(() => renderer.update(<SessionHistoryList variant="page" />));
+        const remountedList = renderer.root.findByType('FlatList');
+        act(() => remountedList.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
+
+        act(() => remountedList.props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } }));
+        act(() => remountedList.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
+
+        act(() => renderer.unmount());
+    });
+
+    it('consumes a changed Web scroll offset once without a native drag callback', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
+
+        const list = renderer.root.findByType('FlatList');
+        act(() => list.props.onScroll({ nativeEvent: { contentOffset: { y: 120 } } }));
+        expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+
         act(() => list.props.onEndReached());
         expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
 

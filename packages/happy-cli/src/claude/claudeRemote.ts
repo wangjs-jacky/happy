@@ -26,6 +26,8 @@ export async function claudeRemote(opts: {
     canCallTool: (toolName: string, input: unknown, mode: EnhancedMode, options: { signal: AbortSignal; toolUseID: string }) => Promise<PermissionResult>,
     /** Called when the Query object is ready — allows permission handler to call setPermissionMode */
     onQueryReady?: (query: { setPermissionMode: (mode: string) => Promise<void> }) => void,
+    /** Backend control handshake completed; independent of model output. */
+    onProcessorReady?: () => void,
     /** Path to temporary settings file with SessionStart hook (required for session tracking) */
     hookSettingsPath: string,
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
@@ -175,6 +177,11 @@ export async function claudeRemote(opts: {
 
     updateThinking(true);
     try {
+        // query() constructs the SDK client synchronously. Only its initialize
+        // response proves that the real child/backend has started and accepts
+        // the already-installed streaming input/permission handlers.
+        await response.initializationResult();
+        opts.onProcessorReady?.();
         logger.debug(`[claudeRemote] Starting to iterate over response`);
 
         for await (const message of response) {

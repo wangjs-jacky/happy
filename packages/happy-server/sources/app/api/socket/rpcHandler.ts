@@ -3,6 +3,7 @@ import { Server, Socket } from "socket.io";
 import type { RemoteSocket } from "socket.io";
 import type { DefaultEventsMap } from "socket.io/dist/typed-events";
 import { Counter, Histogram, register } from 'prom-client';
+import { performance } from 'node:perf_hooks';
 
 // RPC routing uses Socket.IO rooms. A daemon registering method M for user U
 // joins room `rpc:U:M`. Callers look the daemon up cross-replica via
@@ -52,6 +53,7 @@ function logServerStartupStage(event: {
     stage: ServerStartupTraceStage;
     timestamp: number;
     duration?: number;
+    spanDuration?: number;
     outcome: 'success' | 'error';
     machineId?: string;
     errorCode?: string;
@@ -61,6 +63,7 @@ function logServerStartupStage(event: {
         stage: event.stage,
         timestamp: event.timestamp,
         ...(event.duration !== undefined ? { duration: event.duration } : {}),
+        ...(event.spanDuration !== undefined ? { spanDuration: event.spanDuration } : {}),
         outcome: event.outcome,
         ...(event.machineId ? { machineId: event.machineId } : {}),
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
@@ -211,13 +214,14 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
     });
 
     socket.on('rpc-call', async (data: any, callback: (response: any) => void) => {
-        const startTime = Date.now();
+        const startTime = performance.now();
+        const startTimestamp = Date.now();
         const { method, params } = data ?? {};
         const traceId = startupTraceId(data?.traceId);
         const machineId = typeof method === 'string' ? machineIdFromMethod(method) : undefined;
 
         const finish = (result: string) => {
-            const durationSec = (Date.now() - startTime) / 1000;
+            const durationSec = (performance.now() - startTime) / 1000;
             const m = baseMethodName(method || 'unknown');
             rpcCallCounter.inc({ method: m, result });
             rpcCallDuration.observe({ method: m, result }, durationSec);
@@ -234,7 +238,9 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
                 logServerStartupStage({
                     traceId,
                     stage: 'server.rpc.received',
-                    timestamp: startTime,
+                    timestamp: startTimestamp,
+                    duration: 0,
+                    spanDuration: 0,
                     outcome: 'success',
                     machineId,
                 });
@@ -253,11 +259,13 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
             if (targets.length === 0) {
                 if (traceId && baseMethodName(method) === 'spawn-happy-session') {
                     const timestamp = Date.now();
+                    const duration = performance.now() - startTime;
                     logServerStartupStage({
                         traceId,
                         stage: 'server.rpc.daemon_found',
                         timestamp,
-                        duration: timestamp - startTime,
+                        duration,
+                        spanDuration: duration,
                         outcome: 'error',
                         machineId,
                         errorCode: 'daemon-not-available',
@@ -275,11 +283,13 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
             const target = targets[0];
             if (traceId && baseMethodName(method) === 'spawn-happy-session') {
                 const timestamp = Date.now();
+                const duration = performance.now() - startTime;
                 logServerStartupStage({
                     traceId,
                     stage: 'server.rpc.daemon_found',
                     timestamp,
-                    duration: timestamp - startTime,
+                    duration,
+                    spanDuration: duration,
                     outcome: 'success',
                     machineId,
                 });

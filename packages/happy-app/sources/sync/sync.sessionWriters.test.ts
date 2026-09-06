@@ -120,8 +120,8 @@ beforeEach(() => {
     subject.pendingOutbox.clear();
     subject.sessionMessageLoadGate = new SessionMessageLoadGate();
     subject.sessionMessageRetention = new SessionMessageRetention(3);
-    subject.sessionLastSeq.clear();
-    subject.sessionOldestSeq.clear();
+    subject.sessionMessageFrontiers.clear();
+    subject.sessionCachedMessageSeqs.clear();
     subject.sessionsSync = { awaitQueue: async () => undefined };
     mocks.fetchSnapshot.mockResolvedValue(snapshot());
     mocks.apiRequest.mockResolvedValue({ ok: true, json: async () => ({ messages: [], hasMore: false }) });
@@ -139,7 +139,7 @@ describe('real session writer composition', () => {
         await subject.handleUpdate(envelope({ t: 'delete-session', sid: 'writer-session' }, 9001));
         response.resolve({ ok: true, json: async () => ({ messages: [{ seq: 3 }] }) });
         await flush;
-        expect(subject.sessionLastSeq.has('writer-session')).toBe(false);
+        expect(subject.sessionMessageFrontiers.has('writer-session')).toBe(false);
     });
 
     it('cannot apply an old full replacement to a new encryption owner', async () => {

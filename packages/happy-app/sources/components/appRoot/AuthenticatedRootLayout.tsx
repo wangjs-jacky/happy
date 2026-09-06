@@ -43,6 +43,7 @@ import { shouldPresentNotification } from '@/utils/notificationPresentation';
 import { PublicSessionShareJobResumer } from '@/components/PublicSessionShareJobResumer';
 import { retryPublicSessionShareJob } from '@/sync/publicSessionShareQueueRuntime';
 import { UnifiedAuthQrCodeProvider } from '@/hooks/useUnifiedAuthQrCode';
+import { markSessionCriticalPathAppStage } from '@/sync/sessionCriticalPathProbeBridge';
 
 Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
@@ -76,6 +77,7 @@ if (Platform.OS === 'android') {
 }
 
 initConsoleLogging();
+markSessionCriticalPathAppStage('web.root.module_ready');
 
 function HorizontalSafeAreaWrapper({ children }: { children: React.ReactNode }) {
     const insets = useSafeAreaInsets();
@@ -143,6 +145,7 @@ export default function AuthenticatedRootLayout() {
                     console.log('[fonts] Loading timed out; continuing with fallback fonts.', error);
                 }
                 await sodium.ready;
+                markSessionCriticalPathAppStage('web.crypto.ready');
                 let credentials = await TokenStorage.getCredentials();
                 const devCredentials = getDevWebQueryCredentials() ?? getDevEnvironmentCredentials();
                 if (devCredentials) {
@@ -152,6 +155,7 @@ export default function AuthenticatedRootLayout() {
                         window.history.replaceState({}, '', window.location.pathname);
                     }
                 }
+                markSessionCriticalPathAppStage('web.credentials.ready');
                 if (credentials) await syncRestore(credentials);
                 setInitState({ credentials });
             } catch (error) {
