@@ -9,23 +9,48 @@ export type TranscriptReadingAdapter = {
     save: (state: ReadingState) => Promise<unknown> | void;
     wireId: (renderedId: string) => string | null;
     wireSeq: (renderedId: string) => number | null;
+    blockKey?: (renderedId: string) => string | null;
 };
 export const itemMessages = (item: DisplayItem) => item.type === 'message' ? [item.message] : item.messages;
 export function expandedGroupKeys(items: DisplayItem[], collapsed: Set<string>, wireId: TranscriptReadingAdapter['wireId']) {
     return items.flatMap(item => {
         if ((item.type !== 'tool-group' && item.type !== 'agent-work-group') || collapsed.has(item.id)) return [];
-        const wire = item.messages.map(message => wireId(message.id)).find(Boolean);
-        return wire ? [JSON.stringify([item.type, wire])] : [];
+        const members = [...new Set(item.messages.map(message => wireId(message.id)).filter((id): id is string => id !== null))].slice(-300);
+        return members.length ? [JSON.stringify([item.type, members])] : [];
     });
 }
 export function groupIsExpanded(item: DisplayItem, keys: string[], wireId: TranscriptReadingAdapter['wireId']) {
-    return itemMessages(item).some(message => {
-        const wire = wireId(message.id);
-        return wire && keys.includes(JSON.stringify([item.type, wire]));
-    });
+    const members = new Set(itemMessages(item).map(message => wireId(message.id)));
+    return keys.some(key => { const group = parseGroupKey(key); return group?.type === item.type && group.members.some(id => members.has(id)); });
 }
-export function findAnchorIndex(items: DisplayItem[], wire: string, wireId: TranscriptReadingAdapter['wireId']) {
-    return items.findIndex(item => itemMessages(item).some(message => wireId(message.id) === wire));
+function parseGroupKey(key: string): { type: string; members: string[] } | null {
+    try {
+        const [type, stored] = JSON.parse(key);
+        const members = Array.isArray(stored) ? stored : [stored]; // legacy one-member key
+        return typeof type === 'string' && members.every(id => typeof id === 'string') ? { type, members } : null;
+    } catch { return null; }
+}
+/** An expansion is one bounded alias set, not independent booleans per member.
+ * Collapsing any surviving part removes its trimmed members' aliases as well. */
+export function setGroupExpansion(keys: string[], item: DisplayItem, expanded: boolean, wireId: TranscriptReadingAdapter['wireId']) {
+    const members = new Set(itemMessages(item).map(message => wireId(message.id)).filter((id): id is string => id !== null));
+    const matching = keys.filter(key => { const parsed = parseGroupKey(key); return parsed?.type === item.type && parsed.members.some(id => members.has(id)); });
+    const next = keys.filter(key => !matching.includes(key));
+    if (expanded && members.size) {
+        // Put currently rendered members last so repeated observation of an
+        // oversized group cannot rotate the bounded alias set indefinitely.
+        const aliases = [...new Set([...matching.flatMap(key => parseGroupKey(key)?.members ?? []).filter(id => !members.has(id)), ...members])].slice(-300);
+        const encoded = JSON.stringify([item.type, aliases]);
+        if (matching.length === 1 && matching[0] === encoded) return keys;
+        next.push(encoded);
+    }
+    const bounded = next.slice(-256);
+    return bounded.length === keys.length && bounded.every((key, index) => key === keys[index]) ? keys : bounded;
+}
+export function findAnchorIndex(items: DisplayItem[], wire: string, wireId: TranscriptReadingAdapter['wireId'], block?: string,
+    blockKey?: TranscriptReadingAdapter['blockKey']) {
+    return items.findIndex(item => itemMessages(item).some(message => wireId(message.id) === wire
+        && (block === undefined || blockKey?.(message.id) === block)));
 }
 
 type Measurable = { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void };
@@ -34,6 +59,7 @@ export const TranscriptReadingContext = React.createContext<Markers | null>(null
 export const TranscriptGroupExpansionContext = React.createContext<{
     isExpanded: (item: DisplayItem) => boolean;
     toggle: (item: DisplayItem) => void;
+    observe?: (item: DisplayItem) => void;
 } | null>(null);
 export function TranscriptReadingMarker(props: { messageId: string; depth?: number; children: React.ReactNode }) {
     const markers = React.useContext(TranscriptReadingContext);
@@ -106,6 +132,7 @@ export function useTranscriptReading(options: {
             .sort((a, b) => b.depth - a.depth || Math.abs(a.bounds.y - viewport.y) - Math.abs(b.bounds.y - viewport.y))[0];
         if (!row) return;
         latest.current = { version: 1, anchorId: adapter.wireId(row.id)!, anchorSeq: adapter.wireSeq(row.id)!,
+            ...(adapter.blockKey?.(row.id) != null ? { anchorBlock: adapter.blockKey(row.id)! } : {}),
             offset: row.bounds.y - viewport.y, expandedGroupIds: current.current.expanded, followLatest: following.current && current.current.isAtLatest };
         persist();
     }, [measurements, persist]);
@@ -116,9 +143,10 @@ export function useTranscriptReading(options: {
         const owner = generation.current;
         const result = await measurements();
         if (!result || owner !== generation.current || target !== pending.current) return;
-        const row = result.rows.filter(row => adapter.wireId(row.id) === target.anchorId).sort((a, b) => b.depth - a.depth)[0];
+        const row = result.rows.filter(row => adapter.wireId(row.id) === target.anchorId
+            && (target.anchorBlock === undefined || adapter.blockKey?.(row.id) === target.anchorBlock)).sort((a, b) => b.depth - a.depth)[0];
         if (!row) {
-            const index = findAnchorIndex(items, target.anchorId, adapter.wireId);
+            const index = findAnchorIndex(items, target.anchorId, adapter.wireId, target.anchorBlock, adapter.blockKey);
             if (index >= 0 && mountedTarget.current !== target.anchorId) {
                 mountedTarget.current = target.anchorId;
                 listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });

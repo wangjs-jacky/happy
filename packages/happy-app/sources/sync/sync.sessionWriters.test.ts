@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiSessionSnapshot } from './apiTypes';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
-import { subscribeLocalHistoryInvalidation } from './localHistoryStore';
+import { openLocalHistory, subscribeLocalHistoryInvalidation } from './localHistoryStore';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -133,6 +134,43 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real session writer composition', () => {
+    it('keeps a historical send stable through ACK and includes its accepted ciphertext after explicit latest navigation', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        await sync.ensureSessionHydrated('writer-session');
+        const sessionEncryption = subject.encryption.getSessionEncryption('writer-session');
+        vi.spyOn(sessionEncryption, 'encryptRawRecord').mockImplementation(async value => JSON.stringify(value));
+        vi.spyOn(sessionEncryption, 'createDetached').mockReturnValue({ decryptMessages: async (rows: any[]) => rows.map(row => ({
+            ...row, content: JSON.parse(row.content.c),
+        })) });
+        vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+        const history = (await openLocalHistory('server|historical-send'))!; subject.localHistory = history;
+        const old = { id: 'old-wire', seq: 1, localId: null, createdAt: 1, updatedAt: 1,
+            content: { t: 'encrypted' as const, c: JSON.stringify({ role: 'user', content: { type: 'text', text: 'old reading' } }) } };
+        await history.commitPage('writer-session', { direction: 'older', boundary: 2, messages: [old], hasMore: false });
+        const lease = subject.sessionMessageLoadGate.enter('writer-session');
+        await subject.applyHistoryWindow('writer-session', await history.readWindow('writer-session', { anchorSeq: 1 }), subject.sessionMessageLoadGate.begin(lease));
+        const historicalRows = storage.getState().sessionMessages['writer-session'].messages;
+        const receipt = await sync.sendMessage('writer-session', 'accepted while reading');
+        expect(receipt.type).toBe('queued');
+        mocks.apiRequest.mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [{ id: 'accepted-wire', seq: 2,
+            localId: receipt.localIds[0], createdAt: 2, updatedAt: 2 }] }) });
+        await subject.flushOutbox('writer-session');
+        expect(subject.pendingOutbox.has('writer-session')).toBe(false);
+        expect(storage.getState().sessionMessages['writer-session'].messages).toBe(historicalRows);
+        expect(subject.historyWindows.get('writer-session').newestSeq).toBe(1);
+        const accepted = (await history.readWindow('writer-session', { anchorSeq: 2 }))?.messages.find(row => row.id === 'accepted-wire');
+        expect(accepted).toBeDefined();
+        // No certified tail existed in the historical-only archive. A real
+        // latest-page response must include the server's accepted record.
+        mocks.apiRequest.mockImplementation(async (url: string) => ({ ok: true, json: async () => ({
+            messages: url.includes('before_seq=') ? [old, accepted] : [], hasMore: false,
+        }) }));
+        await sync.jumpToLatestMessages('writer-session');
+        expect(storage.getState().sessionMessages['writer-session'].isAtLatest).toBe(true);
+        expect(storage.getState().sessionMessages['writer-session'].messages.some(row => row.kind === 'user-text' && row.text === 'accepted while reading')).toBe(true);
+        expect(subject.historyWindows.get('writer-session').messages.some((row: any) => row.id === 'accepted-wire')).toBe(true);
+        history.close();
+    });
     it('queues a historical send without inserting current-turn rows into the reading window', async () => {
         await sync.ensureSessionHydrated('writer-session');
         vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });

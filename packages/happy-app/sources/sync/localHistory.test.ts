@@ -92,7 +92,14 @@ describe('local encrypted history archive', () => {
         expect(middle?.hasMoreOlder).toBe(true);
         expect(middle?.hasMoreNewer).toBe(true);
         expect((await a!.readReadingState('s'))?.expandedGroupIds).toEqual(['g1']);
-        expect((await a!.readWindow('s'))?.isAtLatest).toBe(true);
+        expect((await a!.readReadingState('s'))?.anchorBlock).toBeUndefined();
+        await a!.writeReadingState('s', { version: 1, anchorId: 'm150', anchorSeq: 150,
+            anchorBlock: 'text:1', offset: -200, expandedGroupIds: ['g1'] });
+        a!.close();
+        const reopened = (await openLocalHistory('server|a'))!;
+        expect(await reopened.readReadingState('s')).toMatchObject({ anchorBlock: 'text:1', offset: -200 });
+        expect((await reopened.readWindow('s'))?.isAtLatest).toBe(true);
+        reopened.close();
     });
     it('degrades safely when IndexedDB is unavailable', async () => {
         const previous = globalThis.indexedDB;

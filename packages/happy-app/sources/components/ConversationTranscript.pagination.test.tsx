@@ -11,6 +11,7 @@ const sessionState = vi.hoisted(() => ({
     messages: [] as Message[], isLoaded: true, hasMoreOlder: true, isLoadingOlder: false,
     hasMoreNewer: false, isLoadingNewer: false, isAtLatest: true,
 }));
+const grouped = vi.hoisted(() => ({ items: null as any[] | null }));
 vi.mock('@/sync/storage', () => ({
     useSessionMessages: () => sessionState,
     useSession: () => ({ id: 'session', metadata: null }),
@@ -55,7 +56,7 @@ vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: { text: '#fff' } } }),
 }));
 vi.mock('@/hooks/useGroupedMessages', () => ({
-    useGroupedMessages: (messages: Message[]) => messages.map((message) => ({ type: 'message', id: message.id, message })),
+    useGroupedMessages: (messages: Message[]) => grouped.items ?? messages.map((message) => ({ type: 'message', id: message.id, message })),
     isSessionTurnActive: () => false,
 }));
 vi.mock('@/utils/messageForkPoint', () => ({ getAgentMessageForkTargets: () => new Map() }));
@@ -76,6 +77,7 @@ describe('ConversationTranscript older history pagination', () => {
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
+        grouped.items = null;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const originalConsoleError = console.error;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -285,5 +287,27 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => { vi.advanceTimersByTime(500); });
         expect(scrollToIndex).not.toHaveBeenCalled();
         act(() => renderer.unmount()); vi.useRealTimers();
+    });
+
+    it('persists expanded A/B/C through trimming A, then persists manual collapse when reopening', async () => {
+        const group = (id: string, ids: string[]) => ({ type: 'tool-group', id, messages: ids.map(userMessage), hasRunning: false, hasPendingPermission: false });
+        grouped.items = [group('random-original', ['A', 'B', 'C'])];
+        let saved: any = { version: 1, anchorId: 'B', anchorSeq: 2, offset: 0, expandedGroupIds: [], followLatest: false };
+        const adapter = { key: 'owner/session', read: async () => saved, save: (value: any) => { saved = value; }, wireId: (id: string) => id, wireSeq: () => 2 };
+        const render = () => <ConversationTranscript metadata={null} sessionId="session" messages={grouped.items![0].messages}
+            reading={adapter} isAtLatest={false} />;
+        const row = (renderer: any) => byId(renderer, 'conversation-transcript-list').props.renderItem({ item: grouped.items![0] }).props.children.props;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        expect(row(renderer).expanded).toBe(false);
+        act(() => row(renderer).onToggle()); expect(row(renderer).expanded).toBe(true);
+        grouped.items = [group('random-trimmed', ['B', 'C'])];
+        act(() => renderer.update(render())); expect(row(renderer).expanded).toBe(true);
+        act(() => row(renderer).onToggle()); expect(row(renderer).expanded).toBe(false);
+        act(() => renderer.unmount());
+        grouped.items = [group('random-reopened', ['A', 'B', 'C'])];
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        expect(row(renderer).expanded).toBe(false);
+        act(() => renderer.unmount()); grouped.items = null;
     });
 });

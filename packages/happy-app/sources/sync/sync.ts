@@ -582,6 +582,19 @@ class Sync {
     public getMessageWireId = (id: string, renderedId: string): string | null => {
         return storage.getState().sessionMessages[id]?.reducerState.messages.get(renderedId)?.realID ?? null;
     };
+    public getMessageWireBlockKey = (id: string, renderedId: string): string | null => {
+        const rows = storage.getState().sessionMessages[id]?.reducerState.messages;
+        const row = rows?.get(renderedId);
+        if (!row?.realID || !rows) return null;
+        if (row.tool?.callId) return `tool:${row.tool.callId}`;
+        const kind = row.text !== null ? 'text' : row.tool ? 'tool' : 'event';
+        // Reducer text/thinking rows are inserted in normalized source-content
+        // order (before display grouping/reversal), independently of random IDs
+        // and viewport-node registration. Keep tools in their own namespace.
+        const siblings = [...rows.values()].filter(candidate => candidate.realID === row.realID
+            && (candidate.text !== null ? 'text' : candidate.tool ? 'tool' : 'event') === kind);
+        return `${kind}:${siblings.findIndex(candidate => candidate.id === renderedId)}`;
+    };
     public getMessageWireSeq = (id: string, renderedId: string): number | null => {
         const wireId = this.getMessageWireId(id, renderedId);
         return this.historyWindows.get(id)?.messages.find(message => message.id === wireId)?.seq ?? null;

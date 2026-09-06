@@ -3,7 +3,7 @@ import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 // @ts-expect-error no local declarations
 import TestRenderer from 'react-test-renderer';
-import { expandedGroupKeys, groupIsExpanded, findAnchorIndex, useTranscriptReading, TranscriptReadingMarker, TranscriptReadingContext } from './transcriptReading';
+import { expandedGroupKeys, groupIsExpanded, findAnchorIndex, useTranscriptReading, TranscriptReadingMarker, TranscriptReadingContext, setGroupExpansion } from './transcriptReading';
 vi.mock('react-native', () => ({ View: 'View' }));
 const msg = (id: string) => ({ id, kind: 'agent-text', text: id, createdAt: 1, localId: null }) as any;
 const group = (id: string, ids: string[]) => ({ type: 'tool-group', id, messages: ids.map(msg), hasRunning: false, hasPendingPermission: false }) as any;
@@ -12,7 +12,7 @@ const wire = (id: string) => id.replace(/-replayed$/, '');
 describe('durable transcript reading anchors', () => {
     it('keeps group expansion when replay or an older boundary changes its rendered group ID', () => {
         const saved = expandedGroupKeys([group('old-group', ['wire2'])], new Set(), wire);
-        expect(saved).toEqual([JSON.stringify(['tool-group', 'wire2'])]);
+        expect(saved).toEqual([JSON.stringify(['tool-group', ['wire2']])]);
         expect(groupIsExpanded(group('new-group', ['wire1-replayed', 'wire2-replayed']), saved, wire)).toBe(true);
         expect(findAnchorIndex([group('new-group', ['wire1-replayed', 'wire2-replayed'])], 'wire2', wire)).toBe(0);
         const stable = (id: string) => id === 'synthetic-permission' ? null : 'one-wire-multiple-blocks';
@@ -75,6 +75,62 @@ describe('durable transcript reading anchors', () => {
         await act(async () => { finish({ version: 1, anchorId: 'secret-a', anchorSeq: 1, offset: 0, expandedGroupIds: ['a'] }); });
         expect(restored).not.toHaveBeenCalled();
         expect(ownerA.save).not.toHaveBeenCalled(); expect(ownerB.save).not.toHaveBeenCalled();
+        act(() => renderer.unmount()); delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('keeps expansion after its first wire member is trimmed and removes all aliases on manual collapse', () => {
+        const original = group('random-old', ['A', 'B', 'C']);
+        const saved = expandedGroupKeys([original], new Set(), wire);
+        const trimmed = group('random-new', ['B-replayed', 'C-replayed']);
+        expect(groupIsExpanded(trimmed, saved, wire)).toBe(true);
+        const collapsed = setGroupExpansion(saved, trimmed, false, wire);
+        expect(groupIsExpanded(original, collapsed, wire)).toBe(false);
+        expect(groupIsExpanded(trimmed, collapsed, wire)).toBe(false);
+    });
+
+    it('bounds expansion aliases and group records while accepting legacy one-member keys', () => {
+        const legacy = [JSON.stringify(['tool-group', 'A'])];
+        const item = group('replayed', ['A', 'B']);
+        expect(groupIsExpanded(item, legacy, wire)).toBe(true);
+        expect(setGroupExpansion(legacy, item, false, wire)).toEqual([]);
+        const large = group('large', Array.from({ length: 400 }, (_, i) => `member-${i}`));
+        const aliases = setGroupExpansion([], large, true, wire);
+        expect(JSON.parse(aliases[0])[1]).toHaveLength(300);
+        expect(setGroupExpansion(aliases, large, true, wire)).toBe(aliases);
+        let keys: string[] = [];
+        for (let i = 0; i < 300; i++) keys = setGroupExpansion(keys, group(`g${i}`, [`wire${i}`]), true, wire);
+        expect(keys).toHaveLength(256);
+        expect(groupIsExpanded(group('last', ['wire299']), keys, wire)).toBe(true);
+    });
+
+    it('restores the second cross-screen block of one wire after rendered IDs are regenerated', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        let saved: any = null; let reading: any;
+        const adapter = { key: 'same-owner', read: async () => saved, save: (state: any) => { saved = state; },
+            wireId: () => 'shared-wire', wireSeq: () => 10, blockKey: (id: string) => id.endsWith('first') ? 'text:0' : 'text:1' };
+        const scrollToOffset = vi.fn(); const list = { current: { scrollToOffset, scrollToIndex: vi.fn() } };
+        const viewport = { current: { measureInWindow: (cb: any) => cb(0, 100, 800, 600) } };
+        let firstY = -1400; let secondY = -100;
+        function Probe(props: { prefix: string }) {
+            const items = ['first', 'second'].map(suffix => ({ type: 'message', id: `${props.prefix}-${suffix}`, message: msg(`${props.prefix}-${suffix}`) })) as any;
+            reading = useTranscriptReading({ adapter, items, inverted: false, isAtLatest: false, listRef: list, viewportRef: viewport,
+                expanded: [], restoreExpanded: () => {} });
+            return <TranscriptReadingContext.Provider value={reading.markers}>{items.map((item: any) =>
+                <TranscriptReadingMarker key={item.id} messageId={item.id}><label>{item.id}</label></TranscriptReadingMarker>)}</TranscriptReadingContext.Provider>;
+        }
+        const nodeMock = (element: any) => ({ measureInWindow: (cb: any) => cb(0,
+            element.props.children?.props?.children?.endsWith('first') ? firstY : secondY, 800, 1200) });
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe prefix="old" />, { createNodeMock: nodeMock }); });
+        await act(async () => { reading.scroll(1800, 900); await reading.capture(); });
+        expect(saved).toMatchObject({ anchorId: 'shared-wire', offset: -200 });
+        act(() => renderer.unmount());
+        firstY = -1100; secondY = 200;
+        await act(async () => { renderer = TestRenderer.create(<Probe prefix="new-random" />, { createNodeMock: nodeMock }); });
+        await act(async () => { reading.scroll(1800, 900); await reading.layout(); });
+        // Only the second block needs a +300px scroll correction, not -1000px
+        // from applying its offset to the offscreen first block.
+        expect(scrollToOffset).toHaveBeenLastCalledWith({ offset: 2100, animated: false });
         act(() => renderer.unmount()); delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
     });
 });

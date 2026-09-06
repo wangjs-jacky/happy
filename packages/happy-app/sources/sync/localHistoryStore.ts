@@ -2,7 +2,7 @@ import { ApiMessageSchema, ApiSessionSnapshotSchema, type ApiMessage, type ApiSe
 import type { SessionChange } from './apiSessionChanges';
 
 export const HISTORY_LATEST_BOUNDARY = 2147483647;
-export type ReadingState = { version: 1; anchorId: string; anchorSeq: number; offset: number; expandedGroupIds: string[]; followLatest?: boolean };
+export type ReadingState = { version: 1; anchorId: string; anchorSeq: number; anchorBlock?: string; offset: number; expandedGroupIds: string[]; followLatest?: boolean };
 export type HistoryPage = { direction: 'older' | 'newer'; boundary: number; messages: ApiMessage[]; hasMore: boolean };
 export type HistoryWindow = { messages: ApiMessage[]; oldestSeq: number | null; newestSeq: number | null;
     hasMoreOlder: boolean; hasMoreNewer: boolean; isAtLatest: boolean };

@@ -62,6 +62,7 @@ export const ChatList = React.memo((props: { session: Session }) => {
             save: async state => { if (current()) await history.writeReadingState(id, state); },
             wireId: renderedId => current() ? sync.getMessageWireId(id, renderedId) : null,
             wireSeq: renderedId => current() ? sync.getMessageWireSeq(id, renderedId) : null,
+            blockKey: renderedId => current() ? sync.getMessageWireBlockKey(id, renderedId) : null,
         };
     }, [history, props.session.id]);
 

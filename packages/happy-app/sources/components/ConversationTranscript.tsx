@@ -30,7 +30,7 @@ import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
 import { AttachmentGalleryView } from './AttachmentGalleryView';
 import { AnchorListSheet } from './AnchorListSheet';
-import { expandedGroupKeys, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
+import { setGroupExpansion, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
     TranscriptGroupExpansionContext, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
 
 const SCROLL_THRESHOLD = 300;
@@ -138,6 +138,11 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
         displayItems.filter(isCollapsibleDisplayItem).map((item) => item.id),
     ));
+    React.useEffect(() => {
+        if (!props.reading) return;
+        setExpandedKeys(previous => displayItems.reduce((keys, item) => groupIsExpanded(item, keys, props.reading!.wireId)
+            ? setGroupExpansion(keys, item, true, props.reading!.wireId) : keys, previous));
+    }, [displayItems, props.reading]);
 
     React.useEffect(() => {
         setCollapsedGroups((previous) => {
@@ -205,13 +210,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         reading.pin();
         if (props.reading) {
             const item = displayItemsRef.current.find(item => item.id === groupId);
-            if (item) setExpandedKeys(previous => {
-                if (collapsedGroups.has(groupId)) return [...previous, ...expandedGroupKeys([item], new Set(), props.reading!.wireId)];
-                const members = new Set(itemMessages(item).map(message => props.reading!.wireId(message.id)));
-                return previous.filter(key => {
-                    try { const [kind, wire] = JSON.parse(key); return kind !== item.type || !members.has(wire); } catch { return false; }
-                });
-            });
+            if (item) setExpandedKeys(previous => setGroupExpansion(previous, item, collapsedGroups.has(groupId), props.reading!.wireId));
         }
         setCollapsedGroups((previous) => {
             const next = new Set(previous);
@@ -230,14 +229,12 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id)),
         toggle: (item: DisplayItem) => {
             reading.pin();
-            const expanded = groupIsExpanded(item, expandedKeys, props.reading!.wireId);
+            const expanded = groupIsExpanded(item, expandedKeys, props.reading!.wireId)
+                || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id));
             if (expanded) manuallyCollapsedRef.current.add(item.id); else manuallyCollapsedRef.current.delete(item.id);
-            setExpandedKeys(previous => {
-                if (!expanded) return [...previous, ...expandedGroupKeys([item], new Set(), props.reading!.wireId)];
-                const members = new Set(itemMessages(item).map(message => props.reading!.wireId(message.id)));
-                return previous.filter(key => { try { const [kind, wire] = JSON.parse(key); return kind !== item.type || !members.has(wire); } catch { return false; } });
-            });
+            setExpandedKeys(previous => setGroupExpansion(previous, item, !expanded, props.reading!.wireId));
         },
+        observe: (item: DisplayItem) => setExpandedKeys(previous => setGroupExpansion(previous, item, true, props.reading!.wireId)),
     } : null;
     const agentForkTargets = React.useMemo<Map<string, MessageForkTarget>>(
         () => getAgentMessageForkTargets(props.messages, {

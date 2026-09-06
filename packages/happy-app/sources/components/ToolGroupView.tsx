@@ -130,6 +130,12 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
         () => [...nestedItemsNewestFirst].reverse(),
         [nestedItemsNewestFirst],
     );
+    React.useEffect(() => {
+        if (!durableExpansion?.observe) return;
+        for (const item of nestedItems) {
+            if (item.type === 'tool-group' && durableExpansion.isExpanded(item)) durableExpansion.observe(item);
+        }
+    }, [nestedItems, durableExpansion]);
 
     const [collapsedToolGroups, setCollapsedToolGroups] = React.useState<Set<string>>(() => {
         const initial = new Set<string>();

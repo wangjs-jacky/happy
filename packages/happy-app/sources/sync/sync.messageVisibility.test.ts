@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
@@ -303,11 +303,17 @@ function installSession(sessionId: string, decryptMessages?: (messages: ApiMessa
     return encryption;
 }
 
-async function useRealMessageComposition() {
-    const [{ storage }, { Encryption }] = await Promise.all([
+const loadRealMessageModules = () => Promise.all([
         vi.importActual<typeof import('./storage')>('./storage'),
         vi.importActual<typeof import('./encryption/encryption')>('./encryption/encryption'),
     ]);
+let realMessageModules: Awaited<ReturnType<typeof loadRealMessageModules>>;
+// Module transformation belongs to suite setup, not a 5s test body. A timed-out
+// dynamic import previously resumed in the next case and switched its singleton
+// storage/encryption owner, making an unrelated socket test observe no session.
+beforeAll(async () => { realMessageModules = await loadRealMessageModules(); }, 30000);
+async function useRealMessageComposition() {
+    const [{ storage }, { Encryption }] = realMessageModules;
     storage.setState({ sessions: {}, sessionMessages: {}, currentViewingSessionId: null });
     mocks.useRealStorage(storage);
     // Initialize the real manager's runtime caches without deriving device keys.
@@ -499,6 +505,26 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.bounded.messages.length).toBeLessThanOrEqual(300);
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     }, 20000);
+
+    it('assigns stable source-block identities to same-wire text and thinking rows across replay', async () => {
+        const encryption = installSession('blocks');
+        encryption.decryptMessages.mockImplementation(async (rows: ApiMessage[]) => rows.map(row => ({ ...row, content: {
+            role: 'agent', content: { type: 'output', data: { type: 'assistant', uuid: 'assistant-wire', message: {
+                role: 'assistant', model: 'test', content: [{ type: 'text', text: 'first long block' }, { type: 'thinking', thinking: 'second long block' }],
+            } } },
+        } })));
+        const lease = syncForTest.sessionMessageLoadGate.enter('blocks');
+        const window = { messages: [apiMessage(1)], oldestSeq: 1, newestSeq: 1, hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true };
+        await syncForTest.applyHistoryWindow('blocks', window, syncForTest.sessionMessageLoadGate.begin(lease));
+        const oldRows = mocks.state.sessionMessages.blocks.messages;
+        expect(oldRows).toHaveLength(2);
+        const keys = oldRows.map((row: any) => syncForTest.getMessageWireBlockKey('blocks', row.id));
+        expect(new Set(keys).size).toBe(2);
+        await syncForTest.applyHistoryWindow('blocks', window, syncForTest.sessionMessageLoadGate.begin(lease));
+        const newRows = mocks.state.sessionMessages.blocks.messages;
+        expect(newRows.map((row: any) => row.id)).not.toEqual(oldRows.map((row: any) => row.id));
+        expect(newRows.map((row: any) => syncForTest.getMessageWireBlockKey('blocks', row.id))).toEqual(keys);
+    });
 
     it('persists encrypted metadata updates received while the session is off screen', async () => {
         globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
@@ -1525,6 +1551,9 @@ describe('message visibility synchronization', () => {
     });
 
     it('refreshes git once when a later forward page fails after a mutable page was applied', async () => {
+        const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+        const firstFailedPageRefresh = deferred<void>();
+        mocks.gitInvalidate.mockImplementationOnce(() => { firstFailedPageRefresh.resolve(); });
         installSession('visible-session', async (messages) => messages.map((message) => ({
             id: message.id,
             localId: message.localId,
@@ -1541,7 +1570,10 @@ describe('message visibility synchronization', () => {
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', 7));
         const messageSync = syncForTest.messagesSync.get('visible-session');
         try {
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+            // Observe the first failure's finally boundary before any retry.
+            // Polling can miss exactly-two requests when random backoff is 0ms.
+            await firstFailedPageRefresh.promise;
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
 
             expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-5']).toBeDefined();
             expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
@@ -1549,6 +1581,7 @@ describe('message visibility synchronization', () => {
         } finally {
             syncForTest.releaseSessionMessageCache('visible-session');
             await messageSync.awaitQueue();
+            random.mockRestore();
         }
     });
 
