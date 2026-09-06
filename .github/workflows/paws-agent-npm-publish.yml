@@ -11,7 +11,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
 
 concurrency:
@@ -149,10 +149,14 @@ jobs:
       - name: Fail release after post-publish validation
         if: always() && steps.post_publish.outcome == 'failure'
         run: exit 1
-      - name: Create immutable GitHub Release evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PAWS_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        shell: bash
-        run: |
-          gh release view "$PAWS_RELEASE_TAG" >/dev/null 2>&1 || gh release create "$PAWS_RELEASE_TAG" "${{ steps.pack.outputs.tarball }}" "$RUNNER_TEMP/paws-agent/SHA256SUMS" --verify-tag --generate-notes --title "$PAWS_RELEASE_TAG"
+      # GitHub Releases is reserved for Android APKs. npm + the immutable tag
+      # remain the permanent CLI distribution/source record; CI evidence expires.
+      - name: Preserve npm release evidence (90 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: paws-agent-npm-evidence-${{ inputs.tag || github.ref_name }}
+          path: |
+            ${{ steps.pack.outputs.tarball }}
+            ${{ runner.temp }}/paws-agent/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
