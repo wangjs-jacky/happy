@@ -10,10 +10,14 @@ import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHa
 
 const {
     mockIo,
-    mockShouldReconnect
+    mockShouldReconnect,
+    rpcHandlers,
+    mockLoggerDebug,
 } = vi.hoisted(() => ({
     mockIo: vi.fn(),
-    mockShouldReconnect: vi.fn(() => true)
+    mockShouldReconnect: vi.fn(() => true),
+    rpcHandlers: new Map<string, (params: any) => any>(),
+    mockLoggerDebug: vi.fn(),
 }));
 
 vi.mock('socket.io-client', () => ({
@@ -30,7 +34,7 @@ vi.mock('@/configuration', () => ({
 
 vi.mock('@/ui/logger', () => ({
     logger: {
-        debug: vi.fn(),
+        debug: mockLoggerDebug,
         debugLargeJson: vi.fn()
     }
 }));
@@ -42,6 +46,45 @@ vi.mock('@/modules/common/registerCommonHandlers', () => ({
 vi.mock('@/environment/processRunner', async (importOriginal) => ({
     ...await importOriginal<typeof import('@/environment/processRunner')>(),
     createProcessRunner: vi.fn(() => ({ run: vi.fn(async () => { throw new Error('No processes in machine RPC tests'); }) })),
+}));
+
+vi.mock('@/api/rpc/RpcHandlerManager', () => ({
+    RpcHandlerManager: class {
+        private readonly handlers = new Map<string, (params: any) => any>();
+        private socket: any;
+
+        constructor(private readonly config: { scopePrefix: string, encryptionKey: Uint8Array, encryptionVariant: Machine['encryptionVariant'] }) {}
+
+        onSocketConnect = vi.fn((socket: any) => {
+            this.socket = socket;
+            for (const method of this.handlers.keys()) {
+                socket.emit('rpc-register', { method });
+            }
+        });
+        onSocketDisconnect = vi.fn(() => {
+            this.socket = undefined;
+        });
+        handleRequest = vi.fn(async (request: { method: string, params: string }) => {
+            const handler = this.handlers.get(request.method);
+            if (!handler) throw new Error(`No handler for ${request.method}`);
+            const params = decrypt(this.config.encryptionKey, this.config.encryptionVariant, decodeBase64(request.params));
+            const result = await handler(params);
+            return encodeBase64(encrypt(this.config.encryptionKey, this.config.encryptionVariant, result));
+        });
+        hasHandler = vi.fn((method: string) => this.handlers.has(`${this.config.scopePrefix}:${method}`));
+        registerHandler = vi.fn((method: string, handler: (params: any) => any) => {
+            const prefixedMethod = `${this.config.scopePrefix}:${method}`;
+            this.handlers.set(prefixedMethod, handler);
+            rpcHandlers.set(method, handler);
+            this.socket?.emit('rpc-register', { method: prefixedMethod });
+        });
+        unregisterHandler = vi.fn((method: string) => {
+            const prefixedMethod = `${this.config.scopePrefix}:${method}`;
+            this.handlers.delete(prefixedMethod);
+            rpcHandlers.delete(method);
+            this.socket?.emit('rpc-unregister', { method: prefixedMethod });
+        });
+    }
 }));
 
 vi.mock('@/environment/githubCliAdapter', async (importOriginal) => {
@@ -126,6 +169,7 @@ function makeMachine(): Machine {
 
 describe('ApiMachineClient socket reconnection', () => {
     let socketHandlers: SocketHandlers;
+    let managerHandlers: SocketHandlers;
     let mockSocket: any;
 
     const emitSocketEvent = (event: string, ...args: any[]) => {
@@ -135,8 +179,10 @@ describe('ApiMachineClient socket reconnection', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        rpcHandlers.clear();
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
+        managerHandlers = {};
         mockSocket = {
             connected: false,
             connect: vi.fn(),
@@ -150,7 +196,10 @@ describe('ApiMachineClient socket reconnection', () => {
             emitWithAck: vi.fn(),
             close: vi.fn(),
             io: {
-                on: vi.fn()
+                on: vi.fn((event: string, handler: SocketHandler) => {
+                    if (!managerHandlers[event]) managerHandlers[event] = [];
+                    managerHandlers[event].push(handler);
+                })
             }
         };
 
@@ -237,5 +286,61 @@ describe('ApiMachineClient socket reconnection', () => {
         } finally {
             client.shutdown();
         }
+    });
+
+    it('propagates a startup trace into the daemon spawn without logging sensitive params', async () => {
+        const spawnSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'session-1' });
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const handler = rpcHandlers.get('spawn-happy-session');
+        expect(handler).toBeDefined();
+        await handler?.({
+            directory: '/private/project',
+            agent: 'codex',
+            traceId: '00000000-0000-4000-8000-000000000001',
+            token: 'token-canary',
+            prompt: 'prompt-canary',
+        });
+
+        expect(spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            directory: '/private/project',
+            agent: 'codex',
+            traceId: '00000000-0000-4000-8000-000000000001',
+            machineId: 'test-machine-id',
+        }));
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('canary');
+    });
+
+    it('does not log an absolute directory when approval is required', async () => {
+        const spawnSession = vi.fn().mockResolvedValue({
+            type: 'requestToApproveDirectoryCreation',
+            directory: '/private/approval-directory-canary',
+        });
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({ spawnSession, stopSession: vi.fn(), requestShutdown: vi.fn() });
+
+        await rpcHandlers.get('spawn-happy-session')?.({
+            directory: '/private/approval-directory-canary',
+            agent: 'codex',
+        });
+
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('approval-directory-canary');
+    });
+
+    it('does not include raw socket error values in logs', () => {
+        vi.useFakeTimers();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.connect();
+
+        emitSocketEvent('connect_error', new Error('connect-secret-canary'));
+        managerHandlers.error?.forEach((handler) => handler(new Error('socket-secret-canary')));
+
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('secret-canary');
+        client.shutdown();
     });
 });

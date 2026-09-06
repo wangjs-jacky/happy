@@ -22,14 +22,6 @@ import { useGlobalKeyboard } from '@/hooks/useGlobalKeyboard';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
 import { requestScreenshot } from '@/sync/ops.screenshot';
-import {
-    saveBase64Png,
-    resolveScreenshotUri,
-    addScreenshotEntry,
-    useHasNewScreenshots,
-    type ScreenshotEntry,
-} from '@/sync/screenshotGallery';
-import { ScreenshotGalleryDrawer } from '@/components/ScreenshotGalleryDrawer';
 import { imageViewer } from '@/sync/imageViewer';
 import { Modal } from '@/modal';
 import { storage, useIsDataReady, useLocalSetting, useLocalSettingMutable, useMachine, useSessionMessages, useSessionUsage, useSetting, useSettingUpdater } from '@/sync/storage';
@@ -441,7 +433,7 @@ function SessionHeaderMoreAction({
 
 export const SessionView = React.memo((props: { id: string }) => (
     <SubagentInspectorProvider sessionId={props.id}>
-        <SessionViewContent {...props} />
+        <SessionViewContent key={props.id} {...props} />
     </SubagentInspectorProvider>
 ));
 
@@ -451,6 +443,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const navigation = useNavigation();
     const session = useSession(sessionId);
     const isDataReady = useIsDataReady();
+    const [retryGeneration, setRetryGeneration] = React.useState(0);
+    const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
+        session ? 'ready' : 'loading',
+    );
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const isLandscape = useIsLandscape();
@@ -477,6 +473,41 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
     const subagentInspector = useSubagentInspector();
     const subagentSelection = subagentInspector?.selection ?? null;
+
+    React.useEffect(() => {
+        let cancelled = false;
+        let opening: ReturnType<typeof sync.openSession> | undefined;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
+        const delays = [100, 250, 500];
+        setSessionResolution('loading');
+        const attempt = (index: number) => {
+            opening = sync.openSession(sessionId);
+            void opening.then((resolution) => {
+                if (cancelled) return;
+                setSessionResolution(resolution);
+                if (resolution === 'ready') void sync.sessionRouteBecameInteractive();
+            }).catch(() => {
+                if (cancelled) return;
+                if (opening) sync.abandonSessionRoute(sessionId, opening);
+                if (index === delays.length) {
+                    setSessionResolution('error');
+                    return;
+                }
+                setSessionResolution('retrying');
+                retryTimer = setTimeout(() => attempt(index + 1), delays[index]);
+            });
+        };
+        attempt(0);
+        return () => {
+            cancelled = true;
+            if (retryTimer) clearTimeout(retryTimer);
+            if (opening) sync.abandonSessionRoute(sessionId, opening);
+        };
+        // `session` intentionally is not a dependency: hydration inserts the
+        // target into the store before its concurrently-started message page
+        // completes, and restarting here would abandon that valid first load.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId, retryGeneration]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
@@ -670,7 +701,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
     // Compute header props based on session state
     const headerProps = useMemo(() => {
-        if (!isDataReady) {
+        if (!session && sessionResolution !== 'not-found') {
             return { title: '', folderName: undefined, isConnected: false };
         }
         if (!session) {
@@ -685,7 +716,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             folderName,
             isConnected,
         };
-    }, [session, isDataReady]);
+    }, [session, sessionResolution]);
 
     // Header chip (replaces the breadcrumb title): shows the running session's
     // agent + machine + connection state. The dropdown keeps runtime identity
@@ -964,12 +995,21 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
-                {!isDataReady ? (
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                {sessionResolution === 'error' ? (
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 }} testID="session-load-error">
+                        <Text style={{ color: theme.colors.textSecondary }}>{t('common.error')}</Text>
+                        <Pressable testID="session-retry" onPress={() => setRetryGeneration(value => value + 1)}
+                            style={({ pressed }) => ({ padding: 12, borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface })}>
+                            <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
+                        </Pressable>
+                    </View>
+                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') ? (
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                        {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
                     </View>
                 ) : !session ? (
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
@@ -1331,7 +1371,6 @@ function SessionViewLoaded({
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const experiments = useSetting('experiments');
     const expResumeSession = useSetting('expResumeSession');
-    const desktopScreenshotEnabled = useSetting('expDesktopScreenshot');
     const { canResume, resumeSession, resumingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
@@ -1394,28 +1433,9 @@ function SessionViewLoaded({
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
     const { selectedImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
 
-    // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
-    // screenshots; opening the drawer clears it (handled inside the drawer).
-    const [galleryOpen, setGalleryOpen] = React.useState(false);
-    const { hasNew: galleryHasNew } = useHasNewScreenshots(sessionId);
-
     // 截图进行中标记：点相机后 RPC 往返 1-5 秒静默无反馈，用它把相机按钮切成菊花
     const [screenshotCapturing, setScreenshotCapturing] = React.useState(false);
-    const handleOpenGallery = React.useCallback(() => setGalleryOpen(true), []);
-    const handleCloseGallery = React.useCallback(() => setGalleryOpen(false), []);
-    // Attach a gallery screenshot to the composer input. Intrinsic size is
-    // unknown for screenshots (0/0 is accepted by the upload pipeline).
-    const handleAttachScreenshot = React.useCallback((entry: ScreenshotEntry) => {
-        addImages([{
-            id: entry.id,
-            uri: entry.uri,
-            width: 0,
-            height: 0,
-            mimeType: 'image/png',
-            size: 0,
-            name: entry.id,
-        }]);
-    }, [addImages]);
+    const screenshotCaptureInFlight = React.useRef(false);
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -1441,26 +1461,36 @@ function SessionViewLoaded({
 
     // handleSend reads the live message via the composer ref, so it doesn't
     // need to re-create on every keystroke.
+    const sendInFlight = React.useRef(false);
     const handleSend = React.useCallback(() => {
-        const liveMessage = composerHandleRef.current?.getMessage() ?? '';
+        if (sendInFlight.current) return;
+        const composer = composerHandleRef.current;
+        const liveMessage = composer?.getMessage() ?? '';
         if (liveMessage.trim() || selectedImages.length > 0) {
             const attachments = selectedImages.length > 0 ? selectedImages : undefined;
-            composerHandleRef.current?.clearMessage();
-            if (attachments) clearImages();
-            sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
+            sendInFlight.current = true;
+            void (async () => {
+                try {
+                    await sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
+                    if (composerHandleRef.current !== composer) return;
+                    if (composer?.getMessage() === liveMessage) composer.clearMessage();
+                    for (const attachment of attachments ?? []) removeImage(attachment.id);
+                } catch {
+                    Modal.alert(t('common.error'), t('common.retry'));
+                } finally { sendInFlight.current = false; }
+            })();
         }
-    }, [composerHandleRef, sessionId, selectedImages, clearImages]);
+    }, [composerHandleRef, sessionId, selectedImages, removeImage]);
 
-    // Manual screenshot: ask the CLI for a capture, persist it to the local
-    // gallery and immediately open it in the fullscreen viewer. Self-contained
-    // try/catch (instead of useHappyAction, which takes a no-arg action) so we
-    // can pass `target` and still surface every failure — including RPC throws —
-    // via Modal (RN Alert is banned). No unhandled rejection escapes.
-    const handleCaptureScreenshot = React.useCallback((target: 'desktop' | 'browser') => {
+    // Manual screenshot: one click asks the CLI for a full-desktop capture and
+    // opens it immediately. No target picker or persistent screenshot gallery.
+    const handleCaptureScreenshot = React.useCallback(() => {
+        if (screenshotCaptureInFlight.current) return;
+        screenshotCaptureInFlight.current = true;
         (async () => {
             setScreenshotCapturing(true);
             try {
-                const res = await requestScreenshot(sessionId, target);
+                const res = await requestScreenshot(sessionId);
                 if (!res.success || !res.dataBase64) {
                     // 平台不支持（如非 macOS）时给本地化文案，否则原样回显 CLI error
                     const body = isUnsupportedPlatformError(res.error)
@@ -1472,28 +1502,19 @@ function SessionViewLoaded({
                     );
                     return;
                 }
-                const persistentUri = await saveBase64Png(res.dataBase64);
-                const entry = addScreenshotEntry(sessionId, {
-                    uri: persistentUri,
-                    source: 'manual',
-                    target,
-                    createdAt: Date.now(),
+                const mimeType = res.mimeType ?? 'image/jpeg';
+                const extension = mimeType === 'image/png' ? 'png' : 'jpg';
+                imageViewer.open({
+                    uri: `data:${mimeType};base64,${res.dataBase64}`,
+                    filename: `screenshot-${Date.now()}.${extension}`,
                 });
-                const displayUri = await resolveScreenshotUri(persistentUri);
-                imageViewer.open({ uri: displayUri, filename: `screenshot-${entry.id}.png` });
-                // 请求了浏览器但 CLI 没找到浏览器窗口、回退成整屏：截图仍打开，只是轻提示一下
-                if (target === 'browser' && res.targetUsed === 'desktop') {
-                    Modal.alert(
-                        t('components.messageComposer.screenshotBrowserFallbackTitle'),
-                        t('components.messageComposer.screenshotBrowserFallbackBody'),
-                    );
-                }
             } catch (e) {
                 Modal.alert(
                     t('components.messageComposer.screenshotFailedTitle'),
                     e instanceof Error ? e.message : t('components.messageComposer.screenshotFailedBody'),
                 );
             } finally {
+                screenshotCaptureInFlight.current = false;
                 setScreenshotCapturing(false);
             }
         })();
@@ -1540,7 +1561,7 @@ function SessionViewLoaded({
     React.useLayoutEffect(() => {
 
         // Trigger session sync
-        sync.onSessionVisible(sessionId);
+        sync.onSessionVisible(sessionId, { loadMessages: false });
 
         // Mark session as currently being viewed (clears unread)
         storage.getState().setCurrentViewingSession(sessionId);
@@ -1592,10 +1613,8 @@ function SessionViewLoaded({
             onPickImages={pickAttachment}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            onCaptureScreenshot={desktopScreenshotEnabled ? handleCaptureScreenshot : undefined}
+            onCaptureScreenshot={handleCaptureScreenshot}
             screenshotCapturing={screenshotCapturing}
-            onOpenGallery={desktopScreenshotEnabled ? handleOpenGallery : undefined}
-            galleryHasNew={galleryHasNew}
             autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
@@ -1735,13 +1754,6 @@ function SessionViewLoaded({
                 )
             }
 
-            {/* Screenshot gallery bottom drawer (能力 B) */}
-            <ScreenshotGalleryDrawer
-                visible={galleryOpen}
-                onClose={handleCloseGallery}
-                sessionId={sessionId}
-                onAttach={handleAttachScreenshot}
-            />
         </>
     )
 }

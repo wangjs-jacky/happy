@@ -18,7 +18,6 @@ import { AsyncLock } from '@/utils/lock';
 import { deriveKey } from '@/utils/deriveKey';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
-import { ScreenshotStore } from '@/utils/screenshotStore';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
 import { createEnvelope, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
@@ -33,6 +32,7 @@ import type { PendingAttachment } from '@/utils/MessageQueue2';
 import axios from 'axios';
 import { resolveMediaArtifact } from './mediaArtifact';
 import { applyPersistedTurnStatus, clearStaleRunningTurnStatus } from './sessionTurnStatus';
+import type { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 
 function redactPresignedUrl(url: string): string {
     return url.replace(/([?&](?:X-Amz-Signature|Signature)=)[^&]+/g, '$1<redacted>');
@@ -143,6 +143,7 @@ type V3PostSessionMessagesResponse = {
 };
 
 export class ApiSessionClient extends EventEmitter {
+    private readonly startupLifecycle: WorkerSessionStartupLifecycle | undefined;
     private readonly token: string;
     readonly sessionId: string;
     private metadata: Metadata | null;
@@ -163,12 +164,6 @@ export class ApiSessionClient extends EventEmitter {
      */
     private pendingDownloads: Promise<PendingAttachment | null>[] = [];
     readonly rpcHandlerManager: RpcHandlerManager;
-    /**
-     * 会话内截图临时缓存：由 client 持有，构造时即 new，时序最早。
-     * MCP take 工具（startHappyServer）与会话级 RPC getScreenshotById 共享同一实例，
-     * 这样 AI 截图存进去后，App 懒拉取时能查到磁盘路径。
-     */
-    readonly screenshotStore = new ScreenshotStore();
     private agentStateLock = new AsyncLock();
     private metadataLock = new AsyncLock();
     private outboxLock = new AsyncLock();
@@ -194,8 +189,9 @@ export class ApiSessionClient extends EventEmitter {
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
 
-    constructor(token: string, session: Session) {
+    constructor(token: string, session: Session, startupLifecycle?: WorkerSessionStartupLifecycle) {
         super()
+        this.startupLifecycle = startupLifecycle;
         this.token = token;
         this.sessionId = session.id;
         this.metadata = session.metadata;
@@ -214,7 +210,7 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, this.screenshotStore);
+        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, { registerScreenshot: true });
 
         //
         // Create socket
@@ -240,6 +236,7 @@ export class ApiSessionClient extends EventEmitter {
 
         this.socket.on('connect', () => {
             logger.debug('Socket connected successfully');
+            this.startupLifecycle?.socketReady(this.sessionId, this.metadata?.machineId);
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
                 this.reconnectInterval = null;
@@ -259,8 +256,8 @@ export class ApiSessionClient extends EventEmitter {
             this.startSmartReconnect();
         })
 
-        this.socket.on('connect_error', (error) => {
-            logger.debug('[API] Socket connection error:', error);
+        this.socket.on('connect_error', () => {
+            logger.debug('[API] Socket connection error', { errorCode: 'session-socket-connect-error' });
             this.rpcHandlerManager.onSocketDisconnect();
             this.startSmartReconnect();
         })
@@ -316,14 +313,14 @@ export class ApiSessionClient extends EventEmitter {
                     // If not a user message, it might be a permission response or other message type
                     this.emit('message', data.body);
                 }
-            } catch (error) {
-                logger.debug('[SOCKET] [UPDATE] [ERROR] Error handling update', { error });
+            } catch {
+                logger.debug('[SOCKET] [UPDATE] [ERROR] Error handling update', { errorCode: 'session-update-handler-error' });
             }
         });
 
         // DEATH
-        this.socket.on('error', (error) => {
-            logger.debug('[API] Socket error:', error);
+        this.socket.on('error', () => {
+            logger.debug('[API] Socket error', { errorCode: 'session-socket-error' });
         });
 
         //

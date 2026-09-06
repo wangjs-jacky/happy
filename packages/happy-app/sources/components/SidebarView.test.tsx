@@ -17,8 +17,19 @@ const mocks = vi.hoisted(() => ({
     helpTriggerFocus: vi.fn(),
     navigate: vi.fn(),
     openCommandPalette: vi.fn(),
+    openSettings: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
     commandPaletteAvailable: false,
+    settingsModalIsDesktop: false,
+    pluginSurfaceViews: [{
+        componentId: 'relationship-advisor-history',
+        contribution: { title: { default: 'Relationship Advisor', translations: { 'zh-Hans': '狗头军师' } } },
+        icon: 'chatbubbles-outline',
+        path: '/relationship-advisor',
+        pluginId: 'relationship-advisor',
+        surface: 'left-sidebar',
+        viewId: 'relationship-advisor.history',
+    }],
     spaceAgent: {
         id: 'health',
         name: 'Health',
@@ -85,7 +96,10 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('./useDrawerHaptics', () => ({ useDrawerHaptics: () => undefined }));
 vi.mock('./DesktopSettingsModal', () => ({
-    useDesktopSettingsModal: () => ({ openSettings: vi.fn() }),
+    useDesktopSettingsModal: () => ({
+        isDesktop: mocks.settingsModalIsDesktop,
+        openSettings: mocks.openSettings,
+    }),
 }));
 vi.mock('./VoiceAssistantStatusBar', () => ({ VoiceAssistantStatusBar: 'VoiceAssistantStatusBar' }));
 vi.mock('./MainView', () => ({ MainView: 'MainView' }));
@@ -153,6 +167,14 @@ vi.mock('./CommandPalette/CommandPaletteProvider', () => ({
 vi.mock('./plugins/PluginLeftSidebarSlot', () => ({
     PluginLeftSidebarSlot: 'PluginLeftSidebarSlot',
 }));
+vi.mock('./plugins/usePluginSurfaceViews', () => ({
+    usePluginSurfaceViews: () => mocks.pluginSurfaceViews,
+}));
+vi.mock('./plugins/pluginText', () => ({
+    resolvePluginText: (value: { default: string; translations?: Record<string, string> }) => (
+        value.translations?.['zh-Hans'] ?? value.default
+    ),
+}));
 vi.mock('./DesktopSidebarSessionsNavigation', () => ({
     DesktopSidebarSessionsNavigation: 'DesktopSidebarSessionsNavigation',
 }));
@@ -178,6 +200,7 @@ describe('SidebarView Agent space exit', () => {
             presets: [],
         };
         mocks.commandPaletteAvailable = false;
+        mocks.settingsModalIsDesktop = false;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -292,6 +315,24 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
+    it('closes the mobile drawer before opening settings', () => {
+        mocks.spaceAgent = null;
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(<SidebarView closeDrawerOnNavigate />);
+        });
+
+        const accountMenu = renderer.root.findByType('SidebarAccountMenu');
+        act(() => accountMenu.props.onOpenSettings());
+
+        expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'CLOSE_DRAWER' });
+        expect(mocks.navigate).toHaveBeenCalledWith('/settings');
+        expect(mocks.openSettings).not.toHaveBeenCalled();
+
+        act(() => renderer.unmount());
+    });
+
     it('clears an open Help footer layer when desktop density turns off', () => {
         mocks.spaceAgent = null;
         let renderer: any;
@@ -402,7 +443,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('renders the six desktop destinations as a narrow icon rail with hover labels beside the independent session list', () => {
+    it('renders fixed and installed plugin destinations in the narrow desktop icon rail', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -421,6 +462,7 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-plugins-button',
             'sidebar-my-agents-button',
             'sidebar-history-button',
+            'sidebar-plugin-relationship-advisor-button',
         ]));
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
@@ -448,6 +490,11 @@ describe('SidebarView Agent space exit', () => {
 
         act(() => primaryColumn.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
         expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+
+        act(() => primaryColumn.findByProps({
+            testID: 'sidebar-plugin-relationship-advisor-button',
+        }).props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledWith('/relationship-advisor');
 
         act(() => renderer.unmount());
     });

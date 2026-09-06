@@ -21,6 +21,8 @@ import { useDesktopSettingsModal } from './DesktopSettingsModal';
 import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 import { PluginMarketplaceModal } from './plugins/PluginMarketplaceModal';
 import { PluginLeftSidebarSlot } from './plugins/PluginLeftSidebarSlot';
+import { usePluginSurfaceViews } from './plugins/usePluginSurfaceViews';
+import { resolvePluginText } from './plugins/pluginText';
 import { DESKTOP_PRIMARY_NAVIGATION_WIDTH } from '@/utils/desktopNavigationLayout';
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -384,6 +386,20 @@ function DesktopRailItem({
     );
 }
 
+function DesktopPluginRailItems({ onNavigate }: { onNavigate: (path: string) => void }) {
+    const views = usePluginSurfaceViews('left-sidebar');
+
+    return views.map((view) => view.path ? (
+        <DesktopRailItem
+            icon={view.icon as React.ComponentProps<typeof Ionicons>['name']}
+            key={`${view.pluginId}:${view.viewId}`}
+            label={resolvePluginText(view.contribution.title)}
+            onPress={() => onNavigate(view.path!)}
+            testID={`sidebar-plugin-${view.pluginId}-button`}
+        />
+    ) : null);
+}
+
 export const SidebarView = React.memo(({
     closeDrawerOnNavigate = true,
     desktopDensity = false,
@@ -405,7 +421,7 @@ export const SidebarView = React.memo(({
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
     const { agent: spaceAgent, exit: exitSpace } = useAgentSpace();
     const commandPaletteLauncher = useCommandPaletteLauncher();
-    const { openSettings } = useDesktopSettingsModal();
+    const { isDesktop, openSettings } = useDesktopSettingsModal();
     const displayName = getDisplayName(profile) ?? t('settings.title');
 
     React.useEffect(() => {
@@ -428,6 +444,14 @@ export const SidebarView = React.memo(({
         closeDrawer();
         router.navigate(path as any);
     }, [closeDrawer, router]);
+
+    const openSettingsFromSidebar = React.useCallback(() => {
+        if (isDesktop) {
+            openSettings();
+            return;
+        }
+        go('/settings');
+    }, [go, isDesktop, openSettings]);
 
     const exitAgentSpace = React.useCallback(() => {
         exitSpace();
@@ -631,6 +655,7 @@ export const SidebarView = React.memo(({
                 onPress={openPluginMarketplace}
                 testID="sidebar-plugins-button"
             />
+            <DesktopPluginRailItems onNavigate={go} />
             <DesktopRailItem
                 icon="people-outline"
                 label={t('agents.cardTitle')}
@@ -672,7 +697,7 @@ export const SidebarView = React.memo(({
                             railMode={desktopPrimaryNavigation}
                             displayName={displayName}
                             onNavigate={go}
-                            onOpenSettings={openSettings}
+                            onOpenSettings={openSettingsFromSidebar}
                             onOpenChange={setAccountMenuOpen}
                             open={footerMenu === 'account'}
                             profile={profile}
@@ -685,7 +710,7 @@ export const SidebarView = React.memo(({
                         desktopDensity={desktopDensity}
                         displayName={displayName}
                         onNavigate={go}
-                        onOpenSettings={openSettings}
+                        onOpenSettings={openSettingsFromSidebar}
                         onOpenChange={setAccountMenuOpen}
                         open={footerMenu === 'account'}
                         profile={profile}

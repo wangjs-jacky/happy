@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, LayoutAnimation, Platform, ScrollView, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -12,7 +12,7 @@ import { MessageComposer } from './MessageComposer';
 import type { MultiTextInputHandle } from './MultiTextInput';
 import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
-import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
+import { useIsTablet } from '@/utils/responsive';
 import {
     DESKTOP_MAIN_MIN_WIDTH,
     getPersistentHeaderContentInset,
@@ -24,9 +24,10 @@ import {
 import { isTauri } from '@/utils/isTauri';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { storage, useProfile, useAllMachines, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
+import { storage, useProfile, useAllMachines, useIsDataReady, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
+import { useComposeDraft } from '@/sync/composeDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
@@ -35,6 +36,7 @@ import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { DesktopRightPanel, DesktopRightPanelToggleButton } from './DesktopRightPanel';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
+import { resolveNewSessionSpawnSettings } from '@/utils/newSessionSpawnSettings';
 import {
     getCodingAgentPickerItems,
     getComposeHomeExperience,
@@ -42,7 +44,6 @@ import {
     selectAgentForTopLevelMode,
     type NewSessionTopLevelMode,
 } from '@/utils/newSessionExperience';
-import type { Machine } from '@/sync/storageTypes';
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
@@ -96,15 +97,10 @@ const HEADER_MODE_SWITCH_ITEMS: { key: NewSessionTopLevelMode; icon: keyof typeo
     { key: 'agent', icon: 'terminal-outline' },
 ];
 
-function getMachineName(machine: Machine | undefined): string | null {
-    if (!machine) return null;
-    return machine.metadata?.displayName || machine.metadata?.host || null;
-}
-
 /**
- * Compose-first new-session page. A greeting, the current machine/agent shown as
- * a chip (tap to drop the inline config panel), and a real text input. Sending
- * spawns a session inline via useSpawnSession. It only spawns when the target is
+ * Compose-first new-session page. A greeting and a real text input with every
+ * editable launch setting kept in its footer. Sending spawns a session inline
+ * via useSpawnSession. It only spawns when the target is
  * actually reachable — a selected, online machine and no fresh-worktree request;
  * otherwise the send button stays disabled (greyed) rather than bouncing
  * elsewhere. Creating a new worktree / spawning on an offline machine is not
@@ -116,6 +112,12 @@ function getMachineName(machine: Machine | undefined): string | null {
  */
 type ComposeHomeProps = {
     variant?: 'home' | 'screen';
+};
+
+type SubmittedComposeSnapshot = {
+    text: string;
+    textRevision: number;
+    userAttachmentIds: string[];
 };
 
 const CompactRightPanelToggleButton = React.memo(function CompactRightPanelToggleButton({
@@ -144,14 +146,18 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const router = useRouter();
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
-    const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
     const { width: windowWidth } = useWindowDimensions();
     const inTauri = isTauri();
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
-    const useDesktopComposerConfig = Platform.OS === 'web' && isTablet;
     const profile = useProfile();
     const machines = useAllMachines();
+    const isDataReady = useIsDataReady();
+    React.useEffect(() => {
+        if (!isDataReady) return;
+        const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
+        return () => clearTimeout(timer);
+    }, [isDataReady]);
     const askApi = useLocalSetting('askApi');
     const zenMode = useLocalSetting('zenMode');
     const [desktopRightPanelCollapsed, setDesktopRightPanelCollapsed] = useLocalSettingMutable('desktopRightPanelCollapsed');
@@ -163,8 +169,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         rightWidth: desktopRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { sending, spawn } = useSpawnSession();
-    const [text, setText] = React.useState('');
+    const { sending, hydrationError, retryHydration, spawn } = useSpawnSession();
+    const { text, setText, images: draftImages, setImages: setDraftImages } = useComposeDraft();
+    const pendingSubmissionRef = React.useRef<SubmittedComposeSnapshot | null>(null);
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
@@ -282,7 +289,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeImageAgent, agentType, imagePluginInstalled],
     );
     const canAttach = composeExperience.canAttach;
-    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker({
+        selection: { images: draftImages, setImages: setDraftImages },
+    });
+    const selectedImagesRef = React.useRef(selectedImages);
+    selectedImagesRef.current = selectedImages;
     const hasImages = canAttach && selectedImages.length > 0;
     const pendingStyleImageRestoreState = React.useRef<'idle' | 'restoring' | 'done'>('idle');
 
@@ -336,7 +347,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         if (!agentId) return null;
         return agents.find((a) => a.id === agentId) ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
     }, [agentId, agents, builtinAppAgent]);
-    const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const headerModeSwitchExperience = React.useMemo(
         () => getHeaderModeSwitchExperience({
@@ -626,20 +636,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setSelectedImageStyleIds((current) => current.filter((id) => id !== style.id));
     }, [customImageStyles, setCustomImageStyles]);
 
-    // The machine/agent chip drops the full session-config panel down in place
-    // (instead of navigating to /new). Tapping the chip again — or anywhere
-    // outside — collapses it. The panel writes straight to the shared draft
-    // store, so the chip label and the inline-spawn config stay in sync.
-    const [panelOpen, setPanelOpen] = React.useState(false);
-    const togglePanel = React.useCallback(() => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setPanelOpen(v => !v);
-    }, []);
-    const closePanel = React.useCallback(() => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setPanelOpen(false);
-    }, []);
-
     const handleHeaderModeSelect = React.useCallback((mode: NewSessionTopLevelMode) => {
         const nextAgent = selectAgentForTopLevelMode({
             mode,
@@ -663,13 +659,30 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }));
     }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
 
+    const handleTextChange = React.useCallback((nextText: string) => {
+        setText(nextText);
+    }, []);
+
+    const clearQueuedSubmission = React.useCallback((snapshot: SubmittedComposeSnapshot) => {
+        if (useComposeDraft.getState().revision === snapshot.textRevision) {
+            composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
+            setText('');
+        }
+        const currentAttachmentIds = new Set(selectedImagesRef.current.map((image) => image.id));
+        for (const attachmentId of snapshot.userAttachmentIds) {
+            if (currentAttachmentIds.has(attachmentId)) {
+                removeImage(attachmentId);
+            }
+        }
+    }, [removeImage]);
+
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
         const userImages = hasImages ? selectedImages : [];
         const images = activeImageAgent
             ? [...selectedCustomReferenceImages, ...userImages]
             : userImages.length > 0 ? userImages : undefined;
-        if ((!trimmed && !images) || sending) return;
+        if ((!trimmed && !images) || sending || hydrationError) return;
         if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
         const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
@@ -693,6 +706,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             effortLevel: draft.effortLevel,
             agentDefaultOverrides,
         });
+        const spawnSettings = resolveNewSessionSpawnSettings({
+            draftWorktreeKey: draft.worktreeKey,
+            resolvedModes,
+            liveSelection,
+        });
 
         // Spawnable only when a machine is selected, online, and we're not asked to
         // create a fresh worktree. The send button is disabled in every other case
@@ -700,36 +718,38 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const canSpawn = !!draft.selectedMachineId
             && !!machine
             && isMachineOnline(machine)
-            && draft.worktreeKey !== '__new__';
+            && spawnSettings.worktreeKey !== '__new__';
         if (!canSpawn) return;
 
-        // Clear the input only once a session was actually created, so the prompt
-        // and attachments aren't lost if spawning fails or directory creation is declined.
+        // Clear only after the encrypted first message reaches the local outbox.
+        // A hydration failure keeps the draft available for the retry action.
+        const submittedSnapshot: SubmittedComposeSnapshot = {
+            text,
+            textRevision: useComposeDraft.getState().revision,
+            userAttachmentIds: userImages.map((image) => image.id),
+        };
+        pendingSubmissionRef.current = submittedSnapshot;
         spawn({
             machineId: draft.selectedMachineId!,
             machine: machine!,
             path: draft.selectedPath,
             agent: spawnAgent,
-            worktreeKey: draft.worktreeKey,
-            permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
-            modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
-            effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
-            fastMode: liveSelection?.fastMode,
+            ...spawnSettings,
             prompt,
             images,
             environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
             sidebarListId,
-        }).then((ok) => {
-            if (ok) {
-                composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
-                setText('');
-                if (activeImageAgent) {
-                    setPendingCustomImageStyleReferences([]);
-                }
-                clearImages();
+        }, false, () => {
+            clearQueuedSubmission(submittedSnapshot);
+            if (pendingSubmissionRef.current === submittedSnapshot) {
+                pendingSubmissionRef.current = null;
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, setPendingCustomImageStyleReferences, clearImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, hydrationError, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission]);
+
+    const handleRetryHydration = React.useCallback(async () => {
+        await retryHydration();
+    }, [retryHydration]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -761,8 +781,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         })
         : 0;
 
-    const modelChip = (
-        <View style={styles.modelChip}>
+    const composerConfigControls = (
+        <View style={styles.newSessionComposerControls} testID="new-session-composer-controls">
             {headerModeSwitchExperience.visible && (
                 <View style={styles.headerModeSwitch}>
                     {HEADER_MODE_SWITCH_ITEMS.map((item) => {
@@ -790,18 +810,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     })}
                 </View>
             )}
-            <Pressable
-                onPress={togglePanel}
-                hitSlop={8}
-                style={styles.modelChipTarget}
-                testID="compose-home-model-chip"
-            >
-                <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
-                <Text style={styles.modelChipMachine} numberOfLines={1}>
-                    {machineName ?? t('agentInput.noMachinesAvailable')}
-                </Text>
-                <Ionicons name={panelOpen ? 'chevron-up' : 'chevron-down'} size={13} color={theme.colors.textSecondary} />
-            </Pressable>
+            <SessionConfigPanel ref={configPanelRef} layout="composer" collapsible={false} />
         </View>
     );
 
@@ -820,7 +829,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const composeContent = (
         <View style={styles.container}>
             <Header
-                title={useDesktopComposerConfig ? undefined : modelChip}
+                title={undefined}
                 headerShadowVisible={false}
                 headerTransparent={true}
                 headerContentLeftInset={persistentHeaderContentInset}
@@ -1055,6 +1064,28 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             ))}
                         </View>
                     )}
+                    {hydrationError && (
+                        <View
+                            style={styles.sessionHydrationError}
+                            testID="compose-home-session-hydration-error"
+                        >
+                            <Text style={styles.sessionHydrationErrorText}>
+                                {t('newSession.sessionHydrationFailed')}
+                            </Text>
+                            <Pressable
+                                accessibilityRole="button"
+                                onPress={handleRetryHydration}
+                                disabled={sending}
+                                style={({ pressed }) => [
+                                    styles.sessionHydrationRetry,
+                                    pressed && styles.sessionHydrationRetryPressed,
+                                ]}
+                                testID="compose-home-session-hydration-retry"
+                            >
+                                <Text style={styles.sessionHydrationRetryText}>{t('common.retry')}</Text>
+                            </Pressable>
+                        </View>
+                    )}
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
@@ -1064,10 +1095,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 ? t('composeHome.askPlaceholder')
                                 : t('composeHome.placeholder')}
                         initialValue={text}
-                        onChangeText={setText}
+                        onChangeText={handleTextChange}
                         onSend={handleSend}
                         isSending={sending}
-                        isSendDisabled={!canSubmit}
+                        isSendDisabled={!canSubmit || Boolean(hydrationError)}
                         selectedImages={hasImages ? selectedImages : undefined}
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         // Image agent needs images only; the normal composer
@@ -1075,32 +1106,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onPickImages={canAttach ? (activeImageAgent ? pickImages : pickAttachment) : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
                         onAddImages={canAttach ? addImages : undefined}
-                        leadingControls={useDesktopComposerConfig ? (
-                            <View testID="new-session-composer-controls">
-                                {modelChip}
-                            </View>
-                        ) : undefined}
+                        leadingControls={composerConfigControls}
                     />
                     <Text style={styles.byline}>{t('composeHome.byline')}</Text>
                 </View>
             </KeyboardAvoidingView>
 
-            {/* In-place config dropdown anchored under the header chip. The
-                backdrop starts below the header so the chip itself stays tappable
-                (tap again to collapse); tapping anywhere else dismisses it. */}
-            {panelOpen && (
-                <>
-                    <Pressable
-                        style={[styles.panelBackdrop, { top: insets.top + headerHeight }]}
-                        onPress={closePanel}
-                    />
-                    <View style={[styles.panelDropdown, { top: insets.top + headerHeight }]}>
-                        <View style={styles.panelDropdownContent} testID="compose-home-config-panel">
-                            <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
-                        </View>
-                    </View>
-                </>
-            )}
             {activeImageAgent && (
                 <ImageStyleGallerySheet
                     visible={imageGalleryOpen}
@@ -1225,37 +1236,13 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    panelBackdrop: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 10,
-    },
-    panelDropdown: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingTop: 8,
-        zIndex: 11,
-    },
-    panelDropdownContent: {
-        width: '100%',
-        maxWidth: layout.maxWidth,
-    },
-    modelChip: {
+    newSessionComposerControls: {
+        minWidth: 0,
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        maxWidth: 246,
-        paddingVertical: 4,
-        paddingLeft: 4,
-        paddingRight: 9,
-        borderRadius: 999,
-        backgroundColor: theme.colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
+        gap: 4,
+        overflow: 'hidden',
     },
     headerModeSwitch: {
         flexDirection: 'row',
@@ -1277,26 +1264,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     headerModeButtonPressed: {
         opacity: 0.78,
-    },
-    modelChipTarget: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 7,
-        minWidth: 0,
-        flexShrink: 1,
-        paddingLeft: 8,
-        paddingVertical: 5,
-    },
-    modelChipMachine: {
-        ...Typography.mono(),
-        fontSize: 11,
-        color: theme.colors.textSecondary,
-        flexShrink: 1,
-    },
-    dot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
     },
     body: {
         flex: 1,
@@ -1325,6 +1292,43 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
+    },
+    sessionHydrationError: {
+        width: '100%',
+        maxWidth: layout.maxWidth,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 10,
+        paddingVertical: 9,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.status.error,
+    },
+    sessionHydrationErrorText: {
+        ...Typography.default(),
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textDestructive,
+    },
+    sessionHydrationRetry: {
+        minHeight: 32,
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    sessionHydrationRetryPressed: {
+        opacity: 0.72,
+    },
+    sessionHydrationRetryText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.text,
     },
     imageAgentPanel: {
         width: '100%',
