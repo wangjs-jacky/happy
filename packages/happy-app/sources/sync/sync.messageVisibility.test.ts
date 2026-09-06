@@ -12,6 +12,10 @@ import { normalizeRawMessage, type RawRecord } from './typesRaw';
 import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { openLocalHistory, clearLocalHistoryCaches } from './localHistoryStore';
+import * as React from 'react';
+import { act } from 'react';
+// @ts-expect-error react-test-renderer has no local declarations.
+import TestRenderer from 'react-test-renderer';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -116,7 +120,11 @@ vi.mock('./sessionSnapshotHydration', () => ({
     hydrateSessionSnapshotForRoute: mocks.hydrateRoute,
     hydrateSessionSnapshots: mocks.hydrate,
 }));
-vi.mock('./storage', () => ({ storage: mocks.storage }));
+vi.mock('./storage', () => ({ storage: mocks.storage,
+    useSession: (id: string) => mocks.storage.getState().sessions[id],
+    useSessionMessages: (id: string) => mocks.storage.getState().sessionMessages[id],
+    useSetting: () => true,
+}));
 vi.mock('./apiSocket', () => ({
     apiSocket: {
         onMessage: vi.fn(),
@@ -177,9 +185,32 @@ vi.mock('@/realtime/hooks/voiceHooks', () => ({
     },
 }));
 vi.mock('react-native', () => ({
-    AppState: { currentState: 'active', addEventListener: vi.fn() },
+    AppState: { currentState: 'active', addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
     Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web },
+    ActivityIndicator: 'ActivityIndicator', FlatList: 'FlatList', Pressable: 'Pressable', Text: 'Text', View: 'View', ScrollView: 'ScrollView',
+    useWindowDimensions: () => ({ width: 1200, height: 800 }),
 }));
+vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({}) }));
+vi.mock('@/utils/responsive', () => ({ useHeaderHeight: () => 0 }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }));
+vi.mock('@/components/ChatFooter', () => ({ ChatFooter: 'ChatFooter' }));
+vi.mock('@expo/vector-icons', () => ({ Octicons: 'Octicons' }));
+vi.mock('react-native-reanimated', () => ({ default: { View: 'AnimatedView' },
+    FadeIn: { duration: () => undefined }, FadeOut: { duration: () => undefined } }));
+vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (factory: any) => factory({ colors: {
+    divider: '#444', shadow: { color: '#000', opacity: 0.2 }, surface: '#111', text: '#fff', textSecondary: '#aaa', fab: { background: '#fff' },
+} }) }, useUnistyles: () => ({ theme: { colors: { text: '#fff' } } }) }));
+vi.mock('@/hooks/useGroupedMessages', () => ({
+    useGroupedMessages: (messages: any[]) => messages.map(message => ({ type: 'message', id: message.id, message })),
+    isSessionTurnActive: () => false,
+}));
+vi.mock('@/utils/messageForkPoint', () => ({ getAgentMessageForkTargets: () => new Map() }));
+vi.mock('@/modal/components/BaseModal', () => ({ BaseModal: 'BaseModal' }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/components/MessageView', () => ({ MessageView: 'MessageView' }));
+vi.mock('@/components/ToolGroupView', () => ({ AgentWorkGroupView: 'AgentWorkGroupView', ToolGroupView: 'ToolGroupView' }));
+vi.mock('@/components/AttachmentGalleryView', () => ({ AttachmentGalleryView: 'AttachmentGalleryView' }));
+vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }));
 vi.mock('expo-notifications', () => ({}));
 vi.mock('expo', () => ({}));
@@ -387,6 +418,7 @@ describe('message visibility synchronization', () => {
         syncForTest.localHistory = null;
         syncForTest.historyWindows = new Map();
         syncForTest.historyWindowLoads = new Map();
+        syncForTest.historyBoundaryLoadingTokens = new Map();
         syncForTest.pendingHistoryTargets = new Map();
         syncForTest.changesInFlight = null;
         syncForTest.changesSupported = null;
@@ -1762,6 +1794,133 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages['same-session']).toMatchObject({ isLoaded: true });
         expect(mocks.state.sessionMessages['same-session'].messagesMap['message-7']).toBeDefined();
         expect(syncForTest.getSessionLastMessageSeq('same-session')).toBe(7);
+    });
+
+    async function installHistoricalBoundary(scope: string, retainedHistory?: NonNullable<Awaited<ReturnType<typeof openLocalHistory>>>) {
+        const history = retainedHistory ?? (await openLocalHistory(scope))!;
+        syncForTest.localHistory = history;
+        installSession('visible-session');
+        await history.commitPage('visible-session', { direction: 'older', boundary: 103,
+            messages: [apiMessage(100), apiMessage(101), apiMessage(102)], hasMore: true });
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('visible-session') ?? syncForTest.sessionMessageLoadGate.enter('visible-session');
+        await syncForTest.applyHistoryWindow('visible-session', await history.readWindow('visible-session', { anchorSeq: 101 }),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        return history;
+    }
+
+    async function mountBoundaryChat(direction: 'older' | 'newer') {
+        const { ChatList } = await import('@/components/ChatList');
+        vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+        // The store double exposes sync's actual writes. Re-render publishes
+        // each settled write to the mounted ChatList, without mocking paging.
+        const render = () => React.createElement(ChatList, { session: { ...mocks.state.sessions['visible-session'] } as any });
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        return {
+            renderer,
+            update: async () => { await act(async () => { renderer.update(render()); }); },
+            reach: () => act(() => renderer.root.findByType('FlatList').props.onScroll({ nativeEvent: {
+                contentOffset: { y: direction === 'older' ? 4500 : 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 500 },
+            } })),
+            retry: () => act(() => renderer.root.findByProps({ testID: `history-${direction}-retry` }).props.onPress()),
+            unmount: () => act(() => renderer.unmount()),
+        };
+    }
+
+    it.each(['older', 'newer'] as const)('releases superseded Web %s loading and retries the same boundary through mounted ChatList', async direction => {
+        vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+        await installHistoricalBoundary(`server|web-${direction}`);
+        const originalRows = mocks.state.sessionMessages['visible-session'].messages;
+        const firstPage = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(firstPage.promise)
+            .mockResolvedValueOnce(response({ messages: [apiMessage(direction === 'older' ? 99 : 103)], hasMore: false }));
+        const chat = await mountBoundaryChat(direction);
+        try {
+            chat.reach();
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            const first = syncForTest.historyWindowLoads.get('visible-session');
+            const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(true);
+            await chat.update();
+            syncForTest.onSessionVisible('visible-session');
+            await syncForTest.messagesSync.get('visible-session').awaitQueue(); // historical foreground no-op, but new loadEpoch
+            firstPage.resolve(response({ messages: [], hasMore: true }));
+            await first;
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(mocks.state.sessionMessages['visible-session'].messages).toBe(originalRows);
+            await chat.update();
+            // Normal repeated scrolling is bounded; explicit Retry bypasses the
+            // transcript's attempted-boundary latch for the identical edge.
+            chat.reach(); expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            chat.retry();
+            await syncForTest.historyWindowLoads.get('visible-session');
+            await chat.update();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.apiRequest.mock.calls[1][0]).toBe(mocks.apiRequest.mock.calls[0][0]);
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(mocks.state.sessionMessages['visible-session'][`${direction}Error`] ?? null).toBeNull();
+            expect(syncForTest.historyWindows.get('visible-session').messages.some((row: ApiMessage) => row.seq === (direction === 'older' ? 99 : 103))).toBe(true);
+            expect(chat.renderer.root.findAllByProps({ testID: `history-${direction}-retry` })).toHaveLength(0);
+        } finally { chat.unmount(); }
+    });
+
+    it.each([['older', 'remount'], ['newer', 'remount'], ['older', 'account'], ['newer', 'account']] as const)(
+        'does not let stale Web %s cleanup alter a %s replacement cache', async (direction, replacement) => {
+            vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+            const oldHistory = await installHistoricalBoundary('server|old-boundary');
+            const oldPage = deferred<Response>(); const newPage = deferred<Response>();
+            mocks.apiRequest.mockReturnValueOnce(oldPage.promise).mockReturnValueOnce(newPage.promise);
+            const load = () => direction === 'older' ? sync.loadOlderMessages('visible-session') : sync.loadNewerMessages('visible-session');
+            const oldLoading = load(); await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            if (replacement === 'remount') syncForTest.releaseSessionMessageCache('visible-session');
+            else syncForTest.encryption = { ...syncForTest.encryption };
+            await installHistoricalBoundary(`server|${replacement}-replacement`, replacement === 'remount' ? oldHistory : undefined);
+            const newLoading = load(); await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+            oldPage.reject(new Error('stale owner failed'));
+            await oldLoading;
+            const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(true);
+            expect(mocks.state.sessionMessages['visible-session'][`${direction}Error`]).toBeNull();
+            newPage.resolve(response({ messages: [apiMessage(direction === 'older' ? 99 : 103)], hasMore: false }));
+            await newLoading;
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(syncForTest.historyWindows.get('visible-session').messages.some((row: ApiMessage) => row.seq === (direction === 'older' ? 99 : 103))).toBe(true);
+            oldHistory.close();
+        });
+
+    it.each(['web', 'android'] as const)('renders a retryable no-IDB older failure on %s through mounted ChatList and clears it after retry', async platform => {
+        const { Platform } = await import('react-native');
+        const previousPlatform = Platform.OS;
+        (Platform as any).OS = platform;
+        vi.stubGlobal('indexedDB', undefined);
+        expect(await openLocalHistory('server|unavailable')).toBeNull();
+        installSession('visible-session');
+        const readingMessage = { id: 'message-103', kind: 'user-text', text: 'reading', createdAt: 1, localId: null };
+        const originalRows = [readingMessage];
+        mocks.state.sessionMessages['visible-session'] = {
+            messages: originalRows,
+            messagesMap: { 'message-103': readingMessage }, isLoaded: true, hasMoreOlder: true, isLoadingOlder: false, isAtLatest: true,
+        };
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });
+        mocks.apiRequest.mockRejectedValueOnce(new Error('offline older page'))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(90)], hasMore: false }));
+        const chat = await mountBoundaryChat('older');
+        try {
+            chat.reach();
+            await vi.waitFor(() => expect(mocks.state.sessionMessages['visible-session'].isLoadingOlder).toBe(false));
+            await chat.update();
+            expect(chat.renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(1);
+            expect(mocks.state.sessionMessages['visible-session'].messages).toBe(originalRows);
+            chat.reach(); expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            chat.retry();
+            await vi.waitFor(() => expect(mocks.state.sessionMessages['visible-session'].messagesMap['message-90']).toBeDefined());
+            await chat.update();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.apiRequest.mock.calls[1][0]).toBe('/v3/sessions/visible-session/messages?before_seq=103&limit=100');
+            expect(mocks.state.sessionMessages['visible-session'].olderError).toBeNull();
+            expect(mocks.state.sessionMessages['visible-session'].messagesMap['message-103']).toBe(readingMessage);
+            expect(chat.renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(0);
+        } finally { chat.unmount(); (Platform as any).OS = previousPlatform; }
     });
 
     it('releases an older-page loading lock when a forward load supersedes it in the same cache', async () => {

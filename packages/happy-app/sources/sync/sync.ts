@@ -335,6 +335,7 @@ class Sync {
     private localHistory: LocalHistory | null = null;
     private historyWindows = new Map<string, HistoryWindow>();
     private historyWindowLoads = new Map<string, Promise<void>>();
+    private historyBoundaryLoadingTokens = new Map<string, { isCurrent: () => boolean }>();
     private changesInFlight: Promise<void> | null = null;
     private changesSupported: boolean | null = null;
     private pendingHistoryTargets = new Map<string, number>();
@@ -627,7 +628,7 @@ class Sync {
 
     private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest'): Promise<void> => {
         const existing = this.historyWindowLoads.get(id);
-        if (existing) return existing;
+        if (existing && this.historyBoundaryLoadingTokens.get(id)?.isCurrent()) return existing;
         const history = this.localHistory;
         if (!history) return Promise.resolve();
         const pending = (async () => {
@@ -638,6 +639,15 @@ class Sync {
             const owner = this.captureHistoryOwner(id, operation);
             const boundary = direction === 'older' ? current!.oldestSeq : direction === 'newer' ? current!.newestSeq : SEQ_BACKWARD_INITIAL_SENTINEL;
             if (boundary === null) return;
+            // Loading belongs to the cache/request lifetime, not the projection
+            // epoch: a foreground historical no-op may supersede that epoch.
+            const cacheOwner = this.captureHistoryOwner(id);
+            const cacheGeneration = this.sessionMessageCacheGenerations.get(id) ?? {};
+            this.sessionMessageCacheGenerations.set(id, cacheGeneration);
+            const loadingToken = { isCurrent: (): boolean => cacheOwner.isCurrent()
+                && this.sessionMessageCacheGenerations.get(id) === cacheGeneration
+                && this.historyBoundaryLoadingTokens.get(id) === loadingToken };
+            this.historyBoundaryLoadingTokens.set(id, loadingToken);
             const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
             const patch = (values: object) => storage.setState(state => state.sessionMessages[id] ? ({ sessionMessages: {
                 ...state.sessionMessages, [id]: { ...state.sessionMessages[id], ...values },
@@ -705,7 +715,11 @@ class Sync {
             } catch (error) {
                 if (owner.isCurrent()) patch({ [direction === 'older' ? 'olderError' : 'newerError']: error instanceof Error ? error.message : 'History unavailable' });
             } finally {
-                if (owner.isCurrent()) patch({ [field]: false });
+                if (loadingToken.isCurrent()) {
+                    patch({ [field]: false, ...(!owner.isCurrent()
+                        ? { [direction === 'older' ? 'olderError' : 'newerError']: 'History load interrupted. Retry.' } : {}) });
+                }
+                if (this.historyBoundaryLoadingTokens.get(id) === loadingToken) this.historyBoundaryLoadingTokens.delete(id);
             }
         })().finally(() => { if (this.historyWindowLoads.get(id) === pending) this.historyWindowLoads.delete(id); });
         this.historyWindowLoads.set(id, pending); return pending;
@@ -963,6 +977,8 @@ class Sync {
 
     private releaseSessionMessageCache(sessionId: string, removeFromRetention = true): void {
         this.historyWindows.delete(sessionId);
+        this.historyWindowLoads.delete(sessionId);
+        this.historyBoundaryLoadingTokens.delete(sessionId);
         const messageSync = this.messagesSync.get(sessionId);
         messageSync?.stop();
         this.messagesSync.delete(sessionId);
@@ -3315,9 +3331,17 @@ class Sync {
         this.sessionMessageCacheGenerations.set(sessionId, cacheGeneration);
         const loadingToken = {};
         this.sessionOlderLoadingTokens.set(sessionId, loadingToken);
+        const encryptionOwner = this.encryption;
+        const ownsLoading = () => this.encryption === encryptionOwner
+            && this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
+            && this.sessionOlderLoadingTokens.get(sessionId) === loadingToken;
+        const setOlderError = (olderError: string | null) => storage.setState(state => state.sessionMessages[sessionId] ? ({
+            sessionMessages: { ...state.sessionMessages, [sessionId]: { ...state.sessionMessages[sessionId], olderError } },
+        }) : state);
         const lease = this.sessionMessageLoadGate.currentLease(sessionId)
             ?? this.sessionMessageLoadGate.enter(sessionId);
         const operation = this.sessionMessageLoadGate.begin(lease);
+        setOlderError(null);
         storage.getState().applyOlderMessagesLoading(sessionId, true);
         const lock = this.getSessionMessageLock(sessionId);
         try {
@@ -3362,9 +3386,12 @@ class Sync {
                     hasMore: nextFrontier.hasMoreOlder,
                 });
             });
+        } catch (error) {
+            if (ownsLoading()) setOlderError(error instanceof Error ? error.message : 'History unavailable');
+            throw error;
         } finally {
-            if (this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
-                && this.sessionOlderLoadingTokens.get(sessionId) === loadingToken) {
+            if (ownsLoading()) {
+                if (!this.sessionMessageLoadGate.isCurrent(operation)) setOlderError('History load interrupted. Retry.');
                 this.sessionOlderLoadingTokens.delete(sessionId);
                 storage.getState().applyOlderMessagesLoading(sessionId, false);
             }
