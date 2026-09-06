@@ -108,7 +108,9 @@ test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ pag
             window.getComputedStyle(element).backgroundColor
         ))).toBe('rgb(18, 24, 33)');
 
-        await page.getByTestId('sidebar-account-trigger').click();
+        const underlyingUrl = page.url();
+        const accountTrigger = page.getByTestId('sidebar-account-trigger');
+        await accountTrigger.click();
         const menu = page.getByTestId('sidebar-account-menu');
         await expect(menu).toBeVisible();
 
@@ -140,12 +142,33 @@ test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ pag
             await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/usage');
             await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
         } else {
-            await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/appearance');
+            await expect(page).toHaveURL(underlyingUrl);
             await expect(page.getByTestId('sidebar-account-menu')).toHaveCount(0);
-            await expect(page.getByTestId('sidebar-account-usage-dialog')).toBeVisible();
+            await expect(page.locator('[role="dialog"]')).toHaveCount(1);
+            const modal = page.getByRole('dialog', { name: '使用情况' });
+            await expect(modal).toBeVisible();
+            const dialog = page.getByTestId('sidebar-account-usage-dialog');
+            await expect(dialog).toBeVisible();
+            await expect(dialog).not.toHaveAttribute('role');
+            await expect(dialog).toHaveCSS('background-color', 'rgb(26, 35, 48)');
             await expect(page.getByTestId('sidebar-account-usage-dialog-content')).toBeVisible();
-            await expect(page.getByTestId('sidebar-account-usage-dialog-close'))
-                .toHaveCSS('color', 'rgb(143, 162, 176)');
+            const closeButton = page.getByTestId('sidebar-account-usage-dialog-close');
+            await expect(closeButton).toHaveCSS('color', 'rgb(143, 162, 176)');
+            await expect(closeButton).toBeFocused();
+            await closeButton.hover();
+            await expect(closeButton).toHaveCSS('background-color', 'rgb(31, 42, 56)');
+            await page.mouse.down();
+            await expect(closeButton).toHaveCSS('background-color', 'rgb(31, 42, 56)');
+            const dialogBox = await dialog.boundingBox();
+            expect(dialogBox).not.toBeNull();
+            await page.mouse.move(dialogBox!.x + 80, dialogBox!.y + 80);
+            await page.mouse.up();
+
+            await page.keyboard.press('Shift+Tab');
+            await expect.poll(() => page.evaluate(() => {
+                const owner = document.querySelector('[role="dialog"]');
+                return Boolean(owner && (owner === document.activeElement || owner.contains(document.activeElement)));
+            })).toBe(true);
             await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
         }
         await expect(page.getByText('63%', { exact: true })).toBeVisible();
@@ -156,9 +179,27 @@ test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ pag
         await page.screenshot({ path: evidencePath(testInfo), fullPage: true });
 
         if (evidencePhase === 'after') {
+            await page.getByTestId('sidebar-account-usage-dialog-close').click();
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toHaveCount(0);
+            await expect(page).toHaveURL(underlyingUrl);
+            await expect(accountTrigger).toBeFocused();
+
+            await accountTrigger.click();
+            await page.getByTestId('sidebar-account-usage-action').click();
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toBeVisible();
+            await page.getByTestId('sidebar-account-usage-dialog-backdrop').click({ position: { x: 6, y: 6 } });
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toHaveCount(0);
+            await expect(page).toHaveURL(underlyingUrl);
+            await expect(accountTrigger).toBeFocused();
+
+            await accountTrigger.click();
+            await page.getByTestId('sidebar-account-usage-action').click();
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toBeVisible();
+            await expect(page.getByTestId('sidebar-account-usage-dialog-close')).toBeFocused();
             await page.keyboard.press('Escape');
             await expect(page.getByTestId('sidebar-account-usage-dialog')).toHaveCount(0);
-            await expect(page.getByTestId('sidebar-account-trigger')).toBeFocused();
+            await expect(page).toHaveURL(underlyingUrl);
+            await expect(accountTrigger).toBeFocused();
         }
     } finally {
         await deleteMachine();

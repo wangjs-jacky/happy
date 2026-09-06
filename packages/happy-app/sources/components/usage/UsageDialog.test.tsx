@@ -132,4 +132,19 @@ describe('UsageDialog', () => {
             backgroundColor: '#1f2a38',
         }));
     });
+
+    it('uses the pressed surface while the close button is hovered on Web', () => {
+        act(() => {
+            renderer = TestRenderer.create(<UsageDialog onClose={mocks.close} open />);
+        });
+
+        let closeButton = renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' });
+        expect(closeButton.props.onHoverIn).toEqual(expect.any(Function));
+        act(() => closeButton.props.onHoverIn());
+
+        closeButton = renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' });
+        expect(closeButton.props.style({ pressed: false })).toContainEqual(expect.objectContaining({
+            backgroundColor: '#1f2a38',
+        }));
+    });
 });

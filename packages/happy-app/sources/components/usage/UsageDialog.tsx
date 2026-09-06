@@ -31,11 +31,13 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
 }) {
     const viewport = useWindowDimensions();
     const closeButtonRef = React.useRef<any>(null);
+    const [closeHovered, setCloseHovered] = React.useState(false);
     const layout = React.useMemo(
         () => getUsageDialogLayout(viewport),
         [viewport.height, viewport.width],
     );
     const closeAndRestoreFocus = React.useCallback(() => {
+        setCloseHovered(false);
         props.onClose();
         if (Platform.OS === 'web') {
             setTimeout(() => props.returnFocusRef?.current?.focus?.(), 0);
@@ -48,17 +50,6 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
         return () => clearTimeout(timeout);
     }, [props.open]);
 
-    const handleKeyDown = React.useCallback((event: {
-        nativeEvent?: { key?: string };
-        preventDefault?: () => void;
-        stopPropagation?: () => void;
-    }) => {
-        if (event.nativeEvent?.key !== 'Escape') return;
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        closeAndRestoreFocus();
-    }, [closeAndRestoreFocus]);
-
     if (!props.open) return null;
 
     return (
@@ -69,7 +60,7 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
             transparent
             visible
         >
-            <View accessibilityViewIsModal style={styles.overlay}>
+            <View style={styles.overlay}>
                 <Pressable
                     accessibilityLabel={t('common.cancel')}
                     onPress={closeAndRestoreFocus}
@@ -77,17 +68,11 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
                     testID="sidebar-account-usage-dialog-backdrop"
                 />
                 <View
-                    accessibilityViewIsModal
                     style={[
                         styles.dialog,
                         layout,
                     ]}
                     testID="sidebar-account-usage-dialog"
-                    {...(Platform.OS === 'web' ? {
-                        'aria-modal': true,
-                        onKeyDown: handleKeyDown,
-                        role: 'dialog',
-                    } as any : {})}
                 >
                     <View style={styles.header}>
                         <Text style={styles.title}>{t('settings.usage')}</Text>
@@ -96,10 +81,12 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
                             accessibilityLabel={t('common.cancel')}
                             accessibilityRole="button"
                             hitSlop={8}
+                            onHoverIn={Platform.OS === 'web' ? () => setCloseHovered(true) : undefined}
+                            onHoverOut={Platform.OS === 'web' ? () => setCloseHovered(false) : undefined}
                             onPress={closeAndRestoreFocus}
                             style={({ pressed }) => [
                                 styles.closeButton,
-                                pressed && styles.closeButtonPressed,
+                                (pressed || closeHovered) && styles.closeButtonPressed,
                             ]}
                             testID="sidebar-account-usage-dialog-close"
                         >
