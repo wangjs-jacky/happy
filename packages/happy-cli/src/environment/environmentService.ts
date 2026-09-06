@@ -99,9 +99,11 @@ function verifiedApplyResult(
   processResult: ProcessResult | null,
 ): EnvironmentApplyResponse {
   // stdout, stderr, and exception text are intentionally never part of a wire response.
-  if (processResult === null || processResult.timedOut || processResult.exitCode !== 0) {
-    return result(before, after, 'failed', 'install-failed',
-      processResult?.timedOut ? 'Package operation timed out.' : 'Package operation failed.');
+  if (processResult?.timedOut) {
+    return result(before, after, 'failed', 'process-timeout', 'Package operation timed out.');
+  }
+  if (processResult === null || processResult.exitCode !== 0) {
+    return result(before, after, 'failed', 'install-failed', 'Package operation failed.');
   }
   if (!verifiesTarget(after, plan)) {
     return result(before, after, 'failed', 'verification-failed', 'Installed component did not verify against the approved target.');

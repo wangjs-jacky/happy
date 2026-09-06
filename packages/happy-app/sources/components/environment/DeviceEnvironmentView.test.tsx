@@ -126,17 +126,18 @@ describe('DeviceEnvironmentView', () => {
         expect(unsupported).toContain('requires an Apple Silicon Mac with Homebrew installed');
     });
 
-    it('shows wait-then-rescan guidance only for rpc-timeout rows', () => {
+    it('shows ordered wait-then-rescan-then-retry guidance for RPC and local process timeouts', () => {
         const view = renderEnvironmentView({ rows: [
             row('timeout', { status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true }),
             row('timeout-without-reason', { status: 'rpc-timeout', requiresScan: true }),
+            row('process-timeout', { status: 'process-timeout', reasonCode: 'process-timeout', requiresScan: true }),
             row('healthy'),
             row('offline', { machine: machine('offline', false), online: false, observation: undefined, status: 'offline' }),
             row('error', { status: 'rpc-error', reasonCode: 'unexpected-error', requiresScan: true }),
             row('failed', { status: 'failed', reasonCode: 'install-failed', requiresScan: true }),
         ] });
         const guidance = 'Wait for Homebrew or the current operation to finish, then scan again before retrying.';
-        for (const id of ['timeout', 'timeout-without-reason']) {
+        for (const id of ['timeout', 'timeout-without-reason', 'process-timeout']) {
             const timeout = textOf(view.root.findByProps({ testID: `environment-machine-${id}` }));
             expect(timeout).toContain('State unknown; scan again');
             expect(timeout).toContain(guidance);
@@ -145,6 +146,17 @@ describe('DeviceEnvironmentView', () => {
         for (const id of ['healthy', 'offline', 'error', 'failed']) {
             expect(textOf(view.root.findByProps({ testID: `environment-machine-${id}` }))).not.toContain(guidance);
         }
+    });
+
+    it('shows the exact dispatched upgrade while its approval plan is cleared', () => {
+        const active = row('active', {
+            status: 'upgrade', plan: undefined,
+            dispatchedAction: { action: 'upgrade', fromVersion: '2.79.0', targetVersion: '2.80.0' },
+        });
+        const view = renderEnvironmentView({ phase: 'applying', rows: [active] });
+        const text = textOf(view.root.findByProps({ testID: 'environment-machine-active' }));
+        expect(text).toContain('Applying alignment… · Upgrade gh 2.79.0 → 2.80.0');
+        expect(text).not.toContain('Preview to see the exact action');
     });
 
     it('connects the registered fleet including offline machines without automatically scanning', () => {

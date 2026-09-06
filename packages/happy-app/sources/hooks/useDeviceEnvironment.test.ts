@@ -355,6 +355,19 @@ describe('useDeviceEnvironment', () => {
         expect(controller.rows[0]).toMatchObject({ status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true });
     });
 
+    it('preserves a structured local process timeout as a distinct unknown state', async () => {
+        const timedOut = success();
+        timedOut.result = { ...timedOut.result, status: 'failed', reasonCode: 'process-timeout' };
+        apply.mockResolvedValue(timedOut);
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        expect(controller.rows[0]).toMatchObject({
+            status: 'process-timeout', reasonCode: 'process-timeout', requiresScan: true,
+            result: { status: 'failed', reasonCode: 'process-timeout' },
+        });
+    });
+
     it('publishes each scan row before the slowest settles without enabling an early preview', async () => {
         const slow = deferred<EnvironmentInspectResponse>();
         const fast = deferred<EnvironmentInspectResponse>();
@@ -406,17 +419,27 @@ describe('useDeviceEnvironment', () => {
         apply.mockImplementation((id) => id === 'slow' ? slow.promise : fast.promise);
         let pending!: Promise<void>;
         act(() => { pending = controller.applyApproved(); });
+        expect(controller.rows[0]).toMatchObject({
+            machineId: 'slow', plan: undefined,
+            dispatchedAction: { action: 'upgrade', fromVersion: '2.79.0', targetVersion: '2.80.0' },
+        });
         await act(async () => { fast.resolve(success()); });
         expect(controller.phase).toBe('applying');
         expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
             ['slow', 'upgrade'], ['offline', 'offline'], ['fast', 'succeeded'],
         ]);
+        expect(controller.rows[0]).toMatchObject({
+            plan: undefined,
+            dispatchedAction: { action: 'upgrade', fromVersion: '2.79.0', targetVersion: '2.80.0' },
+        });
         expect(controller.rows[2].result?.changed).toBe(true);
         await act(() => controller.applyApproved());
         expect(apply).toHaveBeenCalledTimes(2);
         await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
         expect(controller.phase).toBe('completed');
         expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'succeeded']);
+        expect(controller.rows[0].dispatchedAction).toBeUndefined();
+        expect(controller.rows[0]).toMatchObject({ requiresScan: true, reasonCode: 'rpc-timeout' });
     });
 
     it.each(['success', 'timeout'] as const)('retains settled and outstanding apply rows when a device goes offline: %s', async (settlement) => {

@@ -15,13 +15,16 @@ export type FleetTarget =
     | { kind: 'ready'; targetVersion: string }
     | { kind: 'blocked'; reasonCode: 'version-source-mismatch' };
 
+export type FleetDispatchedAction = Readonly<Pick<ComponentPlan, 'action' | 'fromVersion' | 'targetVersion'>>;
+
 export type FleetRow = FleetMachineScan & {
     machine: Machine;
     status: 'pending' | 'offline' | 'ready' | 'install' | 'upgrade' | 'manual-repair'
-        | 'rpc-error' | 'rpc-timeout' | 'succeeded' | 'failed' | 'stale-plan';
+        | 'rpc-error' | 'rpc-timeout' | 'process-timeout' | 'succeeded' | 'failed' | 'stale-plan';
     reasonCode?: EnvironmentReasonCode;
     requiresScan?: boolean;
     result?: ComponentApplyResult;
+    dispatchedAction?: FleetDispatchedAction;
 };
 
 export function resolveFleetTarget(scans: readonly FleetMachineScan[]): FleetTarget {

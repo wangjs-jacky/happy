@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EnvironmentApplyResponseSchema,
   EnvironmentApplyRequestSchema,
   EnvironmentInspectRequestSchema,
 } from './environment';
@@ -32,5 +33,18 @@ describe('environment wire schemas', () => {
       },
       command: 'rm -rf /',
     })).toThrow();
+  });
+
+  it('accepts a typed local process timeout apply result', () => {
+    const observation = {
+      componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
+      installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
+      packageManager: { kind: 'homebrew', available: true, stableVersion: '2.80.0' },
+      authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: 1,
+    };
+    expect(EnvironmentApplyResponseSchema.parse({ result: {
+      componentId: 'github-cli', status: 'failed', before: observation, after: observation,
+      changed: false, reasonCode: 'process-timeout',
+    } }).result.reasonCode).toBe('process-timeout');
   });
 });

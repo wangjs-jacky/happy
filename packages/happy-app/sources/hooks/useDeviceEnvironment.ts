@@ -205,8 +205,17 @@ export function useDeviceEnvironment(
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         applyInFlight.current = true;
+        const applyRows = new Map(candidates.map((row) => [row.machineId, {
+            ...row,
+            plan: undefined,
+            dispatchedAction: {
+                action: row.plan!.action,
+                fromVersion: row.plan!.fromVersion,
+                targetVersion: row.plan!.targetVersion,
+            },
+        }]));
         commit({ ...previous, epoch, phase: 'applying',
-            applyRows: new Map(candidates.map((row) => [row.machineId, { ...row, plan: undefined }])) });
+            applyRows, rows: withApplyResults(previous.rows, applyRows) });
         try {
             await Promise.allSettled(candidates.map(async (row) => {
                 function publish(resultRow: FleetRow) {
@@ -218,11 +227,13 @@ export function useDeviceEnvironment(
                 }
                 try {
                     const { result } = await apply(row.machineId, { desired, plan: row.plan!, approvedAt });
-                    publish({ ...row, plan: undefined, result, observation: result.after,
-                        status: result.reasonCode === 'rpc-timeout' ? 'rpc-timeout' : result.status,
-                        reasonCode: result.reasonCode, requiresScan: result.status === 'stale-plan' || result.reasonCode === 'rpc-timeout' });
+                    publish({ ...row, plan: undefined, dispatchedAction: undefined, result, observation: result.after,
+                        status: result.reasonCode === 'rpc-timeout' ? 'rpc-timeout'
+                            : result.reasonCode === 'process-timeout' ? 'process-timeout' : result.status,
+                        reasonCode: result.reasonCode, requiresScan: result.status === 'stale-plan'
+                            || result.reasonCode === 'rpc-timeout' || result.reasonCode === 'process-timeout' });
                 } catch (reason) {
-                    publish({ ...row, plan: undefined, ...fleetRpcError(reason) });
+                    publish({ ...row, plan: undefined, dispatchedAction: undefined, ...fleetRpcError(reason) });
                     throw reason;
                 }
             }));

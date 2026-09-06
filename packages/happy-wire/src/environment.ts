@@ -7,7 +7,7 @@ export const EnvironmentReasonCodeSchema = z.enum([
   'machine-offline', 'unsupported-platform', 'unsupported-architecture',
   'homebrew-missing', 'formula-unavailable', 'version-source-mismatch',
   'version-ahead', 'authentication-missing', 'operation-in-progress',
-  'plan-stale', 'install-failed', 'verification-failed', 'rpc-timeout',
+  'plan-stale', 'install-failed', 'verification-failed', 'process-timeout', 'rpc-timeout',
   'unexpected-error',
 ]);
 export type EnvironmentReasonCode = z.infer<typeof EnvironmentReasonCodeSchema>;

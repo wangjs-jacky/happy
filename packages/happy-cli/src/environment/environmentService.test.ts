@@ -308,6 +308,16 @@ describe('environment service authorization and verification', () => {
     EnvironmentApplyResponseSchema.parse(response);
   });
 
+  it('preserves an adapter process timeout as unknown instead of an install failure', async () => {
+    const { adapter } = adapterFixture();
+    adapter.apply.mockResolvedValue({ ...success, timedOut: true });
+    const service = serviceWithAdapter(adapter);
+    const response = await service.apply(await validApplyRequest(service));
+    expect(response.result).toMatchObject({ status: 'failed', reasonCode: 'process-timeout', changed: false });
+    expect(response.result.reasonCode).not.toBe('install-failed');
+    EnvironmentApplyResponseSchema.parse(response);
+  });
+
   it('reinspects exceptions, sanitizes them, and releases the lock for retry', async () => {
     const { adapter } = adapterFixture();
     adapter.apply.mockRejectedValueOnce(new Error('token=private-token'));
@@ -338,7 +348,7 @@ describe('environment apply lifecycle logging', () => {
     { scenario: 'stale', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'stale-plan', durationMs: 11, reasonCode: 'plan-stale' },
     { scenario: 'manual', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'manual-repair', durationMs: 11, reasonCode: 'version-ahead' },
     { scenario: 'process-failure', exitStatus: 7, verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
-    { scenario: 'timeout', exitStatus: 'timeout', verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
+    { scenario: 'timeout', exitStatus: 'timeout', verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'process-timeout' },
     { scenario: 'exception', exitStatus: 'error', verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
     { scenario: 'verification-failure', exitStatus: 0, verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'verification-failed' },
     { scenario: 'inspection-failure', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'failed', durationMs: 11, reasonCode: 'unexpected-error' },

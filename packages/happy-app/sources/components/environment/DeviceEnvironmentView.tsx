@@ -33,15 +33,17 @@ function reasonLabel(reason?: EnvironmentReasonCode): string | undefined {
         case 'plan-stale': return t('deviceEnvironment.planExpired');
         case 'install-failed':
         case 'verification-failed': return t('deviceEnvironment.alignmentFailed');
+        case 'process-timeout':
         case 'rpc-timeout':
         case 'unexpected-error': return t('deviceEnvironment.stateUnknown');
-        default: return undefined;
+        case undefined: return undefined;
+        default: return reason satisfies never;
     }
 }
 
 function actionLabel(row: FleetRow, target: FleetTarget): string {
     if (!row.online) return t('deviceEnvironment.daemonOffline');
-    if (row.status === 'rpc-timeout' || row.status === 'rpc-error') return t('deviceEnvironment.stateUnknown');
+    if (row.status === 'rpc-timeout' || row.status === 'process-timeout' || row.status === 'rpc-error') return t('deviceEnvironment.stateUnknown');
     if (row.status === 'stale-plan') return t('deviceEnvironment.planExpired');
     if (row.status === 'failed' || row.status === 'succeeded') {
         const failed = row.status === 'failed';
@@ -56,11 +58,12 @@ function actionLabel(row: FleetRow, target: FleetTarget): string {
                 : t('deviceEnvironment.actionInstall', { version });
         return `${outcome} · ${action}`;
     }
-    if (row.plan) {
-        switch (row.plan.action) {
-            case 'install': return t('deviceEnvironment.actionInstall', { version: row.plan.targetVersion ?? t('common.unknown') });
+    const plannedAction = row.dispatchedAction ?? row.plan;
+    if (plannedAction) {
+        switch (plannedAction.action) {
+            case 'install': return t('deviceEnvironment.actionInstall', { version: plannedAction.targetVersion ?? t('common.unknown') });
             case 'upgrade': return t('deviceEnvironment.actionUpgrade', {
-                from: row.plan.fromVersion ?? t('common.unknown'), version: row.plan.targetVersion ?? t('common.unknown'),
+                from: plannedAction.fromVersion ?? t('common.unknown'), version: plannedAction.targetVersion ?? t('common.unknown'),
             });
             case 'none': return t('deviceEnvironment.actionNone');
             case 'manual-repair': return t('deviceEnvironment.actionManualRepair');
@@ -72,7 +75,7 @@ function actionLabel(row: FleetRow, target: FleetTarget): string {
 
 function atTarget(row: FleetRow, target: FleetTarget): boolean {
     return target.kind === 'ready' && row.online && !row.requiresScan
-        && !['pending', 'failed', 'rpc-timeout', 'rpc-error', 'stale-plan'].includes(row.status)
+        && !['pending', 'failed', 'process-timeout', 'rpc-timeout', 'rpc-error', 'stale-plan'].includes(row.status)
         && row.observation?.support === 'supported' && row.observation.installed
         && row.observation.installedVersion === target.targetVersion;
 }
@@ -83,14 +86,15 @@ const MachineEnvironmentRow = React.memo(({ row, target, applying }: { row: Flee
     const installed = observed
         ? observed.installed ? observed.installedVersion ?? t('common.unknown') : t('deviceEnvironment.notInstalled')
         : t('common.unknown');
-    const targetVersion = row.plan?.targetVersion ?? (target.kind === 'ready' ? target.targetVersion : observed?.packageManager.stableVersion);
+    const targetVersion = row.dispatchedAction?.targetVersion ?? row.plan?.targetVersion
+        ?? (target.kind === 'ready' ? target.targetVersion : observed?.packageManager.stableVersion);
     const auth = observed?.authentication.status;
     const authLabel = t(auth === 'authenticated' ? 'deviceEnvironment.authReady'
         : auth === 'missing' ? 'deviceEnvironment.authMissing' : 'deviceEnvironment.authUnknown');
     const reason = reasonLabel(row.reasonCode ?? row.plan?.reasonCode ?? observed?.reasonCode);
     const repair = row.result?.repairGuide;
     const needsRepair = repair || row.status === 'manual-repair' || row.status === 'failed' || auth === 'missing';
-    const pendingApply = applying && (row.plan?.action === 'install' || row.plan?.action === 'upgrade');
+    const pendingApply = applying && (row.dispatchedAction?.action === 'install' || row.dispatchedAction?.action === 'upgrade');
     const action = actionLabel(row, target);
 
     return (
@@ -113,7 +117,8 @@ const MachineEnvironmentRow = React.memo(({ row, target, applying }: { row: Flee
                     <Text style={styles.actionText}>{pendingApply ? `${t('deviceEnvironment.applying')} · ${action}` : action}</Text>
                     {reason && !action.includes(reason) ? <Text style={styles.guidance}>{reason}</Text> : null}
                     {!row.online ? <Text style={styles.guidance}>{t('deviceEnvironment.offlineRecovery')}</Text> : null}
-                    {row.status === 'rpc-timeout' ? <Text style={styles.guidance}>{t('deviceEnvironment.timeoutRecovery')}</Text> : null}
+                    {row.status === 'rpc-timeout' || row.status === 'process-timeout'
+                        ? <Text style={styles.guidance}>{t('deviceEnvironment.timeoutRecovery')}</Text> : null}
                     {needsRepair ? <Text style={styles.guidance}>
                         {t(repair?.channel === 'local-terminal' ? 'deviceEnvironment.repairLocally' : 'deviceEnvironment.repairWithSsh')}
                     </Text> : null}
