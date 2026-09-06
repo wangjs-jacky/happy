@@ -67,11 +67,19 @@ Browser/App/CLI --> https://47.115.228.20:8443 or http://47.115.228.20:3005
 
 ## Caddy Tunnel 入口
 
-生产 Caddy 增加一个由仓库脚本管理的 `http://127.0.0.1:8081` site block。它必须：
+生产 Caddy 增加一个由仓库脚本管理的 `http://:8081` site block，并在其中显式
+设置 `bind 127.0.0.1`。Caddy site label 中的 IP 会生成 Host matcher，不能用它代替
+网络绑定；Cloudflare Tunnel origin/service 仍为 `http://127.0.0.1:8081`。它必须：
 
 - 只接受 `Host: paws.rodeo`，其他 Host 返回 `421`。
 - 从现有 `47.115.228.20:8443` site block 同步 Web、API、分享页和 WebSocket 路由。
 - 排除公网 site 中的 `tls`、`bind` 等监听/TLS 指令。
+- 在有序 `route` 中先执行错误 Host 的 `421`，再为 `/v1/*`、`/v2/*`、`/v3/*`、
+  `/v4/*`、`/files/*`、`/health` 和 `/v1/updates*` 延迟设置 `Cache-Control: no-store`，
+  最后通过 `handle` 保留复制路由的正常排序。该响应头是激活 Tunnel 前必须满足的条件，
+  只作用于生成的 loopback listener；旧 IP 响应头保持不变。
+- 对未托管站点的路径、引号、环境变量/placeholder 或其他非字面量标签保守拒绝，
+  避免未托管 Host 路由共享 8081 并绕过生成的 guard。
 - 每次 Web 部署都重新生成，从而避免域名入口与 IP 入口长期漂移。
 - 在写入前执行 Caddy validate；reload 失败时恢复备份。
 
@@ -107,6 +115,9 @@ Browser/App/CLI --> https://47.115.228.20:8443 or http://47.115.228.20:3005
 ## 验收标准
 
 - `https://paws.rodeo/health` 返回 200，且不是来自缓存。
+- 激活 public hostname 前，loopback 动态路由必须返回 `Cache-Control: no-store`。
+  文件探针 `/files/tunnel-verification` 允许无凭据的 `404 text/plain; charset=utf-8`，
+  但仍拒绝重定向、挑战页、HTML/SPA fallback 和缓存响应。
 - 首页、深链、哈希资源和公共分享页可加载，不跳转到 IP。
 - 新域名下创建会话、发消息、流式/实时回复和重连正常。
 - `/v1/updates` WebSocket 能持续保持，至少完成一次网络切换后的恢复测试。

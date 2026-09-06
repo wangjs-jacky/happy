@@ -43,7 +43,7 @@ test('creates a bound loopback HTTP origin with an exact Host guard before norma
     assert.equal(tunnel.match(/^\s*bind\b/gm)?.length, 1);
     assert.doesNotMatch(tunnel, /bind 0\.0\.0\.0|tls cert key|protocols tls1/);
     assert.match(tunnel, /@paws_tunnel_wrong_host not host paws\.rodeo/);
-    assert.match(tunnel, /route \{\n\s+respond @paws_tunnel_wrong_host 421\n\s+handle \{/);
+    assert.match(tunnel, /route \{\n\s+respond @paws_tunnel_wrong_host 421\n/);
     assert.match(tunnel, /@backend path \/v1\/\* \/v2\/\*/);
     assert.match(tunnel, /transport http \{\n\s+tls\n/);
     assert.match(tunnel, /\/web\/current\/index\.html/);
@@ -51,6 +51,16 @@ test('creates a bound loopback HTTP origin with an exact Host guard before norma
     // /v1/updates is a member of /v1/*; no narrow replacement is allowed.
     assert.doesNotMatch(tunnel, /@backend path \/v1\/updates/);
     assert.ok(configured.startsWith(canonicalFixture));
+});
+
+test('adds deferred dynamic no-store headers only after the Tunnel Host guard and before copied routing', () => {
+    const configured = configureProductionTunnelCaddy(canonicalFixture);
+    assert.ok(configured.startsWith(canonicalFixture));
+    const tunnel = tunnelBlock(configured);
+    assert.match(tunnel, /@paws_tunnel_dynamic path \/v1\/\* \/v2\/\* \/v3\/\* \/v4\/\* \/files\/\* \/health \/v1\/updates\*/);
+    assert.match(tunnel, /route \{\n\s+respond @paws_tunnel_wrong_host 421\n\s+header @paws_tunnel_dynamic >Cache-Control no-store\n\s+handle \{/);
+    assert.throws(() => configureProductionTunnelCaddy(fixture.replace('    bind 0.0.0.0',
+        '    @paws_tunnel_dynamic path /anything')), /reserved/i);
 });
 
 test('refreshes managed routes from the canonical site and remains idempotent', () => {
@@ -111,6 +121,46 @@ test('rejects quoted unmanaged site addresses that could bypass reserved-port de
     }
 });
 
+test('rejects path-bearing and nonliteral unmanaged site addresses before scanning reserved ports', () => {
+    for (const address of [
+        'http://other.example:8081/', 'http://other.example:8081/foo',
+        '{$REVIEW_TUNNEL_ADDR}', '{env.REVIEW_TUNNEL_ADDR}', 'http://{$REVIEW_HOST}:8081',
+        'http://other.example:9090/foo', 'http://other.example:8081?probe=1',
+        'http://other.example:8081#fragment', 'http://user@other.example:8081',
+        '*.example:8081', '(shared)',
+    ]) {
+        assert.throws(() => configureProductionTunnelCaddy(fixture + `${address} {\n    bind 127.0.0.1\n    respond 200\n}\n`),
+            /unsupported.*site address/i, address);
+    }
+});
+
+test('preserves supported literal production and unrelated site labels', () => {
+    for (const address of [':8002', 'http://:8080', 'http://47.115.228.20', 'http://:3005',
+        'other.example', 'https://other.example:9443', '[::1]:9000', ':9000-9002, :9003']) {
+        const source = fixture + `${address} {\n    respond 200\n}\n`;
+        assert.ok(configureProductionTunnelCaddy(source).startsWith(source), address);
+    }
+});
+
+test('real Caddy shared-listener path and environment labels are rejected before they can precede the Host guard', {
+    skip: !process.env.CADDY_BINARY && 'Set CADDY_BINARY to run the local Caddy integration check',
+}, () => {
+    const canonical = '47.115.228.20:8443 {\n    respond "application"\n}\n';
+    const managed = tunnelBlock(configureProductionTunnelCaddy(canonical));
+    for (const address of ['http://other.example:8081/', 'http://other.example:8081/foo', '{$REVIEW_TUNNEL_ADDR}']) {
+        const unmanaged = `${address} {\n    bind 127.0.0.1\n    respond "unmanaged"\n}\n`;
+        const adapted = spawnSync(process.env.CADDY_BINARY, ['adapt', '--config', '-', '--adapter', 'caddyfile'], {
+            input: `{\n    admin off\n    auto_https off\n}\n${unmanaged}${managed}`,
+            env: { ...process.env, REVIEW_TUNNEL_ADDR: 'http://other.example:8081' }, encoding: 'utf8',
+        });
+        assert.equal(adapted.status, 0, adapted.stderr);
+        const servers = Object.values(JSON.parse(adapted.stdout).apps.http.servers);
+        assert.deepEqual(servers.map((server) => server.listen), [['127.0.0.1:8081']]);
+        assert.deepEqual(servers[0].routes[0].match[0].host, ['other.example']);
+        assert.throws(() => configureProductionTunnelCaddy(canonical + unmanaged), /unsupported.*site address/i, address);
+    }
+});
+
 test('rejects imports and reserved matcher collisions that could bypass the generated guard', () => {
     for (const directive of ['import shared-routes', '@paws_tunnel_wrong_host path /anything']) {
         assert.throws(() => configureProductionTunnelCaddy(fixture.replace('    bind 0.0.0.0', `    ${directive}`)), /unsupported|reserved/i);
@@ -160,12 +210,21 @@ test('real Caddy binds only loopback and applies the Host guard before backend, 
     const probe = createServer();
     await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve); });
     const port = probe.address().port;
+    const fallbackProbe = createServer();
+    await new Promise((resolve, reject) => { fallbackProbe.once('error', reject); fallbackProbe.listen(0, '127.0.0.1', resolve); });
+    const fallbackPort = fallbackProbe.address().port;
+    await new Promise((resolve) => fallbackProbe.close(resolve));
     await new Promise((resolve) => probe.close(resolve));
-    const source = `47.115.228.20:8443 {
-    tls internal
-    bind 0.0.0.0
-    @backend path /v1/* /v2/* /health
+    const source = `http://:${fallbackPort} {
+    bind 127.0.0.1
+    @file path /files/tunnel-verification
+    handle @file {
+        header Content-Type "text/plain; charset=utf-8"
+        respond "Not Found" 404
+    }
+    @backend path /v1/* /v2/* /v3/* /v4/* /files/* /health
     handle @backend {
+        header Cache-Control "public, max-age=60"
         respond "backend" 200
     }
     @asset path /assets/*
@@ -175,25 +234,28 @@ test('real Caddy binds only loopback and applies the Host guard before backend, 
     }
 }
 `;
-    const configured = configureProductionTunnelCaddy(source, { tunnelListenAddress: `http://127.0.0.1:${port}` });
-    const localConfig = '{\n    admin off\n    auto_https off\n}\n' + tunnelBlock(configured);
+    const configured = configureProductionTunnelCaddy(source, {
+        publicSiteAddress: `http://:${fallbackPort}`, tunnelListenAddress: `http://127.0.0.1:${port}`,
+    });
+    const localConfig = '{\n    admin off\n    auto_https off\n}\n' + configured;
     const adapted = spawnSync(process.env.CADDY_BINARY, ['adapt', '--config', '-', '--adapter', 'caddyfile'], {
         input: localConfig, encoding: 'utf8',
     });
     assert.equal(adapted.status, 0, adapted.stderr);
     const servers = Object.values(JSON.parse(adapted.stdout).apps.http.servers);
-    assert.deepEqual(servers.map((server) => server.listen), [[`127.0.0.1:${port}`]]);
+    assert.deepEqual(servers.map((server) => server.listen).sort(), [[`127.0.0.1:${port}`], [`127.0.0.1:${fallbackPort}`]].sort());
     const child = spawn(process.env.CADDY_BINARY, ['run', '--config', '-', '--adapter', 'caddyfile'], {
         stdio: ['pipe', 'ignore', 'pipe'],
     });
     let logs = '';
     child.stderr.on('data', (data) => { logs += data; });
     child.stdin.end(localConfig);
-    const get = (host, path) => new Promise((resolve, reject) => {
-        const req = request({ hostname: '127.0.0.1', port, path, headers: { Host: host }, timeout: 1000 }, (res) => {
+    const get = (host, path, requestPort = port) => new Promise((resolve, reject) => {
+        const req = request({ hostname: '127.0.0.1', port: requestPort, path, headers: { Host: host }, timeout: 1000 }, (res) => {
             let body = '';
             res.on('data', (chunk) => { body += chunk; });
-            res.on('end', () => resolve({ status: res.statusCode, body, location: res.headers.location }));
+            res.on('end', () => resolve({ status: res.statusCode, body, location: res.headers.location,
+                cacheControl: res.headers['cache-control'] }));
         });
         req.on('error', reject);
         req.on('timeout', () => req.destroy(new Error('Local Caddy request timed out')));
@@ -205,16 +267,25 @@ test('real Caddy binds only loopback and applies the Host guard before backend, 
             try { await get('paws.rodeo', '/health'); ready = true; break; } catch { await delay(100); }
         }
         assert.ok(ready, logs);
-        for (const path of ['/health', '/v1/updates']) {
-            assert.deepEqual(await get('paws.rodeo', path), { status: 200, body: 'backend', location: undefined });
+        for (const path of ['/health', '/v1/sessions', '/v2/sessions', '/v3/sessions', '/v4/sessions',
+            '/files/example', '/v1/updates', '/v1/updates/', '/v1/updates-extra']) {
+            assert.deepEqual(await get('paws.rodeo', path), { status: 200, body: 'backend', location: undefined, cacheControl: 'no-store' });
+            assert.equal((await get('47.115.228.20', path, fallbackPort)).cacheControl, 'public, max-age=60', path);
         }
+        assert.deepEqual(await get('paws.rodeo', '/files/tunnel-verification'), {
+            status: 404, body: 'Not Found', location: undefined, cacheControl: 'no-store',
+        });
+        assert.equal((await get('47.115.228.20', '/files/tunnel-verification', fallbackPort)).cacheControl, undefined);
         assert.equal((await get('paws.rodeo', '/')).body, 'spa');
+        for (const path of ['/', '/healthz', '/session/example']) assert.equal((await get('paws.rodeo', path)).cacheControl, undefined);
         assert.deepEqual(await get('paws.rodeo', '/assets/test.js'), {
-            status: 302, body: '', location: 'https://assets.example.com/assets/test.js',
+            status: 302, body: '', location: 'https://assets.example.com/assets/test.js', cacheControl: undefined,
         });
         for (const host of ['invalid.example', '127.0.0.1', 'www.paws.rodeo', 'paws.rodeo.evil']) {
             for (const path of ['/health', '/v1/updates', '/assets/test.js', '/']) {
-                assert.equal((await get(host, path)).status, 421, `${host}${path}`);
+                const rejected = await get(host, path);
+                assert.equal(rejected.status, 421, `${host}${path}`);
+                assert.equal(rejected.cacheControl, undefined, `${host}${path}`);
             }
         }
     } finally {

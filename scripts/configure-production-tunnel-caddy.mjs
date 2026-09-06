@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 const START = '# paws-cloudflare-tunnel:start';
 const END = '# paws-cloudflare-tunnel:end';
 const RESERVED_MATCHER = '@paws_tunnel_wrong_host';
+const DYNAMIC_MATCHER = '@paws_tunnel_dynamic';
 // Only known application directives can be moved into a handle block. Imports
 // and site-wide options need explicit reconciliation against the real config.
 const APPLICATION_DIRECTIVES = new Set([
@@ -133,7 +134,16 @@ export function configureProductionTunnelCaddy(source, {
         if (block.header.some((token) => token.quoted)) {
             throw new Error('Unsupported quoted Caddy site address; reconcile before Tunnel activation');
         }
-        const usesTunnelPort = block.header.flatMap((token) => token.text.split(',')).some((address) => {
+        const addresses = block.header.flatMap((token) => token.text.split(',')).filter(Boolean);
+        // Caddy accepts paths and expands environment placeholders in labels.
+        // Neither is safe for raw port scanning: it can hide a shared listener
+        // whose unmanaged Host route runs before our guard. Only literal HTTP(S)
+        // host/port labels supported by this transformer may reach that scan.
+        if (addresses.some((address) => !/^(?:https?:\/\/)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?|\[[0-9a-fA-F:.]+\])?(?::\d+(?:-\d+)?)?$/u.test(address)
+            || /^(?:https?:\/\/)?$/u.test(address))) {
+            throw new Error('Unsupported nonliteral or path-bearing Caddy site address; reconcile before Tunnel activation');
+        }
+        const usesTunnelPort = addresses.some((address) => {
             const range = /:(\d+)(?:-(\d+))?$/u.exec(address);
             return range && Number(range[1]) <= Number(port) && Number(range[2] ?? range[1]) >= Number(port);
         });
@@ -149,7 +159,7 @@ export function configureProductionTunnelCaddy(source, {
     const remove = new Set();
     for (let index = site.open + 1; index < site.close; index += 1) {
         const token = tokens[index];
-        if (token.text === RESERVED_MATCHER) throw new Error('Canonical site uses the reserved Tunnel matcher');
+        if ([RESERVED_MATCHER, DYNAMIC_MATCHER].includes(token.text)) throw new Error('Canonical site uses a reserved Tunnel matcher');
         if (token.endLine !== token.line) throw new Error('Unsupported multiline quoted value in canonical site');
         const firstOnLine = tokens[index - 1].line < token.line;
         if (firstOnLine && token.text === 'import') throw new Error('Unsupported import in canonical site');
@@ -169,11 +179,14 @@ export function configureProductionTunnelCaddy(source, {
         .map((line) => `        ${line}`);
     // An IP in a site label adds a Host matcher, not a network bind. Use a
     // port-only HTTP label plus bind, so paws.rodeo reaches the exact Host guard.
-    // route preserves guard ordering; handle preserves normal directive sorting
-    // within copied routes (notably asset redirects before the SPA fallback).
+    // route preserves guard/header ordering; handle preserves normal directive
+    // sorting within copied routes (asset redirects before the SPA fallback).
+    // Defer the header assignment so copied routes/upstreams cannot replace it.
     const generated = [START, `http://:${port} {`, '    bind 127.0.0.1',
-        `    ${RESERVED_MATCHER} not host ${tunnelHost}`, '    route {',
-        `        respond ${RESERVED_MATCHER} 421`, '        handle {',
+        `    ${RESERVED_MATCHER} not host ${tunnelHost}`,
+        `    ${DYNAMIC_MATCHER} path /v1/* /v2/* /v3/* /v4/* /files/* /health /v1/updates*`, '    route {',
+        `        respond ${RESERVED_MATCHER} 421`,
+        `        header ${DYNAMIC_MATCHER} >Cache-Control no-store`, '        handle {',
         ...application, '        }', '    }', '}', END];
     if (managed) {
         lines.splice(managed.start, managed.end - managed.start + 1, ...generated);

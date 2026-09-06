@@ -204,3 +204,30 @@ test('candidate listener guard rejects wildcard, nonloopback, absent, and extra 
         assert.equal(result.status === 0, success, `${JSON.stringify(listeners)}: ${result.stderr}`);
     }
 });
+
+test('Tunnel smoke rejects activation without exactly one no-store response header', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const smoke = step.run.match(/smoke_tunnel_origin\(\) \{\n[\s\S]*?\n\}/)?.[0];
+    assert.ok(smoke);
+    for (const [headers, success] of [
+        ['HTTP/1.1 200 OK\r\nCache-Control: no-store\r\n\r\n', true],
+        ['HTTP/1.1 200 OK\r\ncache-control: no-store\r\n\r\n', true],
+        ['HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n', false],
+        ['HTTP/1.1 200 OK\r\nCache-Control: public, max-age=60\r\n\r\n', false],
+        ['HTTP/1.1 200 OK\r\nCache-Control: no-store\r\nCache-Control: public\r\n\r\n', false],
+    ]) {
+        const result = spawnSync('bash', ['-c', `
+curl() {
+    case "$*" in
+        *'Host: invalid.example'*) printf '421' ;;
+        *) printf '%s' "$SMOKE_HEADERS" ;;
+    esac
+}
+ss() { printf 'LISTEN 0 128 127.0.0.1:8081 0.0.0.0:*\\n'; }
+${smoke}
+smoke_tunnel_origin
+`], { encoding: 'utf8', env: { ...process.env, SMOKE_HEADERS: headers } });
+        assert.equal(result.status === 0, success, `${JSON.stringify(headers)}: ${result.stderr}`);
+    }
+});

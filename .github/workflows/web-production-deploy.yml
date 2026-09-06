@@ -264,8 +264,13 @@ jobs:
             return 1
           }
           smoke_tunnel_origin() {
-            curl --fail --silent --show-error --noproxy '*' --max-time 10 \
-              --header 'Host: paws.rodeo' http://127.0.0.1:8081/health >/dev/null || return 1
+            local health_headers
+            health_headers="$(curl --fail --silent --show-error --noproxy '*' --max-time 10 --dump-header - --output /dev/null \
+              --header 'Host: paws.rodeo' http://127.0.0.1:8081/health)" || return 1
+            awk '{ sub(/\r$/, ""); line=tolower($0)
+              if (line ~ /^cache-control:[ \t]*no-store[ \t]*$/) found++
+              else if (line ~ /^cache-control:/) bad=1
+            } END { exit !(found == 1 && !bad) }' <<<"$health_headers" || return 1
             test "$(curl --silent --show-error --noproxy '*' --max-time 10 --output /dev/null --write-out '%{http_code}' \
               --header 'Host: invalid.example' http://127.0.0.1:8081/health)" = '421' || return 1
             ss -lnt | awk '$4 == "127.0.0.1:8081" { found=1 } END { exit !found }'

@@ -77,6 +77,30 @@ test('rejects API responses without cache bypass headers', async () => {
     await assert.rejects(verifyProductionTunnel(options), /cache/i);
 });
 
+test('accepts the production credential-free file probe HTTP 404 text/plain; charset=utf-8 contract', async () => {
+    for (const body of ['Not Found', 'File does not exist\n']) {
+        const options = fixture((url) => url.pathname === '/files/tunnel-verification'
+            ? response(body, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, 404) : null);
+        const result = await verifyProductionTunnel(options);
+        assert.ok(result.checks.includes('/files/tunnel-verification HTTP 404, cache bypass'));
+    }
+});
+
+test('file probes retain redirect, challenge, status, cache, and HTML fallback rejection', async () => {
+    for (const [fileResponse, error] of [
+        [response('Not Found', { 'content-type': 'text/plain; charset=utf-8' }, 404), /cache/i],
+        [response('Not Found', { 'content-type': 'text/plain', 'cache-control': 'no-store', 'cf-cache-status': 'HIT' }, 404), /cache/i],
+        [response('', { location: 'https://fallback.example:8443/files/tunnel-verification' }, 302), /redirect/i],
+        [response('Not Found', { 'cf-mitigated': 'challenge' }, 404), /challenge/i],
+        [response('error', { 'cache-control': 'no-store' }, 500), /HTTP 500/i],
+        [response(html(), { 'content-type': 'text/html', 'cache-control': 'no-store' }, 404), /HTML|JSON|file probe/i],
+        [response(html(), { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, 404), /HTML|JSON|file probe/i],
+        [response('Not Found', { 'content-type': 'text/plain', 'cache-control': 'no-store' }, 200), /JSON|file probe/i],
+    ]) {
+        await assert.rejects(verifyProductionTunnel(fixture((url) => url.pathname === '/files/tunnel-verification' ? fileResponse : null)), error);
+    }
+});
+
 test('rejects cached domain HTML on the homepage, deep link, and share entry', async () => {
     for (const path of ['/', '/session/tunnel-verification', '/share/public-deployment-probe']) {
         for (const headers of [

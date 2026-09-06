@@ -154,6 +154,18 @@ function jsonBody(label, response) {
     try { return JSON.parse(response.body); } catch { throw new Error(`${label} returned invalid JSON`); }
 }
 
+function assertFileBody(label, response) {
+    const mime = response.headers.get('content-type') ?? '';
+    if (/^(?:text\/html|application\/xhtml\+xml)\b/i.test(mime)
+        || /<!doctype\s+html\b|<(?:html|head|body|script|div)\b/i.test(response.body)) {
+        throw new Error(`${label} file probe returned HTML/SPA fallback`);
+    }
+    // The credential-free nonexistent-file route legitimately returns plain
+    // text 404 in production. Other responses retain the JSON API contract.
+    if (response.status === 404 && /^text\/plain\b/i.test(mime)) return;
+    jsonBody(label, response);
+}
+
 function htmlRevision(label, response) {
     assertStatus(label, response);
     if (!/^text\/html\b/i.test(response.headers.get('content-type') ?? '')) throw new Error(`${label} must return HTML`);
@@ -197,7 +209,7 @@ export async function verifyProductionTunnel({ origin, fallbackOrigin, assetOrig
     }
     checks.push(`domain HTML, deep link, and share revision ${revision}`);
 
-    for (const path of ['/health', '/v1/sessions', '/v2/sessions', '/v3/sessions', '/v4/sessions', '/files/tunnel-verification']) {
+    for (const path of ['/health', '/v1/sessions', '/v2/sessions', '/v3/sessions', '/v4/sessions']) {
         const response = await get(`${origin}${path}`);
         assertStatus(path, response, path === '/health' ? [200] : [200, 401, 403, 404]);
         assertNoCache(path, response);
@@ -207,6 +219,13 @@ export async function verifyProductionTunnel({ origin, fallbackOrigin, assetOrig
         }
         checks.push(`${path} HTTP ${response.status}, cache bypass`);
     }
+
+    const filePath = '/files/tunnel-verification';
+    const file = await get(`${origin}${filePath}`);
+    assertStatus(filePath, file, [200, 401, 403, 404]);
+    assertNoCache(filePath, file);
+    assertFileBody(filePath, file);
+    checks.push(`${filePath} HTTP ${file.status}, cache bypass`);
 
     const asset = [...entry.body.matchAll(/(?:src|href)=["']([^"']+)["']/gi)]
         .map((match) => new URL(match[1], origin))

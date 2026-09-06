@@ -115,18 +115,21 @@ git commit -m "feat(web): select production server from browser origin"
 **Interfaces:**
 - Produces `configureProductionTunnelCaddy(source, { publicSiteAddress, tunnelListenAddress, tunnelHost }): string`.
 - Defaults are exactly `47.115.228.20:8443`, `http://127.0.0.1:8081`, and `paws.rodeo`.
-- The generated site copies the canonical site's application-routing directives while removing top-level listener/TLS directives, then adds an exact Host guard.
+- The configured Tunnel origin/service remains `http://127.0.0.1:8081`; generated Caddy syntax is `http://:8081` plus `bind 127.0.0.1`. An IP site label creates a Host matcher, not a network bind.
+- The generated site copies canonical application-routing directives without listener/TLS directives. An ordered `route` runs the exact Host guard first, then deferred dynamic response headers, then a `handle` preserving normal application directive sorting.
+- Tunnel-only `Cache-Control: no-store` on `/v1/*`, `/v2/*`, `/v3/*`, `/v4/*`, `/files/*`, `/health`, and `/v1/updates*` is a prerequisite before activation. 旧 IP 响应头保持不变。
 
 - [ ] **Step 1: Write failing Caddy transformation tests.** Cover creation, refresh after canonical route changes, exact Host guard, loopback-only address, removal of `tls`/`bind`, `/v1/updates` coverage through `/v1/*`, idempotence, malformed braces, missing canonical site, incomplete markers, and refusal to overwrite an unmanaged 8081 block.
 
 ```js
 test('creates a loopback-only paws.rodeo listener from canonical routes', () => {
   const configured = configureProductionTunnelCaddy(canonicalFixture);
-  assert.match(configured, /http:\/\/127\.0\.0\.1:8081 \{/);
+  assert.match(configured, /http:\/\/:8081 \{\n    bind 127\.0\.0\.1/);
   assert.match(configured, /@paws_tunnel_wrong_host not host paws\.rodeo/);
   assert.match(configured, /respond @paws_tunnel_wrong_host 421/);
   assert.match(configured, /@backend path \/v1\/\* \/v2\/\*/);
-  assert.doesNotMatch(tunnelBlock(configured), /^\s*(tls|bind)\b/m);
+  assert.doesNotMatch(tunnelBlock(configured), /^\s*tls\b/m);
+  assert.equal(tunnelBlock(configured).match(/^\s*bind\b/gm)?.length, 1);
 });
 ```
 
@@ -136,14 +139,21 @@ Run: `node --test scripts/configure-production-tunnel-caddy.test.mjs`
 
 Expected: FAIL because the configurator does not exist.
 
-- [ ] **Step 3: Implement the managed Caddy transformer.** Preserve unrelated sites byte-for-byte, use brace-aware top-level directive parsing, and generate these guards before the copied routes:
+- [ ] **Step 3: Implement the managed Caddy transformer.** Preserve unrelated sites byte-for-byte, use brace-aware top-level directive parsing, and reject path-bearing, quoted, environment/placeholder-dependent or other nonliteral unmanaged site labels before reserved-port scanning. Generate these ordered guards and deferred headers before copied routes; the inner `handle` retains normal directive sorting:
 
 ```caddyfile
 # paws-cloudflare-tunnel:start
-http://127.0.0.1:8081 {
+http://:8081 {
+    bind 127.0.0.1
     @paws_tunnel_wrong_host not host paws.rodeo
-    respond @paws_tunnel_wrong_host 421
-    # synchronized application routes follow
+    @paws_tunnel_dynamic path /v1/* /v2/* /v3/* /v4/* /files/* /health /v1/updates*
+    route {
+        respond @paws_tunnel_wrong_host 421
+        header @paws_tunnel_dynamic >Cache-Control no-store
+        handle {
+            # synchronized application routes follow
+        }
+    }
 }
 # paws-cloudflare-tunnel:end
 ```
@@ -158,7 +168,7 @@ caddy validate --config "$next_caddy"
 
 - [ ] **Step 5: Add pre-reload safety checks on the ECS.** Reject a candidate whose adapted JSON listens on `0.0.0.0:8081`, `[::]:8081`, or contains a Tunnel origin other than loopback.
 
-- [ ] **Step 6: Add post-reload loopback smoke checks.** Run on the ECS over the existing deployment SSH path.
+- [ ] **Step 6: Add post-reload loopback smoke checks.** Run on the ECS over the existing deployment SSH path. The workflow must reject a health response lacking exactly one `Cache-Control: no-store` header; local real-Caddy acceptance must cover all dynamic path families, file 404, wrong-Host 421, asset/SPA routing, and unchanged old-IP headers.
 
 ```bash
 curl --fail --silent --show-error \
@@ -202,6 +212,7 @@ git commit -m "feat(ops): add loopback origin for Paws Tunnel"
 - Produces `pnpm tunnel:check-dns` for read-only nameserver, CNAME/flattened record, and certificate readiness checks.
 - Produces `pnpm tunnel:verify` for domain health, HTML revision, asset redirect, API no-cache headers, and WebSocket handshake checks.
 - Both commands are read-only and accept no Cloudflare credentials.
+- Dynamic domain probes keep strict cache-bypass checks. The file probe separately accepts the observed credential-free HTTP 404 with `Content-Type: text/plain; charset=utf-8`; its wording is irrelevant, but redirects, challenges, unexpected statuses, HTML/SPA fallback, and caching must still fail.
 
 - [ ] **Step 1: Write failing tests using local fixture HTTP/DNS adapters.** Assert failures for stale nameservers, redirect to the IP, cached `/health`, mismatched Web revision, challenge HTML, and a failed `/v1/updates` upgrade.
 
@@ -295,7 +306,7 @@ curl --fail --silent --show-error https://47.115.228.20:8443/health >/dev/null
 
 Expected: workflow success, old origin 200, expected main revision, and no redirect to `paws.rodeo`.
 
-- [ ] **Step 8: Verify the ECS-only origin.** Through SSH, confirm valid Host returns 200, invalid Host returns 421, and `ss` shows only `127.0.0.1:8081`.
+- [ ] **Step 8: Verify the ECS-only origin.** Through SSH, confirm valid Host returns 200, invalid Host returns 421, and `ss` shows only `127.0.0.1:8081`. Before any Tunnel public hostname activation, confirm dynamic responses carry the Tunnel-only `Cache-Control: no-store` prerequisite and old-IP response headers are unchanged.
 
 ### Task 5: Move authoritative DNS to Cloudflare
 
