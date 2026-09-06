@@ -425,7 +425,7 @@ export const SidebarView = React.memo(({
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
     const { agent: spaceAgent, exit: exitSpace } = useAgentSpace();
     const commandPaletteLauncher = useCommandPaletteLauncher();
-    const { isDesktop, openSettings } = useDesktopSettingsModal();
+    const { isDesktop, openSettings, openActivity } = useDesktopSettingsModal();
     const displayName = getDisplayName(profile) ?? t('settings.title');
 
     React.useEffect(() => {
@@ -530,7 +530,7 @@ export const SidebarView = React.memo(({
                 </Pressable>
 
                 <Pressable
-                    onPress={() => go('/inbox')}
+                    onPress={() => { closeDrawer(); openActivity(); }}
                     testID="sidebar-inbox-button"
                     style={[styles.messagesRow, desktopDensity && styles.messagesRowDesktop]}
                 >
@@ -648,7 +648,7 @@ export const SidebarView = React.memo(({
                 badge={friendRequests.length}
                 icon="chatbubble-ellipses-outline"
                 label={t('tabs.inbox')}
-                onPress={() => go('/inbox')}
+                onPress={() => { closeDrawer(); openActivity(); }}
                 testID="sidebar-inbox-button"
             />
             <DesktopRailItem

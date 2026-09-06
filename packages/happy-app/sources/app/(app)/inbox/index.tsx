@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useIsDesktopModalScene } from '@/components/DesktopModalScene';
 import { View, Text, Platform, Pressable } from 'react-native';
 import { InboxView } from "@/components/InboxView";
 import { LinearGradient } from 'expo-linear-gradient';
@@ -76,6 +77,7 @@ export default function InboxPage() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const isTablet = useIsTablet();
+    const inDesktopModal = useIsDesktopModalScene();
     const router = useRouter();
     const headerHeight = useHeaderHeight();
 
@@ -92,7 +94,7 @@ export default function InboxPage() {
     ] as const;
 
     // In phone mode, show header; in tablet mode, show gradient
-    if (!isTablet) {
+    if (!isTablet && !inDesktopModal) {
         // Phone mode: render with header
         return (
             <View style={styles.container}>

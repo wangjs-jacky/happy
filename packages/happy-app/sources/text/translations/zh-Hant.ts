@@ -196,15 +196,15 @@ export const zhHant: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: '收件匣',
+        inbox: '動態中心',
         sessions: '終端',
         settings: '設定',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: '收件匣是空的',
-        emptyDescription: '與好友建立連結，開始共享工作階段',
+        emptyTitle: '暫無動態',
+        emptyDescription: '偵測到的工作階段和好友動態會顯示在這裡。',
         updates: '更新',
         codexCandidates: '待接管的 Codex 工作階段',
         codexCandidateDescription: '已在電腦上偵測到，但尚未連接至 Paws。',

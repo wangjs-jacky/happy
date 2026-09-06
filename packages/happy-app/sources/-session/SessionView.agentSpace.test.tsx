@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
     runningOnMac: false,
     windowWidth: 390,
     isTablet: false,
+    focusContext: null as unknown as React.Context<boolean>,
+    rightPanelRoute: true,
     platformOS: 'android',
     desktopRightPanelCollapsed: false,
     globalRightSidebarShortcut: undefined as (() => void) | undefined,
@@ -295,6 +297,7 @@ vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({
         leftMaximumWidth: 640,
         leftWidth: mocks.isTablet ? Math.min(Math.max(Math.floor(mocks.windowWidth * 0.3), 250), 360) : 0,
         rightPanelAvailable: mocks.isTablet
+            && mocks.rightPanelRoute
             && (mocks.platformOS === 'web' || mocks.runningOnMac)
             && mocks.windowWidth >= 1100,
         rightExpandedWidth: getDesktopRightPanelWidth(mocks.windowWidth),
@@ -395,7 +398,14 @@ vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: mocks.navigationDispatch }),
     useRouter: () => ({ back: mocks.routerBack, navigate: mocks.routerNavigate, push: mocks.routerPush }),
 }));
-vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: () => ({ type: 'OPEN_DRAWER' }) } }));
+vi.mock('@react-navigation/native', async () => {
+    const ReactModule = await import('react');
+    mocks.focusContext = ReactModule.createContext(true);
+    return {
+        DrawerActions: { openDrawer: () => ({ type: 'OPEN_DRAWER' }) },
+        useIsFocused: () => ReactModule.useContext(mocks.focusContext),
+    };
+});
 
 function makeAgent(overrides: Partial<AgentLauncher> = {}): AgentLauncher {
     return {
@@ -427,6 +437,7 @@ describe('SessionView Agent-space boundary', () => {
         mocks.runningOnMac = false;
         mocks.windowWidth = 390;
         mocks.isTablet = false;
+        mocks.rightPanelRoute = true;
         mocks.platformOS = 'android';
         mocks.desktopRightPanelCollapsed = false;
         mocks.sidebarOrganization = {
@@ -891,6 +902,34 @@ describe('SessionView Agent-space boundary', () => {
         expect(header.findAll((node: any) => node.children.includes('file-header-slot'))).not.toHaveLength(0);
         expect(renderer.root.findByType('MessageComposer')).toBe(chatContent);
 
+        act(() => renderer.unmount());
+    });
+
+    it('restores the file panel and overlay history when returning from a modal route', async () => {
+        mocks.isDataReady = true;
+        mocks.fileDiffsSidebarEnabled = true;
+        mocks.windowWidth = 1400;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        const Focus = mocks.focusContext.Provider;
+        const tree = (focused: boolean) => <Focus value={focused}><SessionView id="session-1" /></Focus>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(true)); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-right-panel-files-tab' }).props.onPress());
+        const filesSidebar = renderer.root.findByType('FilesSidebar');
+        act(() => filesSidebar.props.onFilePress({ status: 'modified', fullPath: 'src/before-modal.ts' }));
+        act(() => filesSidebar.props.onAllFilesFilePress('src/current-file.ts'));
+        expect(renderer.root.findByProps({ testID: 'workspace-overlay-transition' }).props.transitionKey).toBe('file:src/current-file.ts');
+
+        mocks.rightPanelRoute = false;
+        await act(async () => { renderer.update(tree(false)); });
+        mocks.rightPanelRoute = true;
+        await act(async () => { renderer.update(tree(true)); });
+
+        expect(renderer.root.findByType('FilesSidebar')).toBeTruthy();
+        expect(renderer.root.findByProps({ testID: 'workspace-overlay-transition' }).props.transitionKey).toBe('file:src/current-file.ts');
+        act(() => mocks.overlayPublish.mock.calls.at(-1)?.[0].back());
+        expect(renderer.root.findByProps({ testID: 'workspace-overlay-transition' }).props.transitionKey).toBe('diff:src/before-modal.ts');
         act(() => renderer.unmount());
     });
 

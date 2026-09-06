@@ -209,15 +209,15 @@ export const en: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Inbox',
+        inbox: 'Activity Center',
         sessions: 'Terminals',
         settings: 'Settings',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Empty Inbox',
-        emptyDescription: 'Connect with friends to start sharing sessions',
+        emptyTitle: 'No activity yet',
+        emptyDescription: 'Discovered sessions and friend activity will appear here.',
         updates: 'Updates',
         codexCandidates: 'Codex Desktop sessions',
         codexCandidateDescription: 'Detected on your computer and not yet connected to Paws.',

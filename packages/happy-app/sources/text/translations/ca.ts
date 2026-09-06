@@ -194,15 +194,15 @@ export const ca: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Safata',
+        inbox: 'Centre d’activitat',
         sessions: 'Terminals',
         settings: 'Configuració',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Safata buida',
-        emptyDescription: 'Connecta\'t amb amics per començar a compartir sessions',
+        emptyTitle: 'Encara no hi ha activitat',
+        emptyDescription: 'Les sessions detectades i les novetats dels amics apareixeran aquí.',
         updates: 'Actualitzacions',
         codexCandidates: 'Sessions de Codex Desktop',
         codexCandidateDescription: 'Detectades a l’ordinador i encara no connectades a Paws.',

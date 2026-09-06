@@ -197,15 +197,15 @@ export const ja: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: '受信トレイ',
+        inbox: 'アクティビティセンター',
         sessions: 'ターミナル',
         settings: '設定',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: '受信トレイは空です',
-        emptyDescription: '友達と接続してセッションを共有しましょう',
+        emptyTitle: 'まだアクティビティはありません',
+        emptyDescription: '検出されたセッションや友達のアクティビティがここに表示されます。',
         updates: '更新',
         codexCandidates: '引き継ぎ待ちの Codex セッション',
         codexCandidateDescription: 'コンピューターで検出され、まだ Paws に接続されていません。',

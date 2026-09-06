@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useIsDesktopModalScene } from './DesktopModalScene';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, TextInput } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAcceptedFriends, useFriendRequests, useRequestedFriends, useFeedItems, useFeedLoaded, useFriendsLoaded, useRealtimeStatus } from '@/sync/storage';
@@ -175,7 +176,7 @@ function HeaderTitleTablet() {
     );
 }
 
-function HeaderRightTablet() {
+export function InboxHeaderAction() {
     const router = useRouter();
     const { theme } = useUnistyles();
     return (
@@ -209,6 +210,7 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
     const friendsLoaded = useFriendsLoaded();
     const { theme } = useUnistyles();
     const isTablet = useIsTablet();
+    const inDesktopModal = useIsDesktopModalScene();
     const realtimeStatus = useRealtimeStatus();
     const candidateInbox = useCodexAttachCandidateInbox();
     const [candidateQuery, setCandidateQuery] = React.useState('');
@@ -246,11 +248,11 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
     if (isLoading) {
         return (
             <View style={styles.container}>
-                {isTablet && (
+                {isTablet && !inDesktopModal && (
                     <View style={{ backgroundColor: theme.colors.groupped.background }}>
                         <Header
                             title={<HeaderTitleTablet />}
-                            headerRight={() => <HeaderRightTablet />}
+                            headerRight={() => <InboxHeaderAction />}
                             headerLeft={() => null}
                             headerShadowVisible={false}
                             headerTransparent={true}
@@ -271,11 +273,11 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
     if (isEmpty) {
         return (
             <View style={styles.container}>
-                {isTablet && (
+                {isTablet && !inDesktopModal && (
                     <View style={{ backgroundColor: theme.colors.groupped.background }}>
                         <Header
                             title={<HeaderTitleTablet />}
-                            headerRight={() => <HeaderRightTablet />}
+                            headerRight={() => <InboxHeaderAction />}
                             headerLeft={() => null}
                             headerShadowVisible={false}
                             headerTransparent={true}
@@ -302,11 +304,11 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
 
     return (
         <View style={styles.container}>
-            {isTablet && (
+            {isTablet && !inDesktopModal && (
                 <View style={{ backgroundColor: theme.colors.groupped.background }}>
                     <Header
                         title={<HeaderTitleTablet />}
-                        headerRight={() => <HeaderRightTablet />}
+                        headerRight={() => <InboxHeaderAction />}
                         headerLeft={() => null}
                         headerShadowVisible={false}
                         headerTransparent={true}

@@ -194,15 +194,15 @@ export const it: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Posta',
+        inbox: 'Centro attività',
         sessions: 'Terminali',
         settings: 'Impostazioni',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Posta vuota',
-        emptyDescription: 'Connettiti con amici per iniziare a condividere sessioni',
+        emptyTitle: 'Ancora nessuna attività',
+        emptyDescription: 'Le sessioni rilevate e le attività degli amici appariranno qui.',
         updates: 'Aggiornamenti',
         codexCandidates: 'Sessioni Codex Desktop',
         codexCandidateDescription: 'Rilevate sul computer e non ancora collegate a Paws.',

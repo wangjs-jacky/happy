@@ -194,15 +194,15 @@ export const es: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Bandeja',
+        inbox: 'Centro de actividad',
         sessions: 'Terminales',
         settings: 'Configuración',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Bandeja vacía',
-        emptyDescription: 'Conéctate con amigos para empezar a compartir sesiones',
+        emptyTitle: 'Todavía no hay actividad',
+        emptyDescription: 'Aquí aparecerán las sesiones detectadas y la actividad de tus amigos.',
         updates: 'Actualizaciones',
         codexCandidates: 'Sesiones de Codex Desktop',
         codexCandidateDescription: 'Detectadas en tu ordenador y aún no conectadas a Paws.',
