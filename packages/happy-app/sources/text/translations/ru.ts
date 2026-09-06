@@ -1088,6 +1088,7 @@ export const ru: TranslationStructure = {
         usedTools: ({ count }: { count: number }) => `${plural({ count, one: 'Использован', few: 'Использовано', many: 'Использовано' })} ${count} ${plural({ count, one: 'инструмент', few: 'инструмента', many: 'инструментов' })}`,
         usedSkills: ({ names }: { names: string }) => `Навыки (Skills): ${names}`,
         skillLabel: 'Навык (Skill)',
+        skillBatchLabel: 'Пакет навыков',
         subagentLabel: 'Субагент',
         openSubagentDetails: ({ title }: { title: string }) => `Просмотреть сведения о субагенте: ${title}`,
         subagentPanelLabel: ({ title }: { title: string }) => `сведения о субагенте «${title}»`,
