@@ -17,6 +17,11 @@ import { act } from 'react';
 // @ts-expect-error react-test-renderer has no local declarations.
 import TestRenderer from 'react-test-renderer';
 import { randomUUID } from 'expo-crypto';
+import * as React from 'react';
+import { act } from 'react';
+// @ts-expect-error react-test-renderer does not publish declarations.
+import TestRenderer from 'react-test-renderer';
+import { useSpawnSession } from '@/hooks/useSpawnSession';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -107,6 +112,8 @@ const mocks = vi.hoisted(() => {
         gitInvalidate: vi.fn(),
         gitOpenInvalidate: vi.fn(),
         gitClear: vi.fn(),
+        navigateToSession: vi.fn(),
+        machineSpawnNewSession: vi.fn(),
         state,
         storage,
     };
@@ -174,7 +181,9 @@ vi.mock('@/track', () => ({
     trackPaywallPurchased: vi.fn(),
     trackPaywallRestored: vi.fn(),
 }));
-vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
+vi.mock('@/sync/ops', () => ({ machineSpawnNewSession: mocks.machineSpawnNewSession }));
+vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => mocks.navigateToSession }));
 vi.mock('@/realtime/hooks/voiceHooks', () => ({
     voiceHooks: {
         onSessionOffline: vi.fn(),
@@ -382,7 +391,7 @@ async function seedLocalProjectionSession() {
     storage.getState().applySessions([hydrated(snapshot('spawned-session'))]);
     mocks.sessionEncryptions.set('spawned-session', new SessionEncryption('spawned-session', {
         encrypt: async (records) => records.map(() => new Uint8Array([1])),
-        decrypt: async () => [],
+        decrypt: async (bytes) => bytes.map(() => rawText('hello')),
     }, new EncryptionCache()));
     // Sending is external to the projection contract; retain the real encrypted outbox.
     syncForTest.sendSync.set('spawned-session', { invalidate: vi.fn() });
@@ -423,6 +432,7 @@ describe('message visibility synchronization', () => {
         syncForTest.sessionQueueProcessing = new Set();
         syncForTest.sessionOlderLoadingTokens = new Map();
         syncForTest.sessionMessageCacheGenerations = new Map();
+        syncForTest.acceptedLocalMessageReceipts = new Map();
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
@@ -804,6 +814,106 @@ describe('message visibility synchronization', () => {
         syncForTest.retainSessionMessageCache('spawned-session');
         storage.getState().applyMessages('spawned-session', [normalizeRawMessage('test-uuid', 'test-uuid', 1, rawText('replacement'))!]);
         await expect(projection).resolves.toBe(false);
+    });
+
+    it.each([false, true])('restores accepted attachment and text receipts after eviction (remote acknowledgement: %s)', async (acknowledged) => {
+        // Losing generation-local provenance must not strand an accepted spawn.
+        const storage = await seedLocalProjectionSession();
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            const accepted = [...syncForTest.pendingOutbox.get(receipt.sessionId)];
+            const gap = newMessageUpdate(receipt.sessionId, 7);
+            gap.body.message.content = { t: 'encrypted', c: 'AQ==' };
+            await syncForTest.handleUpdate(gap);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, ['local-file', 'local-file'], receipt)).resolves.toBe(false);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+            if (acknowledged) {
+                syncForTest.pendingOutbox.get(receipt.sessionId).splice(0);
+                // The remote echo can use a different transport ID, but keeps
+                // the exact accepted local ID and file envelope identity.
+                storage.getState().applyMessages(receipt.sessionId, [
+                    normalizeRawMessage('remote-text', 'local-text', 20, rawText('hello'))!,
+                ]);
+            }
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            const cache = storage.getState().sessionMessages[receipt.sessionId];
+            expect(cache.messages).toHaveLength(2);
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({ kind: 'user-text', localId: 'local-text', text: 'hello' });
+            expect(cache.messagesMap[cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!]).toMatchObject({ kind: 'tool-call', tool: { name: 'file' } });
+            expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toEqual(acknowledged ? [] : accepted);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally {
+            upload.mockRestore();
+        }
+    });
+
+    it('does not recover a forged receipt or revive a deleted receipt after the same session ID returns', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        syncForTest.releaseSessionMessageCache(receipt.sessionId);
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, { ...receipt })).resolves.toBe(false);
+        sync.removeSessionLocally(receipt.sessionId);
+        storage.getState().applySessions([hydrated(snapshot(receipt.sessionId))]);
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(false);
+        expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('retries an evicted accepted spawn with one real send, one accepted message and one navigation', async () => {
+        const storage = await seedLocalProjectionSession();
+        mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'spawned-session' });
+        const send = vi.spyOn(sync, 'sendMessage');
+        const project = sync.awaitLocalMessageProjection.bind(sync);
+        const projection = vi.spyOn(sync, 'awaitLocalMessageProjection').mockImplementationOnce((...args) => {
+            const pending = project(...args);
+            syncForTest.releaseSessionMessageCache('spawned-session');
+            return pending;
+        });
+        const transferred = vi.fn();
+        let hook!: ReturnType<typeof useSpawnSession>;
+        function Harness() { hook = useSpawnSession(); return null; }
+        let renderer: any;
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        const originalConsoleError = console.error;
+        const consoleError = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+            if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+            originalConsoleError(...values);
+        });
+        try {
+            await act(async () => { renderer = TestRenderer.create(React.createElement(Harness)); });
+            await act(async () => {
+                expect(await hook.spawn({
+                    machineId: 'machine', machine: { id: 'machine', active: true, metadata: { homeDir: '/test' } } as any,
+                    path: '/test', agent: 'codex', worktreeKey: null, prompt: 'hello',
+                }, false, transferred)).toBe(false);
+            });
+            expect(mocks.navigateToSession).not.toHaveBeenCalled();
+            expect(transferred).not.toHaveBeenCalled();
+            expect(storage.getState().sessionMessages['spawned-session']).toBeUndefined();
+            await act(async () => { expect(await hook.retryHydration()).toBe(true); });
+            await act(async () => { expect(await hook.retryHydration()).toBe(false); });
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession.mock.calls).toEqual([['spawned-session']]);
+            expect(transferred).toHaveBeenCalledTimes(1);
+            expect(syncForTest.pendingOutbox.get('spawned-session')).toHaveLength(1);
+            expect(storage.getState().sessionMessages['spawned-session'].messages).toHaveLength(1);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            projection.mockRestore();
+            send.mockRestore();
+            consoleError.mockRestore();
+            delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+        }
     });
 
     it('emits one final store milestone for snapshot plus latest-page opening, after both complete', async () => {

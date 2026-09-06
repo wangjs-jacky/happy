@@ -183,7 +183,9 @@ describe('useSpawnSession', () => {
         let spawning!: Promise<boolean>;
         await act(async () => { spawning = hook.current().spawn(args, false, () => order.push('draft-transfer')); });
         expect(order).toEqual(['receipt']);
-        expect(mocks.awaitLocalMessageProjection).toHaveBeenCalledWith('session-1', ['local-1', 'local-2']);
+        expect(mocks.awaitLocalMessageProjection).toHaveBeenCalledWith('session-1', ['local-1', 'local-2'], {
+            type: 'queued', sessionId: 'session-1', localIds: ['local-1', 'local-2'],
+        });
         await act(async () => { resolveProjection(true); expect(await spawning).toBe(true); });
         expect(order).toEqual(['receipt', 'projection', 'draft-transfer', 'navigate']);
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
@@ -192,6 +194,8 @@ describe('useSpawnSession', () => {
     });
 
     it('retries a failed projection with the original receipt without sending or navigating early', async () => {
+        const receipt = { type: 'queued', sessionId: 'session-1', localIds: ['local-1'] };
+        mocks.sendMessage.mockResolvedValueOnce(receipt);
         mocks.awaitLocalMessageProjection.mockResolvedValueOnce(false);
         const transferred = vi.fn();
         const hook = renderHook();
@@ -201,8 +205,9 @@ describe('useSpawnSession', () => {
         expect(transferred).not.toHaveBeenCalled();
         await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
         expect(mocks.awaitLocalMessageProjection.mock.calls).toEqual([
-            ['session-1', ['local-1']], ['session-1', ['local-1']],
+            ['session-1', ['local-1'], receipt], ['session-1', ['local-1'], receipt],
         ]);
+        expect(mocks.awaitLocalMessageProjection.mock.calls[1][2]).toBe(receipt);
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);

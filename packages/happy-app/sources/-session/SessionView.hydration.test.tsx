@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
     messagesLoaded: false,
     focusContext: null as unknown as React.Context<boolean>,
     currentViewingSessionId: null as string | null,
-    renderComposer: false,
 }));
 
 vi.mock('react-native', () => ({
@@ -44,6 +43,8 @@ vi.mock('react-native-reanimated', () => ({
 vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
+vi.mock('react-native-gesture-handler', () => ({ ScrollView: 'ScrollView' }));
+vi.mock('react-native-keyboard-controller', () => ({ useKeyboardState: () => ({ isVisible: false, height: 0 }) }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         dark: true,
@@ -84,7 +85,7 @@ vi.mock('@react-navigation/native', async () => {
 });
 
 vi.mock('@/sync/storage', () => ({
-    storage: { getState: () => ({ sessions: {}, currentViewingSessionId: mocks.currentViewingSessionId, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
+    storage: { getState: () => ({ sessions: mocks.session ? { [mocks.session.id]: mocks.session } : {}, currentViewingSessionId: mocks.currentViewingSessionId, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
     useIsDataReady: () => true,
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
@@ -162,9 +163,13 @@ vi.mock('@/hooks/useSessionWorkingDirectory', () => ({ useSessionWorkingDirector
 vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({ selectedImages: [] }) }));
 
-vi.mock('@/components/AgentContentView', async () => {
-    const ReactModule = await import('react');
-    return { AgentContentView: (props: { input: React.ReactNode }) => ReactModule.createElement('AgentContentView', props, mocks.renderComposer ? props.input : null) };
+// Keep the existing host selector while exercising the real content/placeholder
+// mounting behavior. In particular, content must cross the real Deferred timer.
+vi.mock('@/components/AgentContentView', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/AgentContentView')>();
+    return { AgentContentView: (props: React.ComponentProps<typeof actual.AgentContentView>) => (
+        React.createElement('AgentContentView', {}, React.createElement(actual.AgentContentView, props))
+    ) };
 });
 vi.mock('@/components/MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
 vi.mock('@/components/ChatHeaderView', () => ({ ChatHeaderView: 'ChatHeaderView' }));
@@ -179,7 +184,6 @@ vi.mock('@/components/DesktopRightPanel', () => ({
 vi.mock('@/components/DesktopPresenceTransition', () => ({ DesktopPresenceTransition: 'DesktopPresenceTransition' }));
 vi.mock('@/components/RightSwipePanelHost', () => ({ RightSwipePanelHost: 'RightSwipePanelHost' }));
 vi.mock('@/components/ChatList', () => ({ ChatList: 'ChatList' }));
-vi.mock('@/components/Deferred', () => ({ Deferred: 'Deferred' }));
 vi.mock('@/components/EmptyMessages', () => ({ EmptyMessages: 'EmptyMessages' }));
 vi.mock('@/components/FilesSidebar', () => ({ FilesSidebar: 'FilesSidebar' }));
 vi.mock('@/components/AllFilesDiffView', () => ({ AllFilesDiffView: 'AllFilesDiffView' }));
@@ -256,6 +260,7 @@ describe('SessionView deep-link hydration', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers();
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -264,7 +269,6 @@ describe('SessionView deep-link hydration', () => {
         mocks.session = null;
         mocks.messages = [];
         mocks.messagesLoaded = false;
-        mocks.renderComposer = false;
         mocks.currentViewingSessionId = null;
         mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
@@ -285,7 +289,6 @@ describe('SessionView deep-link hydration', () => {
     });
 
     it('restores the retained main session owner after a modal session loses focus without remounting its composer', async () => {
-        mocks.renderComposer = true;
         mocks.messagesLoaded = true;
         mocks.session = {
             id: 'main-session', seq: 3, active: true, activeAt: 10,
@@ -639,6 +642,8 @@ describe('SessionView deep-link hydration', () => {
 
         try {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="zero-delta-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
             discardAllFrames();
             await act(async () => { opening.resolve('ready'); await opening.promise; });
 
@@ -668,9 +673,11 @@ describe('SessionView deep-link hydration', () => {
 
         try {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="owner-a" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
             await act(async () => { first.resolve('ready'); await first.promise; });
             mocks.session = { ...mocks.session, id: 'owner-b' };
             await act(async () => { renderer.update(<SessionView id="owner-b" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
 
             runAllFrames();
             expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
@@ -701,9 +708,11 @@ describe('SessionView deep-link hydration', () => {
 
         try {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
             await act(async () => { first.resolve('ready'); await first.promise; });
             act(() => renderer.unmount());
             await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
 
             runAllFrames();
             expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
@@ -713,6 +722,64 @@ describe('SessionView deep-link hydration', () => {
         } finally {
             act(() => renderer?.unmount());
             restore();
+        }
+    });
+
+    it('waits for the actual deferred message subtree to mount before verifying latest paint', async () => {
+        // A ready store is not proof that Deferred has committed ChatList.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'deferred-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="deferred-paint" />); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(0);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { await vi.advanceTimersByTimeAsync(9); });
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
+    });
+
+    it('rejects a queued verified frame when a different live owner takes over the retained tree', async () => {
+        // Route ownership can change before React commits an update or cleanup.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'retained-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retained-paint" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            const chat = renderer.root.findByType('ChatList');
+            mocks.beginSessionRoute('next-owner');
+            expect(renderer.root.findByType('ChatList')).toBe(chat);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
         }
     });
 

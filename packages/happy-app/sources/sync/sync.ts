@@ -360,6 +360,9 @@ class Sync {
     private sessionCachedMessageSeqs = new Map<string, Set<number>>();
     private sessionMessageLoadGate = new SessionMessageLoadGate();
     private sessionMessageCacheGenerations = new Map<string, SessionMessageCacheGeneration>();
+    // The caller owns receipt lifetime. Keep recovery provenance weakly, outside
+    // evictable display caches; deleting a session revokes all its receipts.
+    private acceptedLocalMessageReceipts = new Map<string, WeakMap<LocalMessageQueueReceipt, readonly NormalizedMessage[]>>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
@@ -1047,10 +1050,34 @@ class Sync {
         return lock;
     }
 
-    public awaitLocalMessageProjection = async (sessionId: string, localIds: readonly string[]): Promise<boolean> => {
+    public awaitLocalMessageProjection = async (
+        sessionId: string,
+        localIds: readonly string[],
+        receipt?: LocalMessageQueueReceipt,
+    ): Promise<boolean> => {
         if (localIds.length === 0 || localIds.some(id => typeof id !== 'string' || !id.trim())) return false;
-        const generation = this.sessionMessageCacheGenerations.get(sessionId);
-        if (!generation || !storage.getState().sessions[sessionId]) return false;
+        if (!storage.getState().sessions[sessionId]) return false;
+        let generation = this.sessionMessageCacheGenerations.get(sessionId);
+        if (receipt) {
+            const accepted = this.acceptedLocalMessageReceipts.get(sessionId)?.get(receipt);
+            if (!accepted || receipt.sessionId !== sessionId
+                || localIds.length !== receipt.localIds.length
+                || receipt.localIds.some(id => !localIds.includes(id))) return false;
+            if (!generation || localIds.some(id => !generation?.localMessageIds?.has(id))) {
+                // A background gap/retention eviction discards the display
+                // generation, not the accepted encrypted send. Restore from the
+                // original receipt's exact normalized entries, even after ACK
+                // removed the outbox. No ID/order inference or network work.
+                generation ??= {};
+                generation.localMessageIds ??= new Map();
+                for (const message of accepted) {
+                    if (message.localId !== null) generation.localMessageIds.set(message.localId, message.id);
+                }
+                this.sessionMessageCacheGenerations.set(sessionId, generation);
+                this.applyMessages(sessionId, [...accepted]);
+            }
+        }
+        if (!generation) return false;
         const acceptedIds = generation.localMessageIds;
         if (!acceptedIds || localIds.some(id => !acceptedIds.has(id))) return false;
 
@@ -1470,7 +1497,13 @@ class Sync {
             if (message.localId !== null) generation.localMessageIds.set(message.localId, message.id);
         }
         this.sessionMessageCacheGenerations.set(sessionId, generation);
-        const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId, localIds: stagedOutbox.map(item => item.localId) };
+        const receipt: LocalMessageQueueReceipt = Object.freeze({ type: 'queued', sessionId, localIds: Object.freeze(stagedOutbox.map(item => item.localId)) });
+        let receipts = this.acceptedLocalMessageReceipts.get(sessionId);
+        if (!receipts) {
+            receipts = new WeakMap();
+            this.acceptedLocalMessageReceipts.set(sessionId, receipts);
+        }
+        receipts.set(receipt, stagedMessages);
         // After commit, ancillary failures must not turn an accepted message into
         // a retry that duplicates it. Reconnect also retries the encrypted outbox.
         try {
@@ -4255,6 +4288,7 @@ class Sync {
             storage.getState().setCurrentViewingSession(null);
         }
         this.releaseSessionMessageCache(sessionId);
+        this.acceptedLocalMessageReceipts.delete(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);
         this.sendSync.delete(sessionId);

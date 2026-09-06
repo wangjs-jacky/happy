@@ -1395,6 +1395,31 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
     return /macOS|platform|仅支持/i.test(error);
 }
 
+function VerifiedSessionMessageContent({
+    routeOwner,
+    verifiedRouteOwnerEpoch,
+    isLoaded,
+    children,
+}: {
+    routeOwner: SessionRouteOwner;
+    verifiedRouteOwnerEpoch: number | null;
+    isLoaded: boolean;
+    children: React.ReactNode;
+}) {
+    // This boundary mounts with the message subtree, after Deferred releases it.
+    // Store readiness alone does not establish that ChatList has committed.
+    React.useEffect(() => {
+        if (verifiedRouteOwnerEpoch === null || !isLoaded || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        let cancelled = false;
+        const frame = requestAnimationFrame(() => {
+            if (cancelled || !sync.isSessionRouteOwner(routeOwner)) return;
+            markSessionCriticalPathAppStage('web.session.latest_message_painted');
+        });
+        return () => { cancelled = true; cancelAnimationFrame(frame); };
+    }, [isLoaded, verifiedRouteOwnerEpoch, routeOwner]);
+    return <>{children}</>;
+}
+
 function SessionViewLoaded({
     sessionId,
     routeOwner,
@@ -1425,14 +1450,6 @@ function SessionViewLoaded({
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
-
-    React.useEffect(() => {
-        if (verifiedRouteOwnerEpoch === null || !isLoaded || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
-        const frame = requestAnimationFrame(() => {
-            markSessionCriticalPathAppStage('web.session.latest_message_painted');
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [isLoaded, verifiedRouteOwnerEpoch]);
 
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
@@ -1666,9 +1683,13 @@ function SessionViewLoaded({
     let content = (
         <>
             <Deferred>
-                {messages.length > 0 && (
-                    <ChatList session={session} />
-                )}
+                <VerifiedSessionMessageContent
+                    routeOwner={routeOwner}
+                    verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
+                    isLoaded={isLoaded}
+                >
+                    {messages.length > 0 && <ChatList session={session} />}
+                </VerifiedSessionMessageContent>
             </Deferred>
         </>
     );
