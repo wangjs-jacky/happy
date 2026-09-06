@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     ensureSessionHydrated: vi.fn(),
     refreshSessions: vi.fn(),
     sendMessage: vi.fn(),
+    awaitLocalMessageProjection: vi.fn(),
     navigateToSession: vi.fn(),
     updatePermission: vi.fn(),
     updateModel: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock('@/sync/sync', () => ({
         ensureSessionHydrated: mocks.ensureSessionHydrated,
         refreshSessions: mocks.refreshSessions,
         sendMessage: mocks.sendMessage,
+        awaitLocalMessageProjection: mocks.awaitLocalMessageProjection,
         applySettings: mocks.applySettings,
     },
 }));
@@ -152,6 +154,7 @@ describe('useSpawnSession', () => {
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         mocks.refreshSessions.mockResolvedValue(undefined);
         mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+        mocks.awaitLocalMessageProjection.mockReset().mockResolvedValue(true);
         mocks.confirm.mockResolvedValue(false);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -163,6 +166,48 @@ describe('useSpawnSession', () => {
     afterEach(() => {
         consoleErrorSpy.mockRestore();
         delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+    });
+
+    it('waits for receipt projection before transferring the draft and navigating once', async () => {
+        const order: string[] = [];
+        let resolveProjection!: (value: boolean) => void;
+        mocks.sendMessage.mockImplementationOnce(async () => {
+            order.push('receipt');
+            return { type: 'queued', sessionId: 'session-1', localIds: ['local-1', 'local-2'] };
+        });
+        mocks.awaitLocalMessageProjection.mockImplementationOnce(() => new Promise<boolean>(resolve => {
+            resolveProjection = value => { order.push('projection'); resolve(value); };
+        }));
+        mocks.navigateToSession.mockImplementationOnce(() => order.push('navigate'));
+        const hook = renderHook();
+        let spawning!: Promise<boolean>;
+        await act(async () => { spawning = hook.current().spawn(args, false, () => order.push('draft-transfer')); });
+        expect(order).toEqual(['receipt']);
+        expect(mocks.awaitLocalMessageProjection).toHaveBeenCalledWith('session-1', ['local-1', 'local-2']);
+        await act(async () => { resolveProjection(true); expect(await spawning).toBe(true); });
+        expect(order).toEqual(['receipt', 'projection', 'draft-transfer', 'navigate']);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('retries a failed projection with the original receipt without sending or navigating early', async () => {
+        mocks.awaitLocalMessageProjection.mockResolvedValueOnce(false);
+        const transferred = vi.fn();
+        const hook = renderHook();
+        await act(async () => { expect(await hook.current().spawn(args, false, transferred)).toBe(false); });
+        expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        expect(transferred).not.toHaveBeenCalled();
+        await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
+        expect(mocks.awaitLocalMessageProjection.mock.calls).toEqual([
+            ['session-1', ['local-1']], ['session-1', ['local-1']],
+        ]);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        expect(transferred).toHaveBeenCalledTimes(1);
+        hook.unmount();
     });
 
     it('retains the first created session after local queue failure and retries without respawning', async () => {

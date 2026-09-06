@@ -210,6 +210,7 @@ function installLatestPaintHarness() {
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrame = 0;
     const markFreshLatestMessageComplete = vi.fn();
+    const markRouteNavigation = vi.fn();
     const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
     const originalProbe = (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
@@ -223,10 +224,12 @@ function installLatestPaintHarness() {
     };
     (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
         markFreshLatestMessageComplete,
+        markRouteNavigation,
     };
 
     return {
         markFreshLatestMessageComplete,
+        markRouteNavigation,
         runAllFrames: () => {
             const queued = [...frames.values()];
             frames.clear();
@@ -479,6 +482,74 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { opening.resolve('ready'); await opening.promise; });
         expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
         act(() => renderer.unmount());
+    });
+
+    it('paints newborn local content once while validation stays pending and preserves it through retry and failure', async () => {
+        // Catches local projection waiting for network readiness or hiding background failures.
+        vi.useFakeTimers();
+        const opening = deferred<'ready'>();
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockRejectedValue(new Error('offline'));
+        mocks.messagesLoaded = false;
+        mocks.messages = [{ id: 'local-1', kind: 'user-text', text: 'hello' }];
+        mocks.session = {
+            id: 'newborn-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="newborn-session" />); });
+            expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+            const chat = renderer.root.findByType('AgentContentView');
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { opening.reject(new Error('offline')); });
+            expect(renderer.root.findByProps({ testID: 'session-retrying-cached' })).toBeTruthy();
+            await act(async () => { await vi.advanceTimersByTimeAsync(850); });
+            expect(mocks.openSession).toHaveBeenCalledTimes(4);
+            expect(renderer.root.findByProps({ testID: 'session-load-error-cached' })).toBeTruthy();
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            const recovery = deferred<'ready'>();
+            mocks.openSession.mockReturnValueOnce(recovery.promise);
+            await act(async () => { renderer.root.findByProps({ testID: 'session-retry-cached' }).props.onPress(); });
+            expect(mocks.openSession.mock.calls[4][2]).toEqual({ retry: true });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            mocks.messagesLoaded = true;
+            await act(async () => { recovery.resolve('ready'); });
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels a local route paint frame when another session replaces its owner', async () => {
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(new Promise(() => {}));
+        mocks.messages = [{ id: 'local-1' }];
+        mocks.session = {
+            id: 'old-local', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="old-local" />); });
+            await act(async () => { renderer.update(<SessionView id="new-local" />); });
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
     });
 
     it('does not verify a cached latest paint before its route revalidation resolves', async () => {

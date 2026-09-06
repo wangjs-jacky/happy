@@ -16,6 +16,7 @@ import * as React from 'react';
 import { act } from 'react';
 // @ts-expect-error react-test-renderer has no local declarations.
 import TestRenderer from 'react-test-renderer';
+import { randomUUID } from 'expo-crypto';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -376,6 +377,18 @@ async function seedDisconnectedMessageRanges(cachedMax = 100) {
     return { storage, page, lease };
 }
 
+async function seedLocalProjectionSession() {
+    const storage = await useRealMessageComposition();
+    storage.getState().applySessions([hydrated(snapshot('spawned-session'))]);
+    mocks.sessionEncryptions.set('spawned-session', new SessionEncryption('spawned-session', {
+        encrypt: async (records) => records.map(() => new Uint8Array([1])),
+        decrypt: async () => [],
+    }, new EncryptionCache()));
+    // Sending is external to the projection contract; retain the real encrypted outbox.
+    syncForTest.sendSync.set('spawned-session', { invalidate: vi.fn() });
+    return storage;
+}
+
 describe('message visibility synchronization', () => {
     beforeEach(() => {
         mocks.useRealStorage(null);
@@ -422,6 +435,8 @@ describe('message visibility synchronization', () => {
         syncForTest.pendingHistoryTargets = new Map();
         syncForTest.changesInFlight = null;
         syncForTest.changesSupported = null;
+        syncForTest.pendingOutbox = new Map();
+        syncForTest.sendSync = new Map();
     });
 
     afterEach(() => {
@@ -686,6 +701,110 @@ describe('message visibility synchronization', () => {
         expect((await history.readWindow('failed-write'))?.newestSeq).toBe(300);
         expect(await history.readWindow('failed-write', { anchorSeq: 301 })).toBeNull();
     }, 20000);
+
+    it('projects every accepted local receipt ID while HTTP owns the message lock, without consuming unrelated queued messages', async () => {
+        const storage = await seedLocalProjectionSession();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const loading = syncForTest.ensureMessagesLoaded('spawned-session');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const unrelated = normalizeRawMessage('remote-1', null, 1, rawText('remote'))!;
+        syncForTest.enqueueMessages('spawned-session', [unrelated]);
+        vi.mocked(randomUUID).mockReturnValueOnce('local-a').mockReturnValueOnce('local-b');
+        const first = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        const second = await sync.sendMessage('spawned-session', 'next', { source: 'new_session' });
+        expect(storage.getState().sessionMessages['spawned-session']?.messages).toBeUndefined();
+        try {
+            let projected: boolean | undefined;
+            const projection = sync.awaitLocalMessageProjection(first.sessionId, [...first.localIds, ...second.localIds])
+                .then(value => { projected = value; });
+            for (let i = 0; i < 10; i++) await Promise.resolve();
+            expect(projected).toBe(true);
+            await projection;
+            const cache = storage.getState().sessionMessages['spawned-session'];
+            expect(Object.values(cache.messagesMap).map(message => message.kind === 'user-text' ? message.localId : null)).toEqual(['local-a', 'local-b']);
+            for (const id of [...first.localIds, ...second.localIds]) {
+                expect(cache.messagesMap[cache.reducerState.localIds.get(id)!]).toMatchObject({ localId: id });
+            }
+            expect(syncForTest.sessionMessageQueue.get('spawned-session').map((message: any) => message.id)).toEqual(['remote-1']);
+            expect(syncForTest.pendingOutbox.get('spawned-session').map((message: any) => message.localId)).toEqual(['local-a', 'local-b']);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        } finally {
+            http.resolve(response({ messages: [], hasMore: false }));
+            await loading;
+            await syncForTest.getSessionMessageLock('spawned-session').inLock(() => undefined);
+        }
+        expect(storage.getState().sessionMessages['spawned-session'].messages.some(message => message.kind === 'user-text' && message.text === 'remote')).toBe(true);
+    });
+
+    it.each(['deleted', 'evicted'] as const)('projects attachment and text receipts once and rejects a subsequently %s cache', async (terminal) => {
+        const storage = await seedLocalProjectionSession();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const loading = syncForTest.ensureMessagesLoaded('spawned-session');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10, thumbhash: 'thumbhash' }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            expect(receipt.localIds).toEqual(['local-file', 'local-text']);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds)).resolves.toBe(true);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds)).resolves.toBe(true);
+            const cache = storage.getState().sessionMessages['spawned-session'];
+            expect(cache.messages).toHaveLength(2);
+            const fileId = cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!;
+            expect(cache.reducerState.messages.get(fileId)?.realID).toBe('00000000-0000-4000-8000-000000000001');
+            expect(cache.messagesMap[fileId]).toMatchObject({ kind: 'tool-call', tool: { name: 'file', state: 'completed' } });
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({ localId: 'local-text', text: 'hello' });
+            expect(syncForTest.pendingOutbox.get('spawned-session')).toHaveLength(2);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            const pending = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+            if (terminal === 'deleted') sync.removeSessionLocally(receipt.sessionId);
+            else syncForTest.releaseSessionMessageCache(receipt.sessionId);
+            await expect(pending).resolves.toBe(false);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+        } finally {
+            upload.mockRestore();
+            http.resolve(response({ messages: [], hasMore: false }));
+            await loading;
+        }
+    });
+
+    it.each([[], [''], [' '], ['missing'], ['test-uuid', 'missing'], ['__proto__'], ['constructor']].map(ids => ({ ids })))(
+        'rejects unprojected or malformed literal receipt IDs $ids', async ({ ids }) => {
+            const storage = await seedLocalProjectionSession();
+            await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+            await expect(sync.awaitLocalMessageProjection('spawned-session', ids)).resolves.toBe(false);
+            expect(storage.getState().sessionMessages['spawned-session']?.messages.some(message => message.kind === 'user-text' && message.localId === 'test-uuid')).toBe(true);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['before', 'during'] as const)('rejects deletion %s projection without recreating the cache', async (when) => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        if (when === 'before') sync.removeSessionLocally('spawned-session');
+        const projection = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+        if (when === 'during') sync.removeSessionLocally('spawned-session');
+        await expect(projection).resolves.toBe(false);
+        expect(storage.getState().sessionMessages['spawned-session']).toBeUndefined();
+        expect(storage.getState().sessions['spawned-session']).toBeUndefined();
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cache generation replaced during projection even if the same IDs reappear', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        const projection = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+        syncForTest.releaseSessionMessageCache('spawned-session');
+        syncForTest.retainSessionMessageCache('spawned-session');
+        storage.getState().applyMessages('spawned-session', [normalizeRawMessage('test-uuid', 'test-uuid', 1, rawText('replacement'))!]);
+        await expect(projection).resolves.toBe(false);
+    });
 
     it('emits one final store milestone for snapshot plus latest-page opening, after both complete', async () => {
         installSession('attribution-session');

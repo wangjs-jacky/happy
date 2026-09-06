@@ -257,6 +257,10 @@ export type LocalMessageQueueReceipt = {
     localIds: readonly string[];
 };
 
+type SessionMessageCacheGeneration = {
+    localMessageIds?: Map<string, string>;
+};
+
 function stripNewSessionDiscriminator(
     update: Extract<ApiUpdate, { t: 'new-session' }>,
 ): ApiSessionSnapshot {
@@ -355,7 +359,7 @@ class Sync {
     // range has been fetched. Normalized messages do not retain API sequences.
     private sessionCachedMessageSeqs = new Map<string, Set<number>>();
     private sessionMessageLoadGate = new SessionMessageLoadGate();
-    private sessionMessageCacheGenerations = new Map<string, object>();
+    private sessionMessageCacheGenerations = new Map<string, SessionMessageCacheGeneration>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
@@ -1043,6 +1047,55 @@ class Sync {
         return lock;
     }
 
+    public awaitLocalMessageProjection = async (sessionId: string, localIds: readonly string[]): Promise<boolean> => {
+        if (localIds.length === 0 || localIds.some(id => typeof id !== 'string' || !id.trim())) return false;
+        const generation = this.sessionMessageCacheGenerations.get(sessionId);
+        if (!generation || !storage.getState().sessions[sessionId]) return false;
+        const acceptedIds = generation.localMessageIds;
+        if (!acceptedIds || localIds.some(id => !acceptedIds.has(id))) return false;
+
+        // The shared message lock can be held across HTTP. Drain only the
+        // receipt's normalized local entries synchronously, preserving their
+        // queue order and leaving realtime entries for the normal lock owner.
+        // Reducer commits are synchronous, so no network writer can interleave.
+        const ids = new Set(localIds);
+        const queue = this.sessionMessageQueue.get(sessionId);
+        if (queue) {
+            const local = queue.filter(message => message.localId !== null
+                && ids.has(message.localId) && acceptedIds.get(message.localId) === message.id);
+            if (local.length > 0) {
+                const projected = new Set(local);
+                this.sessionMessageQueue.set(sessionId, queue.filter(message => !projected.has(message)));
+                this.applyMessages(sessionId, local);
+            }
+        }
+
+        // Let the accepted store commit settle and reject deletion/eviction
+        // occurring before the caller transfers its draft to the route.
+        await Promise.resolve();
+        const state = storage.getState();
+        const cache = state.sessionMessages[sessionId];
+        return !!state.sessions[sessionId]
+            && this.sessionMessageCacheGenerations.get(sessionId) === generation
+            && !!cache
+            && localIds.every(id => {
+                // The reducer assigns display IDs; resolve each literal receipt
+                // ID through its deduplication index, never by array position.
+                const messageId = cache.reducerState.localIds.get(id);
+                if (messageId !== undefined) {
+                    const message = cache.messagesMap[messageId];
+                    return message?.kind === 'user-text' && message.localId === id;
+                }
+                // File envelopes normalize into tool calls with a distinct
+                // envelope ID and intentionally have no display localId.
+                const normalizedId = acceptedIds.get(id)!;
+                const fileId = cache.reducerState.toolIdToMessageId.get(normalizedId);
+                if (fileId === undefined || cache.reducerState.messages.get(fileId)?.realID !== normalizedId) return false;
+                const file = cache.messagesMap[fileId];
+                return file?.kind === 'tool-call' && file.tool.name === 'file';
+            });
+    };
+
     private scheduleQueuedMessagesProcessing(sessionId: string) {
         if (this.sessionQueueProcessing.has(sessionId)) {
             return;
@@ -1411,6 +1464,12 @@ class Sync {
         const pending = this.pendingOutbox.get(sessionId) ?? [];
         pending.push(...stagedOutbox);
         this.pendingOutbox.set(sessionId, pending);
+        const generation: SessionMessageCacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
+        generation.localMessageIds ??= new Map();
+        for (const message of stagedMessages) {
+            if (message.localId !== null) generation.localMessageIds.set(message.localId, message.id);
+        }
+        this.sessionMessageCacheGenerations.set(sessionId, generation);
         const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId, localIds: stagedOutbox.map(item => item.localId) };
         // After commit, ancillary failures must not turn an accepted message into
         // a retry that duplicates it. Reconnect also retries the encrypted outbox.

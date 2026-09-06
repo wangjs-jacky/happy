@@ -51,6 +51,7 @@ type PendingHydration = {
     trace: SessionStartupTraceContext;
     retrying: boolean;
     queued: boolean;
+    localIds?: readonly string[];
     configured: boolean;
     onQueued?: () => void;
 };
@@ -247,12 +248,16 @@ export function useSpawnSession() {
                         throw new Error('local-message-queue-unconfirmed');
                     }
                     pending.queued = true;
+                    pending.localIds = receipt.localIds;
                     traceWebStartupStage(pending.trace, 'web.first_message.queued', pending.sessionId);
                 } catch (error) {
                     traceWebStartupStage(pending.trace, 'web.first_message.queued', pending.sessionId, 'error', 'local-message-queue-failed');
                     throw error;
                 }
             } else pending.queued = true;
+        }
+        if (pending.localIds && !await sync.awaitLocalMessageProjection(pending.sessionId, pending.localIds)) {
+            throw new Error('local-message-projection-unconfirmed');
         }
         if (!mountedRef.current || pendingHydration.current !== pending) return false;
         // The route may synchronously dismiss/unmount the compose component.

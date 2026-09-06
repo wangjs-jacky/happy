@@ -445,7 +445,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const navigation = useNavigation();
     const isFocused = useIsFocused();
     const session = useSession(sessionId);
-    const { isLoaded: hasLoadedMessageCache } = useSessionMessages(sessionId);
+    const { messages: cachedMessages, isLoaded: hasLoadedMessageCache } = useSessionMessages(sessionId);
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
@@ -530,14 +530,6 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         markSessionCriticalPathAppStage('web.route.mounted');
     }, [sessionId]);
 
-    React.useEffect(() => {
-        if (sessionResolution !== 'ready' || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
-        const frame = requestAnimationFrame(() => {
-            markSessionCriticalPathAppStage('web.session.route_painted');
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [sessionId, sessionResolution]);
-
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
     const desktopRightPanelAvailable = layoutRightPanelAvailable && isDataReady && !!session;
@@ -548,14 +540,31 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             ? 'edge-handle'
             : 'drawer-toggle';
     const compactRightDrawerAvailable = !desktopRightPanelAvailable && isDataReady && !!session;
-    const canRenderCachedSession = !!session
-        && hasLoadedMessageCache
+    const canRenderCachedSession = session?.id === sessionId
+        && (hasLoadedMessageCache || cachedMessages.length > 0)
         && routeOwner?.sessionId === sessionId
         && sessionResolution !== 'not-found';
     const verifiedRouteOwnerEpoch = sessionResolution === 'ready'
         && routeOwner?.sessionId === sessionId
         ? routeOwner.ownerEpoch
         : null;
+    const paintOwnerEpoch = routeOwner?.sessionId === sessionId
+        && session?.id === sessionId
+        && (canRenderCachedSession || sessionResolution === 'ready')
+        ? routeOwner.ownerEpoch
+        : null;
+    const paintedSessionId = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (paintOwnerEpoch === null || paintedSessionId.current === sessionId
+            || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        let cancelled = false;
+        const frame = requestAnimationFrame(() => {
+            if (cancelled) return;
+            paintedSessionId.current = sessionId;
+            markSessionCriticalPathAppStage('web.session.route_painted');
+        });
+        return () => { cancelled = true; cancelAnimationFrame(frame); };
+    }, [sessionId, paintOwnerEpoch]);
     const canShowFilePanel = desktopRightPanelAvailable && fileDiffsSidebarEnabled;
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
@@ -1033,6 +1042,18 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
+                {canRenderCachedSession && (sessionResolution === 'retrying' || sessionResolution === 'error') && (
+                    <View testID={sessionResolution === 'error' ? 'session-load-error-cached' : 'session-retrying-cached'}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, backgroundColor: theme.colors.surface }}>
+                        <Text style={{ color: theme.colors.textSecondary }}>{t(sessionResolution === 'error' ? 'common.error' : 'common.retry')}</Text>
+                        {sessionResolution === 'error' && (
+                            <Pressable testID="session-retry-cached" onPress={() => setRetryGeneration(value => value + 1)}
+                                style={({ pressed }) => ({ padding: 8, borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface })}>
+                                <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
+                            </Pressable>
+                        )}
+                    </View>
+                )}
                 {sessionResolution === 'error' && !canRenderCachedSession ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 }} testID="session-load-error">
                         <Text style={{ color: theme.colors.textSecondary }}>{t('common.error')}</Text>
