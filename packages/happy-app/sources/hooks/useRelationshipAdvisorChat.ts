@@ -5,12 +5,14 @@ import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import {
     relationshipAdvisorClient,
     type RelationshipAdvisorEvent,
-    type RelationshipAdvisorMessage,
 } from '@/sync/relationshipAdvisorClient';
 import {
     discardRelationshipAdvisorImages,
-    uploadRelationshipAdvisorImages,
+    relationshipAdvisorImageKeys,
+    saveRelationshipAdvisorImages,
+    uploadRelationshipAdvisorHistory,
 } from '@/sync/relationshipAdvisorImages';
+import { deleteAdvisorImages } from '@/sync/relationshipAdvisorImageCache';
 import { useLocalSetting, useLocalSettingUpdater } from '@/sync/storage';
 import {
     relationshipAdvisorChatReducer,
@@ -37,7 +39,7 @@ export function useRelationshipAdvisorChat(conversationId: string) {
     const activeRequestIdRef = React.useRef<string | null>(null);
     const providerStartedRequestIdRef = React.useRef<string | null>(null);
     const cancelledRequestIdsRef = React.useRef(new Set<string>());
-    const lastAttemptRef = React.useRef<{ text: string; images: AttachmentPreview[] } | null>(null);
+    const lastAttemptRef = React.useRef<{ text: string; images: AttachmentPreview[]; imageKeys?: string[]; userId: string } | null>(null);
     const [canRetry, setCanRetry] = React.useState(false);
     const mountedRef = React.useRef(true);
 
@@ -76,14 +78,17 @@ export function useRelationshipAdvisorChat(conversationId: string) {
     const send = React.useCallback(async (
         text: string,
         images: AttachmentPreview[],
-        options?: { reuseLastUser?: boolean },
+        options?: { retryUserId?: string; imageKeys?: string[] },
     ) => {
         const trimmed = text.trim();
         if (activeRequestIdRef.current || (!trimmed && images.length === 0)) return false;
 
         const requestId = randomUUID();
         activeRequestIdRef.current = requestId;
-        lastAttemptRef.current = { text: trimmed, images };
+        const imageKeys = options?.imageKeys ?? relationshipAdvisorImageKeys(requestId, images);
+        const retryIndex = options?.retryUserId ? state.messages.findIndex((message) => message.id === options.retryUserId) : -1;
+        const userId = retryIndex >= 0 ? state.messages[retryIndex].id : `user-${requestId}`;
+        lastAttemptRef.current = { text: trimmed, images, imageKeys: options?.imageKeys, userId };
         setCanRetry(false);
         const userMessage: RelationshipAdvisorChatMessage = {
             id: `user-${requestId}`,
@@ -91,34 +96,47 @@ export function useRelationshipAdvisorChat(conversationId: string) {
             text: trimmed,
             createdAt: Date.now(),
             imageCount: images.length,
+            ...(imageKeys.length ? { imageKeys } : {}),
         };
-        const requestMessages: RelationshipAdvisorMessage[] = options?.reuseLastUser
-            ? state.messages.slice(-12).map(({ role, text: messageText }) => ({ role, text: messageText }))
+        const historyMessages = retryIndex >= 0
+            ? state.messages.slice(0, retryIndex + 1).slice(-12)
             : [
-                ...state.messages.slice(-11).map(({ role, text: messageText }) => ({ role, text: messageText })),
-                { role: 'user', text: trimmed },
+                ...state.messages.slice(-11),
+                userMessage,
             ];
         dispatch({
             type: 'start',
             requestId,
             message: userMessage,
-            appendMessage: !options?.reuseLastUser,
+            appendMessage: retryIndex < 0,
+            ...(retryIndex >= 0 ? { retryUserId: userId } : {}),
         });
 
         const imageRefs: string[] = [];
         try {
-            const uploadedRefs = await uploadRelationshipAdvisorImages(images, {
+            if (!options?.imageKeys) await saveRelationshipAdvisorImages(images, imageKeys);
+            if (activeRequestIdRef.current === requestId) {
+                lastAttemptRef.current = { text: trimmed, images, imageKeys, userId };
+            }
+            const requestMessages = await uploadRelationshipAdvisorHistory(historyMessages, {
                 isCancelled: () => cancelledRequestIdsRef.current.has(requestId),
             });
-            if (!uploadedRefs) {
+            if (!requestMessages) {
+                if (mountedRef.current && !options?.imageKeys) await deleteAdvisorImages(imageKeys).catch(() => undefined);
                 cancelledRequestIdsRef.current.delete(requestId);
                 return false;
             }
-            imageRefs.push(...uploadedRefs);
+            imageRefs.push(...requestMessages.flatMap((message) => message.imageRefs ?? []));
+            if (activeRequestIdRef.current !== requestId || !mountedRef.current || cancelledRequestIdsRef.current.has(requestId)) {
+                await discardRelationshipAdvisorImages(imageRefs).catch(() => undefined);
+                if (mountedRef.current && !options?.imageKeys) await deleteAdvisorImages(imageKeys).catch(() => undefined);
+                cancelledRequestIdsRef.current.delete(requestId);
+                return false;
+            }
 
             let terminalEventReceived = false;
             const onEvent = (event: RelationshipAdvisorEvent) => {
-                if (!mountedRef.current) return;
+                if (!mountedRef.current || activeRequestIdRef.current !== requestId) return;
                 dispatch({ type: 'event', event, completedAt: Date.now() });
                 if (event.type === 'done' || event.type === 'error') {
                     activeRequestIdRef.current = null;
@@ -141,7 +159,7 @@ export function useRelationshipAdvisorChat(conversationId: string) {
                 messages: requestMessages,
                 imageRefs,
             }, onEvent);
-            if (terminalEventReceived || !mountedRef.current || cancelledRequestIdsRef.current.has(requestId)) {
+            if (terminalEventReceived || !mountedRef.current || activeRequestIdRef.current !== requestId || cancelledRequestIdsRef.current.has(requestId)) {
                 unsubscribe();
             } else {
                 unsubscribeRef.current = unsubscribe;
@@ -157,12 +175,16 @@ export function useRelationshipAdvisorChat(conversationId: string) {
                 relationshipAdvisorClient.cancel(requestId);
             }
             await discardRelationshipAdvisorImages(imageRefs).catch(() => undefined);
-            if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
-            providerStartedRequestIdRef.current = null;
             cancelledRequestIdsRef.current.delete(requestId);
+            // A stopped upload may settle after the user has already started a new turn.
+            if (activeRequestIdRef.current !== requestId) return false;
+            activeRequestIdRef.current = null;
+            providerStartedRequestIdRef.current = null;
             if (mountedRef.current) {
                 dispatch(wasCancelled
                     ? { type: 'cancel-before-start', requestId }
+                    : lastAttemptRef.current?.imageKeys
+                    ? { type: 'event', event: { type: 'error', requestId, error: 'Relationship advisor is temporarily unavailable' } }
                     : {
                         type: 'fail-before-start',
                         requestId,
@@ -199,11 +221,7 @@ export function useRelationshipAdvisorChat(conversationId: string) {
     const retry = React.useCallback(async () => {
         const attempt = lastAttemptRef.current;
         if (!attempt || activeRequestIdRef.current) return false;
-        const latest = state.messages.at(-1);
-        const reuseLastUser = latest?.role === 'user'
-            && latest.text === attempt.text
-            && latest.imageCount === attempt.images.length;
-        return send(attempt.text, attempt.images, { reuseLastUser });
+        return send(attempt.text, attempt.images, { retryUserId: attempt.userId, imageKeys: attempt.imageKeys });
     }, [send, state.messages]);
 
     return { ...state, send, cancel, clear, canRetry, retry };

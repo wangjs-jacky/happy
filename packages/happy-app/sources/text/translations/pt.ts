@@ -31,6 +31,7 @@ export const pt: TranslationStructure = {
         emptyPrompt: 'Conte a situação e vamos direto ao que você pode responder.',
         imageCount: ({ count }: { count: number }) => `${count} ${count === 1 ? 'imagem' : 'imagens'}`,
         unavailable: 'Não foi possível conectar agora. Tente novamente mais tarde.',
+        emptyResponse: 'O modelo não retornou nenhum texto. Tente novamente.',
         stopAccessibility: 'Parar de gerar',
         installSubtitle: 'Instale o plug-in para usar o conselheiro amoroso',
     },
