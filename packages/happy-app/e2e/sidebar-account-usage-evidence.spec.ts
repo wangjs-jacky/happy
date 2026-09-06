@@ -1,10 +1,12 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
-const evidenceDirectory = process.env.HAPPY_USAGE_MENU_EVIDENCE_DIR;
-const evidencePhase = process.env.HAPPY_USAGE_MENU_EVIDENCE_PHASE === 'before' ? 'before' : 'after';
+const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
+const evidenceDirectory = process.env.HAPPY_USAGE_POPUP_EVIDENCE_DIR;
+const evidencePhase = process.env.HAPPY_USAGE_POPUP_EVIDENCE_PHASE === 'before' ? 'before' : 'after';
 
 function evidencePath(testInfo: TestInfo): string {
     const filename = `case-1-${evidencePhase}.png`;
@@ -30,56 +32,100 @@ async function hideExpoDevelopmentOverlay(page: Page): Promise<void> {
     });
 }
 
+async function registerUsageMachine(request: APIRequestContext): Promise<() => Promise<void>> {
+    const url = new URL(authenticatedWebUrl);
+    const token = url.searchParams.get('dev_token');
+    const secret = url.searchParams.get('dev_secret');
+    if (!token || !secret || !e2eServerUrl) throw new Error('Missing local E2E authentication configuration.');
+
+    const headers = {
+        Authorization: `Bearer ${token}`,
+        'X-Happy-Client': 'playwright-usage-popup-evidence',
+    };
+    const encryptionKey = new Uint8Array(Buffer.from(secret, 'base64url'));
+    const machineId = `usage-popup-evidence-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const metadata = encodeBase64(encryptLegacy({
+        host: 'studio-mac',
+        platform: 'darwin',
+        happyCliVersion: '0.0.0-e2e',
+        happyHomeDir: '/tmp/.happy',
+        homeDir: '/tmp',
+    }, encryptionKey));
+    const daemonState = encodeBase64(encryptLegacy({
+        codexUsage: {
+            source: 'codex-session-jsonl',
+            scannedAt: Date.parse('2026-09-06T12:00:00.000Z'),
+            timeZone: 'Asia/Shanghai',
+            days: [],
+            latestEvent: {
+                timestamp: '2026-09-06T11:58:00.000Z',
+                rateLimitsTimestamp: '2026-09-06T11:58:00.000Z',
+                rateLimits: {
+                    planType: 'plus',
+                    primary: { usedPercent: 37, windowMinutes: 300, resetsAt: 1788710400 },
+                    secondary: { usedPercent: 62, windowMinutes: 10_080, resetsAt: 1789138800 },
+                },
+            },
+        },
+    }, encryptionKey));
+    const response = await request.post(new URL('/v1/machines', e2eServerUrl).toString(), {
+        data: { id: machineId, metadata, daemonState, dataEncryptionKey: null },
+        headers,
+    });
+    expect(response.ok()).toBe(true);
+
+    return async () => {
+        const deletion = await request.delete(
+            new URL(`/v1/machines/${encodeURIComponent(machineId)}`, e2eServerUrl).toString(),
+            { headers },
+        );
+        expect(deletion.ok() || deletion.status() === 404).toBe(true);
+    };
+}
+
 test.use({ locale: 'zh-CN' });
 
-test('[USAGE-MENU-01] 账户菜单提供一级使用情况入口', async ({ page }, testInfo) => {
+test('[USAGE-POPUP-01] 账户菜单在弹窗内展示使用情况', async ({ page, request }, testInfo) => {
     test.setTimeout(180_000);
-    await hideExpoDevelopmentOverlay(page);
-    await page.emulateMedia({ colorScheme: 'dark' });
-    await page.setViewportSize({ width: 1280, height: 900 });
+    const deleteMachine = await registerUsageMachine(request);
+    try {
+        await hideExpoDevelopmentOverlay(page);
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 1280, height: 900 });
 
-    const appearanceUrl = new URL('/settings/appearance', authenticatedWebUrl);
-    appearanceUrl.search = new URL(authenticatedWebUrl).search;
-    await page.goto(appearanceUrl.toString());
-    const ginghamOption = page.getByText('Gingham', { exact: true });
-    await expect(ginghamOption).toBeVisible({ timeout: 120_000 });
-    await ginghamOption.click();
-    await expect.poll(() => page.evaluate(() => {
-        const stored = window.localStorage.getItem('mmkv.default\\local-settings');
-        return stored ? JSON.parse(stored).themePack : null;
-    })).toBe('gingham');
+        const appearanceUrl = new URL('/settings/appearance', authenticatedWebUrl);
+        appearanceUrl.search = new URL(authenticatedWebUrl).search;
+        await page.goto(appearanceUrl.toString());
+        const ginghamOption = page.getByText('Gingham', { exact: true });
+        await expect(ginghamOption).toBeVisible({ timeout: 120_000 });
+        await ginghamOption.click();
+        await expect.poll(() => page.evaluate(() => {
+            const stored = window.localStorage.getItem('mmkv.default\\local-settings');
+            return stored ? JSON.parse(stored).themePack : null;
+        })).toBe('gingham');
 
-    await expect.poll(() => page.locator('body').evaluate((element) => (
-        window.getComputedStyle(element).backgroundColor
-    ))).toBe('rgb(18, 24, 33)');
+        await expect.poll(() => page.locator('body').evaluate((element) => (
+            window.getComputedStyle(element).backgroundColor
+        ))).toBe('rgb(18, 24, 33)');
 
-    await page.getByTestId('sidebar-account-trigger').click();
-    const menu = page.getByTestId('sidebar-account-menu');
-    await expect(menu).toBeVisible();
+        await page.getByTestId('sidebar-account-trigger').click();
+        const menu = page.getByTestId('sidebar-account-menu');
+        await expect(menu).toBeVisible();
 
-    const usageAction = page.getByTestId('sidebar-account-usage-action');
-    if (evidencePhase === 'before') {
-        await expect(usageAction).toHaveCount(0);
-    } else {
+        const usageAction = page.getByTestId('sidebar-account-usage-action');
         await expect(usageAction).toBeVisible();
-        await expect(usageAction).toHaveCSS('background-color', 'rgb(26, 35, 48)');
-        await usageAction.hover();
-        await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
-        await page.mouse.down();
-        await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
-    }
+        if (evidencePhase === 'after') {
+            await expect(usageAction).toHaveCSS('background-color', 'rgb(26, 35, 48)');
+            await usageAction.hover();
+            await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
+            await page.mouse.down();
+            await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
+        }
 
-    const actionOrder = await menu.locator('[role="button"][data-testid^="sidebar-account-"]').evaluateAll((elements) => (
-        elements.map((element) => element.getAttribute('data-testid'))
-    ));
-    expect(actionOrder).toEqual(evidencePhase === 'before'
-        ? [
-            'sidebar-account-profile-action',
-            'sidebar-account-settings-action',
-            'sidebar-account-details-action',
-            'sidebar-account-logout-action',
-        ]
-        : [
+        const actionOrder = await menu.locator('[role="button"][data-testid^="sidebar-account-"]').evaluateAll((elements) => (
+            elements.map((element) => element.getAttribute('data-testid'))
+        ));
+        expect(actionOrder).toEqual([
             'sidebar-account-profile-action',
             'sidebar-account-settings-action',
             'sidebar-account-details-action',
@@ -87,17 +133,34 @@ test('[USAGE-MENU-01] 账户菜单提供一级使用情况入口', async ({ page
             'sidebar-account-logout-action',
         ]);
 
-    if (process.env.HAPPY_E2E_RECORD === '1') {
-        await page.waitForTimeout(900);
-    }
-    await page.screenshot({ path: evidencePath(testInfo), fullPage: true });
+        if (evidencePhase === 'after') await page.mouse.up();
+        else await usageAction.click();
 
-    if (evidencePhase === 'after') {
-        await page.mouse.up();
-        await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/usage');
-        await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
+        if (evidencePhase === 'before') {
+            await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/usage');
+            await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
+        } else {
+            await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/appearance');
+            await expect(page.getByTestId('sidebar-account-menu')).toHaveCount(0);
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toBeVisible();
+            await expect(page.getByTestId('sidebar-account-usage-dialog-content')).toBeVisible();
+            await expect(page.getByTestId('sidebar-account-usage-dialog-close'))
+                .toHaveCSS('color', 'rgb(143, 162, 176)');
+            await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
+        }
+        await expect(page.getByText('63%', { exact: true })).toBeVisible();
+
         if (process.env.HAPPY_E2E_RECORD === '1') {
             await page.waitForTimeout(1100);
         }
+        await page.screenshot({ path: evidencePath(testInfo), fullPage: true });
+
+        if (evidencePhase === 'after') {
+            await page.keyboard.press('Escape');
+            await expect(page.getByTestId('sidebar-account-usage-dialog')).toHaveCount(0);
+            await expect(page.getByTestId('sidebar-account-trigger')).toBeFocused();
+        }
+    } finally {
+        await deleteMachine();
     }
 });
