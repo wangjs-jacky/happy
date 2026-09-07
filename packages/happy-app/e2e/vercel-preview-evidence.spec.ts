@@ -107,7 +107,7 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
     });
 
     for (const theme of ['default', 'ginghamDark'] as const) {
-        test(`[EGO-POPOVER] preserves the hub and isolates repeated runs (${theme})`, async ({ page }, testInfo) => {
+        test(`[EGO-POPOVER] opens from inline Skills and isolates repeated runs (${theme})`, async ({ page }, testInfo) => {
             test.setTimeout(120_000);
             const fixture = await seedVercelPreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
             if (theme === 'ginghamDark') {
@@ -122,13 +122,13 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
             }
             await expectFixtureReady(page, 'capability-hub-summary');
             await expect(page.getByTestId('capability-block-skills')).toBeVisible();
-            await page.getByTestId('capability-block-skills').click();
-            await expect(page.getByTestId('capability-hub-detail-skills')).toBeVisible();
+            await expect(page.getByTestId('capability-hub-detail-skills')).toHaveCount(0);
 
             const firstTrigger = page.getByTestId('browser-progress-trigger-ego-fixture-run-1');
             const secondTrigger = page.getByTestId('browser-progress-trigger-ego-fixture-run-2');
             await expect(firstTrigger).toBeVisible();
             await expect(secondTrigger).toBeVisible();
+            await expect(page.getByTestId('activity-skill-ego-browser').filter({ has: firstTrigger })).toBeVisible();
             await firstTrigger.click();
             await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
             await page.getByTestId('browser-steps-popover-close').click();

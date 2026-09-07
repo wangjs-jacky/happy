@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { Modal } from '@/modal';
-import { useSession, useSessionMessages, useSettingMutable } from '@/sync/storage';
+import { useSession, useSettingMutable } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 import { hapticsLight } from '../haptics';
@@ -20,9 +20,6 @@ import { SessionFolderBrowserView } from './SessionFolderBrowserView';
 import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 import { usePluginSurfaceViews } from '../plugins/usePluginSurfaceViews';
-import { getBrowserStepRuns } from './browserStepRunsModel';
-import { getBrowserSteps } from './browserStepsModel';
-import { BrowserStepsPanel } from './BrowserStepsPanel';
 
 type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
@@ -64,9 +61,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 }) {
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
-    const { messages } = useSessionMessages(props.sessionId);
-    const browserStepRuns = React.useMemo(() => getBrowserStepRuns(messages), [messages]);
-    const browserSteps = React.useMemo(() => getBrowserSteps(messages), [messages]);
     const pluginViews = usePluginSurfaceViews('right-panel');
     const generatedImagesViewAvailable = pluginViews.some((view) => (
         view.componentId === 'generated-images-session-images'
@@ -166,10 +160,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
         item.onPress();
     }, [panel]);
 
-    if (Platform.OS !== 'web' && browserSteps.length > 0) {
-        return <BrowserStepsPanel sessionId={sessionId} steps={browserSteps} />;
-    }
-
     if (selectedKey) {
         if (selectedKey === 'sessionActions') {
             return (
@@ -199,7 +189,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 
         return (
             <CapabilityHubDetailView
-                browserStepRuns={browserStepRuns}
                 count={model.details[selectedKey].length}
                 items={model.details[selectedKey]}
                 onAddQuickPrompt={selectedKey === 'quickPrompts' ? addQuickPrompt : undefined}

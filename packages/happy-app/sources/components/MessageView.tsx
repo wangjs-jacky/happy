@@ -15,6 +15,7 @@ import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
 import { getAutoFoldPromptBodyRenderState, getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
 import { ConversationActivityStrip } from './ConversationActivityStrip';
+import { getSkillNamesFromTool } from '@/utils/conversationActivity';
 import { getMessageExecutionModeLabel } from '@/utils/messageExecutionMode';
 import { DesktopShortcutTooltip } from './DesktopShortcutTooltip';
 import { getUserMessageForkRewindPointId, type MessageForkTarget } from '@/utils/messageForkPoint';
@@ -679,6 +680,9 @@ function ToolCallBlock(props: {
 }) {
   if (!props.message.tool) {
     return null;
+  }
+  if (getSkillNamesFromTool(props.message.tool).length > 0 && props.message.tool.permission?.status !== 'pending') {
+    return <ConversationActivityStrip messages={[props.message]} />;
   }
   return (
     <View style={styles.toolContainer}>

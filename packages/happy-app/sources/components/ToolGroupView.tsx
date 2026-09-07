@@ -79,6 +79,7 @@ export const ToolGroupView = React.memo<ToolGroupViewProps>((props) => {
                 category={summaryCategory}
                 showChevron
             />
+            <ConversationActivityStrip messages={group.messages} />
             {expanded && !suppressChildren && (
                 <View style={styles.content}>
                     {group.messages.map(renderGroupMessage)}

@@ -31,6 +31,8 @@ import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
 import { AttachmentGalleryView } from './AttachmentGalleryView';
 import { AnchorListSheet } from './AnchorListSheet';
+import { BrowserProgressContext } from './BrowserProgressContext';
+import { getBrowserStepRuns, hideLinkedBrowserSteps } from './rightPanel/browserStepRunsModel';
 import { setGroupExpansion, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
     TranscriptGroupExpansionContext, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
 
@@ -91,7 +93,13 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         () => ({ currentTurnActive: props.currentTurnActive ?? false }),
         [props.currentTurnActive],
     );
-    const displayItems = useGroupedMessages(props.messages, props.groupToolCalls ?? true, groupingOptions);
+    const browserProgress = React.useMemo(() => ({
+        sessionId: props.sessionId,
+        runs: props.sessionId ? getBrowserStepRuns(props.messages) : [],
+    }), [props.sessionId, props.messages]);
+    const transcriptMessages = React.useMemo(() => hideLinkedBrowserSteps(props.messages, browserProgress.runs),
+        [props.messages, browserProgress.runs]);
+    const displayItems = useGroupedMessages(transcriptMessages, props.groupToolCalls ?? true, groupingOptions);
     const inverted = props.inverted ?? true;
     const isAtLatest = props.isAtLatest ?? true;
     const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
@@ -418,6 +426,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, []);
 
     return (
+        <BrowserProgressContext.Provider value={browserProgress}>
         <TranscriptReadingContext.Provider value={reading.markers}>
         <TranscriptGroupExpansionContext.Provider value={nestedExpansion}>
         <View ref={viewportRef} collapsable={false} style={styles.container}>
@@ -493,6 +502,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         </View>
         </TranscriptGroupExpansionContext.Provider>
         </TranscriptReadingContext.Provider>
+        </BrowserProgressContext.Provider>
     );
 });
 

@@ -79,6 +79,18 @@ describe('MessageView fork action feedback', () => {
 
     afterEach(() => consoleErrorSpy.mockRestore());
 
+    it('uses the inline Skills activity for standalone Ego calls without hiding pending permission', () => {
+        const message: any = { kind: 'tool-call', id: 'ego', localId: null, createdAt: 1, children: [],
+            tool: { name: 'Skill', input: { skill: 'ego-browser' }, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null } };
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<MessageView message={message} metadata={null} sessionId="s1" />); });
+        expect(renderer.root.findByType('ConversationActivityStrip').props.messages).toEqual([message]);
+        expect(renderer.root.findAllByType('ToolView')).toHaveLength(0);
+        act(() => renderer.update(<MessageView message={{ ...message, tool: { ...message.tool, permission: { status: 'pending' } } }} metadata={null} sessionId="s1" />));
+        expect(renderer.root.findAllByType('ToolView')).toHaveLength(1);
+        act(() => renderer.unmount());
+    });
+
     it('keeps the action strip inside the message hover boundary', () => {
         let renderer: any;
         act(() => {
