@@ -1,68 +1,41 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('./serverConfig', () => ({ getServerUrl: () => 'https://happy.test' }));
+import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('./serverConfig', () => ({ getServerUrl: vi.fn(() => 'https://happy.test') }));
 vi.mock('./apiSocket', () => ({ getHappyClientId: () => 'web-test' }));
-import {
-    VercelPreviewApiError,
-    disconnectVercelPreview,
-    getVercelPreviewConnectUrl,
-    getVercelPreviewStatus,
-} from './apiInteractivePreviews';
+import { connectCloudflarePreview, disconnectCloudflarePreview, getCloudflarePreviewStatus } from './apiInteractivePreviews';
+import { getServerUrl } from './serverConfig';
 
-describe('Vercel preview API', () => {
-    beforeEach(() => vi.restoreAllMocks());
-    it('loads status without exposing credentials', async () => {
-        const fetchMock = vi.fn(async () => new Response(JSON.stringify({ available: true, connected: true, account: { teamId: 'team_1', teamName: 'Acme', projectId: 'prj_1' } }), { status: 200 }));
-        vi.stubGlobal('fetch', fetchMock);
-        await expect(getVercelPreviewStatus({ token: 'token', secret: new Uint8Array() } as any)).resolves.toEqual({ available: true, connected: true, account: { teamId: 'team_1', teamName: 'Acme', projectId: 'prj_1' } });
-        expect(fetchMock).toHaveBeenCalledWith('https://happy.test/v1/connect/vercel/status', expect.objectContaining({
-            headers: { Authorization: 'Bearer token', 'X-Happy-Client': 'web-test' },
-        }));
+describe('Cloudflare preview API', () => {
+    it('refuses to transmit a provider token over a remote plaintext server connection', async () => {
+        vi.mocked(getServerUrl).mockReturnValueOnce('http://happy.example:3005');
+        const request = vi.fn();
+        vi.stubGlobal('fetch', request);
+        await expect(connectCloudflarePreview({ token: 'token' } as any, 'account', 'provider-token')).rejects.toMatchObject({ kind: 'insecure' });
+        expect(request).not.toHaveBeenCalled();
     });
-    it('gets the provider URL and disconnects', async () => {
-        const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => new Response(JSON.stringify(url.endsWith('/params') ? { url: 'https://vercel.com/install' } : { success: true }), { status: 200 }));
-        vi.stubGlobal('fetch', fetchMock);
-        await expect(getVercelPreviewConnectUrl({ token: 'token' } as any)).resolves.toBe('https://vercel.com/install');
-        await disconnectVercelPreview({ token: 'token' } as any);
-        expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
-    });
-
-    it('returns only the server cleanup warning after disconnecting', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-            success: true,
-            warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
-        }), { status: 200 })));
-
-        await expect(disconnectVercelPreview({ token: 'token' } as any)).resolves.toEqual({
-            warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+    afterEach(() => vi.unstubAllGlobals());
+    it('sends the token only in the authenticated connection request body', async () => {
+        const request = vi.fn(async () => new Response(JSON.stringify({ success: true })));
+        vi.stubGlobal('fetch', request);
+        await connectCloudflarePreview({ token: 'happy-token' } as any, 'a'.repeat(32), 'private-api-token');
+        expect(request).toHaveBeenCalledWith('https://happy.test/v1/connect/cloudflare', {
+            method: 'POST', headers: { Authorization: 'Bearer happy-token', 'X-Happy-Client': 'web-test', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: 'a'.repeat(32), apiToken: 'private-api-token' }),
         });
     });
-
-    it('classifies unavailable, expired credentials, and network failures without exposing response text', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'VERCEL_NOT_CONFIGURED secret=never-show-this' }), { status: 400 })));
-        await expect(getVercelPreviewConnectUrl({ token: 'token' } as any)).rejects.toMatchObject({
-            name: 'VercelPreviewApiError',
-            kind: 'unavailable',
-            message: 'Temporary previews are not configured on this Happy Server.',
-        } satisfies Partial<VercelPreviewApiError>);
-
-        vi.stubGlobal('fetch', vi.fn(async () => new Response('expired credential', { status: 401 })));
-        await expect(getVercelPreviewStatus({ token: 'token' } as any)).rejects.toMatchObject({
-            kind: 'credentials',
-            message: 'Your sign-in has expired. Sign in again and retry.',
-        } satisfies Partial<VercelPreviewApiError>);
-
-        vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('socket password=never-show-this'); }));
-        await expect(disconnectVercelPreview({ token: 'token' } as any)).rejects.toMatchObject({
-            kind: 'network',
-            message: 'Unable to reach Happy Server. Check your connection and retry.',
-        } satisfies Partial<VercelPreviewApiError>);
+    it('returns status and cleanup warnings without provider credentials', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ available: true, connected: false }))));
+        await expect(getCloudflarePreviewStatus({ token: 'token' } as any)).resolves.toEqual({ available: true, connected: false });
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ success: true, warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' }))));
+        await expect(disconnectCloudflarePreview({ token: 'token' } as any)).resolves.toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
     });
-
-    it('rejects a malformed or unsafe provider URL before it reaches a browser', async () => {
-        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ url: 'javascript:alert(1)' }), { status: 200 })));
-        await expect(getVercelPreviewConnectUrl({ token: 'token' } as any)).rejects.toMatchObject({
-            kind: 'server',
-            message: 'Happy Server returned an invalid Vercel connection URL.',
-        } satisfies Partial<VercelPreviewApiError>);
+    it('never exposes provider response errors', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('private-api-token', { status: 400 })));
+        await expect(connectCloudflarePreview({ token: 'token' } as any, 'a'.repeat(32), 'token')).rejects.toMatchObject({ kind: 'credentials', message: 'Invalid Cloudflare account or API token.' });
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('private-api-token'); }));
+        await expect(disconnectCloudflarePreview({ token: 'token' } as any)).rejects.toMatchObject({ kind: 'network', message: 'Unable to reach Happy Server. Check your connection and retry.' });
+    });
+    it('rejects malformed connection success responses', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ url: 'javascript:alert(1)' }))));
+        await expect(connectCloudflarePreview({ token: 'token' } as any, 'account', 'token')).rejects.toMatchObject({ kind: 'server' });
     });
 });

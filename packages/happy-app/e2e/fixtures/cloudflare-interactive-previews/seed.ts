@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { seedVercelPreviewFixture } from './fixture';
+import { seedCloudflarePreviewFixture } from './fixture';
 
 function argument(name: string): string | undefined {
     const index = process.argv.indexOf(name);
@@ -20,7 +20,7 @@ async function main(): Promise<void> {
     };
     if (!config.authenticatedWebUrl) throw new Error(`Environment ${environmentName} has not been seeded.`);
 
-    const result = await seedVercelPreviewFixture({
+    const result = await seedCloudflarePreviewFixture({
         serverUrl: `http://localhost:${config.serverPort}`,
         webUrl: config.authenticatedWebUrl,
     });

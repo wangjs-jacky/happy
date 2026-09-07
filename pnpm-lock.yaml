@@ -1071,6 +1071,9 @@ importers:
       '@fastify/static':
         specifier: ^8.1.1
         version: 8.3.0
+      '@noble/hashes':
+        specifier: 1.8.0
+        version: 1.8.0
       '@paws/plugins':
         specifier: github:wangjs-jacky/paws-plugins#eb24f765b7cb43827701250bb9f1654897fb2c68
         version: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/eb24f765b7cb43827701250bb9f1654897fb2c68

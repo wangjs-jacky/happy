@@ -1,10 +1,10 @@
 import { db } from '@/storage/db';
 import { onShutdown } from '@/utils/shutdown';
 import { log } from '@/utils/log';
-import { isLegacyPreviewStorageKey, previewStorage } from './previewStorage';
-import { vercelCredentialStore } from './vercelCredentialStore';
-import { createVercelClient } from './vercelClient';
-import { previewService } from './previewService';
+import { isLegacyPreviewStorageKey, previewStorage } from '@/app/previews/previewStorage';
+import { cloudflareCredentialStore } from '@/app/previews/cloudflareCredentialStore';
+import { createCloudflareClient } from '@/app/previews/cloudflareClient';
+import { previewService } from '@/app/previews/previewService';
 
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const CLAIM_TTL_MS = 15 * 60 * 1000;
@@ -13,13 +13,13 @@ const RETRY_MAX_MS = 60 * 60 * 1000;
 
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-function vercelTeamScope(teamId: string | null | undefined): string | null {
+function cloudflareTeamScope(teamId: string | null | undefined): string | null {
     return teamId ?? null;
 }
 
 export type CleanupPreviewRow = {
-    id: string; status: string; accountId: string; stagingGeneration: string; vercelDeploymentId: string | null;
-    stagingCleanupPending?: boolean; expiresAt?: Date; vercelTeamId?: string | null; vercelScopeKnown?: boolean;
+    id: string; status: string; accountId: string; stagingGeneration: string; cloudflareDeploymentId: string | null;
+    stagingCleanupPending?: boolean; expiresAt?: Date; cloudflareTeamId?: string | null; cloudflareScopeKnown?: boolean;
     assets?: Array<{ storageKey: string }>;
 };
 export interface PreviewCleanupDependencies {
@@ -42,9 +42,9 @@ export async function cleanupInteractivePreviewRows(rows: CleanupPreviewRow[], d
                 cleaned++;
                 continue;
             }
-            if (row.vercelDeploymentId) {
-                await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
-                await dependencies.markProviderDeleted(row.id, row.vercelDeploymentId);
+            if (row.cloudflareDeploymentId) {
+                await dependencies.deleteDeployment(row.accountId, row.cloudflareDeploymentId);
+                await dependencies.markProviderDeleted(row.id, row.cloudflareDeploymentId);
             }
             await dependencies.deleteStaging(row.accountId, row.id, row.stagingGeneration);
             await dependencies.markExpired(row.id);
@@ -62,8 +62,8 @@ type PreviewDatabase = Pick<typeof db, 'interactivePreview'>;
 export function createPreviewCleanup(dependencies: {
     database: PreviewDatabase;
     storage: Pick<typeof previewStorage, 'deletePreview'>;
-    credentialStore: Pick<typeof vercelCredentialStore, 'get'>;
-    clientFactory: typeof createVercelClient;
+    credentialStore: Pick<typeof cloudflareCredentialStore, 'get'>;
+    clientFactory: typeof createCloudflareClient;
     now?: () => Date;
     recoverPublications?: (time: Date) => Promise<void>;
 }) {
@@ -77,7 +77,7 @@ export function createPreviewCleanup(dependencies: {
             return;
         }
         await dependencies.database.interactivePreview.updateMany({
-            where: { status: 'publishing', updatedAt: { lte: staleClaim(time) } },
+            where: { stagingGeneration: { startsWith: 'cf-' }, status: 'publishing', updatedAt: { lte: staleClaim(time) } },
             data: { status: 'failed', errorCode: 'PUBLISH_LEASE_EXPIRED', cleanupClaimedAt: null, cleanupNextAttemptAt: null },
         });
     }
@@ -86,26 +86,26 @@ export function createPreviewCleanup(dependencies: {
         await recoverStalePublications(time);
         const claimBefore = staleClaim(time);
         const due = await dependencies.database.interactivePreview.findMany({
-            where: {
+            where: { stagingGeneration: { startsWith: 'cf-' },
                 OR: [
                     { status: 'deleting' },
                     { status: 'ready', stagingCleanupPending: true },
                     { status: { in: ['draft', 'failed', 'ready'] }, expiresAt: { lte: time } },
                 ],
                 AND: [
-                    { OR: [{ publicationCreateStartedAt: null }, { vercelDeploymentId: { not: null } }] },
+                    { OR: [{ publicationCreateStartedAt: null }, { cloudflareDeploymentId: { not: null } }] },
                     { OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }] },
                     { OR: [{ cleanupNextAttemptAt: null }, { cleanupNextAttemptAt: { lte: time } }] },
                 ],
             },
             take: 50, orderBy: { expiresAt: 'asc' },
-            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true, vercelTeamId: true, vercelScopeKnown: true, stagingCleanupPending: true, expiresAt: true, assets: { select: { storageKey: true } } },
+            select: { id: true, status: true, accountId: true, stagingGeneration: true, cloudflareDeploymentId: true, cloudflareTeamId: true, cloudflareScopeKnown: true, stagingCleanupPending: true, expiresAt: true, assets: { select: { storageKey: true } } },
         }) as CleanupPreviewRow[];
         const claimed: CleanupPreviewRow[] = [];
         const claims = new Map<string, { status: string; stagingCleanupPending: boolean }>();
         for (const row of due) {
             const stagingOnly = row.status === 'ready' && row.stagingCleanupPending === true && row.expiresAt !== undefined && row.expiresAt > time;
-            const result = await dependencies.database.interactivePreview.updateMany({ where: {
+            const result = await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
                 id: row.id, status: row.status,
                 OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }],
                 AND: [{ OR: [{ cleanupNextAttemptAt: null }, { cleanupNextAttemptAt: { lte: time } }] }],
@@ -126,38 +126,38 @@ export function createPreviewCleanup(dependencies: {
             },
             async deleteDeployment(accountId, deploymentId) {
                 const credential = await dependencies.credentialStore.get(accountId);
-                if (!credential) throw new Error('Vercel credential unavailable');
-                const row = claimed.find((candidate) => candidate.accountId === accountId && candidate.vercelDeploymentId === deploymentId);
-                if (!row) throw new Error('Vercel cleanup row is unavailable');
+                if (!credential) throw new Error('Cloudflare credential unavailable');
+                const row = claimed.find((candidate) => candidate.accountId === accountId && candidate.cloudflareDeploymentId === deploymentId);
+                if (!row) throw new Error('Cloudflare cleanup row is unavailable');
                 const client = dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId });
-                if (row.vercelScopeKnown === false) {
+                if (row.cloudflareScopeKnown === false) {
                     // Null used to mean both “personal” and “unknown”. Only a
                     // configured team is a candidate scope for an unknown
                     // legacy row; an unscoped 404 cannot prove global absence.
-                    if (!credential.teamId) throw new Error('Vercel legacy deployment scope is unknown');
+                    if (!credential.teamId) throw new Error('Cloudflare legacy deployment scope is unknown');
                     const resolved = await client.resolveDeploymentScope?.(deploymentId);
                     if (!resolved || resolved.visibility === 'not_found') {
-                        throw new Error('Vercel legacy deployment remains unresolved');
+                        throw new Error('Cloudflare legacy deployment remains unresolved');
                     }
                     const provenTeamId = resolved.teamId ?? credential.teamId;
-                    if (vercelTeamScope(provenTeamId) !== vercelTeamScope(credential.teamId)) {
-                        throw new Error('Vercel credential scope cannot prove legacy deployment ownership');
+                    if (cloudflareTeamScope(provenTeamId) !== cloudflareTeamScope(credential.teamId)) {
+                        throw new Error('Cloudflare credential scope cannot prove legacy deployment ownership');
                     }
-                    const proven = await dependencies.database.interactivePreview.updateMany({ where: {
-                        id: row.id, status: 'deleting', cleanupClaimedAt: now(), vercelDeploymentId: deploymentId, vercelScopeKnown: false,
-                    }, data: { vercelTeamId: provenTeamId, vercelScopeKnown: true } });
-                    if (proven.count !== 1) throw new Error('Vercel legacy scope proof lost its cleanup claim');
+                    const proven = await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
+                        id: row.id, status: 'deleting', cleanupClaimedAt: now(), cloudflareDeploymentId: deploymentId, cloudflareScopeKnown: false,
+                    }, data: { cloudflareTeamId: provenTeamId, cloudflareScopeKnown: true } });
+                    if (proven.count !== 1) throw new Error('Cloudflare legacy scope proof lost its cleanup claim');
                 }
-                if (vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential.teamId) && row.vercelScopeKnown !== false) {
-                    throw new Error('Vercel credential scope no longer owns this deployment');
+                if (cloudflareTeamScope(row.cloudflareTeamId) !== cloudflareTeamScope(credential.teamId) && row.cloudflareScopeKnown !== false) {
+                    throw new Error('Cloudflare credential scope no longer owns this deployment');
                 }
                 await client.deleteDeployment(deploymentId);
             },
             async markExpired(previewId) {
-                await dependencies.database.interactivePreview.updateMany({ where: {
+                await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
                     id: previewId, status: 'deleting', cleanupClaimedAt: time,
                 }, data: {
-                    status: 'expired', url: null, vercelDeploymentId: null, stagingCleanupPending: false,
+                    status: 'expired', url: null, cloudflareDeploymentId: null, stagingCleanupPending: false,
                     publicationAttemptId: null, publicationCreateStartedAt: null,
                     publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
                     errorCode: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null,
@@ -166,28 +166,28 @@ export function createPreviewCleanup(dependencies: {
             async markProviderDeleted(previewId, deploymentId) {
                 const claim = claims.get(previewId);
                 if (!claim || claim.status !== 'deleting') throw new Error('Preview cleanup claim is unavailable');
-                const checkpointed = await dependencies.database.interactivePreview.updateMany({ where: {
-                    id: previewId, status: 'deleting', cleanupClaimedAt: time, vercelDeploymentId: deploymentId,
+                const checkpointed = await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
+                    id: previewId, status: 'deleting', cleanupClaimedAt: time, cloudflareDeploymentId: deploymentId,
                 }, data: {
-                    vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                    cloudflareDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
                     publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
                     errorCode: 'OSS_CLEANUP_PENDING',
                 } });
                 if (checkpointed.count !== 1) throw new Error('Preview provider deletion checkpoint lost its cleanup claim');
             },
             async markStagingClean(previewId) {
-                await dependencies.database.interactivePreview.updateMany({ where: {
+                await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
                     id: previewId, status: 'ready', stagingCleanupPending: true, cleanupClaimedAt: time,
                 }, data: { stagingCleanupPending: false, cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null } });
             },
             async retainForRetry(previewId) {
                 const claim = claims.get(previewId);
                 if (!claim) return;
-                const row = await dependencies.database.interactivePreview.findFirst({ where: {
+                const row = await dependencies.database.interactivePreview.findFirst({ where: { stagingGeneration: { startsWith: 'cf-' },
                     id: previewId, status: claim.status, cleanupClaimedAt: time,
                 }, select: { cleanupRetryCount: true } }) as { cleanupRetryCount: number } | null;
                 if (!row) return;
-                await dependencies.database.interactivePreview.updateMany({ where: {
+                await dependencies.database.interactivePreview.updateMany({ where: { stagingGeneration: { startsWith: 'cf-' },
                     id: previewId, status: claim.status, cleanupClaimedAt: time, cleanupRetryCount: row.cleanupRetryCount,
                     ...(claim.stagingCleanupPending ? { stagingCleanupPending: true } : {}),
                 }, data: {
@@ -195,8 +195,8 @@ export function createPreviewCleanup(dependencies: {
                 } });
             },
         });
-        await dependencies.database.interactivePreview.deleteMany({ where: {
-            status: 'expired', vercelDeploymentId: null, stagingCleanupPending: false,
+        await dependencies.database.interactivePreview.deleteMany({ where: { stagingGeneration: { startsWith: 'cf-' },
+            status: 'expired', cloudflareDeploymentId: null, stagingCleanupPending: false,
             updatedAt: { lte: new Date(time.getTime() - TERMINAL_RETENTION_MS) },
         } });
         return cleaned;
@@ -206,7 +206,7 @@ export function createPreviewCleanup(dependencies: {
 }
 
 const defaultPreviewCleanup = createPreviewCleanup({
-    database: db, storage: previewStorage, credentialStore: vercelCredentialStore, clientFactory: createVercelClient,
+    database: db, storage: previewStorage, credentialStore: cloudflareCredentialStore, clientFactory: createCloudflareClient,
     recoverPublications: (time) => previewService.recoverStalePublications(time),
 });
 

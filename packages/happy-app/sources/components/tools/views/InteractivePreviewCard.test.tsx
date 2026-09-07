@@ -30,7 +30,11 @@ vi.mock('@/text', () => ({
         'interactivePreviews.open': 'Open preview',
         'interactivePreviews.copy': 'Copy preview link',
         'interactivePreviews.expiresAt': 'Expires at',
-        'interactivePreviews.provider': 'Vercel',
+        'interactivePreviews.title': 'Temporary previews',
+        'interactivePreviews.hostedProvider': 'Cloudflare hosted',
+        'interactivePreviews.tunnelProvider': 'Cloudflare tunnel',
+        'interactivePreviews.cloudflareProvider': 'Cloudflare',
+        'interactivePreviews.sessionLifetime': 'Session lifetime, up to 24 hours',
     })[key] ?? key,
 }));
 vi.mock('react-native-unistyles', async () => {
@@ -56,6 +60,28 @@ function preview(state: 'publishing' | 'ready' | 'failed' | 'expired', url?: str
 }
 
 describe('InteractivePreviewCard', () => {
+    it('distinguishes hosted Cloudflare from session-bound tunnels', () => {
+        const tool = preview('ready', 'https://draft.pages.dev');
+        tool.input.provider = 'cloudflare';
+        tool.input.mode = 'hosted';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<InteractivePreviewCard tool={tool} metadata={null} messages={[]} />); });
+        const text = renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+        expect(text).toContain('Cloudflare hosted');
+        expect(text).not.toContain('Session lifetime, up to 24 hours');
+        act(() => renderer.unmount());
+    });
+    it('labels Cloudflare and explains its shorter session-bound lifetime', () => {
+        const tool = preview('ready', 'https://example.trycloudflare.com');
+        tool.input.provider = 'cloudflare';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<InteractivePreviewCard tool={tool} metadata={null} messages={[]} />); });
+        const text = renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+        expect(text).toContain('Cloudflare tunnel');
+        expect(text).toContain('Session lifetime, up to 24 hours');
+        expect(text).not.toContain('Cloudflare hosted');
+        act(() => renderer.unmount());
+    });
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         vi.clearAllMocks();
@@ -72,7 +98,7 @@ describe('InteractivePreviewCard', () => {
 
         const card = renderer.root.findByProps({ testID: 'interactive-preview-card' });
         expect(card.findAllByType('Text').map((node: any) => node.children.join(''))).toContain(label);
-        expect(card.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Vercel');
+        expect(card.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Temporary previews');
         expect(card.findAllByType('iframe')).toHaveLength(0);
         expect(card.findAllByType('WebView')).toHaveLength(0);
         expect(card.findAllByType('TextInput')).toHaveLength(0);

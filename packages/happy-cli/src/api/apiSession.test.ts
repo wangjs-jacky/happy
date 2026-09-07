@@ -1385,6 +1385,16 @@ describe('ApiSessionClient v3 messages API migration', () => {
         );
     });
 
+    it('flushes preview expiry notifications before closing the transport', async () => {
+        const client = new ApiSessionClient('fake-token', session);
+        const order: string[] = [];
+        client.once('before-close', () => order.push('expire previews'));
+        vi.spyOn(client, 'flush').mockImplementation(async () => { order.push('flush'); });
+        mockSocket.close.mockImplementation(() => order.push('close'));
+        await client.close();
+        expect(order).toEqual(['expire previews', 'flush', 'close']);
+    });
+
     it('stops send and receive sync loops on close', async () => {
         const client = new ApiSessionClient('fake-token', session);
         await client.close();

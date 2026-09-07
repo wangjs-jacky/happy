@@ -95,6 +95,9 @@ export const interactivePreviewEventSchema = z.object({
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   state: interactivePreviewStateSchema,
+  // Legacy event decoding only; all new publications use Cloudflare.
+  provider: z.enum(['vercel', 'cloudflare']).optional(),
+  mode: z.enum(['tunnel', 'hosted']).optional(),
   url: z.string().url().optional(),
   publishedAt: z.number().int().nonnegative().optional(),
   expiresAt: z.number().int().nonnegative().optional(),

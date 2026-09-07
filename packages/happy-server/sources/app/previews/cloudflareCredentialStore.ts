@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { decryptString, encryptString } from '@/modules/encrypt';
 import { db } from '@/storage/db';
 
-export const vercelCredentialSchema = z.object({
+export const cloudflareCredentialSchema = z.object({
     version: z.literal(1),
     accessToken: z.string().min(1).max(4096),
     configurationId: z.string().min(1).max(256),
@@ -13,9 +13,9 @@ export const vercelCredentialSchema = z.object({
     connectionNonce: z.string().min(1).max(256).optional(),
 }).strict();
 
-export type VercelCredential = z.infer<typeof vercelCredentialSchema>;
+export type CloudflareCredential = z.infer<typeof cloudflareCredentialSchema>;
 
-type VercelConnectionSnapshot = {
+type CloudflareConnectionSnapshot = {
     epoch: number;
     state: string;
     nonce: string | null;
@@ -37,75 +37,75 @@ interface Dependencies {
     decrypt: (path: string[], value: Uint8Array<ArrayBuffer>) => string;
 }
 
-const STORAGE_KEY = 'provider:vercel';
+const STORAGE_KEY = 'provider:cloudflare';
 const PENDING_STORAGE_KEY_PREFIX = `${STORAGE_KEY}:pending:`;
 
-export function pendingVercelCredentialStorageKey(connectionEpoch: number, connectionNonce: string): string {
-    if (!Number.isInteger(connectionEpoch) || connectionEpoch < 0) throw new Error('Invalid Vercel connection epoch');
-    if (!connectionNonce || connectionNonce.length > 256 || /[^A-Za-z0-9_-]/.test(connectionNonce)) throw new Error('Invalid Vercel connection nonce');
+export function pendingCloudflareCredentialStorageKey(connectionEpoch: number, connectionNonce: string): string {
+    if (!Number.isInteger(connectionEpoch) || connectionEpoch < 0) throw new Error('Invalid Cloudflare connection epoch');
+    if (!connectionNonce || connectionNonce.length > 256 || /[^A-Za-z0-9_-]/.test(connectionNonce)) throw new Error('Invalid Cloudflare connection nonce');
     return `${PENDING_STORAGE_KEY_PREFIX}${connectionEpoch}:${connectionNonce}`;
 }
 
 function encryptionPath(accountId: string): string[] {
-    return ['user', accountId, 'providers', 'vercel', 'credential'];
+    return ['user', accountId, 'providers', 'cloudflare', 'credential'];
 }
 
-export function createVercelCredentialStore(dependencies: Dependencies) {
-    const parseEncrypted = (accountId: string, encrypted: Uint8Array<ArrayBuffer>): VercelCredential =>
-        vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
-    const matchesConnection = (credential: VercelCredential, connectionEpoch: number, connectionNonce: string): boolean =>
+export function createCloudflareCredentialStore(dependencies: Dependencies) {
+    const parseEncrypted = (accountId: string, encrypted: Uint8Array<ArrayBuffer>): CloudflareCredential =>
+        cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+    const matchesConnection = (credential: CloudflareCredential, connectionEpoch: number, connectionNonce: string): boolean =>
         credential.connectionEpoch === connectionEpoch && credential.connectionNonce === connectionNonce;
-    const connectionWhere = (accountId: string, connection: VercelConnectionSnapshot) => ({
+    const connectionWhere = (accountId: string, connection: CloudflareConnectionSnapshot) => ({
         id: accountId,
-        vercelConnectionEpoch: connection.epoch,
-        vercelConnectionState: connection.state,
-        vercelConnectionNonce: connection.nonce,
-        vercelConnectionReplacementId: connection.replacementId,
+        cloudflareConnectionEpoch: connection.epoch,
+        cloudflareConnectionState: connection.state,
+        cloudflareConnectionNonce: connection.nonce,
+        cloudflareConnectionReplacementId: connection.replacementId,
     });
     const deletePendingInTransaction = async (transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> => {
-        const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
+        const vendor = pendingCloudflareCredentialStorageKey(connectionEpoch, connectionNonce);
         const pending = await transaction.serviceAccountToken.findUnique({
             where: { accountId_vendor: { accountId, vendor } }, select: { token: true },
         });
         if (!pending) return false;
         if (!matchesConnection(parseEncrypted(accountId, pending.token), connectionEpoch, connectionNonce)) return false;
         const removed = await transaction.serviceAccountToken.deleteMany({ where: { accountId, vendor, token: pending.token } });
-        if (removed.count !== 1) throw new Error('Vercel pending credential changed during transactional cleanup');
+        if (removed.count !== 1) throw new Error('Cloudflare pending credential changed during transactional cleanup');
         return true;
     };
     return {
-        async set(accountId: string, credential: VercelCredential): Promise<void> {
-            const value = vercelCredentialSchema.parse(credential);
+        async set(accountId: string, credential: CloudflareCredential): Promise<void> {
+            const value = cloudflareCredentialSchema.parse(credential);
             const encrypted = dependencies.encrypt(encryptionPath(accountId), JSON.stringify(value));
             await dependencies.repository.upsert(accountId, STORAGE_KEY, encrypted);
         },
-        async get(accountId: string): Promise<VercelCredential | null> {
+        async get(accountId: string): Promise<CloudflareCredential | null> {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return null;
-            return vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            return cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
         },
         async beginConnectionTransitionInTransaction(
             transaction: any,
             accountId: string,
-            expected: VercelConnectionSnapshot,
+            expected: CloudflareConnectionSnapshot,
             state: 'replacing' | 'disconnecting',
             connectionNonce: string,
             startedAt: Date,
-        ): Promise<{ epoch: number; predecessor: VercelCredential | null } | null> {
+        ): Promise<{ epoch: number; predecessor: CloudflareCredential | null } | null> {
             // PostgreSQL/PGlite takes a row-update lock here.  The exact version
             // predicate makes a callback that observed an older Account state
             // lose before it can read an active credential or mutate previews.
             const claimed = await transaction.account.updateMany({
                 where: connectionWhere(accountId, expected),
                 data: {
-                    vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: state,
-                    vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
-                    vercelConnectionReplacementStartedAt: startedAt,
+                    cloudflareConnectionEpoch: { increment: 1 }, cloudflareConnectionState: state,
+                    cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
+                    cloudflareConnectionReplacementStartedAt: startedAt,
                 },
             });
             if (claimed.count !== 1) return null;
-            const account = await transaction.account.findUnique({ where: { id: accountId }, select: { vercelConnectionEpoch: true } });
-            if (!account) throw new Error('Vercel connection account disappeared during transition');
+            const account = await transaction.account.findUnique({ where: { id: accountId }, select: { cloudflareConnectionEpoch: true } });
+            if (!account) throw new Error('Cloudflare connection account disappeared during transition');
             const active = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor: STORAGE_KEY } }, select: { token: true },
             });
@@ -116,19 +116,19 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             await transaction.serviceAccountToken.deleteMany({ where: {
                 accountId, vendor: { startsWith: PENDING_STORAGE_KEY_PREFIX },
             } });
-            return { epoch: account.vercelConnectionEpoch, predecessor };
+            return { epoch: account.cloudflareConnectionEpoch, predecessor };
         },
-        async setProjectIdIfCurrent(accountId: string, expected: VercelCredential, projectId: string): Promise<boolean> {
+        async setProjectIdIfCurrent(accountId: string, expected: CloudflareCredential, projectId: string): Promise<boolean> {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return false;
-            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
-            if (JSON.stringify(current) !== JSON.stringify(vercelCredentialSchema.parse(expected))) return false;
-            const replacement = vercelCredentialSchema.parse({ ...current, projectId });
+            const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            if (JSON.stringify(current) !== JSON.stringify(cloudflareCredentialSchema.parse(expected))) return false;
+            const replacement = cloudflareCredentialSchema.parse({ ...current, projectId });
             return dependencies.repository.compareAndSet(accountId, STORAGE_KEY, encrypted, dependencies.encrypt(encryptionPath(accountId), JSON.stringify(replacement)));
         },
-        async replaceIfCurrent(accountId: string, expected: VercelCredential | null, replacement: VercelCredential): Promise<boolean> {
-            const expectedValue = expected === null ? null : vercelCredentialSchema.parse(expected);
-            const replacementValue = vercelCredentialSchema.parse(replacement);
+        async replaceIfCurrent(accountId: string, expected: CloudflareCredential | null, replacement: CloudflareCredential): Promise<boolean> {
+            const expectedValue = expected === null ? null : cloudflareCredentialSchema.parse(expected);
+            const replacementValue = cloudflareCredentialSchema.parse(replacement);
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) {
                 if (expectedValue !== null) return false;
@@ -137,14 +137,14 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
                 ));
             }
             if (!expectedValue) return false;
-            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
             if (JSON.stringify(current) !== JSON.stringify(expectedValue)) return false;
             return dependencies.repository.compareAndSet(
                 accountId, STORAGE_KEY, encrypted, dependencies.encrypt(encryptionPath(accountId), JSON.stringify(replacementValue)),
             );
         },
-        async replaceAtConnectionVersion(accountId: string, connectionEpoch: number, connectionNonce: string, replacement: VercelCredential): Promise<boolean> {
-            const replacementValue = vercelCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
+        async replaceAtConnectionVersion(accountId: string, connectionEpoch: number, connectionNonce: string, replacement: CloudflareCredential): Promise<boolean> {
+            const replacementValue = cloudflareCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
             for (let attempt = 0; attempt < 3; attempt++) {
                 const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
                 if (!encrypted) {
@@ -153,7 +153,7 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
                     )) return true;
                     continue;
                 }
-                const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+                const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
                 if ((current.connectionEpoch ?? 0) >= connectionEpoch) return false;
                 if (await dependencies.repository.compareAndSet(
                     accountId, STORAGE_KEY, encrypted, dependencies.encrypt(encryptionPath(accountId), JSON.stringify(replacementValue)),
@@ -161,19 +161,19 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             }
             return false;
         },
-        async replaceAtConnectionEpoch(accountId: string, connectionEpoch: number, replacement: VercelCredential): Promise<boolean> {
+        async replaceAtConnectionEpoch(accountId: string, connectionEpoch: number, replacement: CloudflareCredential): Promise<boolean> {
             return this.replaceAtConnectionVersion(accountId, connectionEpoch, `legacy-${connectionEpoch}`, replacement);
         },
-        async stageConnectionReplacementInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, replacement: VercelCredential): Promise<boolean> {
+        async stageConnectionReplacementInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, replacement: CloudflareCredential): Promise<boolean> {
             // A no-op update is intentionally the Account lock/CAS.  Do not
             // stage an encrypted row after a successor has changed ownership.
             const owns = await transaction.account.updateMany({ where: {
-                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'finalizing',
-                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
-            }, data: { vercelConnectionEpoch: connectionEpoch } });
+                id: accountId, cloudflareConnectionEpoch: connectionEpoch, cloudflareConnectionState: 'finalizing',
+                cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
+            }, data: { cloudflareConnectionEpoch: connectionEpoch } });
             if (owns.count !== 1) return false;
-            const value = vercelCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
-            const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
+            const value = cloudflareCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
+            const vendor = pendingCloudflareCredentialStorageKey(connectionEpoch, connectionNonce);
             const encrypted = dependencies.encrypt(encryptionPath(accountId), JSON.stringify(value));
             await transaction.serviceAccountToken.upsert({
                 where: { accountId_vendor: { accountId, vendor } },
@@ -183,7 +183,7 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             return true;
         },
         async deletePendingConnectionReplacement(accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
-            const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
+            const vendor = pendingCloudflareCredentialStorageKey(connectionEpoch, connectionNonce);
             const encrypted = await dependencies.repository.find(accountId, vendor);
             if (!encrypted || !matchesConnection(parseEncrypted(accountId, encrypted), connectionEpoch, connectionNonce)) return false;
             return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, vendor, encrypted));
@@ -193,11 +193,11 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
         },
         async activatePendingConnectionReplacementInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
             const owns = await transaction.account.updateMany({ where: {
-                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'finalizing',
-                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
-            }, data: { vercelConnectionEpoch: connectionEpoch } });
+                id: accountId, cloudflareConnectionEpoch: connectionEpoch, cloudflareConnectionState: 'finalizing',
+                cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
+            }, data: { cloudflareConnectionEpoch: connectionEpoch } });
             if (owns.count !== 1) return false;
-            const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
+            const vendor = pendingCloudflareCredentialStorageKey(connectionEpoch, connectionNonce);
             const pending = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor } }, select: { token: true },
             });
@@ -209,65 +209,65 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
                 const replaced = await transaction.serviceAccountToken.updateMany({
                     where: { accountId, vendor: STORAGE_KEY, token: active.token }, data: { token: pending.token },
                 });
-                if (replaced.count !== 1) throw new Error('Vercel active credential changed during activation');
+                if (replaced.count !== 1) throw new Error('Cloudflare active credential changed during activation');
             } else {
                 const created = await transaction.serviceAccountToken.createMany({
                     data: { accountId, vendor: STORAGE_KEY, token: pending.token }, skipDuplicates: true,
                 });
-                if (created.count !== 1) throw new Error('Vercel active credential appeared during activation');
+                if (created.count !== 1) throw new Error('Cloudflare active credential appeared during activation');
             }
             const removed = await transaction.serviceAccountToken.deleteMany({ where: { accountId, vendor, token: pending.token } });
-            if (removed.count !== 1) throw new Error('Vercel pending credential changed during activation');
+            if (removed.count !== 1) throw new Error('Cloudflare pending credential changed during activation');
             const activated = await transaction.account.updateMany({ where: {
-                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'finalizing',
-                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
+                id: accountId, cloudflareConnectionEpoch: connectionEpoch, cloudflareConnectionState: 'finalizing',
+                cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
             }, data: {
-                vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+                cloudflareConnectionState: 'active', cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null,
             } });
-            if (activated.count !== 1) throw new Error('Vercel connection changed during activation');
+            if (activated.count !== 1) throw new Error('Cloudflare connection changed during activation');
             return true;
         },
-        async disconnectConnectionInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, expected: VercelCredential | null): Promise<boolean> {
+        async disconnectConnectionInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, expected: CloudflareCredential | null): Promise<boolean> {
             const owns = await transaction.account.updateMany({ where: {
-                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'disconnecting',
-                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
-            }, data: { vercelConnectionEpoch: connectionEpoch } });
+                id: accountId, cloudflareConnectionEpoch: connectionEpoch, cloudflareConnectionState: 'disconnecting',
+                cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
+            }, data: { cloudflareConnectionEpoch: connectionEpoch } });
             if (owns.count !== 1) return false;
             const active = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor: STORAGE_KEY } }, select: { token: true },
             });
             if (active) {
-                if (!expected || JSON.stringify(parseEncrypted(accountId, active.token)) !== JSON.stringify(vercelCredentialSchema.parse(expected))) return false;
+                if (!expected || JSON.stringify(parseEncrypted(accountId, active.token)) !== JSON.stringify(cloudflareCredentialSchema.parse(expected))) return false;
                 const removed = await transaction.serviceAccountToken.deleteMany({ where: { accountId, vendor: STORAGE_KEY, token: active.token } });
-                if (removed.count !== 1) throw new Error('Vercel active credential changed during disconnect');
+                if (removed.count !== 1) throw new Error('Cloudflare active credential changed during disconnect');
             }
             await deletePendingInTransaction(transaction, accountId, connectionEpoch, connectionNonce);
             const disconnected = await transaction.account.updateMany({ where: {
-                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'disconnecting',
-                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
-            }, data: { vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null } });
-            if (disconnected.count !== 1) throw new Error('Vercel connection changed during disconnect');
+                id: accountId, cloudflareConnectionEpoch: connectionEpoch, cloudflareConnectionState: 'disconnecting',
+                cloudflareConnectionNonce: connectionNonce, cloudflareConnectionReplacementId: connectionNonce,
+            }, data: { cloudflareConnectionState: 'disconnected', cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null } });
+            if (disconnected.count !== 1) throw new Error('Cloudflare connection changed during disconnect');
             return true;
         },
         async deleteAtOrBeforeConnectionEpoch(accountId: string, connectionEpoch: number): Promise<boolean> {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return false;
-            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
             if ((current.connectionEpoch ?? 0) > connectionEpoch) return false;
             return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
         },
         async deleteAtConnectionVersion(accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return false;
-            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
             if (current.connectionEpoch !== connectionEpoch || current.connectionNonce !== connectionNonce) return false;
             return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
         },
-        async deleteIfCurrent(accountId: string, expected: VercelCredential): Promise<boolean> {
-            const expectedValue = vercelCredentialSchema.parse(expected);
+        async deleteIfCurrent(accountId: string, expected: CloudflareCredential): Promise<boolean> {
+            const expectedValue = cloudflareCredentialSchema.parse(expected);
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return false;
-            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            const current = cloudflareCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
             if (JSON.stringify(current) !== JSON.stringify(expectedValue)) return false;
             return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
         },
@@ -287,7 +287,7 @@ interface ServiceAccountDatabase {
     };
 }
 
-export function createVercelCredentialRepository(database: ServiceAccountDatabase): CredentialRepository {
+export function createCloudflareCredentialRepository(database: ServiceAccountDatabase): CredentialRepository {
     return {
         async find(accountId, vendor) {
             const row = await database.serviceAccountToken.findUnique({
@@ -327,8 +327,8 @@ export function createVercelCredentialRepository(database: ServiceAccountDatabas
     };
 }
 
-export const vercelCredentialStore = createVercelCredentialStore({
-    repository: createVercelCredentialRepository(db as unknown as ServiceAccountDatabase),
+export const cloudflareCredentialStore = createCloudflareCredentialStore({
+    repository: createCloudflareCredentialRepository(db as unknown as ServiceAccountDatabase),
     encrypt: encryptString,
     decrypt: decryptString,
 });

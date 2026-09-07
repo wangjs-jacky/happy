@@ -21,8 +21,7 @@ import { fenceSessionInteractivePreviews } from '../session/sessionDelete';
 import { createPreviewCleanup } from './previewCleanup';
 import { createPreviewService } from './previewService';
 import { createPreviewStorage } from './previewStorage';
-import { createVercelCredentialRepository, createVercelCredentialStore } from './vercelCredentialStore';
-import { createVercelClient } from './vercelClient';
+import { createCloudflareCredentialRepository, createCloudflareCredentialStore } from './cloudflareCredentialStore';
 
 const accountA = 'account-a';
 const accountB = 'account-b';
@@ -149,7 +148,7 @@ function gatePendingCredentialStaging(database: PrismaClient, onPersisted: () =>
                         deleteMany: tokens.deleteMany.bind(tokens),
                         upsert: async (args: any) => {
                             const persisted = await tokens.upsert(args);
-                            if (args.where?.accountId_vendor?.vendor?.startsWith('provider:vercel:pending:')) stagedPending = true;
+                            if (args.where?.accountId_vendor?.vendor?.startsWith('provider:cloudflare:pending:')) stagedPending = true;
                             return persisted;
                         },
                     },
@@ -284,8 +283,9 @@ class S3WireServer {
     }
 }
 
-/** Local HTTP Vercel API used through the production createVercelClient. */
-class VercelWireServer {
+/** Lifecycle fault-injection double. Pages wire protocol is tested in cloudflareClient.spec.ts;
+ * this suite integrates real Prisma/PGlite, encrypted credentials, HTTP routes and S3. */
+class CloudflareLifecycleDouble {
     readonly fileUploads: Array<{ digest: string; mimeType: string; bytes: Buffer }> = [];
     readonly createRequests: Array<{ files: Array<{ file: string; sha: string; size: number }>; meta: Record<string, string> }> = [];
     readonly deleteRequests: string[] = [];
@@ -297,192 +297,72 @@ class VercelWireServer {
     readonly pendingMetadataLookups: Array<() => void> = [];
     metadataLookups = 0;
     maxFileUploadConcurrency = 0;
-    activeFileUploads = 0;
     maxDeploymentConcurrency = 0;
     activeDeployments = 0;
     holdDeploymentCreates = false;
     holdMetadataLookups = false;
     failDeleteRequests = 0;
     failMetadataLookups = 0;
-    private readonly delayedVisibility = new Map<string, { visibleAfterLookups: number; readyOnPoll: boolean }>();
-    server!: Server;
-    port!: number;
-
-    async start(): Promise<void> {
-        this.server = createServer((request, response) => {
-            void this.handle(request, response).catch((error) => {
-                this.sendJson(response, 500, { error: { code: error instanceof Error ? error.message : 'unknown' } });
-            });
-        });
-        this.server.listen(0, '127.0.0.1');
-        await once(this.server, 'listening');
-        this.port = (this.server.address() as { port: number }).port;
+    private readonly delayedVisibility = new Map<string, number>();
+    async start() {}
+    async close() {}
+    addReconciledDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_reconciled', teamId: string | null = null) {
+        this.deployments.set(id, { id, url: `https://${id}.preview.local`, readyState: 'READY', target: null, aliasAssigned: false,
+            meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId }, projectId: 'prj', teamId });
     }
-
-    get origin(): string {
-        return `http://127.0.0.1:${this.port}`;
+    addDelayedDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_delayed') {
+        this.addReconciledDeployment(previewId, publicationAttemptId, id);
+        this.deployments.get(id)!.readyState = 'BUILDING';
+        this.delayedVisibility.set(id, this.metadataLookups + 2);
     }
-
-    async close(): Promise<void> {
-        await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    }
-
-    addReconciledDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_reconciled', teamId: string | null = null): void {
-        this.deployments.set(id, {
-            id,
-            url: `${id}.preview.local`,
-            readyState: 'READY',
-            target: null,
-            aliasAssigned: false,
-            meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
-            projectId: 'prj',
-            teamId,
-        });
-    }
-
-    addDelayedDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_delayed'): void {
-        this.deployments.set(id, {
-            id,
-            url: `${id}.preview.local`,
-            readyState: 'BUILDING',
-            target: null,
-            aliasAssigned: false,
-            meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
-            projectId: 'prj',
-            teamId: null,
-        });
-        this.delayedVisibility.set(id, { visibleAfterLookups: this.metadataLookups + 2, readyOnPoll: true });
-    }
-
-    releaseOneDeployment(): void {
-        const release = this.pendingCreates.shift();
-        if (!release) throw new Error('No held Vercel deployment to release');
-        release();
-    }
-
-    releaseOneMetadataLookup(): void {
-        const release = this.pendingMetadataLookups.shift();
-        if (!release) throw new Error('No held Vercel metadata lookup to release');
-        release();
-    }
-
-    private deploymentJson(deployment: Deployment) {
+    releaseOneDeployment() { this.pendingCreates.shift()!(); }
+    releaseOneMetadataLookup() { this.pendingMetadataLookups.shift()!(); }
+    client(options: { token: string; teamId?: string }) {
+        const record = () => this.authorization.push(`Bearer ${options.token}`);
         return {
-            id: deployment.id,
-            url: deployment.url,
-            readyState: deployment.readyState,
-            target: deployment.target,
-            aliasAssigned: deployment.aliasAssigned,
-            meta: deployment.meta,
-        };
-    }
-
-    private sendJson(response: ServerResponse, statusCode: number, value: unknown): void {
-        response.statusCode = statusCode;
-        response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify(value));
-    }
-
-    private projectMarker(): string {
-        return `echo happy-preview-owner:${createHash('sha256').update('cfg-a').digest('hex').slice(0, 16)}`;
-    }
-
-    private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-        const url = new URL(request.url || '/', this.origin);
-        const authorization = request.headers.authorization;
-        if (typeof authorization === 'string') this.authorization.push(authorization);
-        if (url.pathname === '/v9/projects/prj' && request.method === 'GET') {
-            return this.sendJson(response, 200, { id: 'prj', name: 'happy-previews', installCommand: this.projectMarker() });
-        }
-        if (url.pathname === '/v6/deployments' && request.method === 'GET') {
-            this.metadataLookups++;
-            if (this.failMetadataLookups > 0) {
-                this.failMetadataLookups--;
-                return this.sendJson(response, 503, { error: { code: 'provider_unavailable' } });
-            }
-            if (this.holdMetadataLookups) await new Promise<void>((resolve) => this.pendingMetadataLookups.push(resolve));
-            const matching = [...this.deployments.values()].filter((deployment) =>
-                deployment.projectId === url.searchParams.get('projectId')
-                && deployment.meta.happyPreviewId === url.searchParams.get('meta-happyPreviewId')
-                && deployment.meta.happyPublicationAttemptId === url.searchParams.get('meta-happyPublicationAttemptId')
-                && (this.delayedVisibility.get(deployment.id)?.visibleAfterLookups ?? 0) <= this.metadataLookups,
-            );
-            return this.sendJson(response, 200, { deployments: matching.map((deployment) => this.deploymentJson(deployment)) });
-        }
-        if (url.pathname === '/v2/files' && request.method === 'POST') {
-            this.activeFileUploads++;
-            this.maxFileUploadConcurrency = Math.max(this.maxFileUploadConcurrency, this.activeFileUploads);
-            const bytes = await readBody(request);
-            const digest = String(request.headers['x-vercel-digest'] || '');
-            if (!/^[a-f0-9]{40}$/.test(digest) || createHash('sha1').update(bytes).digest('hex') !== digest) {
-                this.protocolErrors.push('invalid Vercel file digest');
-                this.activeFileUploads--;
-                return this.sendJson(response, 400, { error: { code: 'invalid_file_digest' } });
-            }
-            this.fileUploads.push({
-                digest,
-                mimeType: String(request.headers['content-type'] || ''),
-                bytes,
-            });
-            await new Promise<void>((resolve) => setImmediate(resolve));
-            this.activeFileUploads--;
-            return this.sendJson(response, 200, {});
-        }
-        if (url.pathname === '/v13/deployments' && request.method === 'POST') {
-            const requestBody = JSON.parse((await readBody(request)).toString('utf8')) as { files: Array<{ file: string; sha: string; size: number }>; meta: Record<string, string> };
-            if (requestBody.files.some((file) => !/^[a-f0-9]{40}$/.test(file.sha)
-                || this.fileUploads.find((upload) => upload.digest === file.sha)?.bytes.byteLength !== file.size)) {
-                this.protocolErrors.push('invalid Vercel deployment file reference');
-                return this.sendJson(response, 400, { error: { code: 'invalid_file_reference' } });
-            }
-            this.createRequests.push({ files: requestBody.files, meta: requestBody.meta });
-            this.providerScopes.push({ operation: 'create', teamId: url.searchParams.get('teamId') });
-            const id = `dpl_${this.createRequests.length}`;
-            this.activeDeployments++;
-            this.maxDeploymentConcurrency = Math.max(this.maxDeploymentConcurrency, this.activeDeployments);
-            const respond = () => {
+            ensurePreviewProject: async () => { record(); return { id: 'prj' }; },
+            uploadFile: async (sha: string, bytes: Uint8Array, mimeType: string) => {
+                record();
+                if (createHash('sha256').update(bytes).digest('hex') !== sha) throw new Error('Bad digest');
+                this.maxFileUploadConcurrency = Math.max(this.maxFileUploadConcurrency, 1);
+                this.fileUploads.push({ digest: sha, bytes: Buffer.from(bytes), mimeType });
+            },
+            lookupDeploymentByMetadata: async (input: { happyPreviewId: string; publicationAttemptId: string }) => {
+                record(); this.metadataLookups++;
+                if (this.failMetadataLookups > 0) { this.failMetadataLookups = Math.max(0, this.failMetadataLookups - 3); throw new Error('Provider unavailable'); }
+                if (this.holdMetadataLookups) await new Promise<void>(resolve => this.pendingMetadataLookups.push(resolve));
+                const deployment = [...this.deployments.values()].find(row => row.meta.happyPreviewId === input.happyPreviewId
+                    && row.meta.happyPublicationAttemptId === input.publicationAttemptId && (this.delayedVisibility.get(row.id) ?? 0) <= this.metadataLookups);
+                if (!deployment) return { visibility: 'not_found' as const };
+                return { visibility: deployment.readyState === 'READY' ? 'ready' as const : 'in_progress' as const, deployment };
+            },
+            waitForDeploymentReady: async (deployment: Deployment) => { record(); deployment.readyState = 'READY'; return deployment; },
+            resolveDeploymentScope: async (id: string) => {
+                record();
+                const row = this.deployments.get(id);
+                return row ? { visibility: 'found', ...(row.teamId ? { teamId: row.teamId } : {}) } : { visibility: 'not_found' };
+            },
+            createDeployment: async (input: { files: Array<{ file: string; sha: string; size: number }>; meta: Record<string, string>; onCreated?: (deployment: { id: string }) => Promise<void> }) => {
+                record(); this.createRequests.push(input);
+                this.providerScopes.push({ operation: 'create', teamId: options.teamId ?? null });
+                const id = `dpl_${this.createRequests.length}`;
+                this.activeDeployments++;
+                this.maxDeploymentConcurrency = Math.max(this.maxDeploymentConcurrency, this.activeDeployments);
+                if (this.holdDeploymentCreates) await new Promise<void>(resolve => this.pendingCreates.push(resolve));
                 this.activeDeployments--;
-                const deployment: Deployment = {
-                    id,
-                    url: `${id}.preview.local`,
-                    readyState: 'READY',
-                    target: null,
-                    aliasAssigned: false,
-                    meta: requestBody.meta,
-                    projectId: 'prj',
-                    teamId: url.searchParams.get('teamId'),
-                };
-                this.deployments.set(id, deployment);
-                this.sendJson(response, 200, this.deploymentJson(deployment));
-            };
-            if (this.holdDeploymentCreates) {
-                this.pendingCreates.push(respond);
-                return;
-            }
-            respond();
-            return;
-        }
-        const deploymentId = /^\/v13\/deployments\/([A-Za-z0-9_-]+)$/.exec(url.pathname)?.[1];
-        if (deploymentId && request.method === 'GET') {
-            const deployment = this.deployments.get(deploymentId);
-            if (!deployment) return this.sendJson(response, 404, { error: { code: 'not_found' } });
-            const delayed = this.delayedVisibility.get(deploymentId);
-            if (delayed?.readyOnPoll && deployment.readyState === 'BUILDING') deployment.readyState = 'READY';
-            return this.sendJson(response, 200, this.deploymentJson(deployment));
-        }
-        if (deploymentId && request.method === 'DELETE') {
-            this.deleteRequests.push(deploymentId);
-            this.providerScopes.push({ operation: 'delete', deploymentId, teamId: url.searchParams.get('teamId') });
-            if (this.failDeleteRequests > 0) {
-                this.failDeleteRequests--;
-                return this.sendJson(response, 503, { error: { code: 'provider_unavailable' } });
-            }
-            const deployment = this.deployments.get(deploymentId);
-            if (deployment && deployment.teamId !== url.searchParams.get('teamId')) return this.sendJson(response, 404, { error: { code: 'not_found' } });
-            this.deployments.delete(deploymentId);
-            return this.sendJson(response, 200, {});
-        }
-        return this.sendJson(response, 404, { error: { code: 'not_found' } });
+                this.addReconciledDeployment(input.meta.happyPreviewId, input.meta.happyPublicationAttemptId, id, options.teamId ?? null);
+                await input.onCreated?.({ id });
+                return this.deployments.get(id)!;
+            },
+            deleteDeployment: async (id: string) => {
+                record();
+                this.deleteRequests.push(id);
+                this.providerScopes.push({ operation: 'delete', deploymentId: id, teamId: options.teamId ?? null });
+                if (this.failDeleteRequests > 0) { this.failDeleteRequests = Math.max(0, this.failDeleteRequests - 3); throw new Error('Provider unavailable'); }
+                if (this.deployments.get(id)?.teamId !== (options.teamId ?? null)) throw new Error('Scope mismatch');
+                this.deployments.delete(id);
+            },
+        };
     }
 }
 
@@ -503,12 +383,12 @@ async function createApp(service: ReturnType<typeof createPreviewService>): Prom
 class PreviewHarness {
     readonly directory: string;
     readonly s3 = new S3WireServer();
-    readonly vercel = new VercelWireServer();
+    readonly cloudflare = new CloudflareLifecycleDouble();
     clock = new Date(clockStart);
     database!: PrismaClient;
     pglite!: PGlite;
     credentialPaths: string[][] = [];
-    credentialStore!: ReturnType<typeof createVercelCredentialStore>;
+    credentialStore!: ReturnType<typeof createCloudflareCredentialStore>;
     service!: ReturnType<typeof createPreviewService>;
     app!: Fastify;
 
@@ -529,7 +409,7 @@ class PreviewHarness {
             { id: sessionB, accountId: accountB, tag: 'session-b', metadata: '{}' },
         ] });
         await harness.s3.start(() => harness.clock);
-        await harness.vercel.start();
+        await harness.cloudflare.start();
         await harness.recreateApplication();
         return harness;
     }
@@ -548,7 +428,7 @@ class PreviewHarness {
             this.database?.$disconnect(),
             this.pglite?.close(),
             this.s3.close(),
-            this.vercel.close(),
+            this.cloudflare.close(),
         ]);
         await rm(this.directory, { recursive: true, force: true });
     }
@@ -597,13 +477,7 @@ class PreviewHarness {
         }
     }
 
-    private readonly clientFactory = (options: { token: string; teamId?: string }) => createVercelClient({
-        ...options,
-        apiOrigin: this.vercel.origin,
-        sleep: async () => {},
-        pollIntervalMs: 0,
-        deploymentTimeoutMs: 5_000,
-    });
+    private readonly clientFactory = (options: { token: string; teamId?: string }) => this.cloudflare.client(options);
 
     private async openDatabase(): Promise<void> {
         this.pglite = createPGlite(this.directory);
@@ -613,8 +487,8 @@ class PreviewHarness {
 
     private async recreateApplication(): Promise<void> {
         this.credentialPaths = [];
-        this.credentialStore = createVercelCredentialStore({
-            repository: createVercelCredentialRepository(this.database as never),
+        this.credentialStore = createCloudflareCredentialStore({
+            repository: createCloudflareCredentialRepository(this.database as never),
             encrypt: (path, value) => {
                 this.credentialPaths.push([...path]);
                 return encryptString(path, value);
@@ -654,7 +528,26 @@ describe('interactive preview persisted integration', () => {
         return harness;
     }
 
-    it('persists an authenticated draft through direct S3 upload and emits a typed ready event after sequential Vercel publication', async () => {
+    it('leaves legacy provider rows untouched and permits retry of an already hosted publication', async () => {
+        const harness = await setup();
+        const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>public</h1>') }];
+        await harness.createAndUpload(ids.primary, assets);
+        await harness.service.publish(accountA, sessionA, ids.primary);
+        const retry = await harness.service.createDraft(accountA, sessionA, manifest(ids.primary, assets));
+        expect(retry.uploads).toEqual([]);
+        await expect(harness.service.publish(accountA, sessionA, ids.primary)).resolves.toMatchObject({ state: 'ready', mode: 'hosted' });
+        expect(harness.cloudflare.createRequests).toHaveLength(1);
+        await harness.database.interactivePreview.update({ where: { id: ids.primary }, data: {
+            stagingGeneration: 'legacy-generation', expiresAt: after(harness.clock, -1),
+        } });
+        await expect(harness.service.list(accountA, sessionA)).resolves.toEqual([]);
+        await expect(harness.service.createDraft(accountA, sessionA, manifest(ids.primary, assets))).rejects.toThrow('Preview not found');
+        await harness.cleanup().cleanupExpired(harness.clock);
+        expect(harness.cloudflare.deleteRequests).toEqual([]);
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_1' });
+    }, 30_000);
+
+    it('persists an authenticated draft through direct S3 upload and emits a typed ready event after sequential Cloudflare publication', async () => {
         const harness = await setup();
         const assets = [
             { id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>preview</h1>') },
@@ -675,18 +568,13 @@ describe('interactive preview persisted integration', () => {
         expect(published.statusCode, published.body).toBe(200);
         const event = interactivePreviewEventSchema.parse(published.json().preview);
         expect(event).toMatchObject({ version: 1, id: ids.primary, state: 'ready', url: 'https://dpl_1.preview.local' });
-        expect(harness.vercel.fileUploads.map((upload) => upload.bytes)).toEqual([
+        expect(harness.cloudflare.fileUploads.map((upload) => upload.bytes)).toEqual([
             ...(persisted?.assets.map((asset) => assets.find((candidate) => candidate.id === asset.id)?.bytes) || []),
-            Buffer.from(JSON.stringify({ headers: [{ source: '/(.*)', headers: [
-                { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
-                { key: 'X-Content-Type-Options', value: 'nosniff' },
-                { key: 'Referrer-Policy', value: 'no-referrer' },
-            ] }] })),
         ]);
-        expect(harness.vercel.maxFileUploadConcurrency).toBe(1);
-        expect(harness.vercel.fileUploads.every((upload) => upload.digest === createHash('sha1').update(upload.bytes).digest('hex'))).toBe(true);
-        expect(harness.vercel.createRequests[0]?.files.every((file) => /^[a-f0-9]{40}$/.test(file.sha))).toBe(true);
-        expect(harness.vercel.protocolErrors).toEqual([]);
+        expect(harness.cloudflare.maxFileUploadConcurrency).toBe(1);
+        expect(harness.cloudflare.fileUploads.every((upload) => upload.digest === createHash('sha256').update(upload.bytes).digest('hex'))).toBe(true);
+        expect(harness.cloudflare.createRequests[0]?.files.every((file) => /^[a-f0-9]{64}$/.test(file.sha))).toBe(true);
+        expect(harness.cloudflare.protocolErrors).toEqual([]);
         const stagingPrefix = persisted!.assets[0]!.storageKey.slice(0, persisted!.assets[0]!.storageKey.lastIndexOf('/') + 1);
         expect([...harness.s3.objects.keys()].filter((key) => key.startsWith(stagingPrefix))).toEqual([]);
         expect(harness.s3.protocolErrors).toEqual([]);
@@ -695,10 +583,10 @@ describe('interactive preview persisted integration', () => {
         expect(credentials.map((row) => row.accountId)).toEqual([accountA, accountB]);
         expect(credentials.every((row) => !Buffer.from(row.token).includes(Buffer.from('token-account')))).toBe(true);
         expect(harness.credentialPaths).toEqual(expect.arrayContaining([
-            ['user', accountA, 'providers', 'vercel', 'credential'],
-            ['user', accountB, 'providers', 'vercel', 'credential'],
+            ['user', accountA, 'providers', 'cloudflare', 'credential'],
+            ['user', accountB, 'providers', 'cloudflare', 'credential'],
         ]));
-        expect(harness.vercel.authorization.every((header) => header === 'Bearer token-account-a')).toBe(true);
+        expect(harness.cloudflare.authorization.every((header) => header === 'Bearer token-account-a')).toBe(true);
 
         const wrongAccount = { 'x-user-id': accountB };
         expect((await harness.app.inject({ method: 'GET', url: `/v1/sessions/${sessionA}/previews`, headers: wrongAccount })).statusCode).toBe(404);
@@ -739,50 +627,50 @@ describe('interactive preview persisted integration', () => {
             { id: 'app', path: 'app.js', mimeType: 'text/javascript', bytes: Buffer.from(`console.log('${id}')`) },
         ];
         for (const id of [ids.concurrentOne, ids.concurrentTwo, ids.concurrentThree]) await harness.createAndUpload(id, assetsFor(id));
-        harness.vercel.holdDeploymentCreates = true;
+        harness.cloudflare.holdDeploymentCreates = true;
 
         const publishes = [ids.concurrentOne, ids.concurrentTwo, ids.concurrentThree].map((previewId) =>
             harness.service.publish(accountA, sessionA, previewId),
         );
-        await eventually(() => harness.vercel.createRequests.length === 2, 'the first two provider deployment requests');
-        expect(harness.vercel.maxDeploymentConcurrency).toBe(2);
-        const duplicate = await harness.service.publish(accountA, sessionA, harness.vercel.createRequests[0]!.meta.happyPreviewId!);
+        await eventually(() => harness.cloudflare.createRequests.length === 2, 'the first two provider deployment requests');
+        expect(harness.cloudflare.maxDeploymentConcurrency).toBe(2);
+        const duplicate = await harness.service.publish(accountA, sessionA, harness.cloudflare.createRequests[0]!.meta.happyPreviewId!);
         expect(duplicate.state).toBe('publishing');
-        expect(harness.vercel.createRequests).toHaveLength(2);
+        expect(harness.cloudflare.createRequests).toHaveLength(2);
 
         // Let the queued job complete as soon as one of the two held jobs frees
         // a gate slot; it must not create while both held requests are active.
-        harness.vercel.holdDeploymentCreates = false;
-        harness.vercel.releaseOneDeployment();
-        harness.vercel.releaseOneDeployment();
+        harness.cloudflare.holdDeploymentCreates = false;
+        harness.cloudflare.releaseOneDeployment();
+        harness.cloudflare.releaseOneDeployment();
         const responses = await Promise.all(publishes);
         expect(responses.map((response) => response.state)).toEqual(['ready', 'ready', 'ready']);
-        expect(harness.vercel.createRequests).toHaveLength(3);
-        expect(harness.vercel.maxDeploymentConcurrency).toBe(2);
+        expect(harness.cloudflare.createRequests).toHaveLength(3);
+        expect(harness.cloudflare.maxDeploymentConcurrency).toBe(2);
     }, 30_000);
 
     it('lets a recovery claim finish a delayed publisher deployment without the publisher deleting the matching ready result', async () => {
         const harness = await setup();
         const previewId = '48484848-4848-4484-8484-484848484848';
         await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>race</h1>') }]);
-        harness.vercel.holdDeploymentCreates = true;
+        harness.cloudflare.holdDeploymentCreates = true;
         const publication = harness.service.publish(accountA, sessionA, previewId);
-        await eventually(() => harness.vercel.createRequests.length === 1, 'the delayed publisher create');
+        await eventually(() => harness.cloudflare.createRequests.length === 1, 'the delayed publisher create');
         await harness.database.interactivePreview.update({ where: { id: previewId }, data: { updatedAt: after(clockStart, -16 * 60 * 1000), publicationReconcileNextAttemptAt: new Date(clockStart) } });
-        harness.vercel.holdMetadataLookups = true;
+        harness.cloudflare.holdMetadataLookups = true;
         const recovery = harness.service.recoverStalePublications(after(clockStart, 16 * 60 * 1000));
-        await eventually(() => harness.vercel.pendingMetadataLookups.length === 1, 'the recovery metadata claim');
-        harness.vercel.holdDeploymentCreates = false;
-        harness.vercel.releaseOneDeployment();
-        await eventually(() => harness.vercel.deployments.has('dpl_1'), 'the delayed provider deployment');
-        harness.vercel.holdMetadataLookups = false;
-        harness.vercel.releaseOneMetadataLookup();
+        await eventually(() => harness.cloudflare.pendingMetadataLookups.length === 1, 'the recovery metadata claim');
+        harness.cloudflare.holdDeploymentCreates = false;
+        harness.cloudflare.releaseOneDeployment();
+        await eventually(() => harness.cloudflare.deployments.has('dpl_1'), 'the delayed provider deployment');
+        harness.cloudflare.holdMetadataLookups = false;
+        harness.cloudflare.releaseOneMetadataLookup();
 
         await expect(publication).rejects.toThrow(/fenced|publish/i);
         await recovery;
-        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_1' });
-        expect(harness.vercel.deleteRequests).toEqual([]);
-        expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_1' });
+        expect(harness.cloudflare.deleteRequests).toEqual([]);
+        expect(harness.cloudflare.deployments.has('dpl_1')).toBe(true);
     }, 30_000);
 
     it('drains ready, deleting, and reconciled unresolved old-scope previews with the old credential before activating a new scope', async () => {
@@ -795,35 +683,35 @@ describe('interactive preview persisted integration', () => {
         await harness.createAndUpload(readyId, asset(readyId));
         await harness.createAndUpload(deletingId, asset(deletingId));
         await harness.createAndUpload(unresolvedId, asset(unresolvedId));
-        harness.vercel.addReconciledDeployment(readyId, 'attempt-ready', 'dpl_ready_old', 'team-old');
-        harness.vercel.addReconciledDeployment(deletingId, 'attempt-deleting', 'dpl_deleting_old', 'team-old');
-        harness.vercel.addReconciledDeployment(unresolvedId, 'attempt-unresolved', 'dpl_unresolved_old', 'team-old');
+        harness.cloudflare.addReconciledDeployment(readyId, 'attempt-ready', 'dpl_ready_old', 'team-old');
+        harness.cloudflare.addReconciledDeployment(deletingId, 'attempt-deleting', 'dpl_deleting_old', 'team-old');
+        harness.cloudflare.addReconciledDeployment(unresolvedId, 'attempt-unresolved', 'dpl_unresolved_old', 'team-old');
         await harness.database.interactivePreview.update({ where: { id: readyId }, data: {
-            status: 'ready', vercelDeploymentId: 'dpl_ready_old', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-ready', publicationGeneration: 1,
+            status: 'ready', cloudflareDeploymentId: 'dpl_ready_old', cloudflareTeamId: 'team-old', publicationAttemptId: 'attempt-ready', publicationGeneration: 1,
         } });
         await harness.database.interactivePreview.update({ where: { id: deletingId }, data: {
-            status: 'deleting', vercelDeploymentId: 'dpl_deleting_old', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-deleting', publicationGeneration: 1,
+            status: 'deleting', cloudflareDeploymentId: 'dpl_deleting_old', cloudflareTeamId: 'team-old', publicationAttemptId: 'attempt-deleting', publicationGeneration: 1,
         } });
         await harness.database.interactivePreview.update({ where: { id: unresolvedId }, data: {
-            status: 'deleting', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-unresolved', publicationGeneration: 1,
+            status: 'deleting', cloudflareTeamId: 'team-old', publicationAttemptId: 'attempt-unresolved', publicationGeneration: 1,
             publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
         } });
 
-        await harness.service.reconnectVercel(accountA, { version: 1, accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new' });
+        await harness.service.reconnectCloudflare(accountA, { version: 1, accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new' });
 
         expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({
-            vercelConnectionEpoch: 1, vercelConnectionState: 'active', vercelConnectionReplacementId: null,
+            cloudflareConnectionEpoch: 1, cloudflareConnectionState: 'active', cloudflareConnectionReplacementId: null,
         });
         expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new', connectionEpoch: 1 });
         for (const previewId of [readyId, deletingId, unresolvedId]) {
-            expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'expired', vercelDeploymentId: null, publicationAttemptId: null });
+            expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'expired', cloudflareDeploymentId: null, publicationAttemptId: null });
         }
-        expect(harness.vercel.providerScopes.filter((call) => call.operation === 'delete')).toEqual(expect.arrayContaining([
+        expect(harness.cloudflare.providerScopes.filter((call) => call.operation === 'delete')).toEqual(expect.arrayContaining([
             { operation: 'delete', deploymentId: 'dpl_ready_old', teamId: 'team-old' },
             { operation: 'delete', deploymentId: 'dpl_deleting_old', teamId: 'team-old' },
             { operation: 'delete', deploymentId: 'dpl_unresolved_old', teamId: 'team-old' },
         ]));
-        expect(harness.vercel.providerScopes.some((call) => call.operation === 'delete' && call.teamId === 'team-new')).toBe(false);
+        expect(harness.cloudflare.providerScopes.some((call) => call.operation === 'delete' && call.teamId === 'team-new')).toBe(false);
         expect([...harness.s3.objects.keys()].filter((key) => [readyId, deletingId, unresolvedId].some((id) => key.includes(`/${id}/`)))).toEqual([]);
     }, 30_000);
 
@@ -850,27 +738,27 @@ describe('interactive preview persisted integration', () => {
             now: () => new Date(clockStart),
         });
 
-        const callback = original.reconnectVercel(accountA, {
+        const callback = original.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-replacement', configurationId: 'cfg-account-a', teamId: 'team-account-a',
         });
         await eventually(() => pendingPersisted, 'the persisted replacement credential', 1_000);
 
         const finalizing = await harness.database.account.findUnique({ where: { id: accountA } });
-        expect(finalizing).toMatchObject({ vercelConnectionState: 'finalizing' });
-        expect(await fresh.getActiveVercelCredential(accountA)).toBeNull();
+        expect(finalizing).toMatchObject({ cloudflareConnectionState: 'finalizing' });
+        expect(await fresh.getActiveCloudflareCredential(accountA)).toBeNull();
         expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-account-a' });
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toHaveLength(1);
 
         releasePendingWrite();
         await expect(callback).resolves.toBeUndefined();
 
         const active = await harness.database.account.findUnique({ where: { id: accountA } });
-        expect(active).toMatchObject({ vercelConnectionState: 'active' });
-        expect(await fresh.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-replacement', connectionEpoch: active?.vercelConnectionEpoch, connectionNonce: active?.vercelConnectionNonce });
+        expect(active).toMatchObject({ cloudflareConnectionState: 'active' });
+        expect(await fresh.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-replacement', connectionEpoch: active?.cloudflareConnectionEpoch, connectionNonce: active?.cloudflareConnectionNonce });
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toEqual([]);
     }, 30_000);
 
@@ -889,7 +777,7 @@ describe('interactive preview persisted integration', () => {
             clientFactory: vi.fn() as never,
             now: () => new Date(clockStart),
         });
-        const callback = interrupted.reconnectVercel(accountA, {
+        const callback = interrupted.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-crashed', configurationId: 'cfg-account-a', teamId: 'team-account-a',
         });
         await eventually(() => pendingPersisted, 'the persisted replacement credential', 1_000);
@@ -901,19 +789,19 @@ describe('interactive preview persisted integration', () => {
             clientFactory: vi.fn() as never,
             now: () => after(clockStart, 16 * 60 * 1000),
         });
-        await expect(recovered.getActiveVercelCredential(accountA)).resolves.toBeNull();
-        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionState: 'disconnected' });
+        await expect(recovered.getActiveCloudflareCredential(accountA)).resolves.toBeNull();
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ cloudflareConnectionState: 'disconnected' });
         expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-account-a' });
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toEqual([]);
 
         releasePendingWrite();
-        await expect(callback).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
-        await expect(recovered.reconnectVercel(accountA, {
+        await expect(callback).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_SUPERSEDED');
+        await expect(recovered.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-later', configurationId: 'cfg-account-a', teamId: 'team-account-a',
         })).resolves.toBeUndefined();
-        expect(await recovered.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-later' });
+        expect(await recovered.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-later' });
     }, 30_000);
 
     it('has a successor consume a crashed callback pending credential before a later reconnect activates', async () => {
@@ -921,11 +809,11 @@ describe('interactive preview persisted integration', () => {
         const crashedEpoch = 1;
         const crashedNonce = 'crashed-callback-nonce';
         await harness.database.account.update({ where: { id: accountA }, data: {
-            vercelConnectionEpoch: crashedEpoch,
-            vercelConnectionState: 'finalizing',
-            vercelConnectionNonce: crashedNonce,
-            vercelConnectionReplacementId: crashedNonce,
-            vercelConnectionReplacementStartedAt: clockStart,
+            cloudflareConnectionEpoch: crashedEpoch,
+            cloudflareConnectionState: 'finalizing',
+            cloudflareConnectionNonce: crashedNonce,
+            cloudflareConnectionReplacementId: crashedNonce,
+            cloudflareConnectionReplacementStartedAt: clockStart,
         } });
         await harness.database.$transaction((transaction) =>
             (harness.credentialStore as any).stageConnectionReplacementInTransaction(transaction, accountA, crashedEpoch, crashedNonce, {
@@ -933,17 +821,17 @@ describe('interactive preview persisted integration', () => {
             }),
         );
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toHaveLength(1);
 
-        await expect(harness.service.disconnectVercel(accountA)).resolves.toEqual({});
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.disconnectCloudflare(accountA)).resolves.toEqual({});
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-successor', configurationId: 'cfg-a',
         })).resolves.toBeUndefined();
 
-        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-successor' });
+        expect(await harness.service.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-successor' });
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toEqual([]);
     }, 30_000);
 
@@ -977,28 +865,28 @@ describe('interactive preview persisted integration', () => {
             now: () => new Date(clockStart),
         });
 
-        const callbackA = delayedCallback.reconnectVercel(accountA, {
+        const callbackA = delayedCallback.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-callback-a', configurationId: 'cfg-a',
         });
         await eventually(() => oldAccountRead, 'callback A predecessor account read');
 
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-successor-b', configurationId: 'cfg-b', teamId: 'team-b',
         })).resolves.toBeUndefined();
         await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>successor B</h1>') }]);
         const successorAccount = await harness.database.account.findUnique({ where: { id: accountA } });
         const successorPreview = await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } });
-        expect(successorPreview).toMatchObject({ status: 'draft', connectionGeneration: successorAccount?.vercelConnectionEpoch });
+        expect(successorPreview).toMatchObject({ status: 'draft', connectionGeneration: successorAccount?.cloudflareConnectionEpoch });
 
         releaseOldAccountRead();
-        await expect(callbackA).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+        await expect(callbackA).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_SUPERSEDED');
 
-        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-successor-b' });
+        expect(await harness.service.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-successor-b' });
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({
-            status: 'draft', connectionGeneration: successorAccount?.vercelConnectionEpoch,
+            status: 'draft', connectionGeneration: successorAccount?.cloudflareConnectionEpoch,
         });
         expect(await harness.database.serviceAccountToken.findMany({ where: {
-            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+            accountId: accountA, vendor: { startsWith: 'provider:cloudflare:pending:' },
         } })).toEqual([]);
     }, 30_000);
 
@@ -1006,20 +894,20 @@ describe('interactive preview persisted integration', () => {
         const harness = await setup();
         await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>drain</h1>') }]);
         await expect(harness.service.publish(accountA, sessionA, ids.primary)).resolves.toMatchObject({ state: 'ready' });
-        harness.vercel.failDeleteRequests = 3;
+        harness.cloudflare.failDeleteRequests = 3;
 
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new',
-        })).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
+        })).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
 
-        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionState: 'disconnected' });
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ cloudflareConnectionState: 'disconnected' });
         expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-account-a', configurationId: 'cfg-a' });
-        await expect(harness.service.getActiveVercelCredential(accountA)).resolves.toBeNull();
+        await expect(harness.service.getActiveCloudflareCredential(accountA)).resolves.toBeNull();
 
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-later', configurationId: 'cfg-later', teamId: 'team-new',
         })).resolves.toBeUndefined();
-        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-later' });
+        expect(await harness.service.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-later' });
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({ status: 'expired' });
     }, 30_000);
 
@@ -1036,21 +924,21 @@ describe('interactive preview persisted integration', () => {
             storage: { deletePreview: vi.fn() } as never,
             credentialStore: harness.credentialStore as never, clientFactory: vi.fn() as never, now: () => new Date(clockStart),
         });
-        const callback = reconnecting.reconnectVercel(accountA, {
+        const callback = reconnecting.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-interrupted', configurationId: 'cfg-a',
         });
         await eventually(() => pendingPersisted, 'the pending reconnect credential', 1_000);
 
-        await expect(harness.service.disconnectVercel(accountA)).resolves.toEqual({});
+        await expect(harness.service.disconnectCloudflare(accountA)).resolves.toEqual({});
         releasePendingWrite();
-        await expect(callback).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
-        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionState: 'disconnected' });
+        await expect(callback).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_SUPERSEDED');
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ cloudflareConnectionState: 'disconnected' });
         expect(await harness.credentialStore.get(accountA)).toBeNull();
 
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-after-disconnect', configurationId: 'cfg-a',
         })).resolves.toBeUndefined();
-        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-after-disconnect' });
+        expect(await harness.service.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-after-disconnect' });
     }, 30_000);
 
     it('does not let a delayed persisted disconnect erase a reconnect activated after its fence', async () => {
@@ -1071,16 +959,16 @@ describe('interactive preview persisted integration', () => {
             now: () => new Date(clockStart),
         });
 
-        const disconnect = delayedDisconnect.disconnectVercel(accountA);
+        const disconnect = delayedDisconnect.disconnectCloudflare(accountA);
         await eventually(() => deleteStarted, 'the delayed disconnect provider drain');
-        await expect(harness.service.reconnectVercel(accountA, {
+        await expect(harness.service.reconnectCloudflare(accountA, {
             version: 1, accessToken: 'token-after-delayed-disconnect', configurationId: 'cfg-a',
         })).resolves.toBeUndefined();
         releaseDelete();
-        await expect(disconnect).resolves.toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        await expect(disconnect).resolves.toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
 
-        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionState: 'active' });
-        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-after-delayed-disconnect' });
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ cloudflareConnectionState: 'active' });
+        expect(await harness.service.getActiveCloudflareCredential(accountA)).toMatchObject({ accessToken: 'token-after-delayed-disconnect' });
     }, 30_000);
 
     it('restarts over PGlite and lets the scheduler alone recover a delayed visible deployment without a second create', async () => {
@@ -1092,16 +980,16 @@ describe('interactive preview persisted integration', () => {
         await harness.database.interactivePreview.update({ where: { id: ids.restart }, data: {
             status: 'publishing', publicationAttemptId, publicationGeneration: 1, publicationCreateStartedAt: new Date(clockStart), updatedAt: new Date(clockStart),
         } });
-        harness.vercel.addDelayedDeployment(ids.restart, publicationAttemptId);
+        harness.cloudflare.addDelayedDeployment(ids.restart, publicationAttemptId);
 
         await harness.restart();
         await harness.cleanup().cleanupExpired(recoveryTime);
         await harness.cleanup().cleanupExpired(after(recoveryTime, 60_000));
         const recovered = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
-        expect(recovered).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_delayed', url: 'https://dpl_delayed.preview.local' });
-        expect(harness.vercel.metadataLookups).toBeGreaterThan(0);
-        expect(harness.vercel.createRequests).toHaveLength(0);
-        expect(harness.vercel.fileUploads).toHaveLength(0);
+        expect(recovered).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_delayed', url: 'https://dpl_delayed.preview.local' });
+        expect(harness.cloudflare.metadataLookups).toBeGreaterThan(0);
+        expect(harness.cloudflare.createRequests).toHaveLength(0);
+        expect(harness.cloudflare.fileUploads).toHaveLength(0);
 
         const ready = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart }, include: { assets: true } });
         if (!ready) throw new Error('Recovered preview row was not persisted');
@@ -1110,19 +998,19 @@ describe('interactive preview persisted integration', () => {
         await harness.database.interactivePreview.update({ where: { id: ids.restart }, data: {
             status: 'deleting', url: null, expiresAt: firstCleanup, cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null,
         } });
-        harness.vercel.failDeleteRequests = 3;
+        harness.cloudflare.failDeleteRequests = 3;
         await harness.cleanup().cleanupExpired(firstCleanup);
         let tombstone = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
-        expect(tombstone).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delayed', cleanupRetryCount: 1, cleanupNextAttemptAt: after(firstCleanup, 60_000) });
-        const failedDeleteRequests = harness.vercel.deleteRequests.length;
+        expect(tombstone).toMatchObject({ status: 'deleting', cloudflareDeploymentId: 'dpl_delayed', cleanupRetryCount: 1, cleanupNextAttemptAt: after(firstCleanup, 60_000) });
+        const failedDeleteRequests = harness.cloudflare.deleteRequests.length;
         await harness.cleanup().cleanupExpired(after(firstCleanup, 30_000));
-        expect(harness.vercel.deleteRequests).toHaveLength(failedDeleteRequests);
+        expect(harness.cloudflare.deleteRequests).toHaveLength(failedDeleteRequests);
 
         await harness.restart();
         await harness.cleanup().cleanupExpired(after(firstCleanup, 60_000));
         tombstone = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
-        expect(tombstone).toMatchObject({ status: 'expired', vercelDeploymentId: null });
-        expect(harness.vercel.deployments.has('dpl_delayed')).toBe(false);
+        expect(tombstone).toMatchObject({ status: 'expired', cloudflareDeploymentId: null });
+        expect(harness.cloudflare.deployments.has('dpl_delayed')).toBe(false);
         expect([...harness.s3.objects.keys()].filter((key) => key.includes(`/${ids.restart}/`))).toEqual([]);
     }, 30_000);
 
@@ -1138,30 +1026,30 @@ describe('interactive preview persisted integration', () => {
             });
         }],
         ['disconnect', ids.fencedDisconnect, async (harness: PreviewHarness) => {
-            const result = await harness.service.disconnectVercel(accountA);
-            expect(result).toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+            const result = await harness.service.disconnectCloudflare(accountA);
+            expect(result).toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
             expect(await harness.credentialStore.get(accountA)).toBeNull();
         }],
     ])('keeps a %s tombstone when a publisher is fenced before its delayed create response and compensation fails', async (_label, previewId, fence) => {
         const harness = await setup();
         await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from(`<h1>${previewId}</h1>`) }]);
-        harness.vercel.holdDeploymentCreates = true;
+        harness.cloudflare.holdDeploymentCreates = true;
         const publication = harness.service.publish(accountA, sessionA, previewId);
-        await eventually(() => harness.vercel.createRequests.length === 1, 'the delayed provider create request');
-        harness.vercel.failDeleteRequests = 3;
+        await eventually(() => harness.cloudflare.createRequests.length === 1, 'the delayed provider create request');
+        harness.cloudflare.failDeleteRequests = 3;
         await fence(harness, previewId);
-        harness.vercel.holdDeploymentCreates = false;
-        harness.vercel.releaseOneDeployment();
+        harness.cloudflare.holdDeploymentCreates = false;
+        harness.cloudflare.releaseOneDeployment();
         await expect(publication).rejects.toThrow(/fenced|publish/i);
 
         const tombstone = await harness.database.interactivePreview.findUnique({ where: { id: previewId } });
-        expect(tombstone).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_1', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        expect(tombstone).toMatchObject({ status: 'deleting', cloudflareDeploymentId: 'dpl_1', errorCode: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
         expect(tombstone?.cleanupNextAttemptAt).toBeInstanceOf(Date);
         expect(tombstone?.cleanupRetryCount).toBeGreaterThan(0);
-        expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
+        expect(harness.cloudflare.deployments.has('dpl_1')).toBe(true);
     }, 30_000);
 
-    it('does not expire a deleting unresolved create attempt while Vercel metadata is still invisible', async () => {
+    it('does not expire a deleting unresolved create attempt while Cloudflare metadata is still invisible', async () => {
         const harness = await setup();
         await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>unresolved</h1>') }]);
         const attempt = 'attempt-not-yet-visible';
@@ -1174,12 +1062,12 @@ describe('interactive preview persisted integration', () => {
         await harness.cleanup().cleanupExpired(cleanupTime);
 
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({
-            status: 'deleting', vercelDeploymentId: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+            status: 'deleting', cloudflareDeploymentId: null, errorCode: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING',
             cleanupNextAttemptAt: after(cleanupTime, 60_000), publicationReconcileNextAttemptAt: after(cleanupTime, 60_000),
         });
     }, 30_000);
 
-    it('moves an expired create-started attempt into durable deleting reconciliation when Vercel metadata returns 503', async () => {
+    it('moves an expired create-started attempt into durable deleting reconciliation when Cloudflare metadata returns 503', async () => {
         const harness = await setup();
         const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>outage</h1>') }];
         await harness.createAndUpload(ids.providerOutage, assets);
@@ -1189,18 +1077,18 @@ describe('interactive preview persisted integration', () => {
             publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
             expiresAt: expiry, updatedAt: clockStart,
         } });
-        harness.vercel.failMetadataLookups = 3;
+        harness.cloudflare.failMetadataLookups = 3;
 
         await harness.cleanup().cleanupExpired(expiry);
 
         const row = await harness.database.interactivePreview.findUnique({ where: { id: ids.providerOutage }, include: { assets: true } });
         expect(row).toMatchObject({
-            status: 'deleting', vercelDeploymentId: null, publicationAttemptId: 'attempt-provider-503',
-            publicationCreateStartedAt: clockStart, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+            status: 'deleting', cloudflareDeploymentId: null, publicationAttemptId: 'attempt-provider-503',
+            publicationCreateStartedAt: clockStart, errorCode: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING',
             publicationReconcileNextAttemptAt: after(expiry, 60_000), cleanupNextAttemptAt: after(expiry, 60_000),
         });
         expect(row?.assets.every((asset) => harness.s3.objects.has(asset.storageKey))).toBe(true);
-        expect(harness.vercel.deleteRequests).toEqual([]);
+        expect(harness.cloudflare.deleteRequests).toEqual([]);
     }, 30_000);
 
     it('reconciles every expired ambiguous create across batches before ordinary cleanup can claim an overflow row', async () => {
@@ -1211,20 +1099,20 @@ describe('interactive preview persisted integration', () => {
             return {
                 id, accountId: accountA, sessionId: sessionA, title: `Bulk ${index + 1}`, status: 'publishing',
                 manifest: manifest(id, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>bulk</h1>') }]) as any,
-                expiresAt: expiry, stagingGeneration: `bulk-generation-${index + 1}`,
+                expiresAt: expiry, stagingGeneration: `cf-bulk-generation-${index + 1}`,
                 publicationAttemptId: `attempt-bulk-${index + 1}`, publicationGeneration: 1,
                 publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
                 createdAt: clockStart, updatedAt: clockStart,
             };
         });
         await harness.database.interactivePreview.createMany({ data: rows });
-        harness.vercel.failMetadataLookups = rows.length * 3;
+        harness.cloudflare.failMetadataLookups = rows.length * 3;
 
         await harness.cleanup().cleanupExpired(expiry);
 
         const persisted = await harness.database.interactivePreview.findMany({ where: { id: { in: rows.map((row) => row.id) } }, orderBy: { id: 'asc' } });
         expect(persisted).toHaveLength(51);
-        expect(persisted.every((row) => row.status === 'deleting' && row.vercelDeploymentId === null && row.publicationCreateStartedAt !== null)).toBe(true);
+        expect(persisted.every((row) => row.status === 'deleting' && row.cloudflareDeploymentId === null && row.publicationCreateStartedAt !== null)).toBe(true);
         expect(persisted.every((row) => row.publicationReconcileNextAttemptAt?.getTime() === after(expiry, 60_000).getTime())).toBe(true);
     }, 30_000);
 
@@ -1233,45 +1121,45 @@ describe('interactive preview persisted integration', () => {
         const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>disconnect checkpoint</h1>') }];
         await harness.createAndUpload(ids.disconnectCheckpoint, assets);
         const attempt = 'attempt-disconnect-checkpoint';
-        harness.vercel.addReconciledDeployment(ids.disconnectCheckpoint, attempt, 'dpl_disconnect_checkpoint');
+        harness.cloudflare.addReconciledDeployment(ids.disconnectCheckpoint, attempt, 'dpl_disconnect_checkpoint');
         await harness.database.interactivePreview.update({ where: { id: ids.disconnectCheckpoint }, data: {
-            status: 'ready', vercelDeploymentId: 'dpl_disconnect_checkpoint', publicationAttemptId: attempt,
+            status: 'ready', cloudflareDeploymentId: 'dpl_disconnect_checkpoint', publicationAttemptId: attempt,
             publicationGeneration: 1, publicationCreateStartedAt: clockStart,
         } });
         harness.s3.failDeleteRequests = 1;
 
-        await expect(harness.service.disconnectVercel(accountA)).resolves.toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        await expect(harness.service.disconnectCloudflare(accountA)).resolves.toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
 
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.disconnectCheckpoint } })).toMatchObject({
-            status: 'deleting', vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+            status: 'deleting', cloudflareDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
         });
         expect(await harness.credentialStore.get(accountA)).toBeNull();
-        expect(harness.vercel.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
+        expect(harness.cloudflare.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
 
         await harness.cleanup().cleanupExpired(after(clockStart, 1));
 
-        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.disconnectCheckpoint } })).toMatchObject({ status: 'expired', vercelDeploymentId: null });
-        expect(harness.vercel.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.disconnectCheckpoint } })).toMatchObject({ status: 'expired', cloudflareDeploymentId: null });
+        expect(harness.cloudflare.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
     }, 30_000);
 
     it('checkpoints and completes a successful late compensation after an explicit delete fences publication', async () => {
         const harness = await setup();
         const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>late compensation</h1>') }];
         await harness.createAndUpload(ids.lateCompensation, assets);
-        harness.vercel.holdDeploymentCreates = true;
+        harness.cloudflare.holdDeploymentCreates = true;
         const publication = harness.service.publish(accountA, sessionA, ids.lateCompensation);
-        await eventually(() => harness.vercel.createRequests.length === 1, 'the held late-compensation deployment');
+        await eventually(() => harness.cloudflare.createRequests.length === 1, 'the held late-compensation deployment');
         const deleted = await harness.app.inject({ method: 'DELETE', url: `/v1/sessions/${sessionA}/previews/${ids.lateCompensation}`, headers: { 'x-user-id': accountA } });
         expect(deleted.statusCode).toBe(200);
-        harness.vercel.holdDeploymentCreates = false;
-        harness.vercel.releaseOneDeployment();
+        harness.cloudflare.holdDeploymentCreates = false;
+        harness.cloudflare.releaseOneDeployment();
 
         await expect(publication).rejects.toThrow(/fenced|publish/i);
 
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.lateCompensation } })).toMatchObject({
-            status: 'expired', vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+            status: 'expired', cloudflareDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
         });
-        expect(harness.vercel.deleteRequests).toEqual(['dpl_1']);
+        expect(harness.cloudflare.deleteRequests).toEqual(['dpl_1']);
         expect([...harness.s3.objects.keys()].filter((key) => key.includes(`/${ids.lateCompensation}/`))).toEqual([]);
     }, 30_000);
 
@@ -1286,21 +1174,21 @@ describe('interactive preview persisted integration', () => {
             method: 'DELETE', url: `/v1/sessions/${sessionA}/previews/${ids.explicitDelete}`, headers: { 'x-user-id': accountA },
         });
         expect(deleted.statusCode).toBe(200);
-        harness.vercel.failDeleteRequests = 3;
+        harness.cloudflare.failDeleteRequests = 3;
         const firstCleanup = after(clockStart, 2 * 60 * 60 * 1000);
         await harness.cleanup().cleanupExpired(firstCleanup);
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.explicitDelete } })).toMatchObject({
             status: 'deleting', cleanupRetryCount: 1, cleanupNextAttemptAt: after(firstCleanup, 60_000),
         });
         await harness.cleanup().cleanupExpired(after(firstCleanup, 60_000));
-        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.explicitDelete } })).toMatchObject({ status: 'expired', vercelDeploymentId: null });
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.explicitDelete } })).toMatchObject({ status: 'expired', cloudflareDeploymentId: null });
 
         await harness.database.interactivePreview.update({ where: { id: ids.explicitDelete }, data: { updatedAt: new Date(clockStart) } });
         await harness.cleanup().cleanupExpired(after(clockStart, 31 * 24 * 60 * 60 * 1000));
         expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.explicitDelete } })).toBeNull();
     }, 30_000);
 
-    it('retries failed ready-stage cleanup without deleting the live Vercel deployment', async () => {
+    it('retries failed ready-stage cleanup without deleting the live Cloudflare deployment', async () => {
         const harness = await setup();
         await harness.createAndUpload(ids.pendingStaging, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>staging</h1>') }]);
         harness.s3.failDeleteRequests = 1;
@@ -1309,13 +1197,13 @@ describe('interactive preview persisted integration', () => {
         });
         expect(published.statusCode).toBe(200);
         const ready = await harness.database.interactivePreview.findUnique({ where: { id: ids.pendingStaging } });
-        expect(ready).toMatchObject({ status: 'ready', stagingCleanupPending: true, vercelDeploymentId: 'dpl_1' });
+        expect(ready).toMatchObject({ status: 'ready', stagingCleanupPending: true, cloudflareDeploymentId: 'dpl_1' });
         if (!ready?.publishedAt) throw new Error('Ready preview did not persist its publication time');
 
         await harness.cleanup().cleanupExpired(new Date(ready.publishedAt.getTime() + 60_000));
         const retried = await harness.database.interactivePreview.findUnique({ where: { id: ids.pendingStaging } });
-        expect(retried).toMatchObject({ status: 'ready', stagingCleanupPending: false, vercelDeploymentId: 'dpl_1' });
-        expect(harness.vercel.deleteRequests).toEqual([]);
-        expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
+        expect(retried).toMatchObject({ status: 'ready', stagingCleanupPending: false, cloudflareDeploymentId: 'dpl_1' });
+        expect(harness.cloudflare.deleteRequests).toEqual([]);
+        expect(harness.cloudflare.deployments.has('dpl_1')).toBe(true);
     }, 30_000);
 });

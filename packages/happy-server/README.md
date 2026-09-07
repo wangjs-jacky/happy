@@ -56,11 +56,7 @@ Data persists in the `paws-data` Docker volume across container restarts.
 |----------|----------|---------|-------------|
 | `HANDY_MASTER_SECRET` | Yes | - | Master secret for auth/encryption |
 | `PUBLIC_URL` | No | `http://localhost:3005` | Public base URL for file URLs sent to clients |
-| `HAPPY_WEB_URL` | No | `PUBLIC_URL` | Fixed Happy Web origin used after provider OAuth callbacks |
-| `VERCEL_INTEGRATION_CLIENT_ID` | No | — | Vercel connectable Integration OAuth client ID |
-| `VERCEL_INTEGRATION_CLIENT_SECRET` | No | — | Vercel Integration OAuth secret; server-only |
-| `VERCEL_INTEGRATION_SLUG` | No | — | Vercel Integration slug used to build the install URL |
-| `VERCEL_INTEGRATION_REDIRECT_URI` | No | — | Exact server callback URL registered with Vercel |
+| `HAPPY_WEB_URL` | No | `PUBLIC_URL` | Happy Web origin |
 | `PORT` | No | `3005` | Server port |
 | `DATA_DIR` | No | `/data` | Base data directory |
 | `PGLITE_DIR` | No | `/data/pglite` | PGlite database directory |
@@ -80,7 +76,7 @@ To use external Postgres or Redis instead of the embedded defaults, set:
 | `S3_SECRET_KEY` | S3 secret key (secret) |
 | `S3_BUCKET` | S3 bucket name |
 | `S3_PUBLIC_URL` | Optional public base URL for non-share objects |
-| `PREVIEW_S3_BUCKET` | Dedicated private bucket for temporary previews; required to enable managed previews |
+| `PREVIEW_S3_BUCKET` | Dedicated private bucket for temporary previews; required to enable Cloudflare cloud-hosted previews (not anonymous tunnels) |
 | `PREVIEW_S3_HOST` | Optional preview-specific endpoint; defaults to `S3_HOST` |
 | `PREVIEW_S3_PORT` | Optional preview-specific port; defaults to `S3_PORT` |
 | `PREVIEW_S3_USE_SSL` | Optional preview-specific TLS setting; defaults to `S3_USE_SSL` |

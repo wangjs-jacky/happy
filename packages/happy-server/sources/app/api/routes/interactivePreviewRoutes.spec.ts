@@ -18,7 +18,7 @@ async function createApp(overrides: Partial<InteractivePreviewRouteDependencies>
         sessionOwnedBy: vi.fn(async () => true),
         createDraft: vi.fn(async () => ({ previewId: manifest.previewId, uploads: [{ assetId: 'index', method: 'POST' as const, uploadUrl: 'https://oss.test', formFields: { key: 'signed' } }] })),
         completeAsset: vi.fn(async () => {}),
-        publish: vi.fn(async () => ({ version: 1 as const, id: manifest.previewId, title: manifest.title, state: 'ready' as const, url: 'https://draft.vercel.app', publishedAt: 1, expiresAt: 2 })),
+        publish: vi.fn(async () => ({ version: 1 as const, id: manifest.previewId, title: manifest.title, state: 'ready' as const, url: 'https://draft.cloudflare.app', publishedAt: 1, expiresAt: 2 })),
         list: vi.fn(async () => []), delete: vi.fn(async () => {}), ...overrides,
     };
     interactivePreviewRoutes(typed, dependencies); await typed.ready(); return { app: typed, dependencies };

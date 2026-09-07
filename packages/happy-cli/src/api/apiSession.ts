@@ -20,7 +20,7 @@ import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
-import { createEnvelope, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
+import { createEnvelope, type InteractivePreviewEvent, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
 import {
     closeClaudeTurnWithStatus,
     mapClaudeLogMessageToSessionEnvelopes,
@@ -838,6 +838,10 @@ export class ApiSessionClient extends EventEmitter {
         this.enqueueSessionProtocolEnvelope(envelope);
     }
 
+    reportInteractivePreview(preview: InteractivePreviewEvent): void {
+        this.sendSessionProtocolMessage(createEnvelope('agent', { t: 'interactive-preview', preview }));
+    }
+
     async publishInteractivePreview(workspace: ResolvedPreviewWorkspace) {
         const preview = await publishPreviewWorkspace({
             serverUrl: configuration.serverUrl,
@@ -845,7 +849,7 @@ export class ApiSessionClient extends EventEmitter {
             sessionId: this.sessionId,
             workspace,
         });
-        this.sendSessionProtocolMessage(createEnvelope('agent', { t: 'interactive-preview', preview }));
+        this.reportInteractivePreview(preview);
         return preview;
     }
 
@@ -1133,6 +1137,14 @@ export class ApiSessionClient extends EventEmitter {
 
     async close() {
         logger.debug('[API] socket.close() called');
+        if (this.listenerCount('before-close') > 0) {
+            try {
+                this.emit('before-close');
+                await this.flush();
+            } catch (error) {
+                logger.debug('[API] Could not flush session cleanup notifications', error);
+            }
+        }
         this.sendSync.stop();
         this.receiveSync.stop();
         if (this.reconnectInterval) {

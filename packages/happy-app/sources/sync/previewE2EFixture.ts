@@ -1,4 +1,4 @@
-import type { VercelPreviewStatus } from './apiInteractivePreviews';
+import type { CloudflarePreviewStatus } from './apiInteractivePreviews';
 
 export const PREVIEW_E2E_FIXTURE_PARAM = 'happy_preview_fixture';
 
@@ -9,17 +9,16 @@ export type PreviewE2EFixtureName =
     | 'error-once'
     | 'unavailable';
 
-const CONNECTED_STATUS: VercelPreviewStatus = {
+const CONNECTED_STATUS: CloudflarePreviewStatus = {
     available: true,
     connected: true,
     account: {
-        teamId: 'team_happy_fixture',
-        teamName: 'Happy Design Fixture',
+        accountId: 'team_happy_fixture',
         projectId: 'happy-previews',
     },
 };
 
-const DISCONNECTED_STATUS: VercelPreviewStatus = {
+const DISCONNECTED_STATUS: CloudflarePreviewStatus = {
     available: true,
     connected: false,
 };
@@ -39,9 +38,8 @@ function isFixtureName(value: string | null): value is PreviewE2EFixtureName {
  */
 export function createPreviewE2EFixture(locationHref: string): {
     allowRetry: () => void;
-    connectUrl: () => string;
-    disconnect: () => { warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' };
-    getStatus: () => VercelPreviewStatus;
+    disconnect: () => { warning?: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' };
+    getStatus: () => CloudflarePreviewStatus;
     markConnected: () => void;
 } | null {
     if (process.env.NODE_ENV === 'production'
@@ -52,7 +50,7 @@ export function createPreviewE2EFixture(locationHref: string): {
     const fixtureName = location.searchParams.get(PREVIEW_E2E_FIXTURE_PARAM);
     if (!isFixtureName(fixtureName)) return null;
 
-    let current: VercelPreviewStatus = fixtureName === 'unavailable'
+    let current: CloudflarePreviewStatus = fixtureName === 'unavailable'
         ? { available: false, connected: false }
         : fixtureName === 'connected' || fixtureName === 'disconnect-warning'
             ? CONNECTED_STATUS
@@ -63,16 +61,10 @@ export function createPreviewE2EFixture(locationHref: string): {
         allowRetry: () => {
             errorPending = false;
         },
-        connectUrl: () => {
-            const callback = new URL(location);
-            callback.searchParams.set(PREVIEW_E2E_FIXTURE_PARAM, 'connected');
-            callback.searchParams.set('vercel', 'connected');
-            return callback.toString();
-        },
         disconnect: () => {
             current = DISCONNECTED_STATUS;
             return fixtureName === 'disconnect-warning'
-                ? { warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }
+                ? { warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' }
                 : {};
         },
         getStatus: () => {

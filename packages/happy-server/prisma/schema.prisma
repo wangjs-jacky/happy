@@ -28,11 +28,11 @@ model Account {
     updatedAt       DateTime    @updatedAt
     settings        String?
     settingsVersion Int         @default(0)
-    vercelConnectionEpoch             Int     @default(0)
-    vercelConnectionState             String  @default("active")
-    vercelConnectionNonce             String?
-    vercelConnectionReplacementId     String?
-    vercelConnectionReplacementStartedAt DateTime?
+    cloudflareConnectionEpoch             Int     @default(0) @map("vercelConnectionEpoch")
+    cloudflareConnectionState             String  @default("active") @map("vercelConnectionState")
+    cloudflareConnectionNonce             String? @map("vercelConnectionNonce")
+    cloudflareConnectionReplacementId     String? @map("vercelConnectionReplacementId")
+    cloudflareConnectionReplacementStartedAt DateTime? @map("vercelConnectionReplacementStartedAt")
     githubUserId    String?     @unique
     githubUser      GithubUser? @relation(fields: [githubUserId], references: [id])
 
@@ -230,15 +230,15 @@ model InteractivePreview {
     title               String
     status              String   @default("draft")
     manifest            Json
-    vercelDeploymentId  String?
+    cloudflareDeploymentId  String? @map("vercelDeploymentId")
     publicationAttemptId String?
     publicationCreateStartedAt DateTime?
     publicationReconcileRetryCount Int @default(0)
     publicationReconcileNextAttemptAt DateTime?
     publicationGeneration Int @default(0)
     connectionGeneration Int @default(0)
-    vercelTeamId        String?
-    vercelScopeKnown    Boolean  @default(true)
+    cloudflareTeamId        String? @map("vercelTeamId")
+    cloudflareScopeKnown    Boolean  @default(true) @map("vercelScopeKnown")
     stagingGeneration   String
     stagingCleanupPending Boolean @default(false)
     url                 String?

@@ -21,6 +21,7 @@ import { BROWSER_STEP_TOOL_DESCRIPTION } from "@/browser/browserStepReportingPro
 import { configuration } from "@/configuration";
 import { fetchFinanceChart } from "@/finance/financeChart";
 import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
+import { startCloudflarePreview, type CloudflarePreview } from '@/previews/cloudflarePreview';
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -34,7 +35,7 @@ type HappyMcpHandlers = {
         interval?: '1d';
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
     createPreview: (title: string) => Promise<{ success: boolean; previewId?: string; path?: string; error?: string }>;
-    publishPreview: (previewId: string) => Promise<{ success: boolean; url?: string; expiresAt?: number; error?: string }>;
+    publishPreview: (previewId: string, mode?: 'tunnel' | 'hosted') => Promise<{ success: boolean; url?: string; expiresAt?: number; provider?: 'cloudflare'; mode?: 'tunnel' | 'hosted'; lifetime?: string; error?: string }>;
 };
 
 type SendImageInput = {
@@ -290,13 +291,13 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
     });
 
     mcp.registerTool('publish_preview', {
-        description: 'Validate and automatically publish a Happy-managed static preview workspace to the connected Vercel account. The public unlisted link expires after 24 hours.',
+        description: 'Publish a Happy-managed static preview. Cloudflare mode: tunnel (default, no login, requires cloudflared, session lifetime up to 24 hours) or hosted (connected Cloudflare Pages account, 24 hours, survives local shutdown). Links are public.',
         title: 'Publish Interactive Preview',
-        inputSchema: { previewId: z.string().uuid() },
-    }, async ({ previewId }) => {
-        const response = await handlers.publishPreview(previewId);
+        inputSchema: { previewId: z.string().uuid(), mode: z.enum(['tunnel', 'hosted']).optional() },
+    }, async ({ previewId, mode }) => {
+        const response = await handlers.publishPreview(previewId, mode);
         return response.success
-            ? { content: [{ type: 'text', text: JSON.stringify({ url: response.url, expiresAt: response.expiresAt }) }] }
+            ? { content: [{ type: 'text', text: JSON.stringify({ url: response.url, expiresAt: response.expiresAt, provider: 'cloudflare', mode: response.mode ?? mode ?? 'tunnel', lifetime: response.lifetime ?? '24 hours' }) }] }
             : { content: [{ type: 'text', text: `Failed to publish preview: ${response.error}` }], isError: true };
     });
 
@@ -311,6 +312,18 @@ export async function startHappyServer(
 ) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
     const previewWorkspaces = new PreviewWorkspaceRegistry();
+    const cloudflarePreviews = new Map<string, CloudflarePreview>();
+    const hostedPreviews = new Map<string, { url: string; expiresAt?: number }>();
+    const previewPublications = new Set<string>();
+    const previewAbort = new AbortController();
+    let previewCloseRegistered = false;
+    const stopCloudflarePreviews = (): void => {
+        previewAbort.abort();
+        for (const preview of cloudflarePreviews.values()) preview.stop();
+        cloudflarePreviews.clear();
+        if (previewCloseRegistered) client.removeListener('before-close', stopCloudflarePreviews);
+        previewCloseRegistered = false;
+    };
 
     const handlers: HappyMcpHandlers = {
         changeTitle: async (title: string) => {
@@ -390,14 +403,50 @@ export async function startHappyServer(
                 return { success: false, error: error instanceof Error ? error.message : String(error) };
             }
         },
-        publishPreview: async (previewId) => {
+        publishPreview: async (previewId, mode = 'tunnel') => {
+            const hosted = hostedPreviews.get(previewId);
+            if (hosted) {
+                if (mode !== 'hosted') return { success: false, error: 'This preview is cloud hosted. Create a new workspace for a tunnel.' };
+                if (hosted.expiresAt && hosted.expiresAt <= Date.now()) return { success: false, error: 'Preview expired. Create a new workspace.' };
+                return { success: true, ...hosted, provider: 'cloudflare', mode, lifetime: '24 hours (cloud hosted)' };
+            }
+            const existing = cloudflarePreviews.get(previewId);
+            if (existing) return mode === 'tunnel'
+                ? { success: true, url: existing.preview.url, expiresAt: existing.preview.expiresAt, provider: 'cloudflare', mode, lifetime: 'session (at most 24 hours)' }
+                : { success: false, error: 'This preview already uses a tunnel. Create a new workspace for cloud hosting.' };
+            if (previewPublications.has(previewId)) return { success: false, error: 'Preview publication is already in progress' };
+            if (previewAbort.signal.aborted) return { success: false, error: 'Preview session has stopped' };
+            if (mode === 'tunnel' && cloudflarePreviews.size + previewPublications.size >= 3) {
+                return { success: false, error: 'At most three Cloudflare previews can run in one session' };
+            }
+            previewPublications.add(previewId);
             try {
                 const workspace = await previewWorkspaces.resolveForPublish(client.sessionId, previewId);
+                if (mode === 'tunnel') {
+                    const running = await startCloudflarePreview(workspace, (expired) => {
+                        cloudflarePreviews.delete(previewId);
+                        client.reportInteractivePreview(expired);
+                    }, previewAbort.signal);
+                    cloudflarePreviews.set(previewId, running);
+                    if (!previewCloseRegistered) {
+                        client.once('before-close', stopCloudflarePreviews);
+                        previewCloseRegistered = true;
+                    }
+                    client.reportInteractivePreview(running.preview);
+                    await previewWorkspaces.remove(client.sessionId, previewId);
+                    return { success: true, url: running.preview.url, expiresAt: running.preview.expiresAt, provider: 'cloudflare', mode, lifetime: 'session (at most 24 hours)' };
+                }
                 const preview = await client.publishInteractivePreview(workspace);
+                if (preview.state !== 'ready' || !preview.url) {
+                    return { success: false, error: 'Cloud hosting has not become ready. Retry this preview to check its publication; do not create another deployment.' };
+                }
+                hostedPreviews.set(previewId, { url: preview.url, expiresAt: preview.expiresAt });
                 await previewWorkspaces.remove(client.sessionId, previewId);
-                return { success: true, url: preview.url, expiresAt: preview.expiresAt };
+                return { success: true, url: preview.url, expiresAt: preview.expiresAt, provider: 'cloudflare', mode, lifetime: '24 hours (cloud hosted)' };
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : String(error) };
+            } finally {
+                previewPublications.delete(previewId);
             }
         },
     };
@@ -441,9 +490,12 @@ export async function startHappyServer(
             'report_browser_step',
             'archive_session',
             'finance_chart',
+            'create_preview',
+            'publish_preview',
         ],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
+            stopCloudflarePreviews();
             server.close();
         }
     }

@@ -46,7 +46,7 @@ export const InteractivePreviewCard = React.memo(function InteractivePreviewCard
                 <View style={[styles.icon, { backgroundColor: theme.colors.surface }]}><Ionicons color={theme.colors.text} name="desktop-outline" size={18} /></View>
                 <View style={styles.copy}>
                     <Text numberOfLines={1} style={[styles.title, { color: theme.colors.text }]}>{preview.title}</Text>
-                    <Text style={[styles.provider, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.provider')}</Text>
+                    <Text style={[styles.provider, { color: theme.colors.textSecondary }]}>{t(preview.mode === 'hosted' ? 'interactivePreviews.hostedProvider' : preview.provider === 'cloudflare' ? 'interactivePreviews.tunnelProvider' : 'interactivePreviews.title')}</Text>
                     <Text style={[styles.status, { color: theme.colors.textSecondary }]}>{label}</Text>
                 </View>
             </View>
@@ -70,6 +70,7 @@ export const InteractivePreviewCard = React.memo(function InteractivePreviewCard
                     testID="interactive-preview-copy"
                 ><Ionicons color={theme.colors.text} name="copy-outline" size={16} /></Pressable>
             </View> : null}
+            {preview.provider === 'cloudflare' && preview.mode !== 'hosted' ? <Text style={[styles.expiry, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.sessionLifetime')}</Text> : null}
             {preview.expiresAt ? <Text style={[styles.expiry, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.expiresAt')} {new Date(preview.expiresAt).toLocaleString()}</Text> : null}
         </View>
     );
