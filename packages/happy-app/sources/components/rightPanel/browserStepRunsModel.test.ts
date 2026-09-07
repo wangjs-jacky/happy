@@ -96,7 +96,7 @@ describe('getBrowserStepRuns', () => {
         ]);
     });
 
-    it('isolates child agent queues and preserves orphan and ordinary images', () => {
+    it('isolates child agent queues and displays explicit orphan browser runs independently', () => {
         const childA = skillMessage('agent-a', 1, 'review') as any;
         const childB = skillMessage('agent-b', 2, 'review') as any;
         childA.tool.name = childB.tool.name = 'Agent';
@@ -106,10 +106,10 @@ describe('getBrowserStepRuns', () => {
         childB.children = [producerWireBrowserStep('orphan', 20, 'B', 'run-b', 'ego-browser')];
         const messages = [childA, childB, ordinary];
         const runs = getBrowserStepRuns(messages);
-        expect(runs.map(run => run.steps.map(step => step.id))).toEqual([['a-frame']]);
+        expect(runs.map(run => run.steps.map(step => step.id))).toEqual([['a-frame'], ['orphan']]);
         const visible = hideLinkedBrowserSteps(messages, runs) as any[];
         expect(visible[0].children.map((m: Message) => m.id)).toEqual(['a-skill']);
-        expect(visible[1]).toBe(childB);
+        expect(visible[1].children).toEqual([]);
         expect(visible[2]).toBe(ordinary);
         expect(childA.children).toHaveLength(2);
     });
@@ -130,6 +130,7 @@ describe('getBrowserStepRuns', () => {
         }))).toEqual([
             { id: 'producer-a', invocationMessageId: 'pending-a', stepIds: ['a-1', 'a-2'] },
             { id: 'producer-b', invocationMessageId: 'pending-b', stepIds: ['b-1'] },
+            { id: 'producer-c', invocationMessageId: 'orphan', stepIds: ['orphan'] },
         ]);
     });
 
@@ -165,17 +166,28 @@ describe('getBrowserStepRuns', () => {
             stepIds: run.steps.map((step) => step.id),
         }))).toEqual([
             { id: 'generated-browser-1', invocationMessageId: 'browser-invocation-1', stepIds: ['browser-1', 'browser-2'] },
+            { id: 'generated-browser-2', invocationMessageId: 'orphan-second-id', stepIds: ['orphan-second-id'] },
             { id: 'generated-ops-1', invocationMessageId: 'ops-invocation', stepIds: ['ops-1'] },
             { id: 'generated-browser-2', invocationMessageId: 'browser-invocation-2', stepIds: ['browser-3'] },
         ]);
     });
 
-    it('drops a generated run ID without a preceding unbound invocation of the same skill', () => {
-        expect(getBrowserStepRuns([
+    it('creates standalone runs for explicit Ego browser steps without a matching Skill invocation', () => {
+        const runs = getBrowserStepRuns([
             browserStep('before', 5, 'before', { runId: 'run-before', skillName: 'ego-browser' }),
             skillMessage('ops-only', 10, 'ego-ops'),
             browserStep('wrong-skill', 20, 'wrong', { runId: 'run-browser', skillName: 'ego-browser' }),
-        ])).toEqual([]);
+        ]);
+
+        expect(runs.map((run) => ({
+            id: run.id,
+            invocationMessageId: run.invocationMessageId,
+            skillName: run.skillName,
+            stepIds: run.steps.map((step) => step.id),
+        }))).toEqual([
+            { id: 'run-before', invocationMessageId: 'before', skillName: 'ego-browser', stepIds: ['before'] },
+            { id: 'run-browser', invocationMessageId: 'wrong-skill', skillName: 'ego-browser', stepIds: ['wrong-skill'] },
+        ]);
     });
 
     it('uses explicit run IDs to keep interleaved repeated Ego runs separate', () => {

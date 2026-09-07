@@ -149,11 +149,30 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
             ...run,
             steps: run.steps.slice().sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)),
         }));
+    const linkedStepIds = new Set(ownRuns.flatMap(run => run.steps.map(step => step.id)));
+    const standaloneRuns = new Map<string, BrowserStepRun>();
+    for (const step of stepByMessageId.values()) {
+        if (linkedStepIds.has(step.id) || !step.runId) continue;
+        const skillName = asEgoSkillName(step.skillName);
+        if (!skillName) continue;
+        const key = `${skillName}:${step.runId}`;
+        const run = standaloneRuns.get(key) ?? {
+            id: step.runId,
+            invocationMessageId: step.id,
+            createdAt: step.createdAt,
+            skillName,
+            steps: [],
+        };
+        run.steps.push(step);
+        standaloneRuns.set(key, run);
+    }
     // Each nested tool transcript owns its legacy/FIFO queue; never bind a
     // sibling agent's screenshot merely because its timestamp is nearby.
     const childRuns = messages.flatMap(message => message.kind === 'tool-call'
         ? getBrowserStepRuns(message.children) : []);
-    return [...ownRuns, ...childRuns].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    return [...ownRuns, ...standaloneRuns.values(), ...childRuns]
+        .map(run => ({ ...run, steps: run.steps.slice().sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)) }))
+        .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }
 
 /** Only remove evidence when its invocation has a matching progress entry. */
