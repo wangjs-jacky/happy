@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { collectCodexUsageSnapshot } from './codexUsage';
+import { collectCodexUsageSnapshot, mergeRecentCodexUsageSnapshot } from './codexUsage';
 
 function writeJsonl(filePath: string, rows: unknown[]): void {
     mkdirSync(join(filePath, '..'), { recursive: true });
@@ -237,6 +237,59 @@ describe('collectCodexUsageSnapshot', () => {
         expect(snapshot.latestEvent?.rateLimits?.primary?.usedPercent).toBe(25);
     });
 
+    it.each([false, true])('does not replace Codex quota with newer model-specific buckets (stream fallback: %s)', async (streamFallback) => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+        const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/account.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', usage, {
+                limit_id: 'codex',
+                primary: { used_percent: 14, window_minutes: 10080, resets_at: 1783414235 },
+            }),
+            tokenCount('2026-07-05T05:01:00.000Z', usage, {
+                limit_id: 'base_model_inference',
+                primary: { used_percent: 0, window_minutes: 10080 },
+            }, { input_tokens: 20, output_tokens: 4, total_tokens: 24 }),
+        ]);
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/spark.jsonl'), [
+            tokenCount('2026-07-05T05:02:00.000Z', usage, {
+                limit_id: 'codex_bengalfox',
+                limit_name: 'GPT-5.3-Codex-Spark',
+                primary: { used_percent: 0, window_minutes: 300 },
+                secondary: { used_percent: 0, window_minutes: 10080 },
+            }),
+        ]);
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-07-05T06:00:00.000Z'),
+            timeZone: 'UTC',
+            ...(streamFallback ? { ripgrepCommands: ['definitely-missing-ripgrep-for-test'] } : {}),
+        });
+        expect(snapshot.latestEvent?.timestamp).toBe('2026-07-05T05:02:00.000Z');
+        expect(snapshot.latestEvent?.rateLimitsTimestamp).toBe('2026-07-05T05:00:00.000Z');
+        expect(snapshot.latestEvent?.rateLimits?.primary).toEqual({
+            usedPercent: 14, windowMinutes: 10080, resetsAt: 1783414235,
+        });
+        expect(snapshot.latestEvent?.rateLimits?.secondary).toBeUndefined();
+        expect(snapshot.today?.totalTokens).toBe(36);
+    });
+
+    it('does not report unused Codex quota when only a model-specific bucket is available', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/spark.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', { input_tokens: 10, total_tokens: 10 }, {
+                limit_id: 'codex_bengalfox', primary: { used_percent: 0, window_minutes: 300 },
+            }),
+        ]);
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome, now: new Date('2026-07-05T06:00:00.000Z'), timeZone: 'UTC',
+        });
+        expect(snapshot.latestEvent?.rateLimits).toBeUndefined();
+        expect(snapshot.latestEvent?.rateLimitsTimestamp).toBeUndefined();
+        expect(snapshot.today?.totalTokens).toBe(10);
+    });
+
     it('limits usage to the latest calendar window and includes archived sessions', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
         created.push(codexHome);
@@ -310,6 +363,69 @@ describe('collectCodexUsageSnapshot', () => {
 
         expect(snapshot.days.map(day => day.date)).toEqual(['2025-08-31', '2026-08-30']);
         expect(snapshot.days.map(day => day.totalTokens)).toEqual([100, 200]);
+    });
+
+    it('merges an immediate one-day refresh without dropping older heatmap activity', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+        const todayFile = join(codexHome, 'sessions', '2026', '08', '30', 'today.jsonl');
+
+        writeJsonl(join(codexHome, 'sessions', '2026', '08', '01', 'older.jsonl'), [
+            tokenCount('2026-08-01T05:00:00.000Z', {
+                input_tokens: 90,
+                cached_input_tokens: 40,
+                output_tokens: 10,
+                total_tokens: 100,
+            }),
+        ]);
+        writeJsonl(todayFile, [
+            tokenCount('2026-08-30T05:00:00.000Z', {
+                input_tokens: 180,
+                cached_input_tokens: 100,
+                output_tokens: 20,
+                total_tokens: 200,
+            }, {
+                primary: { used_percent: 25, window_minutes: 300 },
+            }),
+        ]);
+
+        const previous = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-08-30T12:00:00.000Z'),
+            timeZone: 'UTC',
+        });
+
+        writeJsonl(todayFile, [
+            tokenCount('2026-08-30T05:00:00.000Z', {
+                input_tokens: 180,
+                cached_input_tokens: 100,
+                output_tokens: 20,
+                total_tokens: 200,
+            }, {
+                primary: { used_percent: 25, window_minutes: 300 },
+            }),
+            tokenCount('2026-08-30T06:00:00.000Z', {
+                input_tokens: 45,
+                cached_input_tokens: 20,
+                output_tokens: 5,
+                total_tokens: 50,
+            }, {
+                primary: { used_percent: 40, window_minutes: 300 },
+            }),
+        ]);
+
+        const recent = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-08-30T12:01:00.000Z'),
+            timeZone: 'UTC',
+            maxDays: 1,
+        });
+        const merged = mergeRecentCodexUsageSnapshot(previous, recent);
+
+        expect(merged.days.map(day => day.date)).toEqual(['2026-08-01', '2026-08-30']);
+        expect(merged.today).toMatchObject({ date: '2026-08-30', totalTokens: 250 });
+        expect(merged.latestEvent?.rateLimits?.primary?.usedPercent).toBe(40);
+        expect(merged.scannedAt).toBe(recent.scannedAt);
     });
 
     it('includes in-range events from a session file created before the visible window', async () => {

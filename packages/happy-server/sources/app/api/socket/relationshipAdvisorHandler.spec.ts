@@ -32,6 +32,41 @@ class FakeSocket {
 }
 
 describe('relationshipAdvisorHandler', () => {
+    it.each([{ chunks: [] }, { chunks: [' ', '\n'] }])('reports an empty provider reply as an error: $chunks', async ({ chunks }) => {
+        const socket = new FakeSocket();
+        relationshipAdvisorHandler(`empty-${JSON.stringify(chunks)}`, socket as any, {
+            streamChat: async function* () { for (const text of chunks) yield { text }; },
+            openRuntime: async () => configuration,
+            resolveImageUrls: async () => [],
+        });
+        socket.receive('relationship-advisor:start', {
+            requestId: 'empty', messages: [{ role: 'user', text: '看图' }], imageRefs: [],
+        }, vi.fn());
+        await vi.waitFor(() => expect(socket.emitted.at(-1)?.data).toMatchObject({ type: 'error' }));
+    });
+
+    it('resolves images on their original user message and cleans all temporary copies', async () => {
+        const socket = new FakeSocket();
+        const ref = 'advisor/user-images/12345678-1234-1234-1234-123456789abc.jpg';
+        const streamChat = vi.fn(async function* (_input: unknown) { yield { text: '看到图片了' }; });
+        const deleteImageRefs = vi.fn(async () => undefined);
+        relationshipAdvisorHandler('user-images', socket as any, {
+            streamChat, openRuntime: async () => configuration,
+            resolveImageUrls: async (_user, refs) => refs.map(() => 'https://oss.test/image'),
+            deleteImageRefs,
+        });
+        socket.receive('relationship-advisor:start', {
+            requestId: 'history',
+            messages: [{ role: 'user', text: '', imageRefs: [ref] }, { role: 'user', text: '刚才那张呢' }],
+            imageRefs: [],
+        }, vi.fn());
+        await vi.waitFor(() => expect(deleteImageRefs).toHaveBeenCalledWith('user-images', [ref]));
+        expect(streamChat.mock.calls[0]?.[0]).toMatchObject({ messages: [
+            { role: 'user', text: '', imageUrls: ['https://oss.test/image'] },
+            { role: 'user', text: '刚才那张呢' },
+        ] });
+    });
+
     it('acknowledges immediately and streams text deltas to the requesting socket', async () => {
         const socket = new FakeSocket();
         const streamChat = vi.fn(async function* () {

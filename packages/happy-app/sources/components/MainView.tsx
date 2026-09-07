@@ -8,6 +8,7 @@ import { SessionsList } from './SessionsList';
 import { ComposeHome } from './ComposeHome';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { Typography } from '@/constants/Typography';
+import { useSessionListSyncState } from '@/sync/sessionListSyncState';
 
 interface MainViewProps {
     variant: 'phone' | 'sidebar';
@@ -85,6 +86,7 @@ export const MainView = React.memo(({ sessionListLayout = 'projects', variant }:
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
     const realtimeStatus = useRealtimeStatus();
+    const bootstrap = useSessionListSyncState(state => state.bootstrap);
 
     // Sidebar variant
     if (variant === 'sidebar') {
@@ -93,7 +95,7 @@ export const MainView = React.memo(({ sessionListLayout = 'projects', variant }:
             return (
                 <View style={styles.sidebarContentContainer}>
                     <View style={styles.tabletLoadingContainer}>
-                        <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                        {bootstrap !== 'error' && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                     </View>
                 </View>
             );

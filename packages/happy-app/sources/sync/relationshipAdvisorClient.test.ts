@@ -12,6 +12,21 @@ vi.mock('./apiSocket', () => ({
 import { RelationshipAdvisorClient } from './relationshipAdvisorClient';
 
 describe('RelationshipAdvisorClient', () => {
+    it.each([false, true])('handles an empty stream with cancellation=%s', async (cancelled) => {
+        let listener: (event: unknown) => void = () => undefined;
+        const client = new RelationshipAdvisorClient({
+            onMessage: (_name, callback) => { listener = callback; return vi.fn(); },
+            onStatusChange: () => vi.fn(), emitWithAck: async () => ({ ok: true }), send: () => true,
+        });
+        const onEvent = vi.fn();
+        await client.start({ requestId: 'empty', messages: [{ role: 'user', text: 'hello' }], imageRefs: [] }, onEvent);
+        listener({ requestId: 'empty', type: 'delta', text: ' \n' });
+        if (cancelled) client.cancel('empty');
+        listener({ requestId: 'empty', type: 'done' });
+        expect(onEvent).toHaveBeenCalledExactlyOnceWith(cancelled
+            ? { requestId: 'empty', type: 'done' }
+            : { requestId: 'empty', type: 'error', error: 'empty_response' });
+    });
     it('subscribes before starting and forwards only events for the active request', async () => {
         let socketListener: ((event: unknown) => void) | undefined;
         const unsubscribe = vi.fn();

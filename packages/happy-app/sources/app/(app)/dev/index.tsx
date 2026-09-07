@@ -371,6 +371,7 @@ export default function DevScreen() {
                             { confirmText: t('common.reset'), destructive: true }
                         );
                         if (confirmed) {
+                            await sync.resetLocalHistory();
                             console.log('App state reset');
                         }
                     }}

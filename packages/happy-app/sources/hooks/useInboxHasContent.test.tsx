@@ -7,11 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 
 vi.mock('@/hooks/useUpdates', () => ({ useUpdates: () => ({ updateAvailable: false }) }));
-vi.mock('@/sync/storage', () => ({
-    useFeedItems: () => [],
-    useFriendRequests: () => [],
-    useRequestedFriends: () => [],
-}));
 vi.mock('@/hooks/useChangelog', () => ({ useChangelog: () => ({ hasUnread: true }) }));
 vi.mock('@/hooks/useCodexAttachCandidateInbox', () => ({
     useCodexAttachCandidateInbox: () => ({ candidates: [] }),

@@ -143,12 +143,39 @@ vi.mock('expo-camera', () => ({
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import AuthenticatedRootLayout from './AuthenticatedRootLayout';
+import { loadAppRootFonts } from './appRootFonts';
+import { TokenStorage } from '@/auth/tokenStorage';
+import { syncRestore } from '@/sync/sync';
+import { Platform } from 'react-native';
 
 describe('AuthenticatedRootLayout scanner provider topology', () => {
     let renderer: TestRenderer.ReactTestRenderer | undefined;
 
     beforeEach(() => {
+        vi.mocked(loadAppRootFonts).mockResolvedValue(undefined);
+        vi.mocked(TokenStorage.getCredentials).mockResolvedValue(null);
+        vi.mocked(syncRestore).mockClear();
+        Platform.OS = 'web';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    });
+
+    it.each(['web', 'ios'] as const)('keeps pending fonts off the Web boot path while retaining the %s prerequisite', async (platform) => {
+        Platform.OS = platform;
+        let finishFonts!: () => void;
+        vi.mocked(loadAppRootFonts).mockReturnValue(new Promise(resolve => { finishFonts = resolve; }));
+        const credentials = { token: 'restored-token', secret: 'restored-secret' };
+        vi.mocked(TokenStorage.getCredentials).mockResolvedValue(credentials);
+        await act(async () => { renderer = TestRenderer.create(<AuthenticatedRootLayout />); });
+        if (platform === 'web') {
+            expect(renderer!.toJSON()).not.toBeNull();
+            expect(syncRestore).toHaveBeenCalledWith(credentials);
+        } else {
+            expect(renderer!.toJSON()).toBeNull();
+            expect(syncRestore).not.toHaveBeenCalled();
+        }
+        await act(async () => { finishFonts(); });
+        expect(renderer!.toJSON()).not.toBeNull();
+        expect(syncRestore).toHaveBeenCalledWith(credentials);
     });
 
     afterEach(() => {

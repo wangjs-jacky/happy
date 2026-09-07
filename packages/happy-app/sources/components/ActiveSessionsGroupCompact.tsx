@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Platform } from 'react-native';
+import { View, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { Feather } from '@expo/vector-icons';
 import { type SessionState, getSessionStateLabel } from '@/utils/sessionUtils';
@@ -279,6 +279,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
     const navigateToSession = useNavigateToSession();
     const router = useRouter();
     const organization = useSetting('sidebarOrganization');
+    const compactTitle = useWindowDimensions().width < 600;
     const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
     const disclosure = useSessionRowDisclosure(session.name);
     const presentation = useSessionRowPresentation(session);
@@ -400,7 +401,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                                     styles.sessionTitle,
                                     session.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
                                 ]}
-                                numberOfLines={1}
+                                numberOfLines={compactTitle ? 2 : 1}
                                 testID="session-row-title-text"
                             >
                                 {session.name}

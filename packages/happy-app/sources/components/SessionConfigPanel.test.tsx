@@ -238,21 +238,16 @@ describe('SessionConfigPanel composer layout', () => {
         expect(renderer.root.findByProps({ testID: 'session-config-machine-trigger' })).toBeDefined();
         expect(renderer.root.findByProps({ testID: 'session-config-path-trigger' })).toBeDefined();
         expect(renderer.root.findByProps({ testID: 'session-config-agent-trigger' })).toBeDefined();
-        expect(renderer.root.findByProps({ testID: 'session-config-worktree-trigger' })).toBeDefined();
+        expect(renderer.root.findAllByProps({ testID: 'session-config-worktree-trigger' })).toHaveLength(0);
         expect(renderer.root.findByProps({ testID: 'session-config-permission-trigger' })).toBeDefined();
         expect(renderer.root.findByProps({ testID: 'session-config-model-trigger' })).toBeDefined();
         expect(renderer.root.findByProps({ testID: 'session-config-effort-trigger' })).toBeDefined();
         expect(renderer.root.findByProps({ testID: 'session-config-fast-toggle' })).toBeDefined();
         expect(mocks.listWorktrees).not.toHaveBeenCalled();
 
-        await act(async () => {
-            renderer.root.findByProps({ testID: 'session-config-worktree-trigger' }).props.onPress();
-            await Promise.resolve();
-        });
-        expect(mocks.listWorktrees).toHaveBeenCalledOnce();
-        act(() => renderer.root.findByProps({ accessibilityLabel: 'new worktree' }).props.onPress());
-        expect(mocks.setWorktreeKey).toHaveBeenLastCalledWith('__new__');
-        act(() => vi.runOnlyPendingTimers());
+        const controls = renderer.root.findByProps({ testID: 'new-session-composer-config-controls' });
+        expect(controls.props.style).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
+
         mocks.pickerCloseFocus.mockClear();
 
         act(() => renderer.root.findByProps({ testID: 'session-config-model-trigger' }).props.onPress());
@@ -279,7 +274,7 @@ describe('SessionConfigPanel composer layout', () => {
         const ref = React.createRef<any>();
         await act(async () => {
             renderer = TestRenderer.create(
-                <SessionConfigPanel ref={ref} layout="composer" collapsible={false} />,
+                <SessionConfigPanel ref={ref} layout="inline" collapsible={false} />,
             );
             await Promise.resolve();
         });

@@ -5,6 +5,7 @@ import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 import { generateThumbhash } from '@/utils/thumbhash';
+import { getImagesFromClipboard } from '@/utils/pasteImages.web';
 import { layout } from './layout';
 import { MultiTextInput, KeyPressEvent } from './MultiTextInput';
 import { Typography } from '@/constants/Typography';
@@ -176,6 +177,21 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         gap: 8,
         flex: 1,
         overflow: 'hidden',
+    },
+    machineLabel: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        height: 32,
+        maxWidth: '100%',
+        minWidth: 0,
+        paddingHorizontal: 10,
+        gap: 6,
+    },
+    machineLabelText: {
+        flexShrink: 1,
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        ...Typography.default('semiBold'),
     },
     actionButtonsRight: {
         flexDirection: 'row',
@@ -375,7 +391,7 @@ type ContextChipsProps = {
 
 const AgentInputContextChips = React.memo(function AgentInputContextChips(p: ContextChipsProps) {
     const { theme } = useUnistyles();
-    if (p.machineName === undefined && !p.currentPath) {
+    if (!(p.machineName !== undefined && p.onMachineClick) && !(p.currentPath && p.onPathClick)) {
         return null;
     }
     return (
@@ -497,6 +513,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     const shakerRef = React.useRef<ShakeInstance>(null);
     const sendBlockShakerRef = React.useRef<ShakeInstance>(null);
     const inputRef = React.useRef<MultiTextInputHandle>(null);
+    const composerContentRef = React.useRef<View>(null);
 
     // Forward ref to the MultiTextInput
     React.useImperativeHandle(ref, () => inputRef.current!, []);
@@ -505,22 +522,17 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     // attachment feature. Both handlers funnel through props.onAddImages.
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !props.onAddImages) return;
+        const composerElement = composerContentRef.current as unknown as HTMLElement | null;
+        if (!composerElement) return;
 
         const handlePaste = async (e: ClipboardEvent) => {
-            // Only handle pastes targeted at a focused text-editable element.
-            // The listener is attached to document, so without this guard a
-            // paste in the URL bar, another modal, or any focused-elsewhere
-            // input would steal images intended for somewhere else.
-            const active = document.activeElement;
-            const isEditableTarget = active instanceof HTMLInputElement
-                || active instanceof HTMLTextAreaElement
-                || (active instanceof HTMLElement && active.isContentEditable);
-            if (!isEditableTarget) return;
-
-            const { getImagesFromClipboard, fileToAttachmentPreview } = await import('@/utils/pasteImages.web');
+            // A retained home/new-session composer can share the same draft.
+            // Only the composer containing the paste target should add images.
+            if (e.defaultPrevented) return;
             const files = getImagesFromClipboard(e);
             if (!files.length) return;
             e.preventDefault();
+            const { fileToAttachmentPreview } = await import('@/utils/pasteImages.web');
             const previews = (await Promise.all(
                 files.map((f) => fileToAttachmentPreview(f, generateThumbhash))
             )).filter(Boolean) as Omit<AttachmentPreview, 'id'>[];
@@ -568,11 +580,11 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             }
         };
 
-        document.addEventListener('paste', handlePaste as any);
+        composerElement.addEventListener('paste', handlePaste);
         document.addEventListener('dragover', handleDragOver);
         document.addEventListener('drop', handleDrop);
         return () => {
-            document.removeEventListener('paste', handlePaste as any);
+            composerElement.removeEventListener('paste', handlePaste);
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
         };
@@ -763,7 +775,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             <View style={[
                 styles.innerContainer,
                 { maxWidth: layout.maxWidth }
-            ]} testID="message-composer-content">
+            ]} ref={composerContentRef} testID="message-composer-content">
                 {/* Autocomplete suggestions overlay */}
                 {suggestions.length > 0 && (
                     <View style={[
@@ -1041,6 +1053,22 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                             </View>
                         </View>
                     </View>
+                    {isSession && !props.zenMode && props.machineName && !props.onMachineClick && supportsDesktopComposerModeSelector({
+                        isWeb: Platform.OS === 'web',
+                        windowWidth: screenWidth,
+                    }) ? (
+                        <View
+                            testID="session-composer-machine"
+                            accessibilityLabel={`${t('devTools.machine')}: ${props.machineName}`}
+                            style={styles.machineLabel}
+                        >
+                            <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={styles.machineLabelText} numberOfLines={1} ellipsizeMode="tail">
+                                {props.machineName}
+                            </Text>
+                        </View>
+                    ) : null}
+
                 </View>
                 </Shaker>
             </View>

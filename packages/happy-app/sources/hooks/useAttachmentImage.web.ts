@@ -8,6 +8,7 @@ import { createAttachmentImageSource } from '@/utils/attachmentImageSource';
 import type { LoadedAttachmentImageSource } from '@/utils/attachmentImageSourceTypes';
 import type { AttachmentImageOptions, AttachmentImageState } from './attachmentImageTypes';
 import { detectHonorMotionPhoto } from '@slopus/happy-wire';
+import { attachmentCacheGeneration, captureAttachmentContext, subscribeAttachmentCache, type AttachmentContext } from '@/sync/attachmentCacheContext';
 
 export type { AttachmentImageState } from './attachmentImageTypes';
 
@@ -21,6 +22,14 @@ const fullImageCache = new Map<string, LoadedMotionImageSource>();
 const viewerImageCache = new Map<string, LoadedMotionImageSource>();
 const inFlight = new Map<string, Promise<LoadedMotionImageSource | null>>();
 let viewerCacheGeneration = 0;
+subscribeAttachmentCache(() => {
+    releaseImageViewerImageCache();
+    for (const cache of [thumbnailCache, fullImageCache]) {
+        for (const source of cache.values()) source.dispose();
+        cache.clear();
+    }
+    inFlight.clear();
+});
 
 export function releaseImageViewerImageCache() {
     viewerCacheGeneration += 1;
@@ -92,9 +101,10 @@ async function loadAttachmentSource(
     sessionId: string,
     ref: string,
     options: AttachmentImageOptions | undefined,
+    context: AttachmentContext,
 ): Promise<LoadedMotionImageSource | null> {
     const credentials = sync.getCredentials();
-    if (!credentials) {
+    if (!credentials || credentials.token !== context.token || !context.isCurrent()) {
         console.warn(`[attachment-image] no credentials for ${ref}`);
         return null;
     }
@@ -118,6 +128,10 @@ async function loadAttachmentSource(
     }
     const mime = detectSupportedImageMime(decrypted) ?? 'image/png';
     const source: LoadedMotionImageSource = await createAttachmentImageSource(decrypted, mime, options);
+    try {
+        await context.assertCurrent();
+        if (sync.getCredentials()?.token !== context.token) throw new Error('Attachment context expired');
+    } catch { source.dispose(); return null; }
     const motionPhoto = detectHonorMotionPhoto(decrypted);
     if (motionPhoto) source.motionPhoto = motionPhoto;
     return source;
@@ -130,10 +144,13 @@ export function useAttachmentImage(
     ref: string | undefined,
     options?: AttachmentImageOptions,
 ): AttachmentImageState {
+    React.useSyncExternalStore(subscribeAttachmentCache, attachmentCacheGeneration, attachmentCacheGeneration);
+    const credentials = sync.getCredentials();
+    const context = credentials ? captureAttachmentContext(credentials, sessionId) : null;
     const variant = options?.lifetime === 'viewer'
         ? 'viewer'
         : options?.maxDimension ? `thumbnail-${options.maxDimension}` : 'full';
-    const cacheKey = ref ? `${sessionId}:${ref}:${variant}` : null;
+    const cacheKey = ref && context ? `${JSON.stringify([context.key, ref])}:${variant}` : null;
     const cache = getCache(options);
     const sourceWidth = options?.sourceWidth;
     const sourceHeight = options?.sourceHeight;
@@ -148,7 +165,7 @@ export function useAttachmentImage(
     });
 
     React.useEffect(() => {
-        if (!ref || !cacheKey) {
+        if (!ref || !cacheKey || !context) {
             setState({ cacheKey: null, uri: null, loading: false, error: null });
             return;
         }
@@ -167,10 +184,10 @@ export function useAttachmentImage(
             const requestOptions = { lifetime, maxDimension, sourceWidth, sourceHeight };
             const requestGeneration = viewerCacheGeneration;
             const schedule = maxDimension ? scheduleThumbnail : scheduleFullImage;
-            promise = schedule(() => loadAttachmentSource(sessionId, ref, requestOptions))
+            promise = schedule(() => loadAttachmentSource(sessionId, ref, requestOptions, context))
                 .then((source) => {
                     if (!source) return null;
-                    if (lifetime === 'viewer' && requestGeneration !== viewerCacheGeneration) {
+                    if (!context.isCurrent() || (lifetime === 'viewer' && requestGeneration !== viewerCacheGeneration)) {
                         source.dispose();
                         return null;
                     }
@@ -182,7 +199,7 @@ export function useAttachmentImage(
         }
 
         promise.then((source) => {
-            if (cancelled) return;
+            if (cancelled || !context.isCurrent()) return;
             setState(source
                 ? { cacheKey, uri: source.uri, loading: false, error: null, motionPhoto: source.motionPhoto }
                 : { cacheKey, uri: null, loading: false, error: 'decrypt_failed' });

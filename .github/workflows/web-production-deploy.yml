@@ -1,4 +1,5 @@
 name: Deploy Paws Web to production (on merge to main)
+run-name: '${{ github.event.head_commit.message || github.ref_name }} · Web 生产部署'
 
 on:
   push:
@@ -13,6 +14,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   deploy:
@@ -39,16 +41,33 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Describe the PR feature
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { featureContext } = require('./scripts/pr-feature-context.cjs');
+            const markdown = await featureContext({ github, context, core });
+            await core.summary.addRaw(markdown + '\n\n').write();
+
       - name: Guard exact merged main revision before external mutation
+        id: source
+        env:
+          PAWS_WEB_SKIP_SUPERSEDED: '1'
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/main'
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          worktree_status="$(git status --short)"
+          test -z "$worktree_status"
+          origin_main_revision="$(git rev-parse refs/remotes/origin/main)"
+          source scripts/web-release-source.sh
+          assert_web_release_is_current "$PWD" "$GITHUB_SHA" "$origin_main_revision"
           git checkout -B main "$GITHUB_SHA"
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
 
       - name: Guard deployment configuration
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           test -n "$ALIBABA_CLOUD_ACCESS_KEY_ID" || { echo '::error::Missing ALIYUN_OSS_ACCESS_KEY_ID secret.'; exit 1; }
@@ -60,18 +79,22 @@ jobs:
           test "$PAWS_LEGACY_WEB_PATH" = '/var/www/happy-web'
 
       - name: Install pnpm
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
       - name: Install dependencies
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: pnpm install --frozen-lockfile
 
       - name: Install Aliyun CLI
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
@@ -84,6 +107,7 @@ jobs:
             --region cn-hangzhou
 
       - name: Configure verified SSH access
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           install -d -m 700 ~/.ssh
@@ -103,6 +127,7 @@ jobs:
 
       - name: Resolve MCP App sandbox rollout
         id: mcp_rollout
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           if [ -z "$PAWS_MCP_APP_SANDBOX_ORIGIN" ]; then
@@ -129,7 +154,7 @@ jobs:
 
       - name: Configure MCP App sandbox route
         id: mcp_caddy
-        if: ${{ steps.mcp_rollout.outputs.enabled == 'true' }}
+        if: ${{ steps.source.outputs.eligible == 'true' && steps.mcp_rollout.outputs.enabled == 'true' }}
         run: |
           set -euo pipefail
           current_caddy="$(mktemp)"
@@ -159,9 +184,9 @@ jobs:
               pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
               active_state="$(systemctl show caddy --property=ActiveState --value)"
               reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
-              if [ -z "$pending_jobs" ]; then
-                [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }
-                return
+              if [ -z "$pending_jobs" ] && [ "$active_state" = 'active' ] \
+                  && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                return 0
               fi
               sleep 1
             done
@@ -181,10 +206,11 @@ jobs:
 
       - name: Verify MCP App sandbox endpoint
         id: mcp_verify
-        if: ${{ steps.mcp_rollout.outputs.enabled == 'true' }}
+        if: ${{ steps.source.outputs.eligible == 'true' && steps.mcp_rollout.outputs.enabled == 'true' }}
         run: node scripts/verify-production-mcp-app-sandbox.mjs "$PAWS_MCP_APP_SANDBOX_ORIGIN" "$PAWS_WEB_ORIGIN"
 
       - name: Build and stamp Web from this main revision
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           RELEASE_TIMESTAMP="$(git show -s --format=%cI "$GITHUB_SHA")"
@@ -198,41 +224,43 @@ jobs:
             HAPPY_BUILD_COMMIT_TIMESTAMP="$RELEASE_TIMESTAMP" \
             pnpm --filter happy-app exec expo export --platform web --clear
           pnpm --filter happy-app exec tsx sources/scripts/injectWebLoading.ts
+          node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html
           node scripts/stamp-web-release.mjs \
             packages/happy-app/dist/index.html \
             packages/happy-app/dist/.paws-release-revision \
             "$GITHUB_SHA"
 
       - name: Upload complete immutable Web release
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: bash scripts/upload-web-assets.sh
 
       - name: Verify immutable OSS release before activation
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: node scripts/verify-web-release.mjs "$PAWS_WEB_OSS_ORIGIN" packages/happy-app/dist/index.html --immutable "$PAWS_WEB_ORIGIN"
 
       - name: Atomically switch OSS Web entry
         id: switch
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         env:
           PAWS_SKIP_BUILD: '1'
+          PAWS_WEB_SKIP_SUPERSEDED: '1'
           PAWS_WEB_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: pnpm web:deploy
 
       - name: Route the Web SPA to OSS
         id: caddy
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: |
           set -euo pipefail
           current_caddy="$(mktemp)"
+          web_caddy="$(mktemp)"
           next_caddy="$(mktemp)"
           remote_candidate="/tmp/paws-caddy-$GITHUB_SHA"
           remote_backup="/etc/caddy/Caddyfile.paws-web-oss.previous-$GITHUB_SHA"
-          trap 'rm -f "$current_caddy" "$next_caddy"' EXIT
+          trap 'rm -f "$current_caddy" "$web_caddy" "$next_caddy"' EXIT
           ssh -p "$PAWS_DEPLOY_PORT" "$PAWS_DEPLOY_HOST" 'cat /etc/caddy/Caddyfile' > "$current_caddy"
-          caddy_change="$(node scripts/configure-production-web-caddy.mjs "$current_caddy" "$next_caddy")"
-          if [ "$caddy_change" = 'unchanged' ]; then
-            echo 'backup_path=' >> "$GITHUB_OUTPUT"
-            echo 'Caddyfile already routes the Web SPA to OSS.'
-            exit 0
-          fi
-          test "$caddy_change" = 'changed'
+          node scripts/configure-production-web-caddy.mjs "$current_caddy" "$web_caddy"
+          node scripts/configure-production-tunnel-caddy.mjs "$web_caddy" "$next_caddy"
           scp -P "$PAWS_DEPLOY_PORT" "$next_caddy" "$PAWS_DEPLOY_HOST:$remote_candidate"
           echo "backup_path=$remote_backup" >> "$GITHUB_OUTPUT"
           ssh -p "$PAWS_DEPLOY_PORT" "$PAWS_DEPLOY_HOST" bash -s -- "$remote_candidate" "$remote_backup" "$PAWS_LEGACY_WEB_PATH" <<'REMOTE_SCRIPT'
@@ -243,36 +271,79 @@ jobs:
           config="/etc/caddy/Caddyfile"
           test "$legacy_path" = '/var/www/happy-web'
           cleanup() { rm -f -- "$candidate"; }
+          check_tunnel_listeners() {
+            jq -e '
+              def includes_tunnel_port:
+                capture(":(?<first>[0-9]+)(?:-(?<last>[0-9]+))?$")
+                | (.first | tonumber) <= 8081 and ((.last // .first) | tonumber) >= 8081;
+              [.apps.http.servers[] | select(any(.listen[]; includes_tunnel_port))] as $origins
+              | ($origins | length) == 1
+                and all($origins[]; .listen == ["127.0.0.1:8081"])
+            ' >/dev/null
+          }
+          wait_for_reload() {
+            for ((attempt=1; attempt<=30; attempt+=1)); do
+              pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+              active_state="$(systemctl show caddy --property=ActiveState --value)"
+              reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+              if [ -z "$pending_jobs" ] && [ "$active_state" = 'active' ] \
+                  && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+          smoke_tunnel_origin() {
+            local health_headers
+            health_headers="$(curl --fail --silent --show-error --noproxy '*' --max-time 10 --dump-header - --output /dev/null \
+              --header 'Host: paws.rodeo' http://127.0.0.1:8081/health)" || return 1
+            awk '{ sub(/\r$/, ""); line=tolower($0)
+              if (line ~ /^cache-control:[ \t]*no-store[ \t]*$/) found++
+              else if (line ~ /^cache-control:/) bad=1
+            } END { exit !(found == 1 && !bad) }' <<<"$health_headers" || return 1
+            test "$(curl --silent --show-error --noproxy '*' --max-time 10 --output /dev/null --write-out '%{http_code}' \
+              --header 'Host: invalid.example' http://127.0.0.1:8081/health)" = '421' || return 1
+            ss -lnt | awk '$4 == "127.0.0.1:8081" { found=1 } END { exit !found }'
+          }
           trap cleanup EXIT
           cp -p -- "$config" "$backup"
-          install -m 644 -- "$candidate" "$config"
-          if ! caddy validate --config "$config"; then
-            cp -p -- "$backup" "$config"
-            exit 1
-          fi
-          if ! adapted_config="$(caddy adapt --config "$config" --adapter caddyfile)"; then
-            cp -p -- "$backup" "$config"
-            exit 1
-          fi
+          caddy validate --config "$candidate" --adapter caddyfile
+          adapted_config="$(caddy adapt --config "$candidate" --adapter caddyfile)"
+          check_tunnel_listeners <<<"$adapted_config"
           if grep -Fq -- "$legacy_path" <<<"$adapted_config"; then
             echo "错误：expanded Caddy config 仍引用 $legacy_path，拒绝激活。" >&2
-            cp -p -- "$backup" "$config"
             exit 1
           fi
-          if ! systemctl --no-block reload caddy; then
+          if ! cmp -s -- "$candidate" "$config"; then
+            install -m 644 -- "$candidate" "$config"
+            if ! systemctl --no-block reload caddy || ! wait_for_reload; then
+              cp -p -- "$backup" "$config"
+              caddy validate --config "$config"
+              systemctl --no-block reload caddy
+              wait_for_reload
+              exit 1
+            fi
+          fi
+          # Also verify unchanged configurations; no-op generation must not hide
+          # an inactive origin or a listener that no longer matches the contract.
+          if ! smoke_tunnel_origin; then
             cp -p -- "$backup" "$config"
             caddy validate --config "$config"
             systemctl --no-block reload caddy
+            wait_for_reload
             exit 1
           fi
           REMOTE_SCRIPT
 
       - name: Verify live OSS-backed release and routes
         id: live_verify
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: node scripts/verify-web-release.mjs "$PAWS_WEB_ORIGIN" packages/happy-app/dist/index.html
 
       - name: Remove guarded legacy Web files
         id: cleanup
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: |
           set -euo pipefail
           legacy_path="$PAWS_LEGACY_WEB_PATH"
@@ -304,7 +375,9 @@ jobs:
           REMOTE_SCRIPT
 
       - name: Roll back failed Web activation
-        if: ${{ failure() && steps.live_verify.outcome != 'success' }}
+        # Supersession can happen after sandbox route preparation. Restore that
+        # preparation too; rollback errors must still fail the job.
+        if: ${{ (failure() || steps.switch.outputs.superseded == 'true') && steps.live_verify.outcome != 'success' }}
         run: |
           set -uo pipefail
           rollback_prefix="${{ steps.switch.outputs.rollback_prefix }}"
@@ -327,26 +400,24 @@ jobs:
             /etc/caddy/Caddyfile.paws-web-oss.previous-*) ;;
             *) echo "错误：Caddy rollback path 越界。" >&2; exit 1 ;;
           esac
+          wait_for_reload() {
+            for ((attempt=1; attempt<=30; attempt+=1)); do
+              pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+              active_state="$(systemctl show caddy --property=ActiveState --value)"
+              reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+              if [ -z "$pending_jobs" ] && [ "$active_state" = 'active' ] \
+                  && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
           test -f "$backup"
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
           systemctl --no-block reload caddy
-          reload_completed=0
-          for ((attempt=1; attempt<=30; attempt+=1)); do
-            pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
-            active_state="$(systemctl show caddy --property=ActiveState --value)"
-            reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
-            if [ -z "$pending_jobs" ]; then
-              if [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
-                reload_completed=1
-                break
-              fi
-              echo "错误：Caddy rollback reload 失败（state=$active_state, result=${reload_result:-unknown}）。" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-          if [ "$reload_completed" -ne 1 ]; then
+          if ! wait_for_reload; then
             echo '错误：Caddy rollback reload 未在 30 秒内完成。' >&2
             exit 1
           fi
@@ -366,26 +437,24 @@ jobs:
             /etc/caddy/Caddyfile.paws-mcp-app.previous-*) ;;
             *) echo "错误：MCP App Caddy rollback path 越界。" >&2; exit 1 ;;
           esac
+          wait_for_reload() {
+            for ((attempt=1; attempt<=30; attempt+=1)); do
+              pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+              active_state="$(systemctl show caddy --property=ActiveState --value)"
+              reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+              if [ -z "$pending_jobs" ] && [ "$active_state" = 'active' ] \
+                  && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
           test -f "$backup"
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
           systemctl --no-block reload caddy
-          reload_completed=0
-          for ((attempt=1; attempt<=30; attempt+=1)); do
-            pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
-            active_state="$(systemctl show caddy --property=ActiveState --value)"
-            reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
-            if [ -z "$pending_jobs" ]; then
-              if [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
-                reload_completed=1
-                break
-              fi
-              echo "错误：MCP App Caddy rollback reload 失败（state=$active_state, result=${reload_result:-unknown}）。" >&2
-              exit 1
-            fi
-            sleep 1
-          done
-          if [ "$reload_completed" -ne 1 ]; then
+          if ! wait_for_reload; then
             echo '错误：MCP App Caddy rollback reload 未在 30 秒内完成。' >&2
             exit 1
           fi
@@ -399,7 +468,7 @@ jobs:
           fi
 
       - name: Write deployment summary
-        if: success()
+        if: ${{ success() && steps.live_verify.outcome == 'success' }}
         run: |
           {
             echo '### Paws Web deployed'
@@ -411,4 +480,20 @@ jobs:
             echo "| Static storage | \`oss://$PAWS_WEB_OSS_BUCKET/web/releases/$GITHUB_SHA/\` |"
             echo '| Server Web files | Removed after verification |'
             echo "| MCP Apps | ${{ steps.mcp_rollout.outputs.enabled == 'true' && 'Enabled after sandbox verification' || 'Disabled (repository variable unset)' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write superseded deployment summary
+        if: ${{ success() && (steps.source.outputs.superseded == 'true' || steps.switch.outputs.superseded == 'true') }}
+        env:
+          SUPERSEDED_BY: ${{ steps.switch.outputs.superseded_by || steps.source.outputs.superseded_by }}
+        run: |
+          {
+            echo '### Paws Web deployment skipped'
+            echo ''
+            echo '此提交已被更新的 main 取代；未激活本次 Web 产物。请查看较新提交的自动部署结果。'
+            echo ''
+            echo '| Field | Value |'
+            echo '| --- | --- |'
+            echo "| Skipped commit | \`$GITHUB_SHA\` |"
+            echo "| Superseding main | \`$SUPERSEDED_BY\` |"
           } >> "$GITHUB_STEP_SUMMARY"

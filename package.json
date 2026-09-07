@@ -8,6 +8,8 @@
         "app:ios": "pnpm env:ios",
         "web": "pnpm --filter happy-app web",
         "web:deploy": "bash ./scripts/deploy-web.sh",
+        "tunnel:check-dns": "node scripts/check-production-tunnel-dns.mjs",
+        "tunnel:verify": "node scripts/verify-production-tunnel.mjs",
         "codium": "pnpm --filter codium dev",
         "app-logs": "pnpm --filter happy-app-logs start",
         "pnpm:devPreinstall": "node ./scripts/mark-node-modules-noindex.cjs --ensure-root",

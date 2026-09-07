@@ -9,6 +9,7 @@ import { SessionRouteAbandonedError, SessionRouteCoordinationError, SessionRoute
 const mocks = vi.hoisted(() => ({
     abandonSessionRoute: vi.fn(),
     beginSessionRoute: vi.fn(),
+    isSessionRouteOwner: vi.fn(),
     promoteSessionRoute: vi.fn(),
     leaveSessionRoute: vi.fn(),
     setCurrentViewingSession: vi.fn(),
@@ -16,6 +17,15 @@ const mocks = vi.hoisted(() => ({
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
     session: null as any,
+    sessionListeners: new Set<() => void>(),
+    messages: [] as any[],
+    messagesLoaded: false,
+    messagesAtLatest: true,
+    latestVerifiedOwnerEpoch: null as number | null,
+    currentRouteOwnerEpoch: null as number | null,
+    autoVerifyRouteOwner: true,
+    focusContext: null as unknown as React.Context<boolean>,
+    currentViewingSessionId: null as string | null,
 }));
 
 vi.mock('react-native', () => ({
@@ -38,6 +48,8 @@ vi.mock('react-native-reanimated', () => ({
 vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
+vi.mock('react-native-gesture-handler', () => ({ ScrollView: 'ScrollView' }));
+vi.mock('react-native-keyboard-controller', () => ({ useKeyboardState: () => ({ isVisible: false, height: 0 }) }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         dark: true,
@@ -68,16 +80,31 @@ vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: vi.fn() }),
     useRouter: () => ({ back: vi.fn(), navigate: vi.fn(), push: vi.fn() }),
 }));
-vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) } }));
+vi.mock('@react-navigation/native', async () => {
+    const ReactModule = await import('react');
+    mocks.focusContext = ReactModule.createContext(true);
+    return {
+        DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) },
+        useIsFocused: () => ReactModule.useContext(mocks.focusContext),
+    };
+});
 
 vi.mock('@/sync/storage', () => ({
-    storage: { getState: () => ({ currentViewingSessionId: null, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
+    storage: { getState: () => ({ sessions: mocks.session ? { [mocks.session.id]: mocks.session } : {}, currentViewingSessionId: mocks.currentViewingSessionId, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
     useIsDataReady: () => true,
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
     useMachine: () => null,
-    useSession: () => mocks.session,
-    useSessionMessages: () => ({ messages: [], isLoaded: false }),
+    useSession: () => React.useSyncExternalStore(
+        listener => { mocks.sessionListeners.add(listener); return () => { mocks.sessionListeners.delete(listener); }; },
+        () => mocks.session,
+    ),
+    useSessionMessages: () => ({
+        messages: mocks.messages,
+        isLoaded: mocks.messagesLoaded,
+        isAtLatest: mocks.messagesAtLatest,
+        latestVerifiedOwnerEpoch: mocks.latestVerifiedOwnerEpoch,
+    }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useSettingUpdater: () => vi.fn(),
@@ -86,6 +113,7 @@ vi.mock('@/sync/sync', () => ({
     sync: {
         abandonSessionRoute: mocks.abandonSessionRoute,
         beginSessionRoute: mocks.beginSessionRoute,
+        isSessionRouteOwner: mocks.isSessionRouteOwner,
         promoteSessionRoute: mocks.promoteSessionRoute,
         leaveSessionRoute: mocks.leaveSessionRoute,
         ensureSessionHydrated: mocks.ensureSessionHydrated,
@@ -148,7 +176,14 @@ vi.mock('@/hooks/useSessionWorkingDirectory', () => ({ useSessionWorkingDirector
 vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({ selectedImages: [] }) }));
 
-vi.mock('@/components/AgentContentView', () => ({ AgentContentView: 'AgentContentView' }));
+// Keep the existing host selector while exercising the real content/placeholder
+// mounting behavior. In particular, content must cross the real Deferred timer.
+vi.mock('@/components/AgentContentView', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/AgentContentView')>();
+    return { AgentContentView: (props: React.ComponentProps<typeof actual.AgentContentView>) => (
+        React.createElement('AgentContentView', {}, React.createElement(actual.AgentContentView, props))
+    ) };
+});
 vi.mock('@/components/MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
 vi.mock('@/components/ChatHeaderView', () => ({ ChatHeaderView: 'ChatHeaderView' }));
 vi.mock('@/components/SessionHeaderChip', () => ({ SessionHeaderChip: 'SessionHeaderChip' }));
@@ -162,7 +197,6 @@ vi.mock('@/components/DesktopRightPanel', () => ({
 vi.mock('@/components/DesktopPresenceTransition', () => ({ DesktopPresenceTransition: 'DesktopPresenceTransition' }));
 vi.mock('@/components/RightSwipePanelHost', () => ({ RightSwipePanelHost: 'RightSwipePanelHost' }));
 vi.mock('@/components/ChatList', () => ({ ChatList: 'ChatList' }));
-vi.mock('@/components/Deferred', () => ({ Deferred: 'Deferred' }));
 vi.mock('@/components/EmptyMessages', () => ({ EmptyMessages: 'EmptyMessages' }));
 vi.mock('@/components/FilesSidebar', () => ({ FilesSidebar: 'FilesSidebar' }));
 vi.mock('@/components/AllFilesDiffView', () => ({ AllFilesDiffView: 'AllFilesDiffView' }));
@@ -191,20 +225,76 @@ function deferred<T>() {
     return { promise, resolve, reject };
 }
 
+function installLatestPaintHarness() {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const markFreshLatestMessageComplete = vi.fn();
+    const markRouteNavigation = vi.fn();
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const originalProbe = (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+    (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (callback) => {
+        const frame = ++nextFrame;
+        frames.set(frame, callback);
+        return frame;
+    };
+    (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = (frame) => {
+        frames.delete(frame);
+    };
+    (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+        markFreshLatestMessageComplete,
+        markRouteNavigation,
+    };
+
+    return {
+        markFreshLatestMessageComplete,
+        markRouteNavigation,
+        runAllFrames: () => {
+            const queued = [...frames.values()];
+            frames.clear();
+            queued.forEach((callback) => callback(0));
+        },
+        discardAllFrames: () => frames.clear(),
+        restore: () => {
+            (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = originalRequestAnimationFrame;
+            (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = originalCancelAnimationFrame;
+            if (originalProbe) {
+                (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = originalProbe;
+            } else {
+                delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+            }
+        },
+    };
+}
+
 describe('SessionView deep-link hydration', () => {
     const originalConsoleError = console.error;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers();
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
             originalConsoleError(...values);
         });
         mocks.session = null;
+        mocks.messages = [];
+        mocks.messagesLoaded = false;
+        mocks.messagesAtLatest = true;
+        mocks.latestVerifiedOwnerEpoch = null;
+        mocks.autoVerifyRouteOwner = true;
+        mocks.currentViewingSessionId = null;
+        mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
-        mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
+        mocks.beginSessionRoute.mockImplementation((id: string) => {
+            const owner = owners.enter(id);
+            mocks.currentRouteOwnerEpoch = owner.ownerEpoch;
+            if (mocks.autoVerifyRouteOwner) mocks.latestVerifiedOwnerEpoch = owner.ownerEpoch;
+            return owner;
+        });
+        mocks.isSessionRouteOwner.mockImplementation((owner) => owners.owns(owner));
         mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
         mocks.leaveSessionRoute.mockImplementation((owner) => owners.leave(owner));
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -217,6 +307,64 @@ describe('SessionView deep-link hydration', () => {
         vi.useRealTimers();
         consoleErrorSpy.mockRestore();
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('restores the retained main session owner after a modal session loses focus without remounting its composer', async () => {
+        mocks.messagesLoaded = true;
+        mocks.session = {
+            id: 'main-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        const Focus = mocks.focusContext.Provider;
+        const tree = (modal: boolean) => <>
+            <Focus value={!modal}><SessionView id="main-session" /></Focus>
+            <Focus value={modal}>{modal ? <SessionView id="modal-session" /> : null}</Focus>
+        </>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(false)); });
+        const mainComposer = renderer.root.findByType('MessageComposer');
+        const firstOwner = mocks.beginSessionRoute.mock.results[0].value;
+        expect(mocks.currentViewingSessionId).toBe('main-session');
+
+        await act(async () => { renderer.update(tree(true)); });
+        expect(mocks.currentViewingSessionId).toBe('modal-session');
+        expect(renderer.root.findAllByType('MessageComposer')[0]).toBe(mainComposer);
+
+        await act(async () => { renderer.update(tree(false)); });
+        expect(mocks.beginSessionRoute.mock.calls.map(([id]) => id)).toEqual(['main-session', 'modal-session', 'main-session']);
+        const restoredOwner = mocks.beginSessionRoute.mock.results.at(-1)!.value;
+        expect(restoredOwner.ownerEpoch).toBeGreaterThan(firstOwner.ownerEpoch);
+        expect(mocks.promoteSessionRoute).toHaveBeenLastCalledWith(restoredOwner);
+        expect(mocks.currentViewingSessionId).toBe('main-session');
+        expect(renderer.root.findByType('MessageComposer')).toBe(mainComposer);
+        act(() => renderer.unmount());
+        expect(mocks.currentViewingSessionId).toBeNull();
+    });
+
+    it('does not acquire an unfocused route and ignores its late hydration after focus moves away', async () => {
+        const firstOpening = deferred<'not-found'>();
+        const Focus = mocks.focusContext.Provider;
+        const tree = (focused: boolean) => <Focus value={focused}><SessionView id="retained-session" /></Focus>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(false)); });
+        expect(mocks.beginSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.openSession).not.toHaveBeenCalled();
+
+        mocks.openSession.mockReturnValueOnce(firstOpening.promise);
+        await act(async () => { renderer.update(tree(true)); });
+        const firstOwner = mocks.beginSessionRoute.mock.results[0].value;
+        await act(async () => { renderer.update(tree(false)); });
+        expect(mocks.leaveSessionRoute).toHaveBeenCalledWith(firstOwner);
+        await act(async () => { firstOpening.resolve('not-found'); await firstOpening.promise; });
+        expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+
+        await act(async () => { renderer.update(tree(true)); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
     });
 
     it('bounds transient retries and exposes a deliberate retry action without preloaded messages', async () => {
@@ -239,6 +387,27 @@ describe('SessionView deep-link hydration', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps the failed route owner reserved until the delayed retry acquires its replacement', async () => {
+        const retry = deferred<'ready'>();
+        mocks.openSession
+            .mockRejectedValueOnce(new Error('transient-network-failure'))
+            .mockReturnValueOnce(retry.promise);
+        let renderer: any;
+
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="reserved-retry-session" />); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.leaveSessionRoute).not.toHaveBeenCalled();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(99); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.leaveSessionRoute).not.toHaveBeenCalled();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.openSession.mock.calls[1][2]).toEqual({ retry: true });
+        act(() => renderer.unmount());
+    });
+
     it('hydrates a missing deep link immediately while showing session-scoped loading', async () => {
         const hydration = deferred<boolean>();
         mocks.ensureSessionHydrated.mockReturnValue(hydration.promise);
@@ -258,19 +427,44 @@ describe('SessionView deep-link hydration', () => {
         act(() => renderer.unmount());
     });
 
-    it('does not retry terminal route abandonment as a transient network failure', async () => {
+    it('reacquires route ownership before deciding that an abandoned target is missing', async () => {
         vi.useFakeTimers();
-        mocks.openSession.mockRejectedValue(new SessionRouteAbandonedError());
+        mocks.openSession
+            .mockRejectedValueOnce(new SessionRouteAbandonedError())
+            .mockResolvedValueOnce('not-found');
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<SessionView id="deleted-session" />); });
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
         expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
         expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
-    it.each(['cached', 'hydrated'] as const)('keeps an abandoned %s session terminal without mounting the chat', async (source) => {
+    it('shows deleted when background reconciliation removes an already readable session', async () => {
+        mocks.session = {
+            id: 'deleted-while-reading', seq: 3, active: false, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        mocks.messagesLoaded = true;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="deleted-while-reading" />); });
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        await act(async () => {
+            mocks.session = null;
+            mocks.messagesLoaded = false;
+            mocks.sessionListeners.forEach(notify => notify());
+        });
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it.each(['cached', 'hydrated'] as const)('recovers an abandoned %s session under a fresh route owner', async (source) => {
         vi.useFakeTimers();
         const session = {
             id: 'abandoned-session', seq: 3, active: true, activeAt: 10,
@@ -279,7 +473,7 @@ describe('SessionView deep-link hydration', () => {
             thinking: false, thinkingAt: 0,
         };
         const opening = deferred<'ready'>();
-        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockResolvedValueOnce('ready');
         if (source === 'cached') mocks.session = session;
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<SessionView id="abandoned-session" />); });
@@ -287,11 +481,11 @@ describe('SessionView deep-link hydration', () => {
         if (source === 'hydrated') mocks.session = session;
         await act(async () => { opening.reject(new SessionRouteAbandonedError()); });
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
-        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
-        expect(mocks.openSession).toHaveBeenCalledTimes(1);
-        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
-        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(1);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
+        expect(mocks.promoteSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('abandoned-session');
         act(() => renderer.unmount());
     });
 
@@ -339,6 +533,353 @@ describe('SessionView deep-link hydration', () => {
         expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('loaded-session');
         expect(mocks.promoteSessionRoute.mock.invocationCallOrder[0]).toBeLessThan(mocks.setCurrentViewingSession.mock.invocationCallOrder[0]);
         act(() => renderer.unmount());
+    });
+
+    it('keeps an already loaded conversation visible while its latest page revalidates', async () => {
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.session = {
+            id: 'warm-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="warm-session" />); });
+
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
+
+        await act(async () => { opening.resolve('ready'); await opening.promise; });
+        expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
+        act(() => renderer.unmount());
+    });
+
+    it('paints newborn local content once while validation stays pending and preserves it through retry and failure', async () => {
+        // Catches local projection waiting for network readiness or hiding background failures.
+        vi.useFakeTimers();
+        const opening = deferred<'ready'>();
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockRejectedValue(new Error('offline'));
+        mocks.messagesLoaded = false;
+        mocks.messages = [{ id: 'local-1', kind: 'user-text', text: 'hello' }];
+        mocks.session = {
+            id: 'newborn-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="newborn-session" />); });
+            expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+            const chat = renderer.root.findByType('AgentContentView');
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { opening.reject(new Error('offline')); });
+            expect(renderer.root.findByProps({ testID: 'session-retrying-cached' })).toBeTruthy();
+            await act(async () => { await vi.advanceTimersByTimeAsync(850); });
+            expect(mocks.openSession).toHaveBeenCalledTimes(4);
+            expect(renderer.root.findByProps({ testID: 'session-load-error-cached' })).toBeTruthy();
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            const recovery = deferred<'ready'>();
+            mocks.openSession.mockReturnValueOnce(recovery.promise);
+            await act(async () => { renderer.root.findByProps({ testID: 'session-retry-cached' }).props.onPress(); });
+            expect(mocks.openSession.mock.calls[4][2]).toEqual({ retry: true });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            mocks.messagesLoaded = true;
+            await act(async () => { recovery.resolve('ready'); });
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('rejects a released owner paint before the first frame and paints the successful retry once', async () => {
+        vi.useFakeTimers();
+        const opening = deferred<'ready'>();
+        const retry = deferred<'ready'>();
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockReturnValueOnce(retry.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'local-1', kind: 'user-text', text: 'hello' }];
+        mocks.session = {
+            id: 'released-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="released-paint" />); });
+            const chat = renderer.root.findByType('AgentContentView');
+            await act(async () => { opening.reject(new Error('offline-before-paint')); });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            expect(renderer.root.findByProps({ testID: 'session-retrying-cached' })).toBeTruthy();
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            expect(mocks.openSession).toHaveBeenCalledTimes(2);
+            await act(async () => { retry.resolve('ready'); });
+            expect(renderer.root.findByType('AgentContentView')).toBe(chat);
+            paint.runAllFrames();
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).toHaveBeenCalledTimes(1);
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels a local route paint frame when another session replaces its owner', async () => {
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(new Promise(() => {}));
+        mocks.messages = [{ id: 'local-1' }];
+        mocks.session = {
+            id: 'old-local', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="old-local" />); });
+            await act(async () => { renderer.update(<SessionView id="new-local" />); });
+            paint.runAllFrames();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
+    });
+
+    it('does not verify a cached latest paint before its route revalidation resolves', async () => {
+        // Catches cache-first rendering authorizing the strict verified marker before openSession is ready.
+        const opening = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'warm-paint-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="warm-paint-session" />); });
+
+            expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(0);
+            // Keep route verification pending while the real message boundary mounts.
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('verifies a ready owner with no message delta on its next frame', async () => {
+        // Catches readiness being tied to a new message instead of the current route owner's completed revalidation.
+        const opening = deferred<'ready'>();
+        const { discardAllFrames, markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'zero-delta-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="zero-delta-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            discardAllFrames();
+            await act(async () => { opening.resolve('ready'); await opening.promise; });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('keeps a historical cached window visible without certifying latest paint', async () => {
+        // Catches a completed local/history render being mistaken for the
+        // current owner's verified latest commit at the real Deferred boundary.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messagesAtLatest = false;
+        mocks.latestVerifiedOwnerEpoch = null;
+        mocks.autoVerifyRouteOwner = false;
+        mocks.messages = [{ id: 'historical-message' }];
+        mocks.session = {
+            id: 'historical-window', seq: 400, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="historical-window" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
+    });
+
+    it('does not let an abandoned cached owner verify after a different route mounts', async () => {
+        // Catches A's already-authorized queued frame claiming the verified marker after B replaces A.
+        const first = deferred<'ready'>();
+        const second = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'owner-a', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="owner-a" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            await act(async () => { first.resolve('ready'); await first.promise; });
+            mocks.session = { ...mocks.session, id: 'owner-b' };
+            await act(async () => { renderer.update(<SessionView id="owner-b" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { second.resolve('ready'); await second.promise; });
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('cancels an authorized owner frame when a same-session remount replaces it', async () => {
+        // Catches A's already-authorized queued frame surviving a same-ID remount with B's owner epoch.
+        const first = deferred<'ready'>();
+        const second = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'retry-paint-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            await act(async () => { first.resolve('ready'); await first.promise; });
+            act(() => renderer.unmount());
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { second.resolve('ready'); await second.promise; });
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('waits for the actual deferred message subtree to mount before verifying latest paint', async () => {
+        // A ready store is not proof that Deferred has committed ChatList.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'deferred-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="deferred-paint" />); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(0);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { await vi.advanceTimersByTimeAsync(9); });
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
+    });
+
+    it('rejects a queued verified frame when a different live owner takes over the retained tree', async () => {
+        // Route ownership can change before React commits an update or cleanup.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'retained-paint', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retained-paint" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            const chat = renderer.root.findByType('ChatList');
+            mocks.beginSessionRoute('next-owner');
+            expect(renderer.root.findByType('ChatList')).toBe(chat);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            expect(paint.markRouteNavigation).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
+        }
     });
 
     it('shows not-found only after the target hydration resolves missing', async () => {

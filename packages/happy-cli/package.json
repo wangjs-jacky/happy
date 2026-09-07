@@ -1,6 +1,6 @@
 {
   "name": "@wangjs-jacky/paws",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Mobile and Web client for Claude Code and Codex",
   "author": "wangjs-jacky",
   "license": "MIT",
@@ -30,6 +30,16 @@
       "import": {
         "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
+      }
+    },
+    "./internal/codex-worker": {
+      "require": {
+        "types": "./dist/codexWorkerEntry.d.cts",
+        "default": "./dist/codexWorkerEntry.cjs"
+      },
+      "import": {
+        "types": "./dist/codexWorkerEntry.d.mts",
+        "default": "./dist/codexWorkerEntry.mjs"
       }
     },
     "./lib": {

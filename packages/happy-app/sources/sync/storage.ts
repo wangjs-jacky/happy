@@ -87,6 +87,14 @@ interface SessionMessages {
     // chat list to render a loading footer at the top of the inverted list
     // and to suppress duplicate triggers from FlatList onEndReached.
     isLoadingOlder: boolean;
+    hasMoreNewer?: boolean;
+    isLoadingNewer?: boolean;
+    isAtLatest?: boolean;
+    // Only a current route operation that has committed a verified latest page
+    // may authorize the critical-path latest-paint marker.
+    latestVerifiedOwnerEpoch?: number | null;
+    olderError?: string | null;
+    newerError?: string | null;
 }
 
 // Machine type is now imported from storageTypes - represents persisted machine data
@@ -119,7 +127,7 @@ export interface SessionRowData {
     hasUnread: boolean;
 }
 
-function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): SessionRowData {
+export function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): SessionRowData {
     const resolved = resolveSessionState(session);
 
     return {
@@ -237,7 +245,6 @@ interface StorageState {
     // User cache methods
     applyUsers: (users: Record<string, UserProfile | null>) => void;
     getUser: (userId: string) => UserProfile | null | undefined;
-    assumeUsers: (userIds: string[]) => Promise<void>;
     // Feed methods
     applyFeedItems: (items: FeedItem[]) => void;
     clearFeed: () => void;
@@ -547,7 +554,7 @@ export const storage = create<StorageState>()((set, get) => {
 
                 // Check if sessionMessages exists AND agentStateVersion is newer
                 const existingSessionMessages = updatedSessionMessages[session.id];
-                if (existingSessionMessages && newSession.agentState &&
+                if (existingSessionMessages && existingSessionMessages.isAtLatest !== false && newSession.agentState &&
                     (!oldSession || newSession.agentStateVersion > (oldSession.agentStateVersion || 0))) {
 
                     // Check for NEW permission requests before processing
@@ -595,6 +602,7 @@ export const storage = create<StorageState>()((set, get) => {
                         .sort((a, b) => b.createdAt - a.createdAt);
 
                     updatedSessionMessages[session.id] = {
+                        ...existingSessionMessages,
                         messages: messagesArray,
                         messagesMap: mergedMessagesMap,
                         reducerState: existingSessionMessages.reducerState, // The reducer modifies state in-place, so this has the updates
@@ -1395,12 +1403,6 @@ export const storage = create<StorageState>()((set, get) => {
         getUser: (userId: string) => {
             return get().users[userId];  // Returns UserProfile | null | undefined
         },
-        assumeUsers: async (userIds: string[]) => {
-            // This will be implemented in sync.ts as it needs access to credentials
-            // Just a placeholder here for the interface
-            const { sync } = await import('./sync');
-            return sync.assumeUsers(userIds);
-        },
         // Feed methods
         applyFeedItems: (items: FeedItem[]) => set((state) => {
             // Always mark feed as loaded even if empty
@@ -1519,7 +1521,13 @@ export function useSessionMessages(sessionId: string): {
     messages: Message[],
     isLoaded: boolean,
     hasMoreOlder: boolean,
-    isLoadingOlder: boolean
+    isLoadingOlder: boolean,
+    hasMoreNewer: boolean,
+    isLoadingNewer: boolean,
+    isAtLatest: boolean,
+    latestVerifiedOwnerEpoch: number | null,
+    olderError: string | null,
+    newerError: string | null
 } {
     return storage(useShallow((state) => {
         const session = state.sessionMessages[sessionId];
@@ -1527,7 +1535,13 @@ export function useSessionMessages(sessionId: string): {
             messages: session?.messages ?? emptyArray,
             isLoaded: session?.isLoaded ?? false,
             hasMoreOlder: session?.hasMoreOlder ?? false,
-            isLoadingOlder: session?.isLoadingOlder ?? false
+            isLoadingOlder: session?.isLoadingOlder ?? false,
+            hasMoreNewer: session?.hasMoreNewer ?? false,
+            isLoadingNewer: session?.isLoadingNewer ?? false,
+            isAtLatest: session?.isAtLatest ?? true,
+            latestVerifiedOwnerEpoch: session?.latestVerifiedOwnerEpoch ?? null,
+            olderError: session?.olderError ?? null,
+            newerError: session?.newerError ?? null
         };
     }));
 }

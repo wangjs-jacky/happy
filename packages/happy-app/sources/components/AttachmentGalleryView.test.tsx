@@ -14,6 +14,7 @@ const attachmentImages = vi.hoisted(() => new Map<string, {
     loading: boolean;
     error: string | null;
 }>());
+const imageLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
@@ -22,7 +23,18 @@ vi.mock('react-native', () => ({
     View: 'View',
     useWindowDimensions: () => ({ width: 360, height: 800 }),
 }));
-vi.mock('expo-image', () => ({ Image: 'Image' }));
+vi.mock('expo-image', async () => {
+    const React = await import('react');
+    return {
+        Image: (props: Record<string, unknown>) => {
+            React.useEffect(() => {
+                imageLifecycle.mounts += 1;
+                return () => { imageLifecycle.unmounts += 1; };
+            }, []);
+            return React.createElement('Image', props);
+        },
+    };
+});
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
@@ -53,6 +65,7 @@ vi.mock('@/hooks/useAttachmentImage', () => ({
 }));
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: () => undefined }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessionMessages: {} }) } }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/components/HorizontalScrollView', () => ({ HorizontalScrollView: 'HorizontalScrollView' }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
@@ -157,6 +170,8 @@ describe('AttachmentGalleryView generated batches', () => {
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         attachmentImages.clear();
+        imageLifecycle.mounts = 0;
+        imageLifecycle.unmounts = 0;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
@@ -319,6 +334,29 @@ describe('AttachmentGalleryView generated batches', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps duplicate attachment refs distinct with stable occurrence keys', () => {
+        attachmentImages.set('ref-shared', {
+            uri: 'blob:shared-image',
+            loading: false,
+            error: null,
+        });
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <AttachmentGalleryView
+                    messages={[uploadedImageMessage(1, 'ref-shared'), uploadedImageMessage(2, 'ref-shared')]}
+                    sessionId="session-1"
+                    presentation="compact"
+                />,
+            );
+        });
+
+        expect(renderer.root.findAllByType('Image').map((node: any) => node.props.recyclingKey))
+            .toEqual(['ref-shared:0', 'ref-shared:1']);
+
+        act(() => renderer.unmount());
+    });
+
     it.each(['compact', 'featured'] as const)('renders a batch action for multiple images in %s galleries', (presentation) => {
         attachmentImages.set('ref-uploaded-1', {
             uri: 'blob:uploaded-image-1',
@@ -370,6 +408,31 @@ describe('AttachmentGalleryView generated batches', () => {
 
         expect(renderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.disabled).toBe(false);
 
+        act(() => renderer.unmount());
+    });
+
+    it('keeps an attachment image mounted when history replay changes only the reducer message id', () => {
+        attachmentImages.set('stable-ref', { uri: 'blob:stable-image', loading: false, error: null });
+        const original = uploadedImageMessage(1, 'stable-ref');
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <AttachmentGalleryView messages={[original]} sessionId="session-1" presentation="compact" />,
+            );
+        });
+        expect(imageLifecycle).toEqual({ mounts: 1, unmounts: 0 });
+
+        act(() => {
+            renderer.update(
+                <AttachmentGalleryView
+                    messages={[{ ...original, id: 'replayed-random-id' }]}
+                    sessionId="session-1"
+                    presentation="compact"
+                />,
+            );
+        });
+
+        expect(imageLifecycle).toEqual({ mounts: 1, unmounts: 0 });
         act(() => renderer.unmount());
     });
 

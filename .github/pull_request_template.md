@@ -1,39 +1,35 @@
+## 功能说明
+
+<!--
+此区块会显示在 OTA 发布通知邮件和发布摘要的开头，请用中文面向使用者填写：
+第一行写功能名称，再用 1–3 条说明改了什么、解决什么问题、用户能看到什么变化。
+不要只写文件名、技术实现或“优化体验”；技术细节放在下面的 Summary。
+PR 标题也应直接说明功能或修复点，方便从邮件主题识别。
+-->
+
 ## Summary
 
 <!-- What changed and why? -->
 
 ## Visual evidence
 
-Visible UI cases: 0
+- 截图状态：待确认（用户要求 / 用户确认不需要 / 已询问待回复 / 不涉及可见变更）
+- 用户要求的截图范围：无
+- 已完成的视觉验证与未执行项：无
 
 <!--
-For every user-visible PC Web/UI change, set the count above and add one row per Case.
-Embed images directly. Two images or one clearly labelled before/after composite are both valid.
-Use immutable commit-SHA URLs or GitHub uploaded attachments; branch URLs may break after merge.
-An overview/contact sheet is optional and does not replace the per-Case rows.
-For a non-visual PR, keep the count at 0 and explain why below the table.
--->
+前后截图由用户确认是否需要，不是默认合并门禁。
+开始截图或为截图搭建环境前先询问用户；已有明确要求时不重复询问。
+未回复时不采集截图，继续必要检查；不得把未回复写成用户已确认。
+无需截图豁免、GitHub 确认评论或绑定 head SHA。
 
-| Case | Problem | Before | After |
+用户要求逐 Case 截图时才添加以下内容，并仅覆盖约定范围：
+Visible UI cases: N
+| Case | 问题 | 修复前 | 修复后 |
 | --- | --- | --- | --- |
-| N/A | Non-visual change | N/A | N/A |
 
-Visual evidence waiver: not requested
-
-<!--
-Maintainer-only exception. If approved for this exact PR, replace the line above with:
-Visual evidence waiver: approved
-- Confirmed by: @maintainer
-- Scope: Case IDs covered by the waiver
-- PR: #N
-- Confirmed on: YYYY-MM-DD
-- Approved head SHA: full 40-character commit SHA
-- Confirmation URL: GitHub PR comment or review URL
-- Visual validation not performed: exact omitted checks and accepted risk
-
-Keep the real Visible UI cases count and Case rows. Write "Waived by maintainer" in missing
-image cells; do not count waiver text as screenshot evidence and do not check the two screenshot
-completion boxes below.
+图片使用不可变 commit SHA URL 或 GitHub 上传附件，保持前后视口与缩放可比。
+更新 PR 后打开实际页面确认图片渲染。未要求截图时无需 Case 矩阵或截图完成勾选。
 -->
 
 ## E2E acceptance
@@ -42,7 +38,7 @@ completion boxes below.
 When E2E or mobile video acceptance is requested, add one row per Case.
 The video link must be accessible from the review device; a local absolute path is not evidence.
 State mobile playback as confirmed only after the reviewer can open the same file on mobile.
-Video supplements, but does not replace, the per-Case visual evidence above.
+只有用户同时要求截图时，视频才需要与约定的截图证据配套；不自动增加截图要求。
 -->
 
 | Case | Result | Spec / rerun | Mobile video | Report / Trace |
@@ -57,10 +53,9 @@ Video supplements, but does not replace, the per-Case visual evidence above.
 
 <!-- Tests, typecheck, E2E, independent review, and known gaps. -->
 
-- [ ] The declared visible Case count equals the number of unique before/after screenshot groups embedded above.
-- [ ] Every visual Case uses comparable viewport/DPR/scale evidence and a stable image URL.
+- [ ] 已如实记录截图需求状态；仅在用户要求时核对约定场景的前后图片、视口与稳定链接（未要求时不适用）。
 - [ ] Requested E2E videos use a non-local stable URL, map to a Case, and disclose mobile playback status.
-- [ ] An independent reviewer checked the rendered PR body, not only local files or a chat report.
+- [ ] 用户要求的截图已在实际 PR 页面核对渲染（未要求时不适用；不默认增加独立截图验收）。
 - [ ] Independent code review passed.
 - [ ] Relevant automated tests passed.
 - [ ] Typecheck passed, or the PR explains why it is not applicable.

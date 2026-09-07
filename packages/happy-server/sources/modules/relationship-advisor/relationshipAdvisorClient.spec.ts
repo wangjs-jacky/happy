@@ -18,6 +18,23 @@ function streamResponse(chunks: string[]): Response {
 }
 
 describe('streamRelationshipAdvisor', () => {
+    it('keeps historical images on the original message instead of the follow-up', async () => {
+        const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>) => streamResponse(['data: [DONE]\n\n']));
+        for await (const _delta of streamRelationshipAdvisor({
+            messages: [
+                { role: 'user', text: '', imageUrls: ['https://oss.test/history.jpg'] },
+                { role: 'user', text: '刚才那张呢' },
+            ], imageUrls: [],
+        }, { ...{ apiKey: 'test', model: 'test', baseUrl: 'https://model.test/v1' },
+            fetchImpl: fetchImpl as typeof fetch, validateBaseUrl: async (url) => url,
+        })) { /* inspect the request */ }
+        const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+        expect(body.messages[1].content).toContainEqual({
+            type: 'image_url', image_url: { url: 'https://oss.test/history.jpg' },
+        });
+        expect(body.messages[2]).toEqual({ role: 'user', content: '刚才那张呢' });
+    });
+
     it('sends multimodal OpenAI-compatible input and yields fragmented SSE deltas', async () => {
         const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>) => streamResponse([
             'data: {"choices":[{"delta":{"content":"先看"}}]}\n',

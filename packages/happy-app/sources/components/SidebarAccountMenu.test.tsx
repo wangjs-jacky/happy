@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     keydownHandler: null as ((event: any) => void) | null,
     logout: vi.fn(),
     navigate: vi.fn(),
+    platform: 'web',
     triggerFocus: vi.fn(),
 }));
 
@@ -30,13 +31,16 @@ vi.mock('react-native', async () => {
     });
 
     return {
-        Platform: { OS: 'web' },
+        Modal: ({ children, visible }: any) => visible ? ReactModule.createElement('Modal', null, children) : null,
+        Platform: { get OS() { return mocks.platform; } },
         Pressable,
         Text: 'Text',
+        useWindowDimensions: () => ({ height: 900, width: 1280 }),
         View: 'View',
     };
 });
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 24, left: 0, right: 0 }) }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         colors: {
@@ -60,6 +64,7 @@ vi.mock('react-native-unistyles', () => {
 });
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ logout: mocks.logout }) }));
 vi.mock('@/components/Avatar', () => ({ Avatar: 'Avatar' }));
+vi.mock('@/components/usage/UsagePanel', () => ({ UsagePanel: 'UsagePanel' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/modal', () => ({ Modal: { confirm: mocks.confirm } }));
 vi.mock('@/sync/profile', () => ({ getAvatarUrl: () => null }));
@@ -98,6 +103,7 @@ describe('SidebarAccountMenu', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
+        mocks.platform = 'web';
         mocks.keydownCapture = false;
         mocks.keydownHandler = null;
         vi.stubGlobal('window', {
@@ -124,6 +130,18 @@ describe('SidebarAccountMenu', () => {
         consoleErrorSpy.mockRestore();
         vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it('places native mobile actions in a full-screen modal outside the narrow rail touch bounds', () => {
+        mocks.platform = 'android';
+        const changeOpen = vi.fn();
+        act(() => { renderer = TestRenderer.create(<SidebarAccountMenu mobileRail railMode displayName="Paws" onNavigate={mocks.navigate} onOpenChange={changeOpen} open profile={profile} />); });
+        const modal = renderer.root.findByType('Modal');
+        act(() => modal.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledWith('/settings');
+        expect(changeOpen).toHaveBeenCalledWith(false);
+        act(() => modal.findByProps({ testID: 'sidebar-account-native-dismiss' }).props.onPress());
+        expect(changeOpen).toHaveBeenCalledTimes(2);
     });
 
     it('focuses the first action, closes on Escape, and restores trigger focus', () => {
@@ -189,29 +207,55 @@ describe('SidebarAccountMenu', () => {
         expect(mocks.triggerFocus).not.toHaveBeenCalled();
     });
 
-    it('offers profile, settings, account, and usage destinations without help actions', () => {
+    it('opens usage in a dialog without navigating away', () => {
         const onOpenChange = vi.fn();
+        function UsageDialogHarness() {
+            const [open, setOpen] = React.useState(true);
+            return (
+                <SidebarAccountMenu
+                    displayName="Paws User"
+                    onNavigate={mocks.navigate}
+                    onOpenChange={(nextOpen) => {
+                        onOpenChange(nextOpen);
+                        setOpen(nextOpen);
+                    }}
+                    open={open}
+                    profile={profile}
+                />
+            );
+        }
+        act(() => {
+            renderer = TestRenderer.create(<UsageDialogHarness />);
+        });
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-action' }).props.onPress());
+
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-menu' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-dialog' })).toHaveLength(1);
+        expect(renderer.root.findAllByType('UsagePanel')).toHaveLength(1);
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-dialog' })).toHaveLength(0);
+    });
+
+    it('preserves the other account destinations and action order', () => {
         act(() => {
             renderer = TestRenderer.create(
                 <SidebarAccountMenu
                     displayName="Paws User"
                     onNavigate={mocks.navigate}
-                    onOpenChange={onOpenChange}
+                    onOpenChange={vi.fn()}
                     open
                     profile={profile}
                 />,
             );
         });
 
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-profile-action' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-details-action' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-action' }).props.onPress());
-
-        const actionOrder = renderer.root
-            .findByProps({ testID: 'sidebar-account-menu' })
-            .findAllByType('Pressable')
-            .map((node: any) => node.props.testID);
+        const menu = renderer.root.findByProps({ testID: 'sidebar-account-menu' });
+        const actionOrder = menu.findAllByType('Pressable').map((node: any) => node.props.testID);
         expect(actionOrder).toEqual([
             'sidebar-account-profile-action',
             'sidebar-account-settings-action',
@@ -219,14 +263,16 @@ describe('SidebarAccountMenu', () => {
             'sidebar-account-usage-action',
             'sidebar-account-logout-action',
         ]);
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-profile-action' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-details-action' }).props.onPress());
         expect(mocks.navigate.mock.calls).toEqual([
             ['/settings/profile'],
             ['/settings'],
             ['/settings/account'],
-            ['/settings/usage'],
         ]);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
-        expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
     it('uses the pressed surface for Web hover and press states', () => {

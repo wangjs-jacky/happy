@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
-import { usePathname } from 'expo-router';
+import { usePathname, useRootNavigationState } from 'expo-router';
+import { getDesktopModalBackgroundPath } from '@/navigation/desktopModalRouter';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { useGlobalKeyboard } from '@/hooks/useGlobalKeyboard';
 import {
@@ -64,6 +65,11 @@ const EMPTY_LAYOUT: DesktopWorkspaceLayoutValue = {
 
 const DesktopWorkspaceLayoutContext = React.createContext<DesktopWorkspaceLayoutValue>(EMPTY_LAYOUT);
 
+/** Dialog pages have their own content width and must not mount global side panels. */
+export function DesktopWorkspaceLayoutIsolation({ children }: { children: React.ReactNode }) {
+    return <DesktopWorkspaceLayoutContext.Provider value={EMPTY_LAYOUT}>{children}</DesktopWorkspaceLayoutContext.Provider>;
+}
+
 /**
  * Owns the two desktop panel widths so either divider can resize against the
  * same middle-content budget, while only committing the final width to local
@@ -76,7 +82,9 @@ export const DesktopWorkspaceLayoutProvider = React.memo(function DesktopWorkspa
     children: React.ReactNode;
     enabled: boolean;
 }) {
-    const pathname = usePathname();
+    const currentPathname = usePathname();
+    const rootState = useRootNavigationState();
+    const pathname = getDesktopModalBackgroundPath(rootState) ?? currentPathname;
     const { width: windowWidth } = useWindowDimensions();
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const [leftCollapsed, setLeftCollapsed] = useLocalSettingMutable('desktopLeftSidebarCollapsed');

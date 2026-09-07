@@ -798,6 +798,12 @@ function toRateLimits(rateLimits: unknown): CodexUsageRateLimits | undefined {
     if (!isRecord(rateLimits)) {
         return undefined;
     }
+    // Newer Codex logs interleave account quota with independent model buckets
+    // (for example Spark). Those must not replace the main Codex quota, even
+    // when they arrive later. Older logs omit limit_id or set it to null.
+    if (rateLimits.limit_id != null && rateLimits.limit_id !== 'codex') {
+        return undefined;
+    }
     return {
         planType: typeof rateLimits.plan_type === 'string' ? rateLimits.plan_type : undefined,
         primary: toRateLimitWindow(rateLimits.primary),
@@ -893,6 +899,42 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
         days,
         latestEvent,
         warnings,
+    };
+}
+
+export function mergeRecentCodexUsageSnapshot(
+    previous: CodexUsageSnapshot | null | undefined,
+    recent: CodexUsageSnapshot,
+): CodexUsageSnapshot {
+    if (
+        !previous
+        || previous.source !== recent.source
+        || previous.codexHome !== recent.codexHome
+        || previous.timeZone !== recent.timeZone
+    ) {
+        return recent;
+    }
+
+    const [yesterdayKey, todayKey] = recentLocalDateKeys(
+        new Date(recent.scannedAt),
+        recent.timeZone,
+        2,
+    );
+    const days = [
+        ...previous.days.filter((day) => day.date !== todayKey),
+        ...recent.days.filter((day) => day.date === todayKey),
+    ].sort((left, right) => left.date.localeCompare(right.date));
+    const previousLatestTime = previous.latestEvent ? Date.parse(previous.latestEvent.timestamp) : 0;
+    const recentLatestTime = recent.latestEvent ? Date.parse(recent.latestEvent.timestamp) : 0;
+
+    return {
+        ...recent,
+        days,
+        today: days.find((day) => day.date === todayKey) || null,
+        yesterday: days.find((day) => day.date === yesterdayKey) || null,
+        latestEvent: recentLatestTime >= previousLatestTime
+            ? recent.latestEvent
+            : previous.latestEvent,
     };
 }
 

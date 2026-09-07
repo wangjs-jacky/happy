@@ -1,5 +1,5 @@
 import { sessionArchive, sessionDelete, sessionKill, sessionRequestArchiveMetadata } from '@/sync/ops';
-import { storage } from '@/sync/storage';
+import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 
 export async function bulkArchiveSessions(sessions: Session[]): Promise<void> {
@@ -25,6 +25,6 @@ export async function bulkDeleteSessions(sessions: Session[]): Promise<void> {
         if (!deleteResult.success) {
             throw new Error(deleteResult.message || `Failed to delete session ${session.id}`);
         }
-        storage.getState().deleteSession(session.id);
+        sync.removeSessionLocally(session.id);
     }
 }

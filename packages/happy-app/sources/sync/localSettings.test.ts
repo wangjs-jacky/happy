@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { localSettingsDefaults, localSettingsParse } from './localSettings';
 
+it('preserves local advisor image keys across persistence and accepts legacy image counts', () => {
+    const messages = [
+        { id: 'new', role: 'user', text: '', imageCount: 1, imageKeys: ['image-1.jpg'], createdAt: 1 },
+        { id: 'old', role: 'user', text: '', imageCount: 1, createdAt: 2 },
+    ];
+    expect(localSettingsParse({ relationshipAdvisorConversations: [{
+        id: 'test', title: 'test', createdAt: 1, updatedAt: 2, messages,
+    }] }).relationshipAdvisorConversations[0].messages).toEqual(messages);
+});
+
 describe('localSettings public share theme memory', () => {
     it('defaults new public shares to caramel without changing the app theme', () => {
         expect(localSettingsDefaults.lastPublicShareThemePack).toBe('caramel');
@@ -101,10 +111,21 @@ describe('localSettings session list layout', () => {
 describe('localSettings desktop Lists and Tags', () => {
     it('keeps Projects as the default desktop sidebar mode', () => {
         expect(localSettingsDefaults.desktopSidebarMode).toBe('projects');
+        expect(localSettingsDefaults.desktopSidebarListMode).toBe('projects');
         expect(localSettingsParse({}).desktopSidebarMode).toBe('projects');
         expect(localSettingsParse({ desktopSidebarMode: 'lists' }).desktopSidebarMode).toBe('lists');
         expect(localSettingsParse({ desktopSidebarMode: 'timeline' }).desktopSidebarMode).toBe('timeline');
-        expect(localSettingsParse({ desktopSidebarMode: 'history' }).desktopSidebarMode).toBe('history');
+        expect(localSettingsParse({ desktopSidebarMode: 'archive' }).desktopSidebarMode).toBe('archive');
+    });
+
+    it('migrates the removed History surface to Archive while preserving the last session-list view', () => {
+        expect(localSettingsParse({
+            desktopSidebarMode: 'history',
+            sessionListLayout: 'time',
+        })).toMatchObject({
+            desktopSidebarMode: 'archive',
+            desktopSidebarListMode: 'timeline',
+        });
     });
 
     it('persists one List and multiple Tags for a session', () => {

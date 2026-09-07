@@ -4,17 +4,21 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { SubagentInspectorProvider, useSubagentInspector } from './subagent/SubagentInspectorContext';
 import { ConversationActivityStrip } from './ConversationActivityStrip';
+import { BrowserProgressContext } from './BrowserProgressContext';
+import { getBrowserStepRuns } from './rightPanel/browserStepRunsModel';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface below.
 import TestRenderer from 'react-test-renderer';
 
 vi.mock('react-native', () => ({
+    Platform: { OS: 'web' },
     ActivityIndicator: 'ActivityIndicator',
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
 }));
+vi.mock('./rightPanel/BrowserStepsPopover', () => ({ BrowserStepsPopover: 'BrowserStepsPopover' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
@@ -66,6 +70,33 @@ function toolMessage(id: string, name: string, input: Record<string, unknown>, c
 }
 
 describe('ConversationActivityStrip', () => {
+    it('opens each repeated Ego invocation from the inline Skills row and receives later frames', () => {
+        const first = toolMessage('1', 'Skill', { skill: 'ego-browser' });
+        const second = toolMessage('3', 'Skill', { skillNames: ['ego-browser'] });
+        const frame = (id: string, runId: string) => toolMessage(id, 'file', {
+            source: 'browser_step', ref: `attachment://${id}`, name: `${id}.png`,
+            browserStep: { label: `Verified ${id}`, runId, skillName: 'ego-browser' },
+        });
+        const messages = [first, frame('2', 'run-a'), second, frame('4', 'run-b')];
+        let renderer: any;
+        const render = (all: Message[], sessionId = 's1') => <BrowserProgressContext.Provider value={{ sessionId, runs: getBrowserStepRuns(all) }}>
+            <ConversationActivityStrip messages={[first, second]} />
+        </BrowserProgressContext.Provider>;
+        act(() => { renderer = TestRenderer.create(render(messages)); });
+        const row = renderer.root.findByProps({ testID: 'activity-skill-ego-browser' });
+        expect(row.findAllByType('Pressable')).toHaveLength(2);
+        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-a' }).props.onPress());
+        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2']);
+        act(() => renderer.update(render([...messages, frame('5', 'run-a')])));
+        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2', '5']);
+        act(() => renderer.root.findByType('BrowserStepsPopover').props.onClose());
+        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
+        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-b' }).props.onPress());
+        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['4']);
+        act(() => renderer.update(render(messages, 's2')));
+        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
     beforeAll(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     });
@@ -145,6 +176,20 @@ describe('ConversationActivityStrip', () => {
         expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join('')))
             .toContain('sed: /plugins/gpt-image-2/SKILL.md: No such file or directory');
 
+        act(() => renderer.unmount());
+    });
+
+    it('labels a failed batch once and shows its actionable diagnostic', () => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] });
+        batch.tool.state = 'error';
+        batch.tool.result = '---\nname: dev\n---\nsed: /skills/workflow/SKILL.md: No such file or directory';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ConversationActivityStrip messages={[batch]} />); });
+        const texts = renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+        expect(texts.filter((text: string) => text === 'toolGroup.skillBatchLabel')).toHaveLength(1);
+        expect(texts).toContain('dev, workflow');
+        expect(texts).toContain('sed: /skills/workflow/SKILL.md: No such file or directory');
+        expect(renderer.root.findAllByProps({ testID: 'activity-skill-dev' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 

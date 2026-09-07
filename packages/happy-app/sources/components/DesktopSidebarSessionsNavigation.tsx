@@ -26,6 +26,7 @@ import {
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { t } from '@/text';
 import { MainView } from './MainView';
+import { SidebarScrollProvider, useSidebarScrollState } from './SidebarScrollState';
 import { DesktopDialogFrame } from './DesktopDialogFrame';
 import { PathPickerContent, PickerContent, type PickerItem } from './SessionConfigPanel';
 import { SessionOrganizerDialog } from './SessionOrganizerDialog';
@@ -58,6 +59,7 @@ import { CompactSessionRow } from './ActiveSessionsGroupCompact';
 import { useSessionManagementPreferences } from '@/hooks/useSessionManagementPreferences';
 import { partitionSessionsByPinnedOrder } from '@/utils/sessionPinning';
 import { SessionHistoryList } from './SessionHistoryList';
+import { SessionListRecovery } from './SessionListRecovery';
 
 const AGENT_TYPES = ['codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
 const AGENT_LABEL_KEYS = {
@@ -359,48 +361,61 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 export const DesktopSidebarSessionsNavigation = React.memo(() => {
+    return <SidebarScrollProvider><SidebarSessionsNavigationContent /></SidebarScrollProvider>;
+});
+
+function SidebarSessionsNavigationContent() {
     const [mode, setMode] = useLocalSettingMutable('desktopSidebarMode');
+    const [, setListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const styles = stylesheet;
+
+    const selectListMode = React.useCallback((value: 'projects' | 'lists' | 'timeline') => {
+        setListMode(value);
+        setMode(value);
+    }, [setListMode, setMode]);
 
     return (
         <View style={styles.container} testID="desktop-sidebar-session-navigation">
-            <View accessibilityRole="tablist" style={styles.tabs}>
-                <View pointerEvents="none" style={styles.tabTrack} />
-                {(['projects', 'lists', 'timeline'] as const).map((value) => {
-                    const selected = mode === value;
-                    return (
-                        <Pressable
-                            aria-selected={selected}
-                            accessibilityRole="tab"
-                            accessibilityState={{ selected }}
-                            key={value}
-                            onPress={() => setMode(value)}
-                            style={styles.tab}
-                            testID={`desktop-sidebar-tab-${value}`}
-                        >
-                            {({ pressed }) => (
-                                <View style={[styles.tabVisual, selected && styles.tabSelected, pressed && styles.tabPressed]} testID={`desktop-sidebar-tab-${value}-visual`}>
-                                    <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
-                                        {value === 'projects'
-                                            ? t('sidebar.projectsTab')
-                                            : value === 'lists'
-                                                ? t('sidebar.listsTab')
-                                                : t('sidebar.timelineTab')}
-                                    </Text>
-                                </View>
-                            )}
-                        </Pressable>
-                    );
-                })}
-            </View>
-            {mode === 'history'
+            {mode !== 'archive' ? (
+                <View accessibilityRole="tablist" style={styles.tabs}>
+                    <View pointerEvents="none" style={styles.tabTrack} />
+                    {(['projects', 'lists', 'timeline'] as const).map((value) => {
+                        const selected = mode === value;
+                        return (
+                            <Pressable
+                                aria-selected={selected}
+                                accessibilityRole="tab"
+                                accessibilityState={{ selected }}
+                                key={value}
+                                onPress={() => selectListMode(value)}
+                                style={styles.tab}
+                                testID={`desktop-sidebar-tab-${value}`}
+                            >
+                                {({ pressed }) => (
+                                    <View style={[styles.tabVisual, selected && styles.tabSelected, pressed && styles.tabPressed]} testID={`desktop-sidebar-tab-${value}-visual`}>
+                                        <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
+                                            {value === 'projects'
+                                                ? t('sidebar.projectsTab')
+                                                : value === 'lists'
+                                                    ? t('sidebar.listsTab')
+                                                    : t('sidebar.timelineTab')}
+                                        </Text>
+                                    </View>
+                                )}
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            ) : null}
+            {mode !== 'archive' ? <SessionListRecovery /> : null}
+            {mode === 'archive'
                 ? <SessionHistoryList variant="sidebar" />
                 : mode === 'lists'
                 ? <SidebarListsView />
                 : <MainView sessionListLayout={mode === 'timeline' ? 'time' : 'projects'} variant="sidebar" />}
         </View>
     );
-});
+}
 
 type SidebarVirtualRow =
     | { key: string; type: 'section'; section: 'lists' | 'pinned' | 'tags' }
@@ -466,6 +481,7 @@ function WebDropTarget({ active, children, draggableEntity, draggableId, dropPos
 }
 
 function SidebarListsView() {
+    const scrollState = useSidebarScrollState<SidebarVirtualRow>('lists');
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -805,6 +821,7 @@ function SidebarListsView() {
     return (
         <View style={styles.container} testID="sidebar-lists-view">
             <FlatList
+                {...scrollState}
                 contentContainerStyle={styles.listsContent}
                 data={rows}
                 initialNumToRender={18}

@@ -241,12 +241,15 @@ git push && git push --tags
 
 Use `--autostash` when the worktree is dirty from unrelated local changes so those edits are preserved. Recreate the tag after rebase because the release commit hash changes.
 
-### Step 10: GitHub Release (latest only)
+### Step 10: Keep CLI distribution on npm
 
-For `latest` releases, create a GitHub release:
-```bash
-gh release create cli-X.Y.Z --generate-notes --title "cli-X.Y.Z"
-```
+For this Paws repository, GitHub Releases is reserved for Android APKs.
+Do not create a GitHub Release for CLI versions, including stable `latest`
+versions of `@wangjs-jacky/paws` and `@wangjs-jacky/paws-agent`.
+Keep immutable Git tags for source traceability and use npm for installation.
+Store CI tarball/checksum evidence as Actions artifacts with an explicit
+retention period; these are temporary evidence, not permanent download links.
+Follow root `CLAUDE.md` for the Paws package name and `cli-vX.Y.Z` tag format.
 
 ### Step 11: Install + verify locally
 

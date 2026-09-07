@@ -27,6 +27,9 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key.endsWith('.title') ? 'Browser progress' : 'Close browser progress' }));
 vi.mock('./BrowserStepsPanel', () => ({ BrowserStepsPanel: () => <div>steps</div> }));
+vi.mock('../SessionImageViewer', () => ({ SessionImageViewer: () => null }));
+vi.mock('react-native-gesture-handler', () => ({ GestureHandlerRootView: 'div' }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessionMessages: {} }) } }));
 
 import { BrowserStepsPopover } from './BrowserStepsPopover';
 

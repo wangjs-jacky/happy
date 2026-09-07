@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import './sessionViewPlatform.testSupport';
+import { Platform } from 'react-native';
+import { sessionHistoryPageCache } from './sessionHistoryPageCache';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Native update identity has its own tests; these suites do not host Expo modules.
 vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async () => ({ status: 'unsupported', available: false })) }));
@@ -9,9 +12,20 @@ import { SessionMessageRetention } from './sessionMessageRetention';
 import { SessionRouteAbandonedError, SessionRouteOwnership } from './sessionRouteOwnership';
 import { SessionEncryption } from './encryption/sessionEncryption';
 import { EncryptionCache } from './encryption/encryptionCache';
+import { createReducer } from './reducer/reducer';
 import { installPhase2Probe } from './phase2Probe.testSupport';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 import { normalizeRawMessage, type RawRecord } from './typesRaw';
+import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { openLocalHistory, clearLocalHistoryCaches } from './localHistoryStore';
+import * as React from 'react';
+import { act } from 'react';
+// @ts-expect-error react-test-renderer has no local declarations.
+import TestRenderer from 'react-test-renderer';
+import { randomUUID } from 'expo-crypto';
+import { useSpawnSession } from '@/hooks/useSpawnSession';
+import { SessionView } from '@/-session/SessionView';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -91,6 +105,7 @@ const mocks = vi.hoisted(() => {
     let realStorage: any = null;
     return {
         useRealStorage: (value: any) => { realStorage = value; },
+        hooks: null as any,
         apiRequest: vi.fn(),
         fetchActive: vi.fn(),
         fetchPage: vi.fn(),
@@ -102,12 +117,15 @@ const mocks = vi.hoisted(() => {
         gitInvalidate: vi.fn(),
         gitOpenInvalidate: vi.fn(),
         gitClear: vi.fn(),
+        navigateToSession: vi.fn(),
+        machineSpawnNewSession: vi.fn(),
         state,
         storage,
     };
 });
 
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
@@ -116,7 +134,17 @@ vi.mock('./sessionSnapshotHydration', () => ({
     hydrateSessionSnapshotForRoute: mocks.hydrateRoute,
     hydrateSessionSnapshots: mocks.hydrate,
 }));
-vi.mock('./storage', () => ({ storage: mocks.storage }));
+vi.mock('./storage', () => ({ storage: mocks.storage,
+    useSession: (id: string) => mocks.hooks ? mocks.hooks.useSession(id) : mocks.storage.getState().sessions[id],
+    useSessionMessages: (id: string) => mocks.hooks ? mocks.hooks.useSessionMessages(id) : mocks.storage.getState().sessionMessages[id],
+    useIsDataReady: () => true,
+    useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
+    useLocalSettingMutable: () => [false, vi.fn()],
+    useMachine: () => null,
+    useSessionUsage: () => undefined,
+    useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
+    useSettingUpdater: () => vi.fn(),
+}));
 vi.mock('./apiSocket', () => ({
     apiSocket: {
         onMessage: vi.fn(),
@@ -152,7 +180,7 @@ vi.mock('./uploadMediaFile', () => ({ uploadMediaFile: vi.fn() }));
 vi.mock('./uploadAttachmentForSession', () => ({ uploadAttachmentForSession: vi.fn() }));
 vi.mock('./apiAttachments', () => ({ requestAttachmentUpload: vi.fn(), uploadEncryptedBlob: vi.fn() }));
 vi.mock('@/utils/readFileBytes', () => ({ readFileBytes: vi.fn() }));
-vi.mock('@/utils/platform', () => ({ isRunningOnMac: false }));
+vi.mock('@/utils/platform', () => ({ isRunningOnMac: () => false }));
 vi.mock('@/config', () => ({ config: {} }));
 vi.mock('@/track', () => ({
     initializeTracking: vi.fn(),
@@ -165,7 +193,9 @@ vi.mock('@/track', () => ({
     trackPaywallPurchased: vi.fn(),
     trackPaywallRestored: vi.fn(),
 }));
-vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
+vi.mock('@/sync/ops', () => ({ machineSpawnNewSession: mocks.machineSpawnNewSession }));
+vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => mocks.navigateToSession }));
 vi.mock('@/realtime/hooks/voiceHooks', () => ({
     voiceHooks: {
         onSessionOffline: vi.fn(),
@@ -176,10 +206,19 @@ vi.mock('@/realtime/hooks/voiceHooks', () => ({
         onSessionFocus: vi.fn(),
     },
 }));
-vi.mock('react-native', () => ({
-    AppState: { currentState: 'active', addEventListener: vi.fn() },
-    Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web },
+vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({}) }));
+vi.mock('@/components/ChatFooter', () => ({ ChatFooter: 'ChatFooter' }));
+vi.mock('@/hooks/useGroupedMessages', () => ({
+    useGroupedMessages: (messages: any[]) => messages.map(message => ({ type: 'message', id: message.id, message })),
+    isSessionTurnActive: () => false,
 }));
+vi.mock('@/utils/messageForkPoint', () => ({ getAgentMessageForkTargets: () => new Map() }));
+vi.mock('@/modal/components/BaseModal', () => ({ BaseModal: 'BaseModal' }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/components/MessageView', () => ({ MessageView: 'MessageView' }));
+vi.mock('@/components/ToolGroupView', () => ({ AgentWorkGroupView: 'AgentWorkGroupView', ToolGroupView: 'ToolGroupView' }));
+vi.mock('@/components/AttachmentGalleryView', () => ({ AttachmentGalleryView: 'AttachmentGalleryView' }));
+vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }));
 vi.mock('expo-notifications', () => ({}));
 vi.mock('expo', () => ({}));
@@ -303,13 +342,20 @@ function installSession(sessionId: string, decryptMessages?: (messages: ApiMessa
     return encryption;
 }
 
-async function useRealMessageComposition() {
-    const [{ storage }, { Encryption }] = await Promise.all([
+const loadRealMessageModules = () => Promise.all([
         vi.importActual<typeof import('./storage')>('./storage'),
         vi.importActual<typeof import('./encryption/encryption')>('./encryption/encryption'),
     ]);
+let realMessageModules: Awaited<ReturnType<typeof loadRealMessageModules>>;
+// Module transformation belongs to suite setup, not a 5s test body. A timed-out
+// dynamic import previously resumed in the next case and switched its singleton
+// storage/encryption owner, making an unrelated socket test observe no session.
+beforeAll(async () => { realMessageModules = await loadRealMessageModules(); }, 30000);
+async function useRealMessageComposition() {
+    const [{ storage }, { Encryption }] = realMessageModules;
     storage.setState({ sessions: {}, sessionMessages: {}, currentViewingSessionId: null });
     mocks.useRealStorage(storage);
+    mocks.hooks = realMessageModules[0];
     // Initialize the real manager's runtime caches without deriving device keys.
     // SessionEncryption below holds only the byte crypto boundary for interleaving.
     syncForTest.encryption = Object.assign(Object.create(Encryption.prototype), {
@@ -339,14 +385,92 @@ async function seedDisconnectedMessageRanges(cachedMax = 100) {
     return { storage, page, lease };
 }
 
+async function seedLocalProjectionSession() {
+    const storage = await useRealMessageComposition();
+    storage.getState().applySessions([hydrated(snapshot('spawned-session'))]);
+    mocks.sessionEncryptions.set('spawned-session', new SessionEncryption('spawned-session', {
+        encrypt: async (records) => records.map(record => new TextEncoder().encode(JSON.stringify(record))),
+        decrypt: async (bytes) => bytes.map(value => value[0] === 123
+            ? JSON.parse(new TextDecoder().decode(value)) : rawText('hello')),
+    }, new EncryptionCache()));
+    // Sending is external to the projection contract; retain the real encrypted outbox.
+    syncForTest.sendSync.set('spawned-session', { invalidate: vi.fn() });
+    return storage;
+}
+
+async function localHistoryViewHarness(options: { historical?: boolean; holdLocalApply?: boolean } = {}) {
+    globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+    const storage = await useRealMessageComposition();
+    storage.getState().applySessions([hydrated(snapshot('paint-history', 40))]);
+    const history = (await openLocalHistory('paint-server|paint-account'))!;
+    syncForTest.localHistory = history;
+    const page = (min: number, max: number) => Array.from({ length: max - min + 1 }, (_, i) => ({
+        ...apiMessage(min + i), content: { t: 'encrypted' as const,
+            c: Buffer.from(JSON.stringify(rawText(`message-${min + i}`))).toString('base64') },
+    }));
+    const localApply = deferred<void>();
+    let localApplyStarted = false;
+    mocks.sessionEncryptions.set('paint-history', new SessionEncryption('paint-history', {
+        encrypt: async () => [],
+        decrypt: async bytes => {
+            if (options.holdLocalApply && !localApplyStarted) {
+                localApplyStarted = true;
+                await localApply.promise;
+            }
+            return bytes.map(value => JSON.parse(new TextDecoder().decode(value)));
+        },
+    }, new EncryptionCache()));
+    await history.commitPage('paint-history', { direction: 'older', boundary: 2147483647,
+        messages: options.historical ? page(1, 400) : page(40, 40), hasMore: false });
+    const reading = { version: 1 as const, anchorId: 'message-150', anchorSeq: 150, offset: 12, expandedGroupIds: [] };
+    if (options.historical) await history.writeReadingState('paint-history', reading);
+    else await history.commitReconciliation({ changes: [{ sessionId: 'paint-history', revision: '1', deleted: false,
+        lastMessageSeq: 42, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+    const probe = installPhase2Probe('deep-link', { mountsRoute: true });
+    const marker = vi.fn(probe.markFreshLatestMessageComplete);
+    (globalThis as any).__happySessionCriticalPathProbe = { ...probe, markFreshLatestMessageComplete: marker };
+    const frames = new Map<number, FrameRequestCallback>();
+    let frame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frame, callback); return frame; });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    const open = vi.spyOn(sync, 'openSession');
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(React.createElement(SessionView, { id: 'paint-history' })); });
+    const opening = open.mock.results[0].value;
+    return {
+        storage, history, page, marker, probe, renderer, opening, reading, localApply, open,
+        localApplyStarted: () => localApplyStarted,
+        paint: async () => {
+            // Release the production Deferred timer, then its real marker frame.
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)); });
+            await act(async () => {
+                const callbacks = [...frames.values()]; frames.clear();
+                callbacks.forEach(callback => callback(0));
+            });
+        },
+        close: () => {
+            act(() => renderer.unmount()); open.mockRestore();
+            delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+        },
+    };
+}
+
 describe('message visibility synchronization', () => {
+    let consoleError: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
         mocks.useRealStorage(null);
+        mocks.hooks = null;
         syncForTest.sessionEventCursors.clear();
         syncForTest.sessionHydrations.clear();
         syncForTest.inFlightSessionRefreshes.clear();
         syncForTest.sessionDeletionMutationGenerations.clear();
         vi.clearAllMocks();
+        const originalConsoleError = console.error;
+        consoleError = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+            if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+            originalConsoleError(...values);
+        });
         mocks.state.sessions = {};
         mocks.state.sessionMessages = {};
         mocks.state.currentViewingSessionId = null;
@@ -355,6 +479,7 @@ describe('message visibility synchronization', () => {
         mocks.runtimeEvents = [];
         mocks.apiRequest.mockReset().mockResolvedValue(response({ messages: [], hasMore: false }));
         mocks.fetchSnapshot.mockResolvedValue(null);
+        mocks.fetchPage.mockResolvedValue({ sessions: [], hasNext: false, nextCursor: null });
         mocks.hydrate.mockImplementation(async (items: ApiSessionSnapshot[]) => items.map(hydrated));
         mocks.hydrateRoute.mockImplementation(async (raw: ApiSessionSnapshot) => ({
             session: hydrated(raw),
@@ -373,17 +498,867 @@ describe('message visibility synchronization', () => {
         syncForTest.sessionQueueProcessing = new Set();
         syncForTest.sessionOlderLoadingTokens = new Map();
         syncForTest.sessionMessageCacheGenerations = new Map();
+        syncForTest.acceptedLocalMessageReceipts = new Map();
+        syncForTest.observedLocalMessageIds = new Map();
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
+        syncForTest.sessionWarmCacheAccountKey = null;
+        syncForTest.localHistory = null;
+        syncForTest.historyWindows = new Map();
+        syncForTest.historyWindowLoads = new Map();
+        syncForTest.historyBoundaryLoadingTokens = new Map();
+        syncForTest.pendingHistoryTargets = new Map();
+        syncForTest.changesInFlight = null;
+        syncForTest.changesSupported = null;
+        syncForTest.pendingOutbox = new Map();
+        syncForTest.sendSync = new Map();
     });
 
     afterEach(() => {
+        Platform.OS = 'web';
+        consoleError.mockRestore();
+        vi.unstubAllGlobals();
+        syncForTest.localHistory?.close();
+        syncForTest.localHistory = null;
+        clearSessionWarmCache();
+        syncForTest.serverID = undefined;
+        syncForTest.sessionWarmCacheAccountKey = null;
         delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
         mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
             messageSync.stop();
+        }
+    });
+
+    it('renders anchored local history through Deferred without a verified-latest marker', async () => {
+        const view = await localHistoryViewHarness({ historical: true });
+        try {
+            await act(async () => { await expect(view.opening).resolves.toBe('ready'); });
+            await view.paint();
+            expect(view.renderer.root.findAllByType('FlatList')).toHaveLength(1);
+            expect(view.renderer.root.findByType('FlatList').props.data).toContainEqual(expect.objectContaining({
+                message: expect.objectContaining({ kind: 'user-text', text: 'message-150' }),
+            }));
+            expect(view.storage.getState().sessionMessages['paint-history']).toMatchObject({
+                isAtLatest: false, latestVerifiedOwnerEpoch: null,
+            });
+            expect(view.storage.getState().sessionMessages['paint-history'].messages.some(message =>
+                message.kind === 'user-text' && message.text === 'message-150')).toBe(true);
+            expect(await view.history.readReadingState('paint-history')).toEqual(view.reading);
+            expect(view.marker).not.toHaveBeenCalled();
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally { view.close(); }
+    });
+
+    it('updates the retained Deferred consumer only after failed stale-tail verification is retried and committed', async () => {
+        const tail = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(tail.promise);
+        const view = await localHistoryViewHarness();
+        try {
+            await act(async () => { await expect(view.opening).resolves.toBe('ready'); });
+            await view.paint();
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/paint-history/messages?after_seq=40&limit=100'));
+            const chat = view.renderer.root.findByType('FlatList');
+            expect(chat.props.data).toContainEqual(expect.objectContaining({
+                message: expect.objectContaining({ kind: 'user-text', text: 'message-40' }),
+            }));
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).toBeNull();
+            expect(view.storage.getState().sessionMessages['paint-history'].messages).toContainEqual(expect.objectContaining({ text: 'message-40' }));
+            expect(view.marker).not.toHaveBeenCalled();
+            await act(async () => {
+                const pending = syncForTest.historyWindowLoads.get('paint-history');
+                tail.resolve(response({}, 503)); await pending;
+            });
+            await view.paint();
+            expect(view.renderer.root.findByType('FlatList')).toBe(chat);
+            expect(view.marker).not.toHaveBeenCalled();
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).toBeNull();
+            mocks.apiRequest.mockResolvedValueOnce(response({ messages: view.page(41, 42), hasMore: false }));
+            await act(async () => { await sync.jumpToLatestMessages('paint-history'); });
+            expect(view.storage.getState().sessionMessages['paint-history']).toMatchObject({
+                isAtLatest: true, latestVerifiedOwnerEpoch: syncForTest.activeOpenSession.owner.ownerEpoch,
+            });
+            await view.paint(); await view.paint();
+            expect(view.renderer.root.findByType('FlatList')).toBe(chat);
+            expect(view.marker).toHaveBeenCalledTimes(1);
+            expect(view.open).toHaveBeenCalledTimes(1);
+            expect(view.probe.collect().samples).toHaveLength(1);
+        } finally { tail.resolve(response({}, 503)); view.close(); }
+    });
+
+    it.each(['latest', 'stale', 'historical', 'abandoned'] as const)('rejects a superseded local apply at the real paint boundary (winner: %s)', async winner => {
+        const view = await localHistoryViewHarness({ holdLocalApply: true, historical: winner === 'historical' });
+        const tail = deferred<Response>();
+        try {
+            await vi.waitFor(() => expect(view.localApplyStarted()).toBe(true));
+            mocks.apiRequest.mockReturnValueOnce(tail.promise);
+            let catchingUp!: Promise<void>;
+            if (winner === 'historical') {
+                const window = await view.history.readWindow('paint-history', { anchorSeq: 150 });
+                const lease = syncForTest.sessionMessageLoadGate.currentLease('paint-history');
+                await act(async () => {
+                    catchingUp = syncForTest.applyHistoryWindow('paint-history', window, syncForTest.sessionMessageLoadGate.begin(lease));
+                    await catchingUp;
+                });
+            } else {
+                await act(async () => { catchingUp = sync.jumpToLatestMessages('paint-history'); });
+                await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            }
+            if (winner === 'stale') await view.history.commitReconciliation({ changes: [{
+                sessionId: 'paint-history', revision: '2', deleted: false, lastMessageSeq: 45,
+                metadataVersion: 0, agentStateVersion: 0,
+            }], nextCursor: '2' });
+            if (winner === 'abandoned') sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+            await act(async () => {
+                tail.resolve(response({ messages: view.page(41, 42), hasMore: false })); await catchingUp;
+            });
+            await view.paint();
+            expect(view.marker).not.toHaveBeenCalled();
+            const winningCache = view.storage.getState().sessionMessages['paint-history'];
+            await act(async () => {
+                view.localApply.resolve();
+                if (winner === 'abandoned') await expect(view.opening).rejects.toThrow('abandoned');
+                else await expect(view.opening).resolves.toBe('ready');
+            });
+            await view.paint(); await view.paint();
+            if (winner !== 'abandoned') {
+                expect(view.storage.getState().sessionMessages['paint-history'].messages).toContainEqual(expect.objectContaining({
+                    text: winner === 'historical' ? 'message-150' : 'message-42',
+                }));
+            }
+            expect(view.marker).toHaveBeenCalledTimes(winner === 'latest' ? 1 : 0);
+            if (winner === 'stale') expect(winningCache.latestVerifiedOwnerEpoch).toBeNull();
+            if (winner === 'historical') expect(await view.history.readReadingState('paint-history')).toEqual(view.reading);
+        } finally { tail.resolve(response({}, 503)); view.localApply.resolve(); view.close(); }
+    });
+
+    it('restores an archived reading window and navigates cached history with zero body requests', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('archive');
+        const history = await openLocalHistory('server|account');
+        await history!.commitPage('archive', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 400 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        await history!.writeReadingState('archive', { version: 1, anchorId: 'message-150',
+            anchorSeq: 150, offset: 12, expandedGroupIds: [] });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(false);
+        expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(300);
+        await syncForTest.loadNewerMessages('archive');
+        await syncForTest.jumpToLatestMessages('archive');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
+        await syncForTest.loadOlderMessages('archive');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.state.sessionMessages.archive.messages).toHaveLength(400);
+    }, 20000);
+
+    it('keeps cached Web history additive across older navigation instead of replacing every 300 raw events', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('web-history');
+        const history = await openLocalHistory('server|web-history');
+        await history!.commitPage('web-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('web-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('web-history');
+
+        expect(syncForTest.historyWindows.get('web-history').messages.map((message: ApiMessage) => message.seq))
+            .toEqual(Array.from({ length: 500 }, (_, i) => i + 1));
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('lets active Web pagination move past a stale restored reading anchor', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('anchored-web-history');
+        const history = await openLocalHistory('server|anchored-web-history');
+        await history!.commitPage('anchored-web-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 1_100 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        await history!.writeReadingState('anchored-web-history', { version: 1,
+            anchorId: 'message-1050', anchorSeq: 1050, offset: 16, expandedGroupIds: [], followLatest: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('anchored-web-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('anchored-web-history');
+        await syncForTest.loadOlderMessages('anchored-web-history');
+
+        const window = syncForTest.historyWindows.get('anchored-web-history');
+        expect(window.oldestSeq).toBe(1);
+        expect(window.messages.some((message: ApiMessage) => message.seq === 1050)).toBe(false);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 60000);
+
+    it('keeps native cached history navigation bounded to 300 raw events', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'android';
+        installSession('native-history');
+        const history = await openLocalHistory('server|native-history');
+        await history!.commitPage('native-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('native-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('native-history');
+
+        expect(syncForTest.historyWindows.get('native-history').messages.length).toBeGreaterThan(0);
+        expect(syncForTest.historyWindows.get('native-history').messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('jumps from a stale cached tail by requesting only newer records', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('archive');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('archive', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'archive', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('archive');
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
+        await syncForTest.jumpToLatestMessages('archive');
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/archive/messages?after_seq=40&limit=100');
+        expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
+        expect(syncForTest.historyWindows.get('archive').messages.map((m: ApiMessage) => m.seq)).toEqual([40, 41, 42]);
+        expect(mocks.state.sessionMessages.archive.latestVerifiedOwnerEpoch).not.toBeNull();
+    });
+
+    it('does not certify a stale tail when reconciliation advances during catch-up', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('advancing-tail');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('advancing-tail', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'advancing-tail', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('advancing-tail')).resolves.toBe('ready');
+        const tail = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(tail.promise);
+        const catchingUp = syncForTest.jumpToLatestMessages('advancing-tail');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/advancing-tail/messages?after_seq=40&limit=100',
+        ));
+        await history.commitReconciliation({ changes: [{ sessionId: 'advancing-tail', revision: '2', deleted: false,
+            lastMessageSeq: 45, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '2' });
+        tail.resolve(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
+        await catchingUp;
+        expect(mocks.state.sessionMessages['advancing-tail']).toMatchObject({ isAtLatest: false, latestVerifiedOwnerEpoch: null });
+    });
+
+    it('does not certify a tail when its catch-up request fails', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('failed-tail');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('failed-tail', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'failed-tail', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('failed-tail')).resolves.toBe('ready');
+        mocks.apiRequest.mockResolvedValueOnce(response({}, 503));
+        await syncForTest.jumpToLatestMessages('failed-tail');
+        expect(mocks.state.sessionMessages['failed-tail'].latestVerifiedOwnerEpoch).toBeNull();
+    });
+
+    it('drops corrupt archived page coverage and retries from the network', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const encryption = installSession('archive');
+        encryption.decryptMessages.mockResolvedValueOnce([null]);
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('archive', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        syncForTest.localHistory = history;
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(40)], hasMore: false }));
+        await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
+        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual(['/v3/sessions/archive/messages?before_seq=2147483647&limit=25']);
+        expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
+    });
+
+    it('makes zero body requests across ten cached opens, visibility signals and unchanged reconnect reconciliations', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('budget');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('budget')]);
+        await history.commitPage('budget', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'budget', revision: '1', deleted: false,
+            lastMessageSeq: 40, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        let reconciliations = 0;
+        vi.stubGlobal('fetch', async (url: string) => {
+            expect(url).toContain('/v3/sessions/changes?');
+            reconciliations++;
+            return new Response(JSON.stringify({ changes: [], nextCursor: '1', hasMore: false }));
+        });
+        syncForTest.localHistory = history;
+        mocks.state.currentViewingSessionId = 'budget';
+        for (let i = 0; i < 10; i++) {
+            await syncForTest.openSession('budget');
+            syncForTest.onSessionVisible('budget');
+            await syncForTest.getMessagesSync('budget').awaitQueue();
+            await syncForTest.fetchSessions(); // reconnect's existing invalidator target
+        }
+        expect(reconciliations).toBe(10);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
+        expect(mocks.state.sessionMessages.budget.isLoaded).toBe(true);
+        syncForTest.releaseSessionMessageCache('budget');
+        await syncForTest.ensureMessagesLoaded('budget');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps realtime tail windows bounded and gives replayed rows stable wire identity', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('bounded');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('bounded', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 300 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        await syncForTest.jumpToLatestMessages('bounded');
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('bounded');
+        await syncForTest.applyHistoryWindow('bounded', await history.readWindow('bounded', { limit: 300 }), syncForTest.sessionMessageLoadGate.begin(lease));
+        const rendered = syncForTest.resolveRenderedMessageId('bounded', 'message-300');
+        expect(syncForTest.getMessageWireSeq('bounded', rendered)).toBe(300);
+        await syncForTest.handleUpdate(newMessageUpdate('bounded', 301));
+        await syncForTest.handleUpdate(newMessageUpdate('bounded', 302));
+        expect(syncForTest.historyWindows.get('bounded').messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.state.sessionMessages.bounded.messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('assigns stable source-block identities to same-wire text and thinking rows across replay', async () => {
+        const encryption = installSession('blocks');
+        encryption.decryptMessages.mockImplementation(async (rows: ApiMessage[]) => rows.map(row => ({ ...row, content: {
+            role: 'agent', content: { type: 'output', data: { type: 'assistant', uuid: 'assistant-wire', message: {
+                role: 'assistant', model: 'test', content: [{ type: 'text', text: 'first long block' }, { type: 'thinking', thinking: 'second long block' }],
+            } } },
+        } })));
+        const lease = syncForTest.sessionMessageLoadGate.enter('blocks');
+        const window = { messages: [apiMessage(1)], oldestSeq: 1, newestSeq: 1, hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true };
+        await syncForTest.applyHistoryWindow('blocks', window, syncForTest.sessionMessageLoadGate.begin(lease));
+        const oldRows = mocks.state.sessionMessages.blocks.messages;
+        expect(oldRows).toHaveLength(2);
+        const keys = oldRows.map((row: any) => syncForTest.getMessageWireBlockKey('blocks', row.id));
+        expect(new Set(keys).size).toBe(2);
+        await syncForTest.applyHistoryWindow('blocks', window, syncForTest.sessionMessageLoadGate.begin(lease));
+        const newRows = mocks.state.sessionMessages.blocks.messages;
+        expect(newRows.map((row: any) => row.id)).not.toEqual(oldRows.map((row: any) => row.id));
+        expect(newRows.map((row: any) => syncForTest.getMessageWireBlockKey('blocks', row.id))).toEqual(keys);
+    });
+
+    it('persists encrypted metadata updates received while the session is off screen', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('metadata');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('metadata')]);
+        syncForTest.localHistory = history;
+        await syncForTest.handleUpdate({ id: 'event', seq: 100, createdAt: 100, body: {
+            t: 'update-session', id: 'metadata', metadata: { value: 'new-cipher', version: 99 },
+        } });
+        expect((await history.readSnapshot('metadata'))?.metadata).toBe('new-cipher');
+        expect((await history.readSnapshot('metadata'))?.metadataVersion).toBe(99);
+    });
+
+    it('archives acknowledged outbound ciphertext without certifying an unseen sequence gap', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('outbound');
+        const history = (await openLocalHistory('server|account'))!;
+        syncForTest.localHistory = history;
+        syncForTest.pendingOutbox.set('outbound', [{ localId: 'local', content: 'sent-cipher' }]);
+        mocks.apiRequest.mockResolvedValue(response({ messages: [{ id: 'ack', seq: 5, localId: 'local', createdAt: 5, updatedAt: 5 }] }));
+        await syncForTest.flushOutbox('outbound');
+        expect((await history.readWindow('outbound', { anchorSeq: 5 }))?.messages[0].content.c).toBe('sent-cipher');
+        expect(await history.readNewerPage('outbound', 0)).toBeNull();
+    });
+
+    it('falls back to the point snapshot when a cached encryption key cannot be hydrated', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('bad-key');
+        delete mocks.state.sessions['bad-key'];
+        const history = (await openLocalHistory('server|account'))!;
+        await history.writeSnapshots([snapshot('bad-key')]);
+        syncForTest.localHistory = history;
+        mocks.hydrateRoute.mockResolvedValueOnce(null);
+        mocks.fetchSnapshot.mockResolvedValue(snapshot('bad-key'));
+        await expect(syncForTest.ensureSessionHydrated('bad-key')).resolves.toBe(true);
+        expect(mocks.fetchSnapshot).toHaveBeenCalledOnce();
+    });
+
+    it('keeps new network content readable when persistence fails at a stale tail', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('quota');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('quota', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'quota', revision: '1', deleted: false,
+            lastMessageSeq: 41, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('quota');
+        vi.spyOn(history, 'commitPage').mockResolvedValue(false);
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(41)], hasMore: false }));
+        await syncForTest.jumpToLatestMessages('quota');
+        expect(syncForTest.historyWindows.get('quota').newestSeq).toBe(41);
+        expect(mocks.state.sessionMessages.quota.isAtLatest).toBe(true);
+        expect((await history.readWindow('quota'))?.newestSeq).toBe(40);
+    });
+
+    it('keeps live permission updates outside a historical window and preserves its boundary flags', async () => {
+        const actual = await useRealMessageComposition();
+        actual.getState().applySessions([hydrated(snapshot('past'))]);
+        actual.getState().applyMessagesLoaded('past');
+        actual.setState(state => ({ sessionMessages: { ...state.sessionMessages, past: {
+            ...state.sessionMessages.past, isAtLatest: false, hasMoreNewer: true,
+        } } }));
+        actual.getState().applySessions([{ ...actual.getState().sessions.past, agentStateVersion: 99,
+            agentState: { controlledByUser: false, requests: { request: { tool: 'Bash', arguments: { command: 'pwd' }, createdAt: 100 } } },
+        }]);
+        expect(actual.getState().sessionMessages.past.isAtLatest).toBe(false);
+        expect(actual.getState().sessionMessages.past.hasMoreNewer).toBe(true);
+        expect(actual.getState().sessionMessages.past.messages).toEqual([]);
+    });
+
+    it.each(['account', 'reset', 'logout', 'session-delete'] as const)(
+        'fences delayed forward JSON before persistence after %s', async transition => {
+            globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+            const encryption = installSession('delayed');
+            const original = (await openLocalHistory('server|original'))!;
+            await original.commitPage('delayed', { direction: 'older', boundary: 2147483647, messages: [apiMessage(40)], hasMore: false });
+            syncForTest.localHistory = original;
+            const body = deferred<{ messages: ApiMessage[]; hasMore: boolean }>();
+            const parsing = deferred<void>();
+            mocks.apiRequest.mockResolvedValue({ ok: true, status: 200,
+                json: () => { parsing.resolve(); return body.promise; } });
+            const lease = syncForTest.sessionMessageLoadGate.enter('delayed');
+            const pending = syncForTest.fetchForwardSince('delayed', encryption, 40, syncForTest.sessionMessageLoadGate.begin(lease));
+            await parsing.promise;
+            if (transition === 'reset') await syncForTest.resetLocalHistory();
+            if (transition === 'logout') await clearLocalHistoryCaches();
+            if (transition === 'session-delete') await original.deleteSession('delayed');
+            const replacement = transition === 'session-delete' ? original
+                : (await openLocalHistory(transition === 'reset' ? 'server|original' : 'server|next'))!;
+            syncForTest.localHistory = replacement;
+            body.resolve({ messages: [apiMessage(41)], hasMore: false });
+            await pending;
+            expect(await replacement.readWindow('delayed')).toBeNull();
+            if (transition === 'account') {
+                expect((await original.readWindow('delayed'))?.newestSeq).toBe(40);
+                original.close();
+            }
+        });
+
+    it.each(['socket', 'socket-recovery', 'forward'] as const)('retains new %s records in a full window when persistence fails', async source => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const encryption = installSession('failed-write');
+        const history = (await openLocalHistory('server|quota'))!;
+        await history.commitPage('failed-write', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 300 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('failed-write');
+        await syncForTest.applyHistoryWindow('failed-write', await history.readWindow('failed-write', { limit: 300 }), syncForTest.sessionMessageLoadGate.begin(lease));
+        if (source !== 'forward') {
+            const append = vi.spyOn(history, 'appendMessages');
+            if (source === 'socket-recovery') append.mockResolvedValueOnce(false);
+            else append.mockResolvedValue(false);
+            await syncForTest.handleUpdate(newMessageUpdate('failed-write', 301));
+            await syncForTest.handleUpdate(newMessageUpdate('failed-write', 302));
+        } else {
+            vi.spyOn(history, 'commitPage').mockResolvedValue(false);
+            mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(301), apiMessage(302)], hasMore: false }));
+            await syncForTest.fetchForwardSince('failed-write', encryption, 300, syncForTest.sessionMessageLoadGate.begin(lease));
+        }
+        const window = syncForTest.historyWindows.get('failed-write');
+        expect(window.newestSeq).toBe(302);
+        expect(window.messages.map((message: ApiMessage) => message.seq)).toContain(301);
+        expect(window.messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.state.sessionMessages['failed-write'].messages.length).toBeLessThanOrEqual(300);
+        expect(syncForTest.resolveRenderedMessageId('failed-write', 'message-302')).not.toBeNull();
+        expect((await history.readWindow('failed-write'))?.newestSeq).toBe(300);
+        expect(await history.readWindow('failed-write', { anchorSeq: 301 })).toBeNull();
+    }, 20000);
+
+    it('projects every accepted local receipt ID while HTTP owns the message lock, without consuming unrelated queued messages', async () => {
+        const storage = await seedLocalProjectionSession();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const loading = syncForTest.ensureMessagesLoaded('spawned-session');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const unrelated = normalizeRawMessage('remote-1', null, 1, rawText('remote'))!;
+        syncForTest.enqueueMessages('spawned-session', [unrelated]);
+        vi.mocked(randomUUID).mockReturnValueOnce('local-a').mockReturnValueOnce('local-b');
+        const first = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        const second = await sync.sendMessage('spawned-session', 'next', { source: 'new_session' });
+        expect(storage.getState().sessionMessages['spawned-session']?.messages).toBeUndefined();
+        try {
+            let projected: boolean | undefined;
+            const projection = sync.awaitLocalMessageProjection(first.sessionId, [...first.localIds, ...second.localIds])
+                .then(value => { projected = value; });
+            for (let i = 0; i < 10; i++) await Promise.resolve();
+            expect(projected).toBe(true);
+            await projection;
+            const cache = storage.getState().sessionMessages['spawned-session'];
+            expect(Object.values(cache.messagesMap).map(message => message.kind === 'user-text' ? message.localId : null)).toEqual(['local-a', 'local-b']);
+            for (const id of [...first.localIds, ...second.localIds]) {
+                expect(cache.messagesMap[cache.reducerState.localIds.get(id)!]).toMatchObject({ localId: id });
+            }
+            expect(syncForTest.sessionMessageQueue.get('spawned-session').map((message: any) => message.id)).toEqual(['remote-1']);
+            expect(syncForTest.pendingOutbox.get('spawned-session').map((message: any) => message.localId)).toEqual(['local-a', 'local-b']);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        } finally {
+            http.resolve(response({ messages: [], hasMore: false }));
+            await loading;
+            await syncForTest.getSessionMessageLock('spawned-session').inLock(() => undefined);
+        }
+        expect(storage.getState().sessionMessages['spawned-session'].messages.some(message => message.kind === 'user-text' && message.text === 'remote')).toBe(true);
+    });
+
+    it.each(['deleted', 'evicted'] as const)('projects attachment and text receipts once and rejects a subsequently %s cache', async (terminal) => {
+        const storage = await seedLocalProjectionSession();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const loading = syncForTest.ensureMessagesLoaded('spawned-session');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10, thumbhash: 'thumbhash' }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            expect(receipt.localIds).toEqual(['local-file', 'local-text']);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds)).resolves.toBe(true);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds)).resolves.toBe(true);
+            const cache = storage.getState().sessionMessages['spawned-session'];
+            expect(cache.messages).toHaveLength(2);
+            const fileId = cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!;
+            expect(cache.reducerState.messages.get(fileId)?.realID).toBe('00000000-0000-4000-8000-000000000001');
+            expect(cache.messagesMap[fileId]).toMatchObject({ kind: 'tool-call', tool: { name: 'file', state: 'completed' } });
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({ localId: 'local-text', text: 'hello' });
+            expect(syncForTest.pendingOutbox.get('spawned-session')).toHaveLength(2);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            const pending = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+            if (terminal === 'deleted') sync.removeSessionLocally(receipt.sessionId);
+            else syncForTest.releaseSessionMessageCache(receipt.sessionId);
+            await expect(pending).resolves.toBe(false);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+        } finally {
+            upload.mockRestore();
+            http.resolve(response({ messages: [], hasMore: false }));
+            await loading;
+        }
+    });
+
+    it('keeps an accepted text and attachment receipt across an empty latest history replacement', async () => {
+        // Catches a live/latest archive rebuild replacing the reducer with only
+        // pre-ACK rows, which must not erase the already accepted local receipt.
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const storage = await seedLocalProjectionSession();
+        const history = (await openLocalHistory('server|account'))!;
+        syncForTest.localHistory = history;
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            const lease = syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: [], hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
+
+            const cache = storage.getState().sessionMessages[receipt.sessionId];
+            expect(cache.messages).toHaveLength(2);
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({
+                kind: 'user-text', localId: 'local-text', text: 'hello',
+            });
+            expect(cache.messagesMap[cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!]).toMatchObject({
+                kind: 'tool-call', tool: { name: 'file' },
+            });
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+        } finally {
+            upload.mockRestore();
+        }
+    });
+
+    it.each([false, true])('recovers a real echoed text/file spawn after full release with one handoff (fresh retain: %s)', async (retain) => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const storage = await seedLocalProjectionSession();
+        syncForTest.localHistory = (await openLocalHistory('server|account'))!;
+        syncForTest.sendSync.delete('spawned-session');
+        mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'spawned-session' });
+        const acknowledgement = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(acknowledgement.promise);
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('trace-id').mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        const send = vi.spyOn(sync, 'sendMessage');
+        const project = sync.awaitLocalMessageProjection.bind(sync);
+        let receipt!: Awaited<ReturnType<typeof sync.sendMessage>>;
+        let echoed: ApiMessage[] = [];
+        const assertTextAndFile = () => {
+            const cache = storage.getState().sessionMessages['spawned-session'];
+            expect(cache.messages).toHaveLength(2);
+            expect(cache.messages.filter(message => message.kind === 'user-text')).toHaveLength(1);
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({
+                kind: 'user-text', localId: 'local-text', text: 'hello',
+            });
+            const fileId = cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!;
+            expect(cache.reducerState.messages.get(fileId)?.realID).toBe('00000000-0000-4000-8000-000000000001');
+            expect(cache.messagesMap[fileId]).toMatchObject({ kind: 'tool-call', tool: { name: 'file', state: 'completed' } });
+        };
+        const projection = vi.spyOn(sync, 'awaitLocalMessageProjection').mockImplementationOnce(async (...args) => {
+            receipt = args[2]!;
+            await expect(project(...args)).resolves.toBe(true);
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            // Echo the exact encrypted outbox contents, including the session/file
+            // envelope. A text-only decryptor would fail the file identity checks.
+            echoed = syncForTest.pendingOutbox.get(receipt.sessionId).map((entry: any, i: number) => ({
+                ...apiMessage(10 + i), id: i === 0 ? 'remote-file' : 'remote-text',
+                localId: entry.localId, content: { t: 'encrypted', c: entry.content },
+            }));
+            const lease = syncForTest.sessionMessageLoadGate.currentLease(receipt.sessionId)
+                ?? syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: [], hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
+            assertTextAndFile();
+            const generation = syncForTest.sessionMessageCacheGenerations.get(receipt.sessionId);
+            // Inject loss of the display reducer while retaining the live
+            // generation and receipt, so retry must execute actual recovery.
+            storage.setState(state => ({ sessionMessages: { ...state.sessionMessages, [receipt.sessionId]: {
+                ...state.sessionMessages[receipt.sessionId], messages: [], messagesMap: {}, reducerState: createReducer(),
+            } } }));
+            expect(storage.getState().sessionMessages[receipt.sessionId].messages).toHaveLength(0);
+            expect(storage.getState().sessionMessages[receipt.sessionId].isAtLatest).toBe(true);
+            expect(syncForTest.sessionMessageCacheGenerations.get(receipt.sessionId)).toBe(generation);
+            await expect(project(...args)).resolves.toBe(true);
+            assertTextAndFile();
+            acknowledgement.resolve(response({ messages: [
+                { id: 'remote-file', seq: 10, localId: 'local-file', createdAt: 100, updatedAt: 100 },
+                { id: 'remote-text', seq: 11, localId: 'local-text', createdAt: 110, updatedAt: 110 },
+            ] }));
+            await vi.waitFor(() => expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toBeUndefined());
+            expect(generation.pendingLocalMessages.size).toBe(2);
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: echoed, hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
+            assertTextAndFile();
+            const echoedCache = storage.getState().sessionMessages[receipt.sessionId];
+            const textId = echoedCache.reducerState.localIds.get('local-text')!;
+            expect(echoedCache.reducerState.messageIds.get('remote-text')).toBe(textId);
+            expect(echoedCache.reducerState.messages.get(textId)?.realID).toBe('remote-text');
+            expect(generation.pendingLocalMessages.size).toBe(0);
+            expect(syncForTest.observedLocalMessageIds.get(receipt.sessionId).size).toBe(2);
+            // The projection is unfinished when full cache loss crosses its
+            // settlement boundary. The hook must keep the original receipt.
+            const pending = project(...args);
+            syncForTest.releaseSessionMessageCache(receipt.sessionId);
+            if (retain) syncForTest.retainSessionMessageCache(receipt.sessionId);
+            return pending;
+        });
+        const transferred = vi.fn();
+        let hook!: ReturnType<typeof useSpawnSession>;
+        function Harness() { hook = useSpawnSession(); return null; }
+        let renderer: any;
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        try {
+            await act(async () => { renderer = TestRenderer.create(React.createElement(Harness)); });
+            await act(async () => {
+                expect(await hook.spawn({
+                    machineId: 'machine', machine: { id: 'machine', active: true, metadata: { homeDir: '/test' } } as any,
+                    path: '/test', agent: 'codex', worktreeKey: null, prompt: 'hello',
+                    images: [{ id: 'attachment' }] as any,
+                }, false, transferred)).toBe(false);
+            });
+            expect(transferred).not.toHaveBeenCalled();
+            expect(mocks.navigateToSession).not.toHaveBeenCalled();
+            await expect(projection.mock.results[0].value).resolves.toBe(false);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+            await act(async () => { expect(await hook.retryHydration()).toBe(true); });
+            assertTextAndFile();
+            expect(projection.mock.calls[1][2]).toBe(receipt);
+            await act(async () => { expect(await hook.retryHydration()).toBe(false); });
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(transferred).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession.mock.calls).toEqual([['spawned-session']]);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toBeUndefined();
+
+            const lease = syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
+            await act(async () => {
+                await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: echoed, hasMore: false },
+                    syncForTest.sessionMessageLoadGate.begin(lease));
+                assertTextAndFile();
+                await syncForTest.applyLatestMessagePage(receipt.sessionId, {
+                    messages: Array.from({ length: 300 }, (_, index) => apiMessage(index + 100)), hasMore: false,
+                }, syncForTest.sessionMessageLoadGate.begin(lease));
+            });
+            const assertEvicted = () => {
+                const cache = storage.getState().sessionMessages[receipt.sessionId];
+                expect(cache.reducerState.localIds.has('local-text')).toBe(false);
+                expect(cache.messages.some(message => message.kind === 'user-text' && message.localId === 'local-text')).toBe(false);
+                expect(cache.reducerState.toolIdToMessageId.has('00000000-0000-4000-8000-000000000001')).toBe(false);
+                expect(cache.messages.some(message => message.kind === 'tool-call' && message.tool.name === 'file')).toBe(false);
+            };
+            assertEvicted();
+            await expect(project(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(false);
+            assertEvicted();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            acknowledgement.resolve(response({ messages: [] }));
+            upload.mockRestore(); projection.mockRestore(); send.mockRestore();
+            delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+        }
+    });
+
+    it.each([[], [''], [' '], ['missing'], ['test-uuid', 'missing'], ['__proto__'], ['constructor']].map(ids => ({ ids })))(
+        'rejects unprojected or malformed literal receipt IDs $ids', async ({ ids }) => {
+            const storage = await seedLocalProjectionSession();
+            await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+            await expect(sync.awaitLocalMessageProjection('spawned-session', ids)).resolves.toBe(false);
+            expect(storage.getState().sessionMessages['spawned-session']?.messages.some(message => message.kind === 'user-text' && message.localId === 'test-uuid')).toBe(true);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['before', 'during'] as const)('rejects deletion %s projection without recreating the cache', async (when) => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        if (when === 'before') sync.removeSessionLocally('spawned-session');
+        const projection = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+        if (when === 'during') sync.removeSessionLocally('spawned-session');
+        await expect(projection).resolves.toBe(false);
+        expect(storage.getState().sessionMessages['spawned-session']).toBeUndefined();
+        expect(storage.getState().sessions['spawned-session']).toBeUndefined();
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cache generation replaced during projection even if the same IDs reappear', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        const projection = sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds);
+        syncForTest.releaseSessionMessageCache('spawned-session');
+        syncForTest.retainSessionMessageCache('spawned-session');
+        storage.getState().applyMessages('spawned-session', [normalizeRawMessage('test-uuid', 'test-uuid', 1, rawText('replacement'))!]);
+        await expect(projection).resolves.toBe(false);
+    });
+
+    it('restores an accepted receipt into a fresh empty generation without another send', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        syncForTest.releaseSessionMessageCache(receipt.sessionId);
+        syncForTest.retainSessionMessageCache(receipt.sessionId);
+
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+        expect(storage.getState().sessionMessages[receipt.sessionId].messages).toHaveLength(1);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toHaveLength(1);
+    });
+
+    it.each([false, true])('restores accepted attachment and text receipts after eviction (remote acknowledgement: %s)', async (acknowledged) => {
+        // Losing generation-local provenance must not strand an accepted spawn.
+        const storage = await seedLocalProjectionSession();
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            const accepted = [...syncForTest.pendingOutbox.get(receipt.sessionId)];
+            const gap = newMessageUpdate(receipt.sessionId, 7);
+            gap.body.message.content = { t: 'encrypted', c: 'AQ==' };
+            await syncForTest.handleUpdate(gap);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, ['local-file', 'local-file'], receipt)).resolves.toBe(false);
+            expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+            if (acknowledged) {
+                syncForTest.pendingOutbox.get(receipt.sessionId).splice(0);
+                // The remote echo can use a different transport ID, but keeps
+                // the exact accepted local ID and file envelope identity.
+                storage.getState().applyMessages(receipt.sessionId, [
+                    normalizeRawMessage('remote-text', 'local-text', 20, rawText('hello'))!,
+                ]);
+            }
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            const cache = storage.getState().sessionMessages[receipt.sessionId];
+            expect(cache.messages).toHaveLength(2);
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({ kind: 'user-text', localId: 'local-text', text: 'hello' });
+            expect(cache.messagesMap[cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!]).toMatchObject({ kind: 'tool-call', tool: { name: 'file' } });
+            expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toEqual(acknowledged ? [] : accepted);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally {
+            upload.mockRestore();
+        }
+    });
+
+    it('does not recover a forged receipt or revive a deleted receipt after the same session ID returns', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        syncForTest.releaseSessionMessageCache(receipt.sessionId);
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, { ...receipt })).resolves.toBe(false);
+        sync.removeSessionLocally(receipt.sessionId);
+        storage.getState().applySessions([hydrated(snapshot(receipt.sessionId))]);
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(false);
+        expect(storage.getState().sessionMessages[receipt.sessionId]).toBeUndefined();
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('retries an evicted accepted spawn with one real send, one accepted message and one navigation', async () => {
+        const storage = await seedLocalProjectionSession();
+        mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'spawned-session' });
+        const send = vi.spyOn(sync, 'sendMessage');
+        const project = sync.awaitLocalMessageProjection.bind(sync);
+        const projection = vi.spyOn(sync, 'awaitLocalMessageProjection').mockImplementationOnce((...args) => {
+            const pending = project(...args);
+            syncForTest.releaseSessionMessageCache('spawned-session');
+            return pending;
+        });
+        const transferred = vi.fn();
+        let hook!: ReturnType<typeof useSpawnSession>;
+        function Harness() { hook = useSpawnSession(); return null; }
+        let renderer: any;
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        const originalConsoleError = console.error;
+        const consoleError = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+            if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+            originalConsoleError(...values);
+        });
+        try {
+            await act(async () => { renderer = TestRenderer.create(React.createElement(Harness)); });
+            await act(async () => {
+                expect(await hook.spawn({
+                    machineId: 'machine', machine: { id: 'machine', active: true, metadata: { homeDir: '/test' } } as any,
+                    path: '/test', agent: 'codex', worktreeKey: null, prompt: 'hello',
+                }, false, transferred)).toBe(false);
+            });
+            expect(mocks.navigateToSession).not.toHaveBeenCalled();
+            expect(transferred).not.toHaveBeenCalled();
+            expect(storage.getState().sessionMessages['spawned-session']).toBeUndefined();
+            await act(async () => { expect(await hook.retryHydration()).toBe(true); });
+            await act(async () => { expect(await hook.retryHydration()).toBe(false); });
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession.mock.calls).toEqual([['spawned-session']]);
+            expect(transferred).toHaveBeenCalledTimes(1);
+            expect(syncForTest.pendingOutbox.get('spawned-session')).toHaveLength(1);
+            expect(storage.getState().sessionMessages['spawned-session'].messages).toHaveLength(1);
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            projection.mockRestore();
+            send.mockRestore();
+            consoleError.mockRestore();
+            delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
         }
     });
 
@@ -407,6 +1382,82 @@ describe('message visibility synchronization', () => {
             'web.messages.latest_completed',
             'web.session.store_committed',
         ]);
+    });
+
+    it('bounds the initial latest page while preserving 100-message explicit older pagination', async () => {
+        installSession('bounded-initial');
+        mocks.state.currentViewingSessionId = 'bounded-initial';
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(101), apiMessage(102)], hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(1)], hasMore: false }));
+
+        await expect(syncForTest.openSession('bounded-initial')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('bounded-initial');
+
+        expect(mocks.apiRequest).toHaveBeenNthCalledWith(1,
+            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25');
+        expect(mocks.apiRequest).toHaveBeenNthCalledWith(2,
+            '/v3/sessions/bounded-initial/messages?before_seq=101&limit=100');
+        expect(syncForTest.sessionMessageFrontiers.get('bounded-initial')?.olderBeforeSeq).toBe(1);
+    });
+
+    it('revalidates an already loaded route incrementally instead of downloading the latest page again', async () => {
+        installSession('warm-route');
+        mocks.state.sessionMessages['warm-route'] = {
+            messages: [], messagesMap: {}, reducerState: {}, isLoaded: true,
+            hasMoreOlder: false, isLoadingOlder: false,
+        };
+        syncForTest.sessionMessageFrontiers.set('warm-route', {
+            latestSeq: 42, olderBeforeSeq: 1, hasMoreOlder: false,
+        });
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+
+        await expect(syncForTest.openSession('warm-route')).resolves.toBe('ready');
+
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
+        );
+        expect(mocks.state.sessionMessages['warm-route'].latestVerifiedOwnerEpoch).not.toBeNull();
+    });
+
+    it('removes an offline-deleted cached session when incremental sync returns 404', async () => {
+        const storage = await useRealMessageComposition();
+        syncForTest.serverID = 'account';
+        syncForTest.sessionWarmCacheAccountKey = 'account';
+        mocks.sessionEncryptions.set('gone', new SessionEncryption('gone', {
+            encrypt: async () => [], decrypt: async () => [],
+        }, new EncryptionCache()));
+        storage.getState().applySessions([hydrated(snapshot('gone'))]);
+        storage.getState().applyMessagesLoaded('gone');
+        syncForTest.sessionMessageFrontiers.set('gone', { latestSeq: 42, olderBeforeSeq: 1, hasMoreOlder: false });
+        saveSessionWarmSnapshots('account', [snapshot('gone')]);
+        saveSessionWarmLatestPage('account', 'gone', { messages: [apiMessage(42)], hasMore: false });
+        mocks.apiRequest.mockResolvedValue({ ok: false, status: 404 });
+
+        await expect(syncForTest.openSession('gone')).rejects.toBeInstanceOf(SessionRouteAbandonedError);
+        expect(storage.getState().sessions.gone).toBeUndefined();
+        expect(loadSessionWarmCache('account')).toEqual({ snapshots: [], latestPages: {} });
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists multiple incremental pages and restores their latest frontier', async () => {
+        installSession('warm');
+        syncForTest.serverID = 'account';
+        syncForTest.sessionWarmCacheAccountKey = 'account';
+        saveSessionWarmLatestPage('account', 'warm', { messages: [apiMessage(40)], hasMore: true });
+        const lease = syncForTest.sessionMessageLoadGate.enter('warm');
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(41)], hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(42)], hasMore: false }));
+        await syncForTest.fetchForwardSince('warm', mocks.sessionEncryptions.get('warm'), 40,
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const page = loadSessionWarmCache('account').latestPages.warm;
+        expect(page.messages.map(message => message.seq)).toEqual([40, 41, 42]);
+        delete mocks.state.sessionMessages.warm;
+        syncForTest.sessionMessageFrontiers.clear();
+        await syncForTest.applyLatestMessagePage('warm', page, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(syncForTest.getSessionLastMessageSeq('warm')).toBe(42);
     });
 
     it.each(['cached', 'shared'] as const)('attributes a route snapshot satisfied by %s hydration exactly once', async (source) => {
@@ -455,6 +1506,81 @@ describe('message visibility synchronization', () => {
         await hydrating;
         await rejected;
         expect(stages).toEqual(['web.messages.latest_started', 'web.session.snapshot_started']);
+    });
+
+    it('reuses downloaded older pages after all session memory is released', async () => {
+        Platform.OS = 'android';
+        const { storage, page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        mocks.apiRequest.mockResolvedValue(response({ messages: page(51, 150), hasMore: true }));
+        await syncForTest.loadOlderMessages('range-session');
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+
+        syncForTest.releaseSessionMessageCache('range-session');
+        const lease = syncForTest.sessionMessageLoadGate.enter('range-session');
+        await syncForTest.applyLatestMessagePage('range-session', { messages: page(151, 250), hasMore: true },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.apiRequest.mockClear();
+        const loading = vi.spyOn(storage.getState(), 'applyOlderMessagesLoading');
+        await syncForTest.loadOlderMessages('range-session');
+
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(loading).not.toHaveBeenCalledWith('range-session', true);
+        loading.mockRestore();
+        expect(storage.getState().sessionMessages['range-session'].messages).toHaveLength(200);
+        expect(syncForTest.sessionMessageFrontiers.get('range-session').olderBeforeSeq).toBe(51);
+    });
+
+    it('retries unreadable native ciphertext from the network instead of trapping the reader on cached errors', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        sessionHistoryPageCache.save('native-server|native-account', 'range-session', 151, {
+            messages: [{ ...apiMessage(150), content: { t: 'encrypted', c: 'invalid ciphertext' } }], hasMore: true,
+        });
+        const encryption = mocks.sessionEncryptions.get('range-session');
+        const detached = encryption.createDetached.bind(encryption);
+        vi.spyOn(encryption, 'createDetached').mockImplementation(() => {
+            const result = detached();
+            const decrypt = result.decryptMessages.bind(result);
+            result.decryptMessages = async (messages: ApiMessage[]) => messages.some(row => row.content.t === 'encrypted' && row.content.c === 'invalid ciphertext')
+                ? messages.map(() => null) : decrypt(messages);
+            return result;
+        });
+        mocks.apiRequest.mockResolvedValue(response({ messages: page(51, 150), hasMore: true }));
+        await expect(syncForTest.loadOlderMessages('range-session')).resolves.toBeUndefined();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 151)?.messages).toHaveLength(100);
+    });
+
+    it('does not certify sparse startup warm messages as durable complete history', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        saveSessionWarmSnapshots('native-server|native-account', [snapshot('range-session', 250)]);
+        saveSessionWarmLatestPage('native-server|native-account', 'range-session', {
+            messages: [...page(80, 80), ...page(150, 150)], hasMore: true,
+        });
+        syncForTest.releaseSessionMessageCache('range-session');
+        await syncForTest.restoreSessionWarmCache();
+        // A socket jump in the small startup cache proves neither the gap
+        // 81..149 nor any earlier page; it must not acquire durable coverage.
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 151)).toBeNull();
+    });
+
+    it('does not repopulate native history from a latest HTTP request started before cache clearing', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        const pending = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(pending.promise);
+        const latest = syncForTest.fetchLatestMessagePageRaw('range-session');
+        clearSessionWarmCache();
+        pending.resolve(response({ messages: page(151, 250), hasMore: true }));
+        const data = await latest;
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('range-session');
+        await syncForTest.applyLatestMessagePage('range-session', data, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 251)).toBeNull();
     });
 
     it('reaches a gap between cached history and the latest page exactly once', async () => {
@@ -706,6 +1832,7 @@ describe('message visibility synchronization', () => {
                 expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
             );
             expect(storage.getState().sessionMessages['opening-session'].reducerState.messageIds.has('latest-visible-message')).toBe(true);
+            expect(storage.getState().sessionMessages['opening-session'].latestVerifiedOwnerEpoch).not.toBeNull();
             expect(storage.getState().currentViewingSessionId).toBeNull();
             probe.markFreshLatestMessageComplete();
             expect(probe.collect().samples).toHaveLength(1);
@@ -1225,6 +2352,9 @@ describe('message visibility synchronization', () => {
     });
 
     it('refreshes git once when a later forward page fails after a mutable page was applied', async () => {
+        const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+        const firstFailedPageRefresh = deferred<void>();
+        mocks.gitInvalidate.mockImplementationOnce(() => { firstFailedPageRefresh.resolve(); });
         installSession('visible-session', async (messages) => messages.map((message) => ({
             id: message.id,
             localId: message.localId,
@@ -1241,7 +2371,10 @@ describe('message visibility synchronization', () => {
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', 7));
         const messageSync = syncForTest.messagesSync.get('visible-session');
         try {
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+            // Observe the first failure's finally boundary before any retry.
+            // Polling can miss exactly-two requests when random backoff is 0ms.
+            await firstFailedPageRefresh.promise;
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
 
             expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-5']).toBeDefined();
             expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
@@ -1249,6 +2382,7 @@ describe('message visibility synchronization', () => {
         } finally {
             syncForTest.releaseSessionMessageCache('visible-session');
             await messageSync.awaitQueue();
+            random.mockRestore();
         }
     });
 
@@ -1429,6 +2563,133 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages['same-session']).toMatchObject({ isLoaded: true });
         expect(mocks.state.sessionMessages['same-session'].messagesMap['message-7']).toBeDefined();
         expect(syncForTest.getSessionLastMessageSeq('same-session')).toBe(7);
+    });
+
+    async function installHistoricalBoundary(scope: string, retainedHistory?: NonNullable<Awaited<ReturnType<typeof openLocalHistory>>>) {
+        const history = retainedHistory ?? (await openLocalHistory(scope))!;
+        syncForTest.localHistory = history;
+        installSession('visible-session');
+        await history.commitPage('visible-session', { direction: 'older', boundary: 103,
+            messages: [apiMessage(100), apiMessage(101), apiMessage(102)], hasMore: true });
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('visible-session') ?? syncForTest.sessionMessageLoadGate.enter('visible-session');
+        await syncForTest.applyHistoryWindow('visible-session', await history.readWindow('visible-session', { anchorSeq: 101 }),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        return history;
+    }
+
+    async function mountBoundaryChat(direction: 'older' | 'newer') {
+        const { ChatList } = await import('@/components/ChatList');
+        vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+        // The store double exposes sync's actual writes. Re-render publishes
+        // each settled write to the mounted ChatList, without mocking paging.
+        const render = () => React.createElement(ChatList, { session: { ...mocks.state.sessions['visible-session'] } as any });
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        return {
+            renderer,
+            update: async () => { await act(async () => { renderer.update(render()); }); },
+            reach: () => act(() => renderer.root.findByType('FlatList').props.onScroll({ nativeEvent: {
+                contentOffset: { y: direction === 'older' ? 4500 : 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 500 },
+            } })),
+            retry: () => act(() => renderer.root.findByProps({ testID: `history-${direction}-retry` }).props.onPress()),
+            unmount: () => act(() => renderer.unmount()),
+        };
+    }
+
+    it.each(['older', 'newer'] as const)('releases superseded Web %s loading and retries the same boundary through mounted ChatList', async direction => {
+        vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+        await installHistoricalBoundary(`server|web-${direction}`);
+        const originalRows = mocks.state.sessionMessages['visible-session'].messages;
+        const firstPage = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(firstPage.promise)
+            .mockResolvedValueOnce(response({ messages: [apiMessage(direction === 'older' ? 99 : 103)], hasMore: false }));
+        const chat = await mountBoundaryChat(direction);
+        try {
+            chat.reach();
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            const first = syncForTest.historyWindowLoads.get('visible-session');
+            const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(true);
+            await chat.update();
+            syncForTest.onSessionVisible('visible-session');
+            await syncForTest.messagesSync.get('visible-session').awaitQueue(); // historical foreground no-op, but new loadEpoch
+            firstPage.resolve(response({ messages: [], hasMore: true }));
+            await first;
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(mocks.state.sessionMessages['visible-session'].messages).toBe(originalRows);
+            await chat.update();
+            // Normal repeated scrolling is bounded; explicit Retry bypasses the
+            // transcript's attempted-boundary latch for the identical edge.
+            chat.reach(); expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            chat.retry();
+            await syncForTest.historyWindowLoads.get('visible-session');
+            await chat.update();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.apiRequest.mock.calls[1][0]).toBe(mocks.apiRequest.mock.calls[0][0]);
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(mocks.state.sessionMessages['visible-session'][`${direction}Error`] ?? null).toBeNull();
+            expect(syncForTest.historyWindows.get('visible-session').messages.some((row: ApiMessage) => row.seq === (direction === 'older' ? 99 : 103))).toBe(true);
+            expect(chat.renderer.root.findAllByProps({ testID: `history-${direction}-retry` })).toHaveLength(0);
+        } finally { chat.unmount(); }
+    });
+
+    it.each([['older', 'remount'], ['newer', 'remount'], ['older', 'account'], ['newer', 'account']] as const)(
+        'does not let stale Web %s cleanup alter a %s replacement cache', async (direction, replacement) => {
+            vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+            const oldHistory = await installHistoricalBoundary('server|old-boundary');
+            const oldPage = deferred<Response>(); const newPage = deferred<Response>();
+            mocks.apiRequest.mockReturnValueOnce(oldPage.promise).mockReturnValueOnce(newPage.promise);
+            const load = () => direction === 'older' ? sync.loadOlderMessages('visible-session') : sync.loadNewerMessages('visible-session');
+            const oldLoading = load(); await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            if (replacement === 'remount') syncForTest.releaseSessionMessageCache('visible-session');
+            else syncForTest.encryption = { ...syncForTest.encryption };
+            await installHistoricalBoundary(`server|${replacement}-replacement`, replacement === 'remount' ? oldHistory : undefined);
+            const newLoading = load(); await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+            oldPage.reject(new Error('stale owner failed'));
+            await oldLoading;
+            const field = direction === 'older' ? 'isLoadingOlder' : 'isLoadingNewer';
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(true);
+            expect(mocks.state.sessionMessages['visible-session'][`${direction}Error`]).toBeNull();
+            newPage.resolve(response({ messages: [apiMessage(direction === 'older' ? 99 : 103)], hasMore: false }));
+            await newLoading;
+            expect(mocks.state.sessionMessages['visible-session'][field]).toBe(false);
+            expect(syncForTest.historyWindows.get('visible-session').messages.some((row: ApiMessage) => row.seq === (direction === 'older' ? 99 : 103))).toBe(true);
+            oldHistory.close();
+        });
+
+    it.each(['web', 'android'] as const)('renders a retryable no-IDB older failure on %s through mounted ChatList and clears it after retry', async platform => {
+        const { Platform } = await import('react-native');
+        const previousPlatform = Platform.OS;
+        (Platform as any).OS = platform;
+        vi.stubGlobal('indexedDB', undefined);
+        expect(await openLocalHistory('server|unavailable')).toBeNull();
+        installSession('visible-session');
+        const readingMessage = { id: 'message-103', kind: 'user-text', text: 'reading', createdAt: 1, localId: null };
+        const originalRows = [readingMessage];
+        mocks.state.sessionMessages['visible-session'] = {
+            messages: originalRows,
+            messagesMap: { 'message-103': readingMessage }, isLoaded: true, hasMoreOlder: true, isLoadingOlder: false, isAtLatest: true,
+        };
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });
+        mocks.apiRequest.mockRejectedValueOnce(new Error('offline older page'))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(90)], hasMore: false }));
+        const chat = await mountBoundaryChat('older');
+        try {
+            chat.reach();
+            await vi.waitFor(() => expect(mocks.state.sessionMessages['visible-session'].isLoadingOlder).toBe(false));
+            await chat.update();
+            expect(chat.renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(1);
+            expect(mocks.state.sessionMessages['visible-session'].messages).toBe(originalRows);
+            chat.reach(); expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            chat.retry();
+            await vi.waitFor(() => expect(mocks.state.sessionMessages['visible-session'].messagesMap['message-90']).toBeDefined());
+            await chat.update();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.apiRequest.mock.calls[1][0]).toBe('/v3/sessions/visible-session/messages?before_seq=103&limit=100');
+            expect(mocks.state.sessionMessages['visible-session'].olderError).toBeNull();
+            expect(mocks.state.sessionMessages['visible-session'].messagesMap['message-103']).toBe(readingMessage);
+            expect(chat.renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(0);
+        } finally { chat.unmount(); (Platform as any).OS = previousPlatform; }
     });
 
     it('releases an older-page loading lock when a forward load supersedes it in the same cache', async () => {

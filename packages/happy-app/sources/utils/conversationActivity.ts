@@ -1,3 +1,4 @@
+import { summarizeToolFailureOutput, toolFailureDetail } from '@slopus/happy-wire';
 import { Message, ToolCall, ToolCallMessage } from '@/sync/typesMessage';
 
 export type ConversationActivityStatus = 'running' | 'completed' | 'failed' | 'cancelled';
@@ -5,11 +6,13 @@ export type ConversationActivityStatus = 'running' | 'completed' | 'failed' | 'c
 export type SkillConversationActivity = {
     kind: 'skill';
     name: string;
+    isBatch?: boolean;
     status: ConversationActivityStatus;
     failure: ToolCall['failure'] | null;
     updatedAt: number;
     depth: number;
     order: number;
+    invocationMessageIds: string[];
 };
 
 export type SubagentConversationActivity = {
@@ -73,23 +76,35 @@ function toolStatus(tool: ToolCall): ConversationActivityStatus {
     return tool.state;
 }
 
-function getToolFailure(tool: ToolCall): ToolCall['failure'] | null {
-    if (tool.failure) {
+function getToolFailure(message: ToolCallMessage): ToolCall['failure'] | null {
+    const tool = message.tool;
+    if (tool.state !== 'error') return null;
+    if (tool.failure?.summary && summarizeToolFailureOutput(tool.failure.summary)) {
         return tool.failure;
     }
-    if (tool.state !== 'error' || typeof tool.result !== 'string' || tool.result.trim().length === 0) {
-        return null;
-    }
 
-    const detail = tool.result.trim().slice(0, 4000);
-    const summary = detail.split(/\r?\n/, 1)[0].trim().slice(0, 280);
-    return {
-        summary: summary || detail,
-        ...(detail !== summary ? { detail } : {}),
-    };
+    // Older CLI versions stored the first line of stdout as the summary and
+    // truncated its detail. Command-output children can still contain the error.
+    const commandOutput = message.children
+        .filter((child) => child.kind === 'agent-text' && child.isThinking)
+        .map((child) => child.kind === 'agent-text' ? child.text : '')
+        .join('');
+    for (const output of [tool.result, commandOutput, tool.failure?.detail]) {
+        if (typeof output !== 'string') continue;
+        const summary = summarizeToolFailureOutput(output);
+        if (!summary) continue;
+        const detail = toolFailureDetail(output, summary);
+        return {
+            ...tool.failure,
+            summary,
+            ...(detail !== summary ? { detail } : {}),
+        };
+    }
+    return null;
 }
 
 export function getSkillNamesFromTool(tool: Pick<ToolCall, 'name' | 'input'>): string[] {
+    if (tool.name === 'ego-browser' || tool.name === 'ego-ops') return [tool.name];
     if (tool.name !== 'Skill') {
         return [];
     }
@@ -164,20 +179,32 @@ export function collectConversationActivities(
             }
 
             const skillNames = getSkillNamesFromTool(message.tool);
-            for (const name of skillNames) {
+            // A shell command supplies one status for the entire batch. Do not
+            // invent per-file outcomes (later reads may be skipped by &&).
+            if (skillNames.length > 0) {
+                const isBatch = skillNames.length > 1;
+                const name = skillNames.join(', ');
                 const next: SkillConversationActivity = {
                     kind: 'skill',
                     name,
+                    ...(isBatch ? { isBatch: true } : {}),
                     status: toolStatus(message.tool),
-                    failure: getToolFailure(message.tool),
+                    failure: getToolFailure(message),
                     updatedAt: message.tool.completedAt ?? message.createdAt,
                     depth,
                     order: sequence,
+                    invocationMessageIds: [message.id],
                 };
-                const key = `${ownerPath.join('/')}:${name}`;
+                const key = JSON.stringify([ownerPath, isBatch ? 'batch' : 'skill', isBatch ? message.id : name]);
                 const existing = skillActivities.get(key);
                 if (!existing || next.status === 'running' || next.updatedAt >= existing.updatedAt) {
-                    skillActivities.set(key, existing ? { ...next, order: existing.order } : next);
+                    skillActivities.set(key, existing ? {
+                        ...next,
+                        order: existing.order,
+                        invocationMessageIds: [...existing.invocationMessageIds, message.id],
+                    } : next);
+                } else if (existing) {
+                    existing.invocationMessageIds.push(message.id);
                 }
             }
 

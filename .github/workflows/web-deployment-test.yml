@@ -1,0 +1,36 @@
+name: Web deployment tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/deploy-web*'
+      - 'scripts/web-release-source.sh'
+      - 'scripts/web-production-deploy.test.mjs'
+      - '.github/workflows/web-production-deploy.yml'
+      - '.github/workflows/web-deployment-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/deploy-web*'
+      - 'scripts/web-release-source.sh'
+      - 'scripts/web-production-deploy.test.mjs'
+      - '.github/workflows/web-production-deploy.yml'
+      - '.github/workflows/web-deployment-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter monorepo
+      - name: Verify deployment and supersession guards
+        run: node --test scripts/deploy-web.test.mjs scripts/web-production-deploy.test.mjs

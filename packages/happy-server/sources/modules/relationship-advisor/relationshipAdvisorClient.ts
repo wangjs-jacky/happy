@@ -3,16 +3,48 @@ import type { LookupAddress } from 'node:dns';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { Agent, type Dispatcher } from 'undici';
 import {
-    streamRelationshipAdvisor,
+    streamRelationshipAdvisor as streamPluginRelationshipAdvisor,
     validateRelationshipAdvisorProviderUrl,
+    type StreamRelationshipAdvisorInput as PluginStreamInput,
+    type StreamRelationshipAdvisorOptions,
 } from '@paws/plugins/relationship-advisor/server';
 
 export {
-    streamRelationshipAdvisor,
-    type RelationshipAdvisorMessage,
-    type StreamRelationshipAdvisorInput,
     type StreamRelationshipAdvisorOptions,
 } from '@paws/plugins/relationship-advisor/server';
+
+export interface RelationshipAdvisorMessage {
+    role: 'user' | 'assistant';
+    text: string;
+    imageUrls?: string[];
+}
+
+export interface StreamRelationshipAdvisorInput extends PluginStreamInput {
+    messages: RelationshipAdvisorMessage[];
+}
+
+/** Adapt per-message images while retaining the plugin's URL validation and SSE parser. */
+export function streamRelationshipAdvisor(input: StreamRelationshipAdvisorInput, options: StreamRelationshipAdvisorOptions) {
+    return streamPluginRelationshipAdvisor(input, {
+        ...options,
+        fetchImpl: (url, init) => {
+            // The pinned plugin supports images only on the last user message.
+            // Historical image placement belongs to the host's conversation protocol.
+            const body = JSON.parse(String(init?.body));
+            input.messages.forEach((message, index) => {
+                if (message.role !== 'user' || !message.imageUrls?.length) return;
+                body.messages[index + 1] = {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: message.text.trim() || '请分析这些图片。' },
+                        ...message.imageUrls.map((imageUrl) => ({ type: 'image_url', image_url: { url: imageUrl } })),
+                    ],
+                };
+            });
+            return (options.fetchImpl ?? fetch)(url, { ...init, body: JSON.stringify(body) });
+        },
+    });
+}
 
 interface RelationshipAdvisorConnectionConfiguration {
     apiKey: string;

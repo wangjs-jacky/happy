@@ -148,24 +148,6 @@ export function trackWhatsNewClicked() {
     tracking?.capture('whats_new_clicked');
 }
 
-/**
- * Friends feature events
- *
- * NOTE: We're measuring how interested people are in the friend feature as-is,
- * considering removing the tab to avoid confusion.
- */
-export function trackFriendsSearch() {
-    tracking?.capture('friends_search');
-}
-
-export function trackFriendsProfileView() {
-    tracking?.capture('friends_profile_view');
-}
-
-export function trackFriendsConnect() {
-    tracking?.capture('friends_connect');
-}
-
 export function trackGitHubConnected() {
     tracking?.capture('github_connected');
 }

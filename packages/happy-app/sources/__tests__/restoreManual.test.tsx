@@ -33,7 +33,12 @@ vi.mock('@/auth/AuthContext', () => ({
     }),
 }));
 vi.mock('@/components/RoundButton', () => ({ RoundButton: 'RoundButton' }));
-vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
+vi.mock('@/constants/Typography', () => ({
+    Typography: {
+        default: () => ({}),
+        mono: () => ({ fontFamily: 'MapleMonoNL-Regular' }),
+    },
+}));
 vi.mock('@/auth/secretKeyBackup', () => ({
     normalizeSecretKey: mocks.normalizeSecretKey,
 }));

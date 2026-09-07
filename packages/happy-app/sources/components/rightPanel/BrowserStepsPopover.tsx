@@ -5,6 +5,11 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { BrowserStepsPanel } from './BrowserStepsPanel';
 import type { BrowserStep } from './browserStepsModel';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SessionImageViewer } from '../SessionImageViewer';
+import { getSessionImageViewerGallery } from '@/sync/openSessionImageViewer';
+import type { ImageViewerSource } from '@/sync/imageViewer';
 
 export type BrowserStepsAnchorRect = {
     height: number;
@@ -16,43 +21,50 @@ export type BrowserStepsAnchorRect = {
 const VIEWPORT_GUTTER = 12;
 const ANCHOR_GAP = 8;
 const DESKTOP_WIDTH = 520;
+type SafeAreaInsets = { bottom: number; left: number; right: number; top: number };
+const NO_SAFE_AREA: SafeAreaInsets = { bottom: 0, left: 0, right: 0, top: 0 };
 
 export function getBrowserStepsPopoverLayout(
     anchor: BrowserStepsAnchorRect | undefined,
     viewport: { height: number; width: number },
+    safeArea: SafeAreaInsets = NO_SAFE_AREA,
 ): { height: number; left: number; top: number; width: number } {
     const narrow = viewport.width < 600;
+    const minimumLeft = safeArea.left + VIEWPORT_GUTTER;
+    const minimumTop = safeArea.top + VIEWPORT_GUTTER;
+    const maximumWidth = Math.max(0, viewport.width - safeArea.left - safeArea.right - VIEWPORT_GUTTER * 2);
+    const maximumHeight = Math.max(0, viewport.height - safeArea.top - safeArea.bottom - VIEWPORT_GUTTER * 2);
     const width = narrow
-        ? Math.max(0, viewport.width - VIEWPORT_GUTTER * 2)
-        : Math.min(DESKTOP_WIDTH, Math.max(0, viewport.width - VIEWPORT_GUTTER * 2));
+        ? maximumWidth
+        : Math.min(DESKTOP_WIDTH, maximumWidth);
     const height = narrow
-        ? Math.max(0, viewport.height - VIEWPORT_GUTTER * 2)
-        : Math.min(720, Math.floor(viewport.height * 0.72), Math.max(0, viewport.height - VIEWPORT_GUTTER * 2));
+        ? maximumHeight
+        : Math.min(720, Math.floor(viewport.height * 0.72), maximumHeight);
 
     if (narrow || !anchor) {
         return {
             height,
-            left: narrow ? VIEWPORT_GUTTER : Math.max(VIEWPORT_GUTTER, Math.floor((viewport.width - width) / 2)),
-            top: narrow ? VIEWPORT_GUTTER : Math.max(VIEWPORT_GUTTER, Math.floor((viewport.height - height) / 2)),
+            left: narrow ? minimumLeft : Math.max(minimumLeft, Math.floor((viewport.width - width) / 2)),
+            top: narrow ? minimumTop : Math.max(minimumTop, Math.floor((viewport.height - height) / 2)),
             width,
         };
     }
 
-    const roomOnRight = viewport.width - VIEWPORT_GUTTER - (anchor.x + anchor.width + ANCHOR_GAP);
+    const roomOnRight = viewport.width - safeArea.right - VIEWPORT_GUTTER - (anchor.x + anchor.width + ANCHOR_GAP);
     const preferredLeft = roomOnRight >= width
         ? anchor.x + anchor.width + ANCHOR_GAP
         : anchor.x - width - ANCHOR_GAP;
     const left = Math.min(
-        Math.max(VIEWPORT_GUTTER, preferredLeft),
-        Math.max(VIEWPORT_GUTTER, viewport.width - width - VIEWPORT_GUTTER),
+        Math.max(minimumLeft, preferredLeft),
+        Math.max(minimumLeft, viewport.width - safeArea.right - width - VIEWPORT_GUTTER),
     );
-    const roomBelow = viewport.height - VIEWPORT_GUTTER - (anchor.y + anchor.height + ANCHOR_GAP);
+    const roomBelow = viewport.height - safeArea.bottom - VIEWPORT_GUTTER - (anchor.y + anchor.height + ANCHOR_GAP);
     const preferredTop = roomBelow >= height
         ? anchor.y + anchor.height + ANCHOR_GAP
         : anchor.y - height - ANCHOR_GAP;
     const top = Math.min(
-        Math.max(VIEWPORT_GUTTER, preferredTop),
-        Math.max(VIEWPORT_GUTTER, viewport.height - height - VIEWPORT_GUTTER),
+        Math.max(minimumTop, preferredTop),
+        Math.max(minimumTop, viewport.height - safeArea.bottom - height - VIEWPORT_GUTTER),
     );
 
     return { height, left, top, width };
@@ -69,9 +81,19 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
 }) {
     const { theme } = useUnistyles();
     const viewport = useWindowDimensions();
+    const safeArea = useSafeAreaInsets();
+    const [gallery, setGallery] = React.useState<ReturnType<typeof getSessionImageViewerGallery>>();
+    const imageButtonRef = React.useRef<View>(null);
+    const closeGallery = React.useCallback(() => {
+        setGallery(undefined);
+        if (Platform.OS === 'web') requestAnimationFrame(() => imageButtonRef.current?.focus());
+    }, []);
+    const openImage = React.useCallback((source: ImageViewerSource) => {
+        setGallery(getSessionImageViewerGallery(source));
+    }, []);
     const layout = React.useMemo(
-        () => getBrowserStepsPopoverLayout(props.anchor, viewport),
-        [props.anchor, viewport.height, viewport.width],
+        () => getBrowserStepsPopoverLayout(props.anchor, viewport, safeArea),
+        [props.anchor, safeArea, viewport.height, viewport.width],
     );
     const closeAndRestoreFocus = React.useCallback(() => {
         props.onClose();
@@ -86,11 +108,16 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
             accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.title')}
             animationType={Platform.OS === 'web' ? 'none' : 'fade'}
             nativeID={props.dialogId}
-            onRequestClose={closeAndRestoreFocus}
+            onRequestClose={gallery ? closeGallery : closeAndRestoreFocus}
             transparent
             visible
         >
-            <View style={styles.overlay}>
+            {gallery ? (
+                <GestureHandlerRootView style={styles.fullscreen}>
+                    <SessionImageViewer sources={gallery.sources} initialIndex={gallery.index} onClose={closeGallery} />
+                </GestureHandlerRootView>
+            ) : null}
+            <View style={[styles.overlay, gallery && styles.hidden]}>
                 <Pressable
                     accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.close')}
                     onPress={closeAndRestoreFocus}
@@ -132,7 +159,7 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
                         </Pressable>
                     </View>
                     <View style={styles.body} testID="browser-steps-popover-content">
-                        <BrowserStepsPanel sessionId={props.sessionId} steps={props.steps} />
+                        <BrowserStepsPanel sessionId={props.sessionId} steps={props.steps} onOpenImage={openImage} imageButtonRef={imageButtonRef} />
                     </View>
                 </View>
             </View>
@@ -141,6 +168,8 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
 });
 
 const styles = StyleSheet.create(() => ({
+    fullscreen: { flex: 1 },
+    hidden: { display: 'none' },
     overlay: { flex: 1, position: 'relative' },
     scrim: { ...StyleSheet.absoluteFillObject, opacity: 0.28 },
     card: {

@@ -12,6 +12,7 @@ import { getSessionName, useSessionStatus, formatOSPlatform, formatPathRelativeT
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { sessionArchive, sessionKill, sessionDelete, sessionRequestArchiveMetadata } from '@/sync/ops';
+import { sync } from '@/sync/sync';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
@@ -201,7 +202,7 @@ function SessionInfoContent({ session }: { session: Session }) {
         if (!result.success) {
             throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
         }
-        storage.getState().deleteSession(session.id);
+        sync.removeSessionLocally(session.id);
     });
 
     const handleDeleteSession = useCallback(() => {

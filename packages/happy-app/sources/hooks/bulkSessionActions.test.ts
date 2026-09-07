@@ -17,13 +17,7 @@ vi.mock('@/sync/ops', () => ({
     sessionRequestArchiveMetadata: mocks.sessionRequestArchiveMetadata,
 }));
 
-vi.mock('@/sync/storage', () => ({
-    storage: {
-        getState: () => ({
-            deleteSession: mocks.deleteLocalSession,
-        }),
-    },
-}));
+vi.mock('@/sync/sync', () => ({ sync: { removeSessionLocally: mocks.deleteLocalSession } }));
 
 function session(overrides: Partial<Session>): Session {
     return {

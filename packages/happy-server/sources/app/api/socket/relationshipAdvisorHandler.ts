@@ -14,6 +14,8 @@ import {
 export interface RelationshipAdvisorMessage {
     role: 'user' | 'assistant';
     text: string;
+    imageRefs?: string[];
+    imageUrls?: string[];
 }
 
 export interface RelationshipAdvisorStartRequest {
@@ -55,18 +57,24 @@ function defaultRelationshipAdvisorDependencies(): RelationshipAdvisorHandlerDep
     };
 }
 
+const imageRefSchema = z.string().regex(/^advisor\/[A-Za-z0-9_-]{1,128}\/[a-f0-9-]{20,64}\.(?:jpe?g|png|webp)$/);
 const relationshipAdvisorStartRequestSchema = z.object({
     requestId: z.string().min(1).max(100),
     messages: z.array(z.object({
         role: z.enum(['user', 'assistant']),
         text: z.string().max(8_000),
+        imageRefs: z.array(imageRefSchema).max(4).optional(),
     })).min(1).max(12),
     imageRefs: z.array(z.string().regex(
         /^advisor\/[A-Za-z0-9_-]{1,128}\/[a-f0-9-]{20,64}\.(?:jpe?g|png|webp)$/,
     )).max(4),
 }).refine((request) => {
     const latest = request.messages.at(-1);
-    return latest?.role === 'user' && (latest.text.trim().length > 0 || request.imageRefs.length > 0);
+    const messageRefs = request.messages.flatMap((message) => message.imageRefs ?? []);
+    return latest?.role === 'user'
+        && (latest.text.trim().length > 0 || request.imageRefs.length > 0 || (latest.imageRefs?.length ?? 0) > 0)
+        && new Set([...messageRefs, ...request.imageRefs]).size <= 4
+        && request.messages.every((message) => message.role === 'user' || !message.imageRefs?.length);
 });
 
 const requestRateState = new Map<string, { startedAt: number; count: number }>();
@@ -127,19 +135,31 @@ export function relationshipAdvisorHandler(
 
         void (async () => {
             let canDeleteImageRefs = false;
+            const allImageRefs = [...new Set([...request.imageRefs, ...request.messages.flatMap((message) => message.imageRefs ?? [])])];
             try {
-                const includeImages = request.imageRefs.length > 0;
+                const includeImages = allImageRefs.length > 0;
                 const configuration = await dependencies.openRuntime(userId, { includeImages });
                 canDeleteImageRefs = includeImages;
-                const imageUrls = await dependencies.resolveImageUrls(userId, request.imageRefs);
+                const urls = await dependencies.resolveImageUrls(userId, allImageRefs);
+                const urlsByRef = new Map(allImageRefs.map((ref, index) => [ref, urls[index]]));
+                const placedRefs = new Set(request.messages.flatMap((message) => message.imageRefs ?? []));
+                const imageUrls = request.imageRefs.filter((ref) => !placedRefs.has(ref)).map((ref) => urlsByRef.get(ref)!);
+                const messages = request.messages.map((message) => message.imageRefs?.length
+                    ? { ...message, imageUrls: message.imageRefs.map((ref) => urlsByRef.get(ref)!) }
+                    : message);
+                let hasVisibleText = false;
                 for await (const delta of dependencies.streamChat({
                     ...request,
+                    messages,
                     userId,
                     imageUrls,
                     signal: abortController.signal,
                 }, configuration)) {
                     if (delta.text) {
-                        clearTimeout(firstTokenTimeout);
+                        if (delta.text.trim()) {
+                            hasVisibleText = true;
+                            clearTimeout(firstTokenTimeout);
+                        }
                         socket.emit('relationship-advisor:event', {
                             requestId: request.requestId,
                             type: 'delta',
@@ -147,11 +167,11 @@ export function relationshipAdvisorHandler(
                         });
                     }
                 }
-                socket.emit('relationship-advisor:event', timedOut
+                socket.emit('relationship-advisor:event', timedOut || (!hasVisibleText && !abortController.signal.aborted)
                     ? {
                         requestId: request.requestId,
                         type: 'error',
-                        error: 'Relationship advisor is temporarily unavailable',
+                        error: timedOut ? 'Relationship advisor is temporarily unavailable' : 'empty_response',
                     }
                     : {
                         requestId: request.requestId,
@@ -173,7 +193,7 @@ export function relationshipAdvisorHandler(
                 clearTimeout(totalTimeout);
                 activeRequests.delete(request.requestId);
                 if (canDeleteImageRefs) {
-                    void dependencies.deleteImageRefs?.(userId, request.imageRefs).catch(() => undefined);
+                    void dependencies.deleteImageRefs?.(userId, allImageRefs).catch(() => undefined);
                 }
             }
         })();

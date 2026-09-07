@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Modal as NativeModal, Platform, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
@@ -8,6 +9,7 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { getAvatarUrl, type Profile } from '@/sync/profile';
 import { t } from '@/text';
+import { UsageDialog } from '@/components/usage/UsageDialog';
 
 type SidebarAccountMenuProps = {
     desktopDensity?: boolean;
@@ -18,6 +20,7 @@ type SidebarAccountMenuProps = {
     open: boolean;
     profile: Profile;
     railMode?: boolean;
+    mobileRail?: boolean;
     restoreFocusOnClose?: boolean;
     unreadCount?: number;
 };
@@ -68,14 +71,18 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     open,
     profile,
     railMode = false,
+    mobileRail = false,
     restoreFocusOnClose = true,
     unreadCount = 0,
 }: SidebarAccountMenuProps) {
     const { logout } = useAuth();
     const { theme } = useUnistyles();
     const triggerRef = React.useRef<any>(null);
+    const safeArea = useSafeAreaInsets();
+    const nativeMobileMenu = mobileRail && Platform.OS !== 'web';
     const firstActionRef = React.useRef<any>(null);
     const wasOpenRef = React.useRef(false);
+    const [usageDialogOpen, setUsageDialogOpen] = React.useState(false);
     const avatarUrl = getAvatarUrl(profile);
     const webTitle = Platform.OS === 'web' && railMode ? { title: displayName } as any : {};
 
@@ -90,13 +97,13 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         const timeout = setTimeout(() => {
             if (open) {
                 firstActionRef.current?.focus?.();
-            } else if (wasOpen && restoreFocusOnClose) {
+            } else if (wasOpen && restoreFocusOnClose && !usageDialogOpen) {
                 triggerRef.current?.focus?.();
             }
         }, 0);
 
         return () => clearTimeout(timeout);
-    }, [open, restoreFocusOnClose]);
+    }, [open, restoreFocusOnClose, usageDialogOpen]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !open || typeof window === 'undefined') {
@@ -136,22 +143,20 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         })();
     }, [logout, onOpenChange]);
 
-    return (
-        <View
-            style={[
-                styles.footer,
-                desktopDensity ? styles.footerDesktop : styles.footerRegular,
-                railMode && styles.footerRail,
-            ]}
-            testID="sidebar-account-footer"
-        >
-            {open ? (
+    const openUsageDialog = React.useCallback(() => {
+        setUsageDialogOpen(true);
+        onOpenChange(false);
+    }, [onOpenChange]);
+
+    const menu = open ? (
                 <View
                     accessibilityViewIsModal
                     style={[
                         styles.menu,
                         desktopDensity ? styles.menuDesktop : styles.menuRegular,
                         railMode && styles.menuRail,
+                        mobileRail && styles.menuMobileRail,
+                        nativeMobileMenu && { bottom: safeArea.bottom + 64 },
                     ]}
                     testID="sidebar-account-menu"
                 >
@@ -184,7 +189,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     <MenuAction
                         icon="analytics-outline"
                         label={t('settings.usage')}
-                        onPress={() => navigate('/settings/usage')}
+                        onPress={openUsageDialog}
                         testID="sidebar-account-usage-action"
                     />
                     <View style={styles.dangerGroup}>
@@ -197,7 +202,26 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                         />
                     </View>
                 </View>
-            ) : null}
+            ) : null;
+
+    return (
+        <View
+            style={[
+                styles.footer,
+                desktopDensity ? styles.footerDesktop : styles.footerRegular,
+                railMode && styles.footerRail,
+                mobileRail && styles.footerMobileRail,
+            ]}
+            testID="sidebar-account-footer"
+        >
+            {nativeMobileMenu ? (
+                <NativeModal transparent visible={open} animationType="fade" onRequestClose={() => onOpenChange(false)}>
+                    <View style={{ flex: 1 }}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={t('sidebarLists.close')} onPress={() => onOpenChange(false)} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} testID="sidebar-account-native-dismiss" />
+                        {menu}
+                    </View>
+                </NativeModal>
+            ) : menu}
 
             <Pressable
                 {...webTitle}
@@ -235,6 +259,11 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     size={15}
                 /> : null}
             </Pressable>
+            <UsageDialog
+                onClose={() => setUsageDialogOpen(false)}
+                open={usageDialogOpen}
+                returnFocusRef={triggerRef}
+            />
         </View>
     );
 });
@@ -262,6 +291,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 2,
         width: 60,
     },
+    footerMobileRail: { width: 56 },
     trigger: {
         minHeight: 58,
         paddingHorizontal: 12,
@@ -342,6 +372,7 @@ const styles = StyleSheet.create((theme) => ({
         left: 60,
         right: -224,
     },
+    menuMobileRail: { left: 56, right: undefined, width: 216 },
     menuAction: {
         minHeight: 42,
         paddingHorizontal: 13,

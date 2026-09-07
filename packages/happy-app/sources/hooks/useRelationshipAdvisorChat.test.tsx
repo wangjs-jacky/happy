@@ -20,9 +20,14 @@ const mocks = vi.hoisted(() => ({
     cancel: vi.fn(),
     uploadImages: vi.fn(),
     discardImages: vi.fn(),
+    saveImages: vi.fn(),
+    uploadHistory: vi.fn(),
+    deleteCached: vi.fn(),
+    requestIndex: 0,
 }));
 
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'request-1' }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => `request-${++mocks.requestIndex}` }));
+vi.mock('@/sync/relationshipAdvisorImageCache', () => ({ deleteAdvisorImages: mocks.deleteCached }));
 vi.mock('@/sync/storage', () => ({
     useLocalSetting: () => mocks.conversations,
     useLocalSettingUpdater: () => mocks.updateConversations,
@@ -36,6 +41,9 @@ vi.mock('@/sync/relationshipAdvisorClient', () => ({
 vi.mock('@/sync/relationshipAdvisorImages', () => ({
     uploadRelationshipAdvisorImages: mocks.uploadImages,
     discardRelationshipAdvisorImages: mocks.discardImages,
+    saveRelationshipAdvisorImages: mocks.saveImages,
+    uploadRelationshipAdvisorHistory: mocks.uploadHistory,
+    relationshipAdvisorImageKeys: (_request: string, images: unknown[]) => images.map(() => 'cached-image.jpg'),
 }));
 
 type HookResult = ReturnType<typeof useRelationshipAdvisorChat>;
@@ -65,6 +73,11 @@ describe('useRelationshipAdvisorChat', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.requestIndex = 0;
+        mocks.deleteCached.mockResolvedValue(undefined);
+        mocks.conversations = [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1, messages: [] }];
+        mocks.saveImages.mockResolvedValue(['cached-image.jpg']);
+        mocks.uploadHistory.mockImplementation(async (messages) => messages);
         mocks.uploadImages.mockResolvedValue([]);
         mocks.discardImages.mockResolvedValue(undefined);
         mocks.updateConversations.mockImplementation((updater: (value: typeof mocks.conversations) => typeof mocks.conversations) => {
@@ -78,6 +91,96 @@ describe('useRelationshipAdvisorChat', () => {
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it.each(['resolve', 'reject'])('does not let a cancelled slow save %s over a newer request', async (outcome) => {
+        let finishSave: () => void = () => undefined;
+        mocks.saveImages.mockImplementationOnce(() => new Promise((resolve, reject) => {
+            finishSave = () => outcome === 'resolve' ? resolve(undefined) : reject(new Error('removed'));
+        }));
+        mocks.uploadHistory.mockImplementation(async (messages, options) => options.isCancelled() ? null : messages);
+        const unsubscribe = vi.fn();
+        const starts: Array<{ request: any; onEvent: (event: any) => void }> = [];
+        mocks.start.mockImplementation(async (request, onEvent) => { starts.push({ request, onEvent }); return unsubscribe; });
+        const hook = renderHook();
+        let oldSend: Promise<boolean>;
+        act(() => { oldSend = hook.current().send('old', [{ id: 'old' }] as any); });
+        act(() => hook.current().cancel());
+        await act(async () => { await hook.current().send('new', [{ id: 'new' }] as any); });
+        await act(async () => { finishSave(); await oldSend!; });
+        expect(unsubscribe).not.toHaveBeenCalled();
+        act(() => starts[0].onEvent({ requestId: starts[0].request.requestId, type: 'error', error: 'failed' }));
+        await act(async () => { await hook.current().retry(); });
+        expect(mocks.uploadHistory.mock.calls.at(-1)?.[0].at(-1).text).toBe('new');
+        hook.unmount();
+    });
+
+    it('tracks the replacement user identity after a failed local save and subsequent retry failure', async () => {
+        mocks.saveImages.mockRejectedValueOnce(new Error('local storage failed'));
+        mocks.start.mockImplementation(async (request, onEvent) => {
+            onEvent({ requestId: request.requestId, type: 'error', error: 'failed' });
+            return vi.fn();
+        });
+        const hook = renderHook();
+        await act(async () => { await hook.current().send('看图', [{ id: 'one' }] as any); });
+        expect(hook.current().messages).toHaveLength(0);
+        await act(async () => { await hook.current().retry(); });
+        await act(async () => { await hook.current().retry(); });
+        expect(hook.current().messages).toHaveLength(1);
+        expect(hook.current().messages[0].id).toBe('user-request-2');
+        expect(mocks.uploadHistory.mock.calls[1][0]).toHaveLength(1);
+        hook.unmount();
+    });
+
+    it('retries a partial response on the original user message without duplicating its images', async () => {
+        const images = Array.from({ length: 4 }, (_, index) => ({ id: String(index) })) as any;
+        mocks.start.mockImplementation(async (request, onEvent) => {
+            onEvent({ requestId: request.requestId, type: 'delta', text: '部分回复' });
+            onEvent({ requestId: request.requestId, type: 'error', error: 'failed' });
+            return vi.fn();
+        });
+        const hook = renderHook();
+        await act(async () => { await hook.current().send('看图', images); });
+        expect(hook.current().canRetry).toBe(true);
+        await act(async () => { await hook.current().retry(); });
+        expect(mocks.uploadHistory.mock.calls[1][0]).toHaveLength(1);
+        expect(hook.current().messages.filter((message) => message.role === 'user')).toHaveLength(1);
+        expect(mocks.saveImages).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('keeps the original images when a retry is stopped during upload', async () => {
+        mocks.start.mockImplementation(async (request, onEvent) => {
+            onEvent({ requestId: request.requestId, type: 'error', error: 'empty_response' });
+            return vi.fn();
+        });
+        const hook = renderHook();
+        await act(async () => { await hook.current().send('看图', [{ id: 'one' }] as any); });
+        let finishUpload: (result: null) => void = () => undefined;
+        mocks.uploadHistory.mockImplementationOnce(() => new Promise((resolve) => { finishUpload = resolve; }));
+        let pending: Promise<boolean>;
+        act(() => { pending = hook.current().retry(); });
+        act(() => hook.current().cancel());
+        await act(async () => { finishUpload(null); await pending!; });
+        expect(mocks.deleteCached).not.toHaveBeenCalled();
+        expect(hook.current().messages[0]).toMatchObject({ imageKeys: ['cached-image.jpg'] });
+        hook.unmount();
+    });
+
+    it('retains images for a follow-up after reopening the conversation', async () => {
+        mocks.conversations[0].messages = [{
+            id: 'previous-image', role: 'user', text: '', createdAt: 2, imageCount: 1,
+            imageKeys: ['cached-image.jpg'],
+        }] as any;
+        mocks.start.mockImplementation(async (request, onEvent) => {
+            onEvent({ requestId: request.requestId, type: 'delta', text: '看到了' });
+            onEvent({ requestId: request.requestId, type: 'done' });
+            return vi.fn();
+        });
+        const hook = renderHook();
+        await act(async () => { await hook.current().send('刚才那张截图呢', []); });
+        expect(mocks.uploadHistory.mock.calls[0]?.[0][0]).toMatchObject({ imageKeys: ['cached-image.jpg'] });
+        hook.unmount();
+    });
 
     it('unsubscribes when the provider acknowledgement resolves after unmount', async () => {
         let resolveStart: (unsubscribe: () => void) => void = () => undefined;

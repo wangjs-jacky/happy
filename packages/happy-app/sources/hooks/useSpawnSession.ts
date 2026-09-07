@@ -2,7 +2,7 @@ import * as React from 'react';
 import { randomUUID } from 'expo-crypto';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { sync } from '@/sync/sync';
+import { sync, type LocalMessageQueueReceipt } from '@/sync/sync';
 import { storage } from '@/sync/storage';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
@@ -51,6 +51,7 @@ type PendingHydration = {
     trace: SessionStartupTraceContext;
     retrying: boolean;
     queued: boolean;
+    receipt?: LocalMessageQueueReceipt;
     configured: boolean;
     onQueued?: () => void;
 };
@@ -247,12 +248,16 @@ export function useSpawnSession() {
                         throw new Error('local-message-queue-unconfirmed');
                     }
                     pending.queued = true;
+                    pending.receipt = receipt;
                     traceWebStartupStage(pending.trace, 'web.first_message.queued', pending.sessionId);
                 } catch (error) {
                     traceWebStartupStage(pending.trace, 'web.first_message.queued', pending.sessionId, 'error', 'local-message-queue-failed');
                     throw error;
                 }
             } else pending.queued = true;
+        }
+        if (pending.receipt && !await sync.awaitLocalMessageProjection(pending.sessionId, pending.receipt.localIds, pending.receipt)) {
+            throw new Error('local-message-projection-unconfirmed');
         }
         if (!mountedRef.current || pendingHydration.current !== pending) return false;
         // The route may synchronously dismiss/unmount the compose component.

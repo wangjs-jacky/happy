@@ -11,6 +11,7 @@ import { decryptBlob } from '@/encryption/blob';
 import { encodeBase64 } from '@/encryption/base64';
 import type { AttachmentImageOptions, AttachmentImageState } from './attachmentImageTypes';
 import { detectHonorMotionPhoto } from '@slopus/happy-wire';
+import { attachmentCacheGeneration, captureAttachmentContext, subscribeAttachmentCache, type AttachmentContext } from '@/sync/attachmentCacheContext';
 
 export type { AttachmentImageState } from './attachmentImageTypes';
 
@@ -22,6 +23,7 @@ const MAX_CACHE_ENTRIES = 50;
 type CachedImage = { uri: string; motionPhoto?: NonNullable<AttachmentImageState['motionPhoto']> };
 const cache = new Map<string, CachedImage>();
 const inFlight = new Map<string, Promise<CachedImage | null>>();
+subscribeAttachmentCache(() => { cache.clear(); inFlight.clear(); });
 
 function rememberInCache(ref: string, image: CachedImage) {
     if (cache.has(ref)) cache.delete(ref);
@@ -53,9 +55,9 @@ function detectImageMime(bytes: Uint8Array): string {
     return 'image/png';
 }
 
-async function loadAttachmentDataUri(sessionId: string, ref: string): Promise<CachedImage | null> {
+async function loadAttachmentDataUri(sessionId: string, ref: string, context: AttachmentContext): Promise<CachedImage | null> {
     const credentials = sync.getCredentials();
-    if (!credentials) {
+    if (!credentials || credentials.token !== context.token || !context.isCurrent()) {
         console.warn(`[attachment-image] no credentials for ${ref}`);
         return null;
     }
@@ -82,6 +84,8 @@ async function loadAttachmentDataUri(sessionId: string, ref: string): Promise<Ca
         return null;
     }
     const mime = detectImageMime(decrypted);
+    await context.assertCurrent();
+    if (sync.getCredentials()?.token !== context.token) return null;
     const motionPhoto = detectHonorMotionPhoto(decrypted);
     return {
         uri: `data:${mime};base64,${encodeBase64(decrypted)}`,
@@ -98,7 +102,10 @@ export function useAttachmentImage(
     ref: string | undefined,
     _options?: AttachmentImageOptions,
 ): AttachmentImageState {
-    const cacheKey = ref ? `${sessionId}:${ref}` : null;
+    React.useSyncExternalStore(subscribeAttachmentCache, attachmentCacheGeneration, attachmentCacheGeneration);
+    const credentials = sync.getCredentials();
+    const context = credentials ? captureAttachmentContext(credentials, sessionId) : null;
+    const cacheKey = ref && context ? JSON.stringify([context.key, ref]) : null;
     const [state, setState] = React.useState<KeyedAttachmentImageState>(() => {
         if (!cacheKey) return { cacheKey: null, uri: null, loading: false, error: null };
         const cached = cache.get(cacheKey);
@@ -108,7 +115,7 @@ export function useAttachmentImage(
     });
 
     React.useEffect(() => {
-        if (!ref || !cacheKey) {
+        if (!ref || !cacheKey || !context) {
             setState({ cacheKey: null, uri: null, loading: false, error: null });
             return;
         }
@@ -124,13 +131,13 @@ export function useAttachmentImage(
 
         let promise = inFlight.get(cacheKey);
         if (!promise) {
-            promise = loadAttachmentDataUri(sessionId, ref)
+            promise = loadAttachmentDataUri(sessionId, ref, context)
                 .finally(() => { inFlight.delete(cacheKey); });
             inFlight.set(cacheKey, promise);
         }
 
         promise.then((image) => {
-            if (cancelled) return;
+            if (cancelled || !context.isCurrent()) return;
             if (image) {
                 rememberInCache(cacheKey, image);
                 setState({ cacheKey, uri: image.uri, loading: false, error: null, motionPhoto: image.motionPhoto });

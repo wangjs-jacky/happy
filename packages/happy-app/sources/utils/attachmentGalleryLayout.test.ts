@@ -14,35 +14,35 @@ describe('computeAttachmentGalleryImageSize', () => {
             sourceHeight: 900,
             maxWidth: 360,
             maxHeight: 480,
-        })).toEqual({ width: 100, height: 100 });
+        })).toEqual({ width: 120, height: 120 });
     });
 
-    it('uses the available width for featured landscape images while preserving aspect ratio', () => {
+    it('uses the same thumbnail frame for featured landscape images', () => {
         expect(computeAttachmentGalleryImageSize({
             presentation: 'featured',
             sourceWidth: 1600,
             sourceHeight: 900,
             maxWidth: 360,
             maxHeight: 480,
-        })).toEqual({ width: 360, height: 203 });
+        })).toEqual({ width: 120, height: 120 });
     });
 
-    it('caps featured portrait images by height while preserving aspect ratio', () => {
+    it('uses the same thumbnail frame for featured portrait images', () => {
         expect(computeAttachmentGalleryImageSize({
             presentation: 'featured',
             sourceWidth: 900,
             sourceHeight: 1600,
             maxWidth: 360,
             maxHeight: 480,
-        })).toEqual({ width: 270, height: 480 });
+        })).toEqual({ width: 120, height: 120 });
     });
 
-    it('uses a stable default aspect ratio for featured images without metadata', () => {
+    it('keeps the frame size stable without metadata', () => {
         expect(computeAttachmentGalleryImageSize({
             presentation: 'featured',
             maxWidth: 360,
             maxHeight: 480,
-        })).toEqual({ width: 360, height: 270 });
+        })).toEqual({ width: 120, height: 120 });
     });
 
     it('keeps regular input attachments compact but enlarges GPT Image input attachments by aspect ratio', () => {
@@ -74,17 +74,17 @@ describe('computeAttachmentGalleryImageSize', () => {
         const phoneLayout = computeGeneratedAttachmentGridLayout({ containerWidth: 360 });
         expect(phoneLayout).toEqual({
             columns: 2,
-            itemSize: 164,
-            contentWidth: 336,
+            itemSize: 120,
+            contentWidth: 248,
             gap: 8,
             horizontalPadding: 12,
         });
 
         const widePhoneLayout = computeGeneratedAttachmentGridLayout({ containerWidth: 390 });
         expect(widePhoneLayout).toEqual({
-            columns: 3,
-            itemSize: 116,
-            contentWidth: 364,
+            columns: 2,
+            itemSize: 120,
+            contentWidth: 248,
             gap: 8,
             horizontalPadding: 12,
         });
@@ -92,8 +92,8 @@ describe('computeAttachmentGalleryImageSize', () => {
         const desktopLayout = computeGeneratedAttachmentGridLayout({ containerWidth: 800 });
         expect(desktopLayout).toEqual({
             columns: 6,
-            itemSize: 122,
-            contentWidth: 772,
+            itemSize: 120,
+            contentWidth: 760,
             gap: 8,
             horizontalPadding: 12,
         });

@@ -556,6 +556,27 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
         });
     });
 
+    it.each(['output', 'aggregatedOutput', 'aggregated_output'])('extracts a diagnostic after long Skill content in %s', (field) => {
+        const diagnostic = 'sed: /skills/workflow/SKILL.md: No such file or directory';
+        const result = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'exec_command_end', call_id: 'batch', exit_code: 1,
+            [field]: '---\nname: dev\n---\n' + 'Skill instructions\n'.repeat(400) + diagnostic,
+        }, { currentTurnId: 'turn-1' });
+        expect(result.envelopes[0]).toMatchObject({ ev: {
+            status: 'failed', error: { summary: diagnostic },
+        } });
+    });
+
+    it('uses the exit code when Skill output contains no diagnostic', () => {
+        const result = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'exec_command_end', call_id: 'batch', exit_code: 1,
+            output: '---\nname: dev\ndescription: Error handling guide\n---\n# Instructions',
+        }, { currentTurnId: 'turn-1' });
+        expect(result.envelopes[0]).toMatchObject({ ev: {
+            error: { summary: 'Command exited with code 1.' },
+        } });
+    });
+
     it('fails a spawned child lifecycle when the collaboration call fails', () => {
         const spawned = mapCodexMcpMessageToSessionEnvelopes({
             type: 'collab_agent_tool_begin',

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createId } from '@paralleldrive/cuid2';
 import type { ReasoningOutput } from './reasoningProcessor';
 import type { DiffToolCall, DiffToolResult } from './diffProcessor';
-import { createEnvelope, type CreateEnvelopeOptions, type SessionEnvelope } from '@slopus/happy-wire';
+import { createEnvelope, summarizeToolFailureOutput, toolFailureDetail, type CreateEnvelopeOptions, type SessionEnvelope } from '@slopus/happy-wire';
 import type { Thread, ThreadItem, ThreadTurn } from '../codexAppServerTypes';
 import { hashObject } from '@/utils/deterministicJson';
 import {
@@ -791,9 +791,6 @@ function readFailureText(value: unknown): string | null {
     return null;
 }
 
-function truncateFailureText(text: string, limit: number): string {
-    return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
-}
 
 function getToolFailure(message: Record<string, unknown>, status: TurnEndStatus): {
     code?: string;
@@ -809,6 +806,7 @@ function getToolFailure(message: Record<string, unknown>, status: TurnEndStatus)
         message.stderr,
         message.output,
         message.aggregatedOutput,
+        message.aggregated_output,
         message.result,
         message.message,
         message.reason,
@@ -820,9 +818,9 @@ function getToolFailure(message: Record<string, unknown>, status: TurnEndStatus)
         ? `Command exited with code ${exitCode}.`
         : 'The tool reported a failure.';
     const summary = detail
-        ? truncateFailureText(detail.split(/\r?\n/, 1)[0].trim() || fallback, 280)
+        ? summarizeToolFailureOutput(detail) ?? fallback
         : fallback;
-    const truncatedDetail = detail ? truncateFailureText(detail, 4000) : undefined;
+    const truncatedDetail = detail ? toolFailureDetail(detail, summary) : undefined;
 
     return {
         ...(typeof exitCode === 'number' ? { code: 'command_failed' } : {}),

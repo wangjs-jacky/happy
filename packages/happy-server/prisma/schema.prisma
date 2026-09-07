@@ -44,6 +44,8 @@ model Account {
     avatar    Json?
 
     Session             Session[]
+    SessionChange       SessionChange[]
+    sessionChangeCounter SessionChangeCounter?
     AccountPushToken    AccountPushToken[]
     TerminalAuthRequest TerminalAuthRequest[]
     AccountAuthRequest  AccountAuthRequest[]
@@ -121,6 +123,29 @@ model Session {
 
     @@unique([accountId, tag])
     @@index([accountId, updatedAt(sort: Desc)])
+}
+
+// Maintained by database triggers, including writes from older server binaries.
+// Counter row locks serialize revisions through commit (a sequence cannot do this).
+model SessionChangeCounter {
+    accountId String @id
+    account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    revision BigInt @default(0)
+}
+
+// No Session FK: deletion tombstones must outlive the session itself.
+model SessionChange {
+    accountId String
+    account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    sessionId String
+    revision BigInt
+    deleted Boolean @default(false)
+    lastMessageSeq Int @default(0)
+    metadataVersion Int @default(0)
+    agentStateVersion Int @default(0)
+
+    @@id([accountId, sessionId])
+    @@unique([accountId, revision])
 }
 
 model PublicSessionShare {

@@ -67,8 +67,8 @@ import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
-import { SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
-import { DrawerActions } from '@react-navigation/native';
+import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
+import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
@@ -443,7 +443,9 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const sessionId = props.id;
     const router = useRouter();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const session = useSession(sessionId);
+    const { messages: cachedMessages, isLoaded: hasLoadedMessageCache, latestVerifiedOwnerEpoch } = useSessionMessages(sessionId);
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
@@ -478,6 +480,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const subagentSelection = subagentInspector?.selection ?? null;
 
     React.useEffect(() => {
+        // Transparent desktop modals retain the conversation underneath. Only
+        // the focused route owns synchronization; returning reacquires a fresh
+        // owner without discarding the retained chat, scroll position or draft.
+        if (!isFocused) return;
         let cancelled = false;
         let opening: ReturnType<typeof sync.openSession> | undefined;
         let owner: SessionRouteOwner | undefined;
@@ -495,15 +501,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 setSessionResolution(resolution);
             }).catch((error: unknown) => {
                 if (cancelled) return;
-                if (owner) sync.leaveSessionRoute(owner);
-                if (error instanceof SessionRouteAbandonedError) {
-                    setSessionResolution('not-found');
-                    return;
-                }
                 if (error instanceof SessionRouteCoordinationError || index === delays.length) {
+                    if (owner) sync.leaveSessionRoute(owner);
                     setSessionResolution('error');
                     return;
                 }
+                // Keep this owner reserved across the bounded retry delay.
+                // beginSessionRoute() replaces it synchronously on the next
+                // attempt, preventing background account sync from taking the
+                // cold-route network lane in the owner-less gap.
                 setSessionResolution('retrying');
                 retryTimer = setTimeout(() => attempt(index + 1), delays[index]);
             });
@@ -518,19 +524,20 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         // target into the store before its concurrently-started message page
         // completes, and restarting here would abandon that valid first load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId, retryGeneration]);
+    }, [sessionId, retryGeneration, isFocused]);
+
+    const hadSession = React.useRef(!!session);
+    React.useEffect(() => {
+        if (session) hadSession.current = true;
+        // This content is keyed by sessionId. Once hydrated, losing its store
+        // entry is a terminal removal, not another initial load. The opening
+        // promise may already have resolved before a background tombstone lands.
+        else if (hadSession.current) setSessionResolution('not-found');
+    }, [session]);
 
     React.useEffect(() => {
         markSessionCriticalPathAppStage('web.route.mounted');
     }, [sessionId]);
-
-    React.useEffect(() => {
-        if (sessionResolution !== 'ready' || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
-        const frame = requestAnimationFrame(() => {
-            markSessionCriticalPathAppStage('web.session.route_painted');
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [sessionId, sessionResolution]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
@@ -542,6 +549,35 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             ? 'edge-handle'
             : 'drawer-toggle';
     const compactRightDrawerAvailable = !desktopRightPanelAvailable && isDataReady && !!session;
+    const canRenderCachedSession = session?.id === sessionId
+        && (hasLoadedMessageCache || cachedMessages.length > 0)
+        && routeOwner?.sessionId === sessionId
+        && sessionResolution !== 'not-found';
+    const verifiedRouteOwnerEpoch = sessionResolution === 'ready'
+        && routeOwner?.sessionId === sessionId
+        && latestVerifiedOwnerEpoch === routeOwner.ownerEpoch
+        ? routeOwner.ownerEpoch
+        : null;
+    const paintOwnerEpoch = routeOwner?.sessionId === sessionId
+        && session?.id === sessionId
+        && (sessionResolution === 'loading' || sessionResolution === 'ready')
+        && (canRenderCachedSession || sessionResolution === 'ready')
+        ? routeOwner.ownerEpoch
+        : null;
+    const paintedSessionId = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (paintOwnerEpoch === null || paintedSessionId.current === sessionId
+            || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        let cancelled = false;
+        const frame = requestAnimationFrame(() => {
+            // Validation can release this owner before React replaces the
+            // cached route tree or runs this effect's cleanup.
+            if (cancelled || !routeOwner || !sync.isSessionRouteOwner(routeOwner)) return;
+            paintedSessionId.current = sessionId;
+            markSessionCriticalPathAppStage('web.session.route_painted');
+        });
+        return () => { cancelled = true; cancelAnimationFrame(frame); };
+    }, [sessionId, paintOwnerEpoch, routeOwner]);
     const canShowFilePanel = desktopRightPanelAvailable && fileDiffsSidebarEnabled;
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
@@ -584,10 +620,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
     const [desktopPanelMode, setDesktopPanelMode] = React.useState<'capabilities' | 'files'>('capabilities');
     React.useEffect(() => {
-        if (!canShowFilePanel && desktopPanelMode === 'files') {
+        if (isFocused && !canShowFilePanel && desktopPanelMode === 'files') {
             setDesktopPanelMode('capabilities');
         }
-    }, [canShowFilePanel, desktopPanelMode]);
+    }, [canShowFilePanel, desktopPanelMode, isFocused]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -640,10 +676,11 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         pushOverlay({ kind: 'file', path: filePath });
     }, [pushOverlay]);
 
-    // When sidebar capability is lost (screen too narrow, disabled), close views.
+    // Clear unavailable views only on the active route. A modal changes the
+    // global workspace pathname while retaining this session underneath it.
     // Don't close on zen mode toggle — keep the view visible.
     React.useEffect(() => {
-        if (!canShowFilePanel) {
+        if (isFocused && !canShowFilePanel) {
             setOverlayHistory({
                 stack: [{ kind: 'none' }],
                 cursor: 0,
@@ -651,7 +688,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 immediate: true,
             });
         }
-    }, [canShowFilePanel]);
+    }, [canShowFilePanel, isFocused]);
 
     // Right-side header content published by the active overlay (diff toggle / save button).
     type OwnedHeaderRightSlot = { ownerKey: string; slot: React.ReactNode };
@@ -1018,7 +1055,19 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
-                {sessionResolution === 'error' ? (
+                {canRenderCachedSession && (sessionResolution === 'retrying' || sessionResolution === 'error') && (
+                    <View testID={sessionResolution === 'error' ? 'session-load-error-cached' : 'session-retrying-cached'}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, backgroundColor: theme.colors.surface }}>
+                        <Text style={{ color: theme.colors.textSecondary }}>{t(sessionResolution === 'error' ? 'common.error' : 'common.retry')}</Text>
+                        {sessionResolution === 'error' && (
+                            <Pressable testID="session-retry-cached" onPress={() => setRetryGeneration(value => value + 1)}
+                                style={({ pressed }) => ({ padding: 8, borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface })}>
+                                <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
+                            </Pressable>
+                        )}
+                    </View>
+                )}
+                {sessionResolution === 'error' && !canRenderCachedSession ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 }} testID="session-load-error">
                         <Text style={{ color: theme.colors.textSecondary }}>{t('common.error')}</Text>
                         <Pressable testID="session-retry" onPress={() => setRetryGeneration(value => value + 1)}
@@ -1026,12 +1075,12 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                             <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
                         </Pressable>
                     </View>
-                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId ? (
+                ) : !canRenderCachedSession && (sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId) ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
                     </View>
-                ) : sessionResolution !== 'ready' || !session ? (
+                ) : !canRenderCachedSession && (sessionResolution !== 'ready' || !session) ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
@@ -1045,6 +1094,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         onRemoveTag={removeSessionTag}
                         sessionId={sessionId}
                         routeOwner={routeOwner}
+                        verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
                         session={session}
                         tags={sessionTags}
                     />
@@ -1356,9 +1406,35 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
     return /macOS|platform|仅支持/i.test(error);
 }
 
+function VerifiedSessionMessageContent({
+    routeOwner,
+    verifiedRouteOwnerEpoch,
+    isLoaded,
+    children,
+}: {
+    routeOwner: SessionRouteOwner;
+    verifiedRouteOwnerEpoch: number | null;
+    isLoaded: boolean;
+    children: React.ReactNode;
+}) {
+    // This boundary mounts with the message subtree, after Deferred releases it.
+    // Store readiness alone does not establish that ChatList has committed.
+    React.useEffect(() => {
+        if (verifiedRouteOwnerEpoch === null || !isLoaded || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        let cancelled = false;
+        const frame = requestAnimationFrame(() => {
+            if (cancelled || !sync.isSessionRouteOwner(routeOwner)) return;
+            markSessionCriticalPathAppStage('web.session.latest_message_painted');
+        });
+        return () => { cancelled = true; cancelAnimationFrame(frame); };
+    }, [isLoaded, verifiedRouteOwnerEpoch, routeOwner]);
+    return <>{children}</>;
+}
+
 function SessionViewLoaded({
     sessionId,
     routeOwner,
+    verifiedRouteOwnerEpoch,
     session,
     composerHandleRef,
     onManageTags,
@@ -1367,6 +1443,7 @@ function SessionViewLoaded({
 }: {
     sessionId: string;
     routeOwner: SessionRouteOwner;
+    verifiedRouteOwnerEpoch: number | null;
     session: Session;
     composerHandleRef: React.RefObject<ChatComposerHandle | null>;
     onManageTags: () => void;
@@ -1375,6 +1452,7 @@ function SessionViewLoaded({
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const isFocused = useIsFocused();
     const safeArea = useSafeAreaInsets();
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
@@ -1384,17 +1462,14 @@ function SessionViewLoaded({
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
 
-    React.useEffect(() => {
-        if (!isLoaded || messages.length === 0 || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
-        const frame = requestAnimationFrame(() => {
-            markSessionCriticalPathAppStage('web.session.latest_message_painted');
-        });
-        return () => cancelAnimationFrame(frame);
-    }, [isLoaded, messages.length, sessionId]);
-
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
     const machineId = session.metadata?.machineId;
+    const composerMachine = useMachine(machineId ?? '');
+    const composerMachineName = composerMachine?.metadata?.displayName
+        || composerMachine?.metadata?.host
+        || session.metadata?.host
+        || null;
     const isCliOutdated = cliVersion && !isVersionSupported(cliVersion, MINIMUM_CLI_VERSION);
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
@@ -1593,6 +1668,7 @@ function SessionViewLoaded({
 
     // Trigger session visibility and initialize git status sync
     React.useLayoutEffect(() => {
+        if (!isFocused) return;
         if (!sync.promoteSessionRoute(routeOwner)) return;
 
         // Trigger session sync
@@ -1613,14 +1689,18 @@ function SessionViewLoaded({
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId, routeOwner]);
+    }, [sessionId, routeOwner, isFocused]);
 
     let content = (
         <>
             <Deferred>
-                {messages.length > 0 && (
-                    <ChatList session={session} />
-                )}
+                <VerifiedSessionMessageContent
+                    routeOwner={routeOwner}
+                    verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
+                    isLoaded={isLoaded}
+                >
+                    {messages.length > 0 && <ChatList session={session} />}
+                </VerifiedSessionMessageContent>
             </Deferred>
         </>
     );
@@ -1660,6 +1740,7 @@ function SessionViewLoaded({
             permissionSelector={permissionSelector}
             modeSelector={modeSelector}
             directorySelector={directorySelector}
+            machineName={composerMachineName}
         />
     );
 

@@ -39,6 +39,56 @@ describe('conversation activity model', () => {
         }).tool)).toEqual(['dev', 'obsidian-tools:ob-chat']);
     });
 
+    it.each(['running', 'completed', 'error'] as const)('keeps a batch %s status on the command, not on each named Skill', (state) => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow', 'tdd'] }, state);
+        const activities = collectConversationActivities([batch]).skills;
+        expect(activities).toHaveLength(1);
+        expect(activities[0]).toMatchObject({
+            name: 'dev, workflow, tdd',
+            isBatch: true,
+            status: state === 'error' ? 'failed' : state,
+        });
+    });
+
+    it('keeps an individual retry separate from its failed batch', () => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] }, 'error');
+        const retry = toolMessage('2', 'Skill', { skillName: 'workflow' });
+        expect(collectConversationActivities([batch, retry]).skills).toEqual([
+            expect.objectContaining({ name: 'dev, workflow', status: 'failed', isBatch: true }),
+            expect.objectContaining({ name: 'workflow', status: 'completed' }),
+        ]);
+    });
+
+    it('does not overwrite a confirmed individual success with a later batch failure', () => {
+        const loaded = toolMessage('1', 'Skill', { skillName: 'dev' });
+        const batch = toolMessage('2', 'Skill', { skillNames: ['dev', 'workflow'] }, 'error');
+        expect(collectConversationActivities([loaded, batch]).skills).toEqual([
+            expect.objectContaining({ name: 'dev', status: 'completed' }),
+            expect.objectContaining({ name: 'dev, workflow', status: 'failed', isBatch: true }),
+        ]);
+    });
+
+    it('finds a legacy diagnostic after long Skill content before truncating the detail', () => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] }, 'error');
+        const diagnostic = 'sed: /skills/workflow/SKILL.md: No such file or directory';
+        batch.tool.result = '---\nname: dev\n---\n' + 'Skill instructions\n'.repeat(400) + diagnostic;
+        const activity = collectConversationActivities([batch]).skills[0];
+        expect(activity.failure?.summary).toBe(diagnostic);
+        expect(activity.failure?.detail?.length).toBeLessThanOrEqual(4000);
+        expect(activity.failure?.detail).toContain(diagnostic);
+    });
+
+    it('repairs a frontmatter-only summary using retained command output', () => {
+        const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] }, 'error');
+        batch.tool.failure = { summary: '---', detail: '---\nname: dev\n---' };
+        batch.children.push({
+            kind: 'agent-text', id: 'output', localId: null, createdAt: 2, isThinking: true,
+            text: '---\nname: dev\n---\nsed: /skills/workflow/SKILL.md: Permission denied',
+        });
+        expect(collectConversationActivities([batch]).skills[0].failure?.summary)
+            .toBe('sed: /skills/workflow/SKILL.md: Permission denied');
+    });
+
     it('keeps a subagent running until its lifecycle stop arrives', () => {
         const start: Message = {
             kind: 'agent-event',

@@ -1,30 +1,30 @@
 import * as React from 'react';
-import { FlatList, Platform, Pressable, View } from 'react-native';
+import { useSidebarScrollState } from './SidebarScrollState';
+import { FlatList, Platform, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
-import { Avatar } from '@/components/Avatar';
 import { EmptySessionsTablet, shouldShowSessionEmptyState } from '@/components/EmptySessionsTablet';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { useAllSessions, useIsDataReady } from '@/sync/storage';
+import { buildSessionRowData, storage, type SessionRowData, useAllSessions, useIsDataReady } from '@/sync/storage';
 import { sync } from '@/sync/sync';
-import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
-import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
+import { isSessionArchived } from '@/utils/sessionLifecycle';
 import { SessionHistoryScrollIntent } from './sessionHistoryScrollIntent';
+import { CompactSessionRow } from './ActiveSessionsGroupCompact';
 
 type SessionHistoryListVariant = 'page' | 'sidebar';
 
 type SessionHistoryItem =
     | { key: string; type: 'date-header'; date: string }
-    | { key: string; type: 'session'; session: Session };
+    | { key: string; type: 'session'; session: SessionRowData };
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: { flex: 1, minHeight: 0, backgroundColor: theme.colors.groupped.background },
     pageContainer: { alignItems: 'stretch', flexDirection: 'row', justifyContent: 'center' },
     pageContent: { flex: 1, maxWidth: 960 },
+    sidebarContent: { flex: 1, minHeight: 0 },
     listContentPage: { paddingTop: 8 },
     listContentSidebar: { paddingHorizontal: 8, paddingTop: 4 },
     dateHeader: {
@@ -88,11 +88,11 @@ function formatDateHeader(date: Date): string {
     return t('sessionHistory.daysAgo', { count: diffDays });
 }
 
-function groupSessionsByDate(sessions: Session[]): SessionHistoryItem[] {
+function groupSessionsByDate(sessions: SessionRowData[]): SessionHistoryItem[] {
     const items: SessionHistoryItem[] = [];
     let previousDateKey: string | null = null;
-    for (const session of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)) {
-        const date = new Date(session.updatedAt);
+    for (const session of [...sessions].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))) {
+        const date = new Date(session.updatedAt ?? 0);
         const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
         if (dateKey !== previousDateKey) {
             items.push({ key: `date-${dateKey}`, type: 'date-header', date: formatDateHeader(date) });
@@ -109,13 +109,18 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     variant?: SessionHistoryListVariant;
 }) {
     const styles = stylesheet;
+    const scrollState = useSidebarScrollState<SessionHistoryItem>('history');
     const safeArea = useSafeAreaInsets();
     const allSessions = useAllSessions();
     const isDataReady = useIsDataReady();
-    const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const groupedItems = React.useMemo(
+        () => groupSessionsByDate((allSessions ?? [])
+            .filter(isSessionArchived)
+            .map((session) => buildSessionRowData(session))),
+        [allSessions],
+    );
     const showEmptyState = shouldShowSessionEmptyState(groupedItems.length);
     const scrollIntent = React.useMemo(() => new SessionHistoryScrollIntent(), [showEmptyState]);
     React.useEffect(() => {
@@ -123,12 +128,26 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
         return () => clearTimeout(timer);
     }, [isDataReady, pathname, sidebar]);
+    const hasSessions = (allSessions?.length ?? 0) > 0;
+    const hasArchivedSessions = groupedItems.length > 0;
+    React.useEffect(() => {
+        if (!isDataReady || !hasSessions || hasArchivedSessions) return;
+        let cancelled = false;
+        const loadUntilArchived = async () => {
+            let hasMore = true;
+            while (!cancelled && hasMore && !Object.values(storage.getState().sessions).some(isSessionArchived)) {
+                hasMore = await sync.loadNextSessionHistoryPage();
+            }
+        };
+        void loadUntilArchived();
+        return () => { cancelled = true; };
+    }, [hasArchivedSessions, hasSessions, isDataReady]);
     const loadNextHistoryPage = React.useCallback(() => {
         if (!scrollIntent.consumeAtEnd()) return;
         void sync.loadNextSessionHistoryPage();
     }, [scrollIntent]);
 
-    const renderItem = React.useCallback(({ item, index }: { item: SessionHistoryItem; index: number }) => {
+    const renderItem = React.useCallback(({ item }: { item: SessionHistoryItem }) => {
         if (item.type === 'date-header') {
             return (
                 <View style={[styles.dateHeader, sidebar && styles.dateHeaderSidebar]}>
@@ -139,58 +158,40 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
 
         const { session } = item;
         const selected = pathname === `/session/${session.id}`;
-        const previousItem = index > 0 ? groupedItems[index - 1] : null;
-        const nextItem = index < groupedItems.length - 1 ? groupedItems[index + 1] : null;
-        const first = previousItem?.type === 'date-header';
-        const last = nextItem?.type === 'date-header' || nextItem == null;
 
         return (
-            <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => navigateToSession(session.id)}
-                style={({ pressed }) => [
-                    styles.sessionCard,
-                    sidebar && styles.sessionCardSidebar,
-                    !sidebar && first && last
-                        ? styles.sessionCardSingle
-                        : !sidebar && first
-                            ? styles.sessionCardFirst
-                            : !sidebar && last
-                                ? styles.sessionCardLast
-                                : null,
-                    selected && styles.sessionCardSelected,
-                    pressed && styles.sessionCardPressed,
-                ]}
-                testID={`session-history-row-${session.id}`}
-            >
-                <Avatar id={getSessionAvatarId(session)} size={sidebar ? 30 : 48} />
-                <View style={[styles.sessionContent, sidebar && styles.sessionContentSidebar]}>
-                    <Text numberOfLines={1} style={[styles.sessionTitle, sidebar && styles.sessionTitleSidebar]}>
-                        {getSessionName(session)}
-                    </Text>
-                    <Text numberOfLines={1} style={[styles.sessionSubtitle, sidebar && styles.sessionSubtitleSidebar]}>
-                        {getSessionSubtitle(session)}
-                    </Text>
-                </View>
-            </Pressable>
+            <View testID={`session-history-row-${session.id}`}>
+                <CompactSessionRow selected={selected} session={session} showLocation />
+            </View>
         );
-    }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
+    }, [pathname, styles]);
 
     const content = showEmptyState
-        ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
+        ? (
+            <EmptySessionsTablet
+                description={t('sessionHistory.archiveEmptyDescription')}
+                icon="archive-outline"
+                showNewSessionAction={false}
+                title={t('sessionHistory.archiveEmpty')}
+            />
+        )
         : (
             <FlatList
+                {...scrollState}
+                windowSize={5}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
                 contentContainerStyle={[
                     sidebar ? styles.listContentSidebar : styles.listContentPage,
                     { paddingBottom: safeArea.bottom + 16 },
                 ]}
                 data={groupedItems}
                 keyExtractor={(item) => item.key}
-                onScroll={Platform.OS === 'web'
-                    ? (event) => { scrollIntent.noteWebScroll(event.nativeEvent.contentOffset.y); }
-                    : undefined}
-                onScrollBeginDrag={() => { scrollIntent.noteNativeDrag(); }}
+                onScroll={(event) => {
+                    const userScroll = scrollState.onScroll(event);
+                    if (Platform.OS === 'web' && userScroll) scrollIntent.noteWebScroll(event.nativeEvent.contentOffset.y);
+                }}
+                onScrollBeginDrag={() => { scrollState.onScrollBeginDrag(); scrollIntent.noteNativeDrag(); }}
                 onEndReached={loadNextHistoryPage}
                 onEndReachedThreshold={0.5}
                 renderItem={renderItem}
@@ -200,9 +201,9 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     return (
         <View
             style={[styles.container, !sidebar && styles.pageContainer]}
-            testID={sidebar ? 'desktop-sidebar-history-list' : 'session-history-list'}
+            testID={sidebar ? 'desktop-sidebar-archive-list' : 'session-archive-list'}
         >
-            <View style={!sidebar ? styles.pageContent : undefined}>{content}</View>
+            <View style={sidebar ? styles.sidebarContent : styles.pageContent}>{content}</View>
         </View>
     );
 });

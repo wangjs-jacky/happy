@@ -8,6 +8,9 @@ import { hapticsLight } from './haptics';
 
 export interface AnchorListSheetProps {
     anchors: UserMessageAnchor[];
+    hasMoreOlder?: boolean;
+    isLoadingOlder?: boolean;
+    onLoadOlder?: () => void;
     /** Called with the chosen anchor so the chat can scroll to it. */
     onSelect: (anchor: UserMessageAnchor) => void;
     /** Injected by the modal infra. */
@@ -37,12 +40,26 @@ export const AnchorListSheet = React.memo(function AnchorListSheet(props: Anchor
         <View style={[styles.sheet, sheetFrame]}>
             <View style={styles.header}>
                 <Text style={styles.title}>{t('session.anchorsTitle')}</Text>
-                <Text style={styles.subtitle}>{t('session.anchorsSubtitle', { count: anchors.length })}</Text>
+                <Text testID="anchor-list-subtitle" style={styles.subtitle}>{props.hasMoreOlder
+                    ? t('session.anchorsLoadedSubtitle', { count: anchors.length })
+                    : t('session.anchorsSubtitle', { count: anchors.length })}</Text>
             </View>
 
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+                {props.hasMoreOlder && props.onLoadOlder ? (
+                    <Pressable
+                        testID="anchor-list-load-older"
+                        accessibilityRole="button"
+                        disabled={props.isLoadingOlder}
+                        accessibilityState={{ disabled: Boolean(props.isLoadingOlder), busy: Boolean(props.isLoadingOlder) }}
+                        onPress={props.onLoadOlder}
+                        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                    >
+                        <Text style={styles.rowText}>{props.isLoadingOlder ? t('common.loading') : t('session.anchorsLoadOlder')}</Text>
+                    </Pressable>
+                ) : null}
                 {anchors.length === 0 ? (
-                    <Text style={styles.emptyText}>{t('session.anchorsEmpty')}</Text>
+                    !props.hasMoreOlder ? <Text style={styles.emptyText}>{t('session.anchorsEmpty')}</Text> : null
                 ) : (
                     anchors.map((anchor) => (
                         <Pressable
@@ -115,7 +132,7 @@ const styles = StyleSheet.create((theme) => ({
         borderBottomColor: theme.colors.divider,
     },
     rowPressed: {
-        backgroundColor: theme.colors.surfaceHigh,
+        backgroundColor: theme.colors.surfacePressed,
     },
     ordinalBadge: {
         minWidth: 26,

@@ -10,6 +10,7 @@ import {
     SkillConversationActivity,
 } from '@/utils/conversationActivity';
 import { useSubagentInspector } from './subagent/SubagentInspectorContext';
+import { SkillBrowserProgress } from './SkillBrowserProgress';
 
 export const ConversationActivitySuppressedContext = React.createContext(false);
 
@@ -107,7 +108,7 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
         <>
             <View style={styles.rowHeader}>
                 <Ionicons name="sparkles-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={styles.kind}>{t('toolGroup.skillLabel')}</Text>
+                <Text style={styles.kind}>{t(activity.isBatch ? 'toolGroup.skillBatchLabel' : 'toolGroup.skillLabel')}</Text>
                 <Text style={styles.title} numberOfLines={1}>{activity.name}</Text>
                 <View style={styles.statusPill}>
                     <ActivityStatusIcon status={activity.status} />
@@ -135,12 +136,16 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
     if (!canExpand) {
         return (
             <View style={rowStyle} testID={`activity-skill-${activity.name}`}>
-                {content}
+                <View style={styles.skillLine}>
+                    <View style={styles.skillCopy}>{content}</View>
+                    <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
+                </View>
             </View>
         );
     }
 
     return (
+        <View style={styles.skillLine}>
         <Pressable
             accessibilityLabel={t(
                 expanded ? 'toolGroup.closeSkillDetails' : 'toolGroup.openSkillDetails',
@@ -150,11 +155,13 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
             accessibilityState={{ expanded }}
             aria-expanded={expanded}
             onPress={() => setExpanded((value) => !value)}
-            style={({ pressed }) => [rowStyle, pressed && styles.rowPressed]}
+            style={({ pressed }) => [rowStyle, styles.skillCopy, pressed && styles.rowPressed]}
             testID={`activity-skill-${activity.name}`}
         >
             {content}
         </Pressable>
+        <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
+        </View>
     );
 }
 
@@ -186,6 +193,8 @@ function getStatusLabel(status: ConversationActivityStatus): string {
 }
 
 const styles = StyleSheet.create((theme) => ({
+    skillLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+    skillCopy: { flex: 1, minWidth: 100 },
     container: {
         marginHorizontal: 16,
         marginTop: 4,

@@ -16,8 +16,11 @@ const mocks = vi.hoisted(() => ({
     helpFirstActionFocus: vi.fn(),
     helpTriggerFocus: vi.fn(),
     navigate: vi.fn(),
+    pathname: '/',
     openCommandPalette: vi.fn(),
     openSettings: vi.fn(),
+    openActivity: vi.fn(),
+    setDesktopSidebarListMode: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
     commandPaletteAvailable: false,
     settingsModalIsDesktop: false,
@@ -30,6 +33,8 @@ const mocks = vi.hoisted(() => ({
         surface: 'left-sidebar',
         viewId: 'relationship-advisor.history',
     }],
+    desktopSidebarListMode: 'timeline',
+    desktopSidebarMode: 'projects',
     spaceAgent: {
         id: 'health',
         name: 'Health',
@@ -49,6 +54,7 @@ vi.mock('react-native', () => ({
     Text: 'Text',
     View: 'View',
     Pressable: 'Pressable',
+    ScrollView: 'ScrollView',
 }));
 vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
@@ -57,7 +63,7 @@ vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: mocks.dispatch }),
     useRouter: () => ({ navigate: mocks.navigate }),
     useGlobalSearchParams: () => ({}),
-    usePathname: () => '/',
+    usePathname: () => mocks.pathname,
 }));
 vi.mock('@react-navigation/native', () => ({
     DrawerActions: { closeDrawer: () => ({ type: 'CLOSE_DRAWER' }) },
@@ -74,7 +80,7 @@ vi.mock('react-native-unistyles', () => ({
                     divider: '#ddd',
                     text: '#111',
                     textSecondary: '#666',
-                    status: { error: '#f00' },
+                    status: { connected: '#0a6', error: '#f00' },
                 },
             })
             : factory,
@@ -83,12 +89,13 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/sync/storage', () => ({
     useRealtimeStatus: () => 'connected',
-    useFriendRequests: () => [],
     useProfile: () => null,
     useLocalSetting: () => [],
     useLocalSettingMutable: (name: string) => name === 'desktopSidebarMode'
-        ? ['projects', mocks.setDesktopSidebarMode]
-        : [[], vi.fn()],
+        ? [mocks.desktopSidebarMode, mocks.setDesktopSidebarMode]
+        : name === 'desktopSidebarListMode'
+            ? [mocks.desktopSidebarListMode, mocks.setDesktopSidebarListMode]
+            : [[], vi.fn()],
     useLocalSettingUpdater: () => vi.fn(),
 }));
 vi.mock('@/sync/profile', () => ({ getDisplayName: () => null }));
@@ -99,6 +106,7 @@ vi.mock('./DesktopSettingsModal', () => ({
     useDesktopSettingsModal: () => ({
         isDesktop: mocks.settingsModalIsDesktop,
         openSettings: mocks.openSettings,
+        openActivity: mocks.openActivity,
     }),
 }));
 vi.mock('./VoiceAssistantStatusBar', () => ({ VoiceAssistantStatusBar: 'VoiceAssistantStatusBar' }));
@@ -185,6 +193,7 @@ describe('SidebarView Agent space exit', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.pathname = '/';
         mocks.focusHistory.length = 0;
         mocks.spaceAgent = {
             id: 'health',
@@ -201,6 +210,8 @@ describe('SidebarView Agent space exit', () => {
         };
         mocks.commandPaletteAvailable = false;
         mocks.settingsModalIsDesktop = false;
+        mocks.desktopSidebarListMode = 'timeline';
+        mocks.desktopSidebarMode = 'projects';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -275,7 +286,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('keeps the roomier mobile sidebar layout and exposes Projects / Lists organization', () => {
+    it('uses the compact icon-only rail for mobile session navigation', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -293,17 +304,31 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
         expect(renderer.root.findAllByType('Text').some(
             (node: any) => node.props.children === 'agents.empty',
-        )).toBe(true);
-        const secondary = renderer.root.findByProps({ testID: 'sidebar-secondary-navigation' });
-        expect(secondary.props.style).not.toHaveProperty('marginHorizontal');
-        expect(secondary.findByProps({ testID: 'sidebar-secondary-navigation-divider' }).props.style).toEqual(
-            expect.objectContaining({ marginHorizontal: 10 }),
-        );
-        expect(
-            secondary.findByProps({ testID: 'sidebar-my-agents-button' }).props.style({ pressed: false }),
-        ).toContainEqual(expect.objectContaining({ marginHorizontal: 16 }));
+        )).toBe(false);
+        expect(renderer.root.findByProps({ testID: 'mobile-primary-navigation-column' }).props.style).toContainEqual(expect.objectContaining({ width: 56 }));
+        expect(renderer.root.findAllByType('ScrollView')).toHaveLength(1);
+        expect(renderer.root.findByType('SidebarAccountMenu').props.mobileRail).toBe(true);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
+        for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'my-agents', 'history', 'plugin-relationship-advisor']) {
+            const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === `sidebar-${entry}-button`);
+            expect(button.findAllByType('Text')).toHaveLength(0);
+            expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ height: 44, width: 44 }));
+        }
+        const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
+        const mobileNewSessionGlyph = mobileNewSession.findByProps({ testID: 'sidebar-new-session-glyph' });
+        expect(mobileNewSessionGlyph.props.style).toEqual(expect.objectContaining({
+            backgroundColor: '#0a6',
+            borderRadius: 5,
+            height: 22,
+            width: 22,
+        }));
+        expect(mobileNewSessionGlyph.findByType('Ionicons').props).toMatchObject({
+            name: 'add',
+            color: '#FFFFFF',
+            size: 20,
+        });
         expect(renderer.root.findByType('AgentSheet').props.visible).toBe(false);
-        act(() => secondary.findByProps({ testID: 'sidebar-my-agents-button' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-my-agents-button' }).props.onPress());
         expect(renderer.root.findByType('AgentSheet').props.visible).toBe(true);
         expect(mocks.navigate).not.toHaveBeenCalledWith('/settings/my-agents');
 
@@ -312,6 +337,46 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findByType('PluginMarketplaceModal').props.visible).toBe(true);
         expect(renderer.root.findByType('PluginMarketplaceModal').props.initialPluginId).toBeNull();
 
+        act(() => renderer.unmount());
+    });
+
+    it('returns from advisor history without navigating away or unmounting session views', () => {
+        mocks.spaceAgent = null;
+        mocks.pathname = '/relationship-advisor';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarView closeDrawerOnNavigate />); });
+        const sessions = renderer.root.findByType('DesktopSidebarSessionsNavigation');
+        expect(sessions.parent.props.accessibilityElementsHidden).toBe(true);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(1);
+        act(() => renderer.root.findByProps({ testID: 'mobile-sidebar-back-to-sessions' }).props.onPress());
+        expect(renderer.root.findByType('DesktopSidebarSessionsNavigation')).toBe(sessions);
+        expect(sessions.parent.props.accessibilityElementsHidden).toBe(false);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
+        const plugin = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === 'sidebar-plugin-relationship-advisor-button');
+        expect(plugin.props.accessibilityState.selected).toBe(false);
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        expect(mocks.dispatch).not.toHaveBeenCalled();
+        act(() => renderer.root.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        act(() => renderer.root.findByProps({ testID: 'mobile-sidebar-close' }).props.onPress());
+        expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'CLOSE_DRAWER' });
+        act(() => renderer.unmount());
+    });
+
+    it('opens advisor history from the rail without closing the drawer or changing the current chat', () => {
+        mocks.spaceAgent = null;
+        mocks.pathname = '/session/current';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarView />); });
+        act(() => renderer.root.findByProps({ testID: 'sidebar-plugin-relationship-advisor-button' }).props.onPress());
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(1);
+        const plugin = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === 'sidebar-plugin-relationship-advisor-button');
+        expect(plugin.props.accessibilityState.selected).toBe(true);
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        expect(mocks.dispatch).not.toHaveBeenCalled();
+        act(() => renderer.root.findByType('PluginLeftSidebarSlot').props.onNavigate('/relationship-advisor'));
+        expect(mocks.navigate).toHaveBeenCalledWith('/relationship-advisor');
         act(() => renderer.unmount());
     });
 
@@ -443,7 +508,28 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('renders fixed and installed plugin destinations in the narrow desktop icon rail', () => {
+    it('shows only advisor history on its desktop route and restores sessions when leaving', () => {
+        mocks.spaceAgent = null;
+        mocks.pathname = '/relationship-advisor';
+        let renderer: any;
+        const renderSidebar = () => <SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation />;
+        act(() => { renderer = TestRenderer.create(renderSidebar()); });
+
+        const secondary = renderer.root.findByProps({ testID: 'desktop-secondary-navigation-column' });
+        expect(secondary.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
+        expect(secondary.findByType('PluginLeftSidebarSlot').props.fillAvailableSpace).toBe(true);
+        act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
+        expect(mocks.navigate).toHaveBeenCalledWith('/');
+
+        mocks.pathname = '/session/ordinary-session';
+        act(() => renderer.update(<SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation key="ordinary" />));
+        expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('renders separate session destinations, installed plugins, and a green new-session plus icon', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -461,8 +547,9 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-command-palette-button',
             'sidebar-plugins-button',
             'sidebar-my-agents-button',
-            'sidebar-history-button',
             'sidebar-plugin-relationship-advisor-button',
+            'sidebar-session-list-button',
+            'sidebar-archive-button',
         ]));
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
@@ -472,6 +559,22 @@ describe('SidebarView Agent space exit', () => {
             .find((node: any) => node.props.testID === 'sidebar-new-session-button')!;
         expect(newSession).toBeDefined();
         expect(newSession.findAllByType('Text')).toHaveLength(0);
+        const newSessionGlyph = newSession.findByProps({ testID: 'sidebar-new-session-glyph' });
+        expect(newSessionGlyph.props.style).toEqual(expect.objectContaining({
+            alignItems: 'center',
+            backgroundColor: '#0a6',
+            borderRadius: 5,
+            height: 22,
+            justifyContent: 'center',
+            width: 22,
+        }));
+        expect(newSessionGlyph.findByType('Ionicons').props).toMatchObject({
+            name: 'add',
+            color: '#FFFFFF',
+            size: 20,
+        });
+        act(() => newSession.props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledWith('/new');
         act(() => newSession.props.onHoverIn());
         const tooltip = primaryColumn.findByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' });
         expect(tooltip.props.style).toEqual(expect.objectContaining({ minWidth: 92 }));
@@ -488,13 +591,46 @@ describe('SidebarView Agent space exit', () => {
 
         expect(primaryColumn.findAllByProps({ testID: 'sidebar-add-agent-button' })).toHaveLength(0);
 
-        act(() => primaryColumn.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+        const sessionListButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
+        expect(sessionListButton.props.accessibilityState).toEqual({ selected: true });
+        expect(sessionListButton.findByType('Ionicons').props.name).toBe('albums-outline');
+
+        const archiveButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
+        act(() => archiveButton.props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('archive');
 
         act(() => primaryColumn.findByProps({
             testID: 'sidebar-plugin-relationship-advisor-button',
         }).props.onPress());
         expect(mocks.navigate).toHaveBeenCalledWith('/relationship-advisor');
+
+        act(() => renderer.unmount());
+    });
+
+    it('restores the last Projects / Lists / Timeline view when leaving the archive surface', () => {
+        mocks.spaceAgent = null;
+        mocks.desktopSidebarMode = 'archive';
+        mocks.desktopSidebarListMode = 'timeline';
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation />,
+            );
+        });
+
+        const primaryColumn = renderer.root.findByProps({ testID: 'desktop-primary-navigation-column' });
+        const archiveButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
+        expect(archiveButton.props.accessibilityState).toEqual({ selected: true });
+        expect(archiveButton.findByType('Ionicons').props.name).toBe('file-tray-stacked-outline');
+
+        const sessionListButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
+        act(() => sessionListButton.props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
 
         act(() => renderer.unmount());
     });

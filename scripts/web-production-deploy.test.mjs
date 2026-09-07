@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 
@@ -36,10 +38,101 @@ test('guards the exact origin/main revision before every external production mut
     const guard = workflow.jobs.deploy.steps[guardIndex];
     assert.match(guard.run, /GITHUB_REF.*refs\/heads\/main/);
     assert.match(guard.run, /git fetch --no-tags origin main/);
-    assert.match(guard.run, /rev-parse origin\/main/);
+    assert.match(guard.run, /rev-parse (?:refs\/remotes\/)?origin\/main/);
     assert.match(guard.run, /GITHUB_SHA/);
     const syntax = spawnSync('bash', ['-n'], { input: guard.run, encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('queued obsolete deployment exits successfully using real Git ancestry before setup', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const guard = workflow.jobs.deploy.steps.find((step) => step.name === 'Guard exact merged main revision before external mutation');
+    const directory = await mkdtemp(join(tmpdir(), 'paws-web-source-test-'));
+    const repo = join(directory, 'repo');
+    await mkdir(join(repo, 'scripts'), { recursive: true });
+    // The helper is part of the commit under test, just as it is in Actions.
+    const helper = await readFile(new URL('./web-release-source.sh', import.meta.url), 'utf8');
+    await writeFile(join(repo, 'scripts/web-release-source.sh'), helper);
+    const git = (...args) => {
+        const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+    };
+    try {
+        git('init', '-b', 'main');
+        git('config', 'user.name', 'Deployment Test');
+        git('config', 'user.email', 'deploy-test@example.invalid');
+        git('add', '.');
+        git('commit', '-m', 'first');
+        const first = git('rev-parse', 'HEAD');
+        git('clone', '--bare', '.', join(directory, 'origin.git'));
+        git('remote', 'add', 'origin', join(directory, 'origin.git'));
+        git('commit', '--allow-empty', '-m', 'newer main');
+        const next = git('rev-parse', 'HEAD');
+        git('push', 'origin', 'main');
+        git('checkout', '--detach', first);
+        const output = join(directory, 'output');
+        const run = () => spawnSync('bash', ['-euo', 'pipefail', '-c', guard.run], {
+            cwd: repo, encoding: 'utf8', env: {
+                ...process.env, PAWS_WEB_SKIP_SUPERSEDED: '', ...guard.env,
+                GITHUB_REF: 'refs/heads/main', GITHUB_SHA: first, GITHUB_OUTPUT: output,
+            },
+        });
+        const superseded = run();
+        assert.equal(superseded.status, 0, superseded.stderr);
+        assert.match(await readFile(output, 'utf8'), /^superseded=true$/m);
+        assert.match(await readFile(output, 'utf8'), new RegExp(`^superseded_by=${next}$`, 'm'));
+        assert.doesNotMatch(await readFile(output, 'utf8'), /eligible=true/);
+
+        await writeFile(output, '');
+        await writeFile(join(repo, 'dirty.txt'), 'untracked');
+        assert.notEqual(run().status, 0, 'dirty worktree must not be treated as superseded');
+        assert.equal(await readFile(output, 'utf8'), '');
+        await rm(join(repo, 'dirty.txt'));
+        git('remote', 'set-url', 'origin', join(directory, 'missing.git'));
+        assert.notEqual(run().status, 0, 'fetch failure must remain a failure');
+        assert.equal(await readFile(output, 'utf8'), '');
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test('supersession skips deployment work, restores earlier mutations, and never claims deployed', async () => {
+    const { jobs: { deploy: { steps } } } = parse(await readFile(workflowUrl, 'utf8'));
+    const enabled = (name, state, ok = true) => {
+        const step = steps.find((step) => step.name === name);
+        assert.ok(step, name);
+        if (!step.if) return ok;
+        const expression = step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+        const hasStatus = /(?:success|failure|always|cancelled)\(/.test(expression);
+        return (hasStatus || ok) && Function('steps', 'success', 'failure', `return (${expression});`)(state, () => ok, () => !ok);
+    };
+    const state = {
+        source: { outputs: { superseded: 'true' } },
+        switch: { outputs: {} },
+        live_verify: { outcome: 'skipped' },
+        mcp_rollout: { outputs: { enabled: 'true' } },
+    };
+    for (const name of ['Guard deployment configuration', 'Install dependencies', 'Configure MCP App sandbox route',
+        'Build and stamp Web from this main revision', 'Upload complete immutable Web release',
+        'Atomically switch OSS Web entry', 'Route the Web SPA to OSS',
+        'Verify live OSS-backed release and routes', 'Remove guarded legacy Web files', 'Write deployment summary']) {
+        assert.equal(enabled(name, state), false, name);
+    }
+    assert.equal(enabled('Write superseded deployment summary', state), true);
+    state.source.outputs = { eligible: 'true' };
+    state.switch.outputs = { superseded: 'true' };
+    assert.equal(enabled('Roll back failed Web activation', state), true);
+    for (const name of ['Route the Web SPA to OSS', 'Verify live OSS-backed release and routes', 'Remove guarded legacy Web files', 'Write deployment summary']) {
+        assert.equal(enabled(name, state), false, name);
+    }
+    assert.equal(enabled('Write superseded deployment summary', state, false), false, 'rollback errors must not be hidden');
+    state.switch.outputs = { activated: 'true' };
+    assert.equal(enabled('Route the Web SPA to OSS', state), true);
+    assert.equal(enabled('Roll back failed Web activation', state, false), true);
+    state.live_verify.outcome = 'success';
+    assert.equal(enabled('Write deployment summary', state), true);
+    assert.equal(enabled('Write superseded deployment summary', state), false);
 });
 
 test('MCP App sandbox rollout is disabled by default and verified before Web export or activation', async () => {
@@ -90,6 +183,18 @@ test('production activation is serialized and cannot be cancelled mid-switch', a
     assert.equal(workflow.concurrency['cancel-in-progress'], false);
 });
 
+test('production workflow injects browser-origin runtime configuration once before release stamping', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const build = workflow.jobs.deploy.steps.find((step) => step.name === 'Build and stamp Web from this main revision');
+    const injector = 'node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html';
+    const stamp = 'node scripts/stamp-web-release.mjs';
+
+    assert.equal(build.run.split(injector).length - 1, 1);
+    assert.ok(build.run.indexOf(injector) < build.run.indexOf(stamp));
+    assert.match(build.run, /EXPO_PUBLIC_HAPPY_SERVER_URL="\$PAWS_WEB_ORIGIN"/);
+    assert.equal(workflow.jobs.deploy.env.PAWS_WEB_ORIGIN, 'https://47.115.228.20:8443');
+});
+
 test('authenticated MCP App evidence disables traces and protects external storage state', async () => {
     const [spec, helper, gitignore] = await Promise.all([
         readFile(evidenceSpecUrl, 'utf8'), readFile(evidenceHelperUrl, 'utf8'), readFile(gitignoreUrl, 'utf8'),
@@ -114,11 +219,12 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.equal(job.env.PAWS_LEGACY_WEB_ORIGIN, 'http://47.115.228.20:8080');
     assert.equal(job.env.PAWS_LEGACY_WEB_PATH, '/var/www/happy-web');
     assert.equal(switchStep.id, 'switch');
+    assert.equal(switchStep.env.PAWS_WEB_SKIP_SUPERSEDED, '1');
     assert.equal(caddyStep.id, 'caddy');
     assert.equal(cleanupStep.id, 'cleanup');
     assert.match(cleanupStep.run, /test "\$legacy_path" = '\/var\/www\/happy-web'/);
     assert.match(cleanupStep.run, /Caddyfile/);
-    assert.match(caddyStep.run, /caddy adapt --config "\$config" --adapter caddyfile/);
+    assert.match(caddyStep.run, /caddy adapt --config "\$candidate" --adapter caddyfile/);
     assert.match(cleanupStep.run, /caddy adapt --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
     assert.doesNotMatch(cleanupStep.run, /grep[^\n]*\/etc\/caddy\/Caddyfile/);
     const liveVerifyStep = job.steps.find((step) => step.name === 'Verify live OSS-backed release and routes');
@@ -149,4 +255,123 @@ test('Caddy activation and rollback enqueue reloads without waiting on old conne
     assert.doesNotMatch(rollbackStep.run, /curl /);
     assert.doesNotMatch(caddyStep.run, /systemctl reload caddy/);
     assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
+});
+
+test('all Caddy reload guards wait through a drained-job reloading transition', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const names = [
+        'Configure MCP App sandbox route',
+        'Route the Web SPA to OSS',
+        'Roll back failed Web activation',
+    ];
+    const guards = names.flatMap((name) => {
+        const step = workflow.jobs.deploy.steps.find((candidate) => candidate.name === name);
+        assert.ok(step, name);
+        return [...step.run.matchAll(/wait_for_reload\(\) \{\n[\s\S]*?\n\}/g)].map((match) => match[0]);
+    });
+    assert.ok(guards.length > 0, 'workflow must define at least one reload guard');
+
+    const directory = await mkdtemp(join(tmpdir(), 'paws-caddy-reload-test-'));
+    try {
+        for (const [index, guard] of guards.entries()) {
+            const counter = join(directory, `attempt-${index}`);
+            await writeFile(counter, '0');
+            const result = spawnSync('bash', ['-c', `
+systemctl() {
+    case "$*" in
+        list-jobs*)
+            attempt="$(<"$WAIT_COUNTER")"
+            printf '%s' "$((attempt + 1))" > "$WAIT_COUNTER"
+            ;;
+        *--property=ActiveState*)
+            attempt="$(<"$WAIT_COUNTER")"
+            if [ "$attempt" -eq 1 ]; then printf 'reloading\\n'; else printf 'active\\n'; fi
+            ;;
+        *--property=ReloadResult*)
+            attempt="$(<"$WAIT_COUNTER")"
+            if [ "$attempt" -ge 2 ]; then printf 'success\\n'; fi
+            ;;
+        *) return 2 ;;
+    esac
+}
+sleep() { :; }
+${guard}
+wait_for_reload
+`], { encoding: 'utf8', env: { ...process.env, WAIT_COUNTER: counter } });
+            assert.equal(result.status, 0, `guard ${index + 1}: ${result.stderr}`);
+            assert.equal(await readFile(counter, 'utf8'), '2', `guard ${index + 1} must retry the transition`);
+        }
+        assert.equal(guards.length, 4, 'every activation and rollback reload must use the guarded wait');
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test('Web and Tunnel configuration share one activation candidate and rollback backup', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    assert.match(step.run, /configure-production-web-caddy\.mjs "\$current_caddy" "\$web_caddy"/);
+    assert.match(step.run, /configure-production-tunnel-caddy\.mjs "\$web_caddy" "\$next_caddy"/);
+    assert.ok(step.run.indexOf('configure-production-web-caddy') < step.run.indexOf('configure-production-tunnel-caddy'));
+    assert.equal(step.run.match(/remote_backup=/g)?.length, 1);
+    assert.equal(step.run.match(/scp -P/g)?.length, 1);
+    assert.ok(step.run.indexOf('caddy validate --config "$candidate"') < step.run.indexOf('install -m 644'));
+    assert.ok(step.run.indexOf('check_tunnel_listeners <<<"$adapted_config"') < step.run.indexOf('install -m 644'));
+    assert.match(step.run, /cmp -s -- "\$candidate" "\$config"/);
+    assert.match(step.run, /wait_for_reload/);
+    assert.match(step.run, /--header 'Host: paws\.rodeo' http:\/\/127\.0\.0\.1:8081\/health/);
+    assert.match(step.run, /--header 'Host: invalid\.example' http:\/\/127\.0\.0\.1:8081\/health/);
+    assert.match(step.run, /= '421'/);
+    assert.match(step.run, /ss -lnt/);
+    const syntax = spawnSync('bash', ['-n'], { input: step.run, encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('candidate listener guard rejects wildcard, nonloopback, absent, and extra Tunnel listeners', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const guard = step.run.match(/check_tunnel_listeners\(\) \{\n[\s\S]*?\n\}/)?.[0];
+    assert.ok(guard, 'remote script must provide the candidate listener guard');
+    for (const [listeners, success] of [
+        [['127.0.0.1:8081'], true],
+        [['0.0.0.0:8081'], false], [['[::]:8081'], false], [[':8081'], false],
+        [['47.115.228.20:8081'], false], [['127.0.0.2:8081'], false],
+        [['127.0.0.1:8081', ':8081'], false], [['127.0.0.1:8081', ':9090'], false],
+        [[':8080-8082'], false], [[], false],
+    ]) {
+        const adapted = { apps: { http: { servers: {
+            public: { listen: [':8443'] }, tunnel: { listen: listeners },
+        } } } };
+        const result = spawnSync('bash', ['-c', `${guard}\ncheck_tunnel_listeners`], {
+            input: JSON.stringify(adapted), encoding: 'utf8',
+        });
+        assert.equal(result.status === 0, success, `${JSON.stringify(listeners)}: ${result.stderr}`);
+    }
+});
+
+test('Tunnel smoke rejects activation without exactly one no-store response header', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const step = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const smoke = step.run.match(/smoke_tunnel_origin\(\) \{\n[\s\S]*?\n\}/)?.[0];
+    assert.ok(smoke);
+    for (const [headers, success] of [
+        ['HTTP/1.1 200 OK\r\nCache-Control: no-store\r\n\r\n', true],
+        ['HTTP/1.1 200 OK\r\ncache-control: no-store\r\n\r\n', true],
+        ['HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n', false],
+        ['HTTP/1.1 200 OK\r\nCache-Control: public, max-age=60\r\n\r\n', false],
+        ['HTTP/1.1 200 OK\r\nCache-Control: no-store\r\nCache-Control: public\r\n\r\n', false],
+    ]) {
+        const result = spawnSync('bash', ['-c', `
+curl() {
+    case "$*" in
+        *'Host: invalid.example'*) printf '421' ;;
+        *) printf '%s' "$SMOKE_HEADERS" ;;
+    esac
+}
+ss() { printf 'LISTEN 0 128 127.0.0.1:8081 0.0.0.0:*\\n'; }
+${smoke}
+smoke_tunnel_origin
+`], { encoding: 'utf8', env: { ...process.env, SMOKE_HEADERS: headers } });
+        assert.equal(result.status === 0, success, `${JSON.stringify(headers)}: ${result.stderr}`);
+    }
 });

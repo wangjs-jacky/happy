@@ -188,7 +188,18 @@ export function loadLocalSettings(): LocalSettings {
 }
 
 export function saveLocalSettings(settings: LocalSettings) {
+    const previous = loadLocalSettings().relationshipAdvisorConversations;
     mmkv.set('local-settings', JSON.stringify(settings));
+    cleanupRemovedAdvisorImages(previous, settings.relationshipAdvisorConversations);
+}
+
+function cleanupRemovedAdvisorImages(previous: LocalSettings['relationshipAdvisorConversations'], next: LocalSettings['relationshipAdvisorConversations']) {
+    const retained = new Set(next.flatMap((conversation) => conversation.messages.flatMap((message) => message.imageKeys ?? [])));
+    const removed = [...new Set(previous.flatMap((conversation) => conversation.messages.flatMap((message) => message.imageKeys ?? [])))]
+        .filter((key) => !retained.has(key));
+    if (removed.length) {
+        void import('./relationshipAdvisorImageCache').then(({ deleteAdvisorImages }) => deleteAdvisorImages(removed)).catch(() => undefined);
+    }
 }
 
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
@@ -506,6 +517,7 @@ export function resetVoiceLocalCounters() {
 }
 
 export function clearPersistence() {
+    cleanupRemovedAdvisorImages(loadLocalSettings().relationshipAdvisorConversations, []);
     clearComposeDraft();
     mmkv.clearAll();
     clearPublicSessionShareQueueStorage();
