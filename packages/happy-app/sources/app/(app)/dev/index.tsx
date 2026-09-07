@@ -181,6 +181,12 @@ export default function DevScreen() {
 
             <ItemGroup title={t('devTools.debugOptions')}>
                 <Item
+                    title="HUAWEI Health diagnostics"
+                    subtitle="Check HUAWEI Health, HMS Core, and Android 14+ compatibility"
+                    icon={<Ionicons name="heart-outline" size={28} color={theme.colors.accent} />}
+                    onPress={() => router.push('/dev/huawei-health' as any)}
+                />
+                <Item
                     title={t('devTools.debugMode')}
                     rightElement={
                         <Switch
