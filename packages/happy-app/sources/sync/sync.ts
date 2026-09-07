@@ -837,7 +837,10 @@ class Sync {
                         if (!committed) {
                             // Quota failures keep the visible records and use the network
                             // page in memory. The durable cursor/coverage remains unchanged.
-                            latest = memoryHistoryPage(current, page, direction, navigationWindowLimit);
+                            const memoryLimit = Platform.OS === 'web'
+                                ? (current?.messages.length ?? 0) + page.messages.length
+                                : navigationWindowLimit;
+                            latest = memoryHistoryPage(current, page, direction, memoryLimit);
                         }
                     }
                     if (!latest) {
@@ -845,7 +848,23 @@ class Sync {
                         const anchorSeq = direction === 'latest' ? undefined : direction === 'older'
                             ? page!.messages[Math.max(0, page!.messages.length - 50)]?.seq ?? boundary!
                             : page!.messages[Math.min(49, page!.messages.length - 1)]?.seq ?? boundary!;
-                        latest = await history.readWindow(id, { anchorSeq, limit: navigationWindowLimit });
+                        const expanded = await history.readWindow(id, { anchorSeq, limit: navigationWindowLimit });
+                        if (Platform.OS === 'web' && direction !== 'latest') {
+                            // The Web transcript deliberately keeps visited rows mounted.
+                            // Re-centering a bounded window here removes those rows, which
+                            // unmounts attachment images and recreates their blob URLs when
+                            // the user scrolls back. Grow only through explicit navigation;
+                            // opening a route and native history remain bounded.
+                            const source = expanded ?? page!;
+                            latest = memoryHistoryPage(current, {
+                                messages: source.messages,
+                                hasMore: expanded
+                                    ? direction === 'older' ? expanded.hasMoreOlder : expanded.hasMoreNewer
+                                    : page!.hasMore,
+                            }, direction, (current?.messages.length ?? 0) + source.messages.length);
+                        } else {
+                            latest = expanded;
+                        }
                     }
                 }
                 if (latest && owner.isCurrent()) {
