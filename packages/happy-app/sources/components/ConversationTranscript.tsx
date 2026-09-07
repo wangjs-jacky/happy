@@ -101,6 +101,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         [props.messages, browserProgress.runs]);
     const displayItems = useGroupedMessages(transcriptMessages, props.groupToolCalls ?? true, groupingOptions);
     const inverted = props.inverted ?? true;
+    const invertedRef = React.useRef(inverted);
+    invertedRef.current = inverted;
     const isAtLatest = props.isAtLatest ?? true;
     const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
     const attempted = React.useRef(new Set<string>());
@@ -124,6 +126,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         load();
     }, [boundaryAttemptKey, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
         props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
+    const loadBoundaryRef = React.useRef(loadBoundary);
+    loadBoundaryRef.current = loadBoundary;
     const listItems = React.useMemo(
         () => (inverted ? displayItems : [...displayItems].reverse()).map(item => ({
             ...item, renderKey: transcriptRenderKey(item, props.reading),
@@ -427,6 +431,12 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             handleTranscriptWebWheel(event, node, () => {
                 for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
                 cancelReadingRestoreRef.current();
+                const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
+                const currentInverted = invertedRef.current;
+                const atOlderBoundary = currentInverted ? maxOffset - node.scrollTop <= 24 : node.scrollTop <= 24;
+                const atNewerBoundary = currentInverted ? node.scrollTop <= 24 : maxOffset - node.scrollTop <= 24;
+                if (event.deltaY < 0 && atOlderBoundary) loadBoundaryRef.current('older');
+                else if (event.deltaY > 0 && atNewerBoundary) loadBoundaryRef.current('newer');
             });
         };
         node.addEventListener('wheel', handler, { passive: false });

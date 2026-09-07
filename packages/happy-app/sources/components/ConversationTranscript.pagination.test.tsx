@@ -250,6 +250,9 @@ describe('ConversationTranscript older history pagination', () => {
         const onLoadOlder = vi.fn();
         const listeners = new Map<string, (event: any) => void>();
         const node = {
+            scrollTop: 1200,
+            scrollHeight: 2000,
+            clientHeight: 800,
             addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
             removeEventListener: vi.fn(),
         };
@@ -269,8 +272,36 @@ describe('ConversationTranscript older history pagination', () => {
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
         act(() => listeners.get('wheel')!({ shiftKey: false, deltaX: 0, deltaY: -120, preventDefault: vi.fn() }));
-        act(() => list.props.onEndReached());
         expect(onLoadOlder).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
+    it('uses the current transcript direction when wheel retries after an in-place layout change', async () => {
+        const onLoadOlder = vi.fn();
+        const listeners = new Map<string, (event: any) => void>();
+        const node = {
+            scrollTop: 1200,
+            scrollHeight: 2000,
+            clientHeight: 800,
+            addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
+            removeEventListener: vi.fn(),
+        };
+        const render = (inverted: boolean) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={[userMessage('oldest')]}
+                inverted={inverted} hasMoreOlder onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(render(true), {
+                createNodeMock: (element: any) => element.type === 'FlatList'
+                    ? { ...node, getScrollableNode: () => node }
+                    : null,
+            });
+        });
+        act(() => renderer.update(render(false)));
+        node.scrollTop = 0;
+        act(() => listeners.get('wheel')!({ shiftKey: false, deltaX: 0, deltaY: -120, preventDefault: vi.fn() }));
+        expect(onLoadOlder).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
     });
 
