@@ -42,23 +42,14 @@ function usePawsNavigationTheme() {
 
 function PublicShareRootLayout() {
     const navigationTheme = usePawsNavigationTheme();
-    const [fontsReady, setFontsReady] = React.useState(false);
 
     React.useEffect(() => {
-        let active = true;
-        void loadAppRootFonts()
-            .catch((error) => console.log('[fonts] Public share font loading failed; using fallbacks.', error))
-            .finally(() => {
-                if (active) setFontsReady(true);
-            });
-        return () => { active = false; };
+        void loadAppRootFonts().catch((error) => {
+            console.log('[fonts] Public share background loading failed; using fallback fonts.', error);
+        });
+        void SplashScreen.hideAsync();
     }, []);
 
-    React.useEffect(() => {
-        if (fontsReady) void SplashScreen.hideAsync();
-    }, [fontsReady]);
-
-    if (!fontsReady) return null;
     return (
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
             <GestureHandlerRootView style={{ flex: 1 }}>

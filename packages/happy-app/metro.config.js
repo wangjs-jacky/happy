@@ -40,9 +40,12 @@ if (process.env.HAPPY_E2E_DISABLE_WATCHMAN === '1') {
   config.resolver.useWatchman = false;
 }
 
-// Add support for .wasm files (required by Skia for all platforms)
+// Add binary assets that Expo does not register by default.
+// - wasm: required by Skia on every platform
+// - woff2: web-only Maple Mono delivery; native resolves the TTF module
 // Source: https://shopify.github.io/react-native-skia/docs/getting-started/installation/
 config.resolver.assetExts.push('wasm');
+config.resolver.assetExts.push('woff2');
 
 // Exclude Tauri Rust build artifacts from Metro's file watcher.
 // Cargo writes/deletes transient files in src-tauri/target/debug/deps during

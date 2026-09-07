@@ -16,10 +16,8 @@ import SpaceMono from '@/assets/fonts/SpaceMono-Regular.ttf';
 import IBMPlexSansRegular from '@/assets/fonts/IBMPlexSans-Regular.ttf';
 import IBMPlexSansItalic from '@/assets/fonts/IBMPlexSans-Italic.ttf';
 import IBMPlexSansSemiBold from '@/assets/fonts/IBMPlexSans-SemiBold.ttf';
-import IBMPlexMonoRegular from '@/assets/fonts/IBMPlexMono-Regular.ttf';
-import IBMPlexMonoItalic from '@/assets/fonts/IBMPlexMono-Italic.ttf';
-import IBMPlexMonoSemiBold from '@/assets/fonts/IBMPlexMono-SemiBold.ttf';
 import BricolageGrotesqueBold from '@/assets/fonts/BricolageGrotesque-Bold.ttf';
+import { appRootMonoFonts } from './appRootMonoFonts';
 
 const lock = new AsyncLock();
 let loaded = false;
@@ -45,9 +43,7 @@ export async function loadAppRootFonts(): Promise<void> {
             'IBMPlexSans-Regular': IBMPlexSansRegular,
             'IBMPlexSans-Italic': IBMPlexSansItalic,
             'IBMPlexSans-SemiBold': IBMPlexSansSemiBold,
-            'IBMPlexMono-Regular': IBMPlexMonoRegular,
-            'IBMPlexMono-Italic': IBMPlexMonoItalic,
-            'IBMPlexMono-SemiBold': IBMPlexMonoSemiBold,
+            ...appRootMonoFonts,
             'BricolageGrotesque-Bold': BricolageGrotesqueBold,
             'Fredoka-SemiBold': Fredoka_600SemiBold,
             'Fredoka-Bold': Fredoka_700Bold,

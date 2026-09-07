@@ -37,6 +37,10 @@ Before making project changes, read and follow the root `CLAUDE.md`.
 - the Paws Web 发布契约：Web 上线或在线测试默认只发布到
   `https://47.115.228.20:8443`，并由合并到 `main` 的 CI/CD 执行
 
+## Supported Platform Boundary
+
+Tauri desktop support is explicitly out of scope. Existing Tauri-related code is retained historical/upstream code, not a supported platform or a future commitment. Unless the user explicitly requests a Tauri-specific task, do not add, maintain, test, or design for Tauri, and do not include it in acceptance or release criteria. Do not delete the retained code solely because it is unsupported. The canonical policy is in root `CLAUDE.md` under “当前支持的平台边界”.
+
 If this file conflicts with `CLAUDE.md`, prefer `CLAUDE.md` unless the section below explicitly matches the user's wording.
 
 ## Android Runtime Contract
