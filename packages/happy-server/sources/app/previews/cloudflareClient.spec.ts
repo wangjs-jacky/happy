@@ -9,6 +9,15 @@ const project = 'happy-previews-test';
 const deployment = { id: 'deploy-1', url: `https://abc.${project}.pages.dev`, environment: 'preview', latest_stage: { status: 'success' }, deployment_trigger: { metadata: { branch: 'attempt', commit_message: '{}' } } };
 
 describe('Cloudflare Pages client', () => {
+    it('rejects read-only credentials even when their managed project already exists', async () => {
+        const digest = createHash('sha256').update('configuration').digest('hex');
+        const owned = { name: `happy-previews-${digest.slice(0, 20)}`, production_branch: `paws-reserved-${digest.slice(0, 32)}` };
+        const fetchImpl = vi.fn(async (_url, init) => init.method === 'PATCH'
+            ? new Response('{}', { status: 403 }) : ok(owned));
+        const client = createCloudflareClient({ token: 'read-only-token', teamId: account, fetchImpl });
+        await expect(client.ensurePreviewProject({ configurationId: 'configuration' })).rejects.toThrow('http_403');
+    });
+
     it('uploads Pages asset hashes, emits a preview multipart deployment with owned headers and checkpoints readiness', async () => {
         const digest = createHash('sha256').update('configuration').digest('hex');
         const projectName = `happy-previews-${digest.slice(0, 20)}`;
@@ -17,6 +26,7 @@ describe('Cloudflare Pages client', () => {
         const key = Buffer.from(blake3(bytes.toString('base64') + 'html')).toString('hex').slice(0, 32);
         const pagesDeployment = { ...deployment, url: `https://abc.${projectName}.pages.dev` };
         const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(ok({ name: projectName, production_branch: `paws-reserved-${digest.slice(0, 32)}` }))
             .mockResolvedValueOnce(ok({ name: projectName, production_branch: `paws-reserved-${digest.slice(0, 32)}` }))
             .mockResolvedValueOnce(ok({ jwt: 'asset-upload-jwt' }))
             .mockResolvedValueOnce(ok(null))
@@ -31,14 +41,16 @@ describe('Cloudflare Pages client', () => {
         const ready = await client.createDeployment({ name: projectName, projectId: projectName, files, meta: { happyPreviewId: 'preview', happyPublicationAttemptId: 'attempt' }, onCreated });
         expect(ready.readyState).toBe('READY');
         expect(onCreated).toHaveBeenCalledWith({ id: `cfpages:${account}:${projectName}:deploy-1` });
-        expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual([{ key, value: bytes.toString('base64'), metadata: { contentType: 'text/html' }, base64: true }]);
-        expect(fetchImpl.mock.calls[2][1].headers.Authorization).toBe('Bearer asset-upload-jwt');
-        const form = fetchImpl.mock.calls[4][1].body as FormData;
+        expect(fetchImpl.mock.calls[1][1].method).toBe('PATCH');
+        expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ production_branch: `paws-reserved-${digest.slice(0, 32)}` });
+        expect(JSON.parse(fetchImpl.mock.calls[3][1].body)).toEqual([{ key, value: bytes.toString('base64'), metadata: { contentType: 'text/html' }, base64: true }]);
+        expect(fetchImpl.mock.calls[3][1].headers.Authorization).toBe('Bearer asset-upload-jwt');
+        const form = fetchImpl.mock.calls[5][1].body as FormData;
         expect(JSON.parse(form.get('manifest') as string)).toEqual({ '/index.html': key });
         expect(form.get('branch')).toBe('p-attempt');
         expect(await (form.get('_headers') as Blob).text()).toContain('Cache-Control: no-store');
         expect(form.get('_worker.js')).toBeNull();
-        expect(fetchImpl.mock.calls[4][1].headers.Authorization).toBe('Bearer account-token');
+        expect(fetchImpl.mock.calls[5][1].headers.Authorization).toBe('Bearer account-token');
         expect(fetchImpl.mock.calls.every(([, init]) => init.redirect === 'error')).toBe(true);
     });
 

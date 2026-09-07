@@ -128,7 +128,16 @@ export function createCloudflareClient(options: {
                 activeProject = project.name;
                 return { id: project.name };
             };
-            try { return verify(await request(projectPath(name))); }
+            const verifyWritable = async (raw: unknown) => {
+                verify(raw); // Never probe writes on an unowned or Git-connected project.
+                // A GET also accepts Read-only tokens. An idempotent write of our
+                // existing marker proves Pages Edit before credentials are replaced.
+                return verify(await request(projectPath(name), {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ production_branch: marker }),
+                }));
+            };
+            try { return await verifyWritable(await request(projectPath(name))); }
             catch (error) { if (!(error instanceof CloudflareApiError) || error.status !== 404) throw error; }
             try {
                 return verify(await request(base, {
@@ -137,7 +146,7 @@ export function createCloudflareClient(options: {
                 }));
             } catch (error) {
                 // Creation may have succeeded but its response was lost. Adopt only our marked project.
-                try { return verify(await request(projectPath(name))); } catch { throw error; }
+                try { return await verifyWritable(await request(projectPath(name))); } catch { throw error; }
             }
         },
         async uploadFile(sha: string, bytes: Uint8Array, mimeType: string): Promise<void> {
