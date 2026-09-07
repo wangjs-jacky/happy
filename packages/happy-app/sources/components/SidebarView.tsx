@@ -494,9 +494,14 @@ export const SidebarView = React.memo(({
     }, [closeDrawer, router]);
 
     const openDesktopHistory = () => {
-        setDesktopSidebarMode('history');
+        setDesktopSidebarMode(desktopSidebarListMode);
         if (mobileNavigation) setMobilePanel('sessions');
         else if (advisorSidebarActive) go('/');
+    };
+
+    const openDesktopSessionLists = () => {
+        setDesktopSidebarMode(desktopSidebarListMode);
+        if (advisorSidebarActive) go('/');
     };
 
     const openSettingsFromSidebar = React.useCallback(() => {
@@ -728,7 +733,7 @@ export const SidebarView = React.memo(({
                     icon="time-outline"
                     label={t('sessionHistory.title')}
                     onPress={openDesktopHistory}
-                    selected={!advisorSidebarActive && desktopSidebarMode === 'history'}
+                    selected={!advisorSidebarActive && desktopSidebarMode !== 'archive'}
                     testID="sidebar-history-button"
                 />
             ) : (
@@ -736,7 +741,7 @@ export const SidebarView = React.memo(({
                     <DesktopRailItem
                         icon="albums-outline"
                         label={t('sidebar.listsTab')}
-                        onPress={() => setDesktopSidebarMode(desktopSidebarListMode)}
+                        onPress={openDesktopSessionLists}
                         selected={desktopSidebarMode !== 'archive'}
                         testID="sidebar-session-list-button"
                     />

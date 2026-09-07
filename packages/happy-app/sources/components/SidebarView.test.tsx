@@ -357,7 +357,7 @@ describe('SidebarView Agent space exit', () => {
         expect(mocks.navigate).not.toHaveBeenCalled();
         expect(mocks.dispatch).not.toHaveBeenCalled();
         act(() => renderer.root.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
         expect(mocks.navigate).not.toHaveBeenCalled();
         act(() => renderer.root.findByProps({ testID: 'mobile-sidebar-close' }).props.onPress());
         expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'CLOSE_DRAWER' });
@@ -518,8 +518,8 @@ describe('SidebarView Agent space exit', () => {
         const secondary = renderer.root.findByProps({ testID: 'desktop-secondary-navigation-column' });
         expect(secondary.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(secondary.findByType('PluginLeftSidebarSlot').props.fillAvailableSpace).toBe(true);
-        act(() => renderer.root.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+        act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
         expect(mocks.navigate).toHaveBeenCalledWith('/');
 
         mocks.pathname = '/session/ordinary-session';
