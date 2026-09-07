@@ -520,6 +520,7 @@ export async function runCodex(opts: {
     let currentFastMode = false;
     let currentAppendSystemPrompt: string | undefined = undefined;
     let codexModelCatalog: Model[] | null = null;
+    let codexModelCatalogUpdatedAt: number | undefined;
 
     const syncCodexSessionConfigMetadata = (model: string | undefined, effort: ReasoningEffort | undefined) => {
         if (!model) {
@@ -527,6 +528,7 @@ export async function runCodex(opts: {
         }
         session.updateMetadata((currentMetadata) => mergeCodexSessionConfigIntoMetadata(currentMetadata, {
             models: codexModelCatalog,
+            modelsUpdatedAt: codexModelCatalogUpdatedAt,
             currentModel: model,
             currentEffort: effort ?? null,
         }));
@@ -1168,6 +1170,7 @@ export async function runCodex(opts: {
                 cursor = page.nextCursor ?? null;
             } while (cursor);
             codexModelCatalog = models;
+            codexModelCatalogUpdatedAt = Date.now();
             logger.debug(`[Codex] Loaded ${models.length} models from app-server catalog`);
         } catch (error) {
             logger.debug('[Codex] Failed to load model catalog from app-server; using fallback metadata', error);

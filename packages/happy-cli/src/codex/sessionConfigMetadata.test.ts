@@ -3,6 +3,39 @@ import { describe, expect, it } from 'vitest';
 import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
 
 describe('mergeCodexSessionConfigIntoMetadata', () => {
+    it('publishes catalog capture time without advancing it on model or effort changes', () => {
+        const models = [{
+            id: 'm1', model: 'gpt-6-astra', displayName: 'GPT-6', description: 'Primary',
+            hidden: false, supportedReasoningEfforts: [], defaultReasoningEffort: 'high' as const,
+            isDefault: true,
+        }];
+        const first = mergeCodexSessionConfigIntoMetadata({
+            path: '/repo', host: 'mac', homeDir: '/home', happyHomeDir: '/home/.happy',
+            happyLibDir: '/lib', happyToolsDir: '/tools',
+        }, {
+            models, modelsUpdatedAt: 30, currentModel: 'gpt-6-astra',
+        });
+        expect(first.modelsUpdatedAt).toBe(30);
+        const next = mergeCodexSessionConfigIntoMetadata(first, {
+            models, modelsUpdatedAt: 30, currentModel: 'gpt-6-astra', currentEffort: 'medium',
+        });
+        expect(next.modelsUpdatedAt).toBe(30);
+        const resumed = mergeCodexSessionConfigIntoMetadata(next, {
+            models, modelsUpdatedAt: 50, currentModel: 'gpt-6-astra',
+        });
+        expect(resumed.modelsUpdatedAt).toBe(50);
+        const failedFetch = mergeCodexSessionConfigIntoMetadata(resumed, {
+            models: null, currentModel: 'gpt-6-astra',
+        });
+        expect(failedFetch.modelsUpdatedAt).toBe(50);
+        expect(failedFetch.models).toEqual(resumed.models);
+        const empty = mergeCodexSessionConfigIntoMetadata(resumed, {
+            models: [], modelsUpdatedAt: 70, currentModel: 'gpt-6-astra',
+        });
+        expect(empty.models).toBeUndefined();
+        expect(empty.modelsUpdatedAt).toBeUndefined();
+    });
+
     it('hydrates models and effort levels from the Codex model catalog', () => {
         const next = mergeCodexSessionConfigIntoMetadata({
             path: '/tmp/project',
