@@ -370,6 +370,9 @@ class Sync {
     // The caller owns receipt lifetime. Keep recovery provenance weakly, outside
     // evictable display caches; deleting a session revokes all its receipts.
     private acceptedLocalMessageReceipts = new Map<string, WeakMap<LocalMessageQueueReceipt, readonly NormalizedMessage[]>>();
+    // Observation outlives a display-cache generation. A freshly retained
+    // empty generation is unknown, not proof that a receipt was echoed.
+    private observedLocalMessageIds = new Map<string, Set<string>>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
@@ -614,10 +617,16 @@ class Sync {
     private retireObservedLocalMessages(sessionId: string, messages: readonly NormalizedMessage[]): void {
         const pending = this.sessionMessageCacheGenerations.get(sessionId)?.pendingLocalMessages;
         if (!pending) return;
+        let observed = this.observedLocalMessageIds.get(sessionId);
         for (const message of messages) {
-            if (message.localId !== null) pending.delete(message.localId);
-            pending.delete(message.id);
+            const identities = [message.localId, message.id].filter((value): value is string => value !== null);
+            for (const identity of identities) {
+                if (!pending.delete(identity)) continue;
+                observed ??= new Set();
+                observed.add(identity);
+            }
         }
+        if (observed) this.observedLocalMessageIds.set(sessionId, observed);
     }
 
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation): Promise<boolean> => {
@@ -1112,7 +1121,8 @@ class Sync {
                 // already observed remotely. Receipt retries may rebuild a
                 // pending projection, but must never revive an echoed row
                 // merely because bounded latest retention later evicted it.
-                if (generation && !accepted.every(message => generation!.pendingLocalMessages?.has(message.localId ?? message.id))) {
+                const observed = this.observedLocalMessageIds.get(sessionId);
+                if (observed && accepted.some(message => observed.has(message.localId ?? message.id))) {
                     return false;
                 }
                 // A background gap/retention eviction discards the display
@@ -4381,6 +4391,7 @@ class Sync {
         }
         this.releaseSessionMessageCache(sessionId);
         this.acceptedLocalMessageReceipts.delete(sessionId);
+        this.observedLocalMessageIds.delete(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);
         this.sendSync.delete(sessionId);

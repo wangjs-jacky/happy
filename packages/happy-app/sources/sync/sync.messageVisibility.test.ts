@@ -429,6 +429,7 @@ describe('message visibility synchronization', () => {
         syncForTest.sessionOlderLoadingTokens = new Map();
         syncForTest.sessionMessageCacheGenerations = new Map();
         syncForTest.acceptedLocalMessageReceipts = new Map();
+        syncForTest.observedLocalMessageIds = new Map();
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
@@ -934,6 +935,18 @@ describe('message visibility synchronization', () => {
         syncForTest.retainSessionMessageCache('spawned-session');
         storage.getState().applyMessages('spawned-session', [normalizeRawMessage('test-uuid', 'test-uuid', 1, rawText('replacement'))!]);
         await expect(projection).resolves.toBe(false);
+    });
+
+    it('restores an accepted receipt into a fresh empty generation without another send', async () => {
+        const storage = await seedLocalProjectionSession();
+        const receipt = await sync.sendMessage('spawned-session', 'hello', { source: 'new_session' });
+        syncForTest.releaseSessionMessageCache(receipt.sessionId);
+        syncForTest.retainSessionMessageCache(receipt.sessionId);
+
+        await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+        expect(storage.getState().sessionMessages[receipt.sessionId].messages).toHaveLength(1);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toHaveLength(1);
     });
 
     it.each([false, true])('restores accepted attachment and text receipts after eviction (remote acknowledgement: %s)', async (acknowledged) => {
