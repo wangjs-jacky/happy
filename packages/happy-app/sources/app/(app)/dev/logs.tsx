@@ -9,6 +9,7 @@ import { Item } from '@/components/Item';
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import { Typography } from '@/constants/Typography';
 
 export default function LogsScreen() {
     const { theme } = useUnistyles();
@@ -163,7 +164,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderBottomColor: theme.colors.divider,
     },
     logText: {
-        fontFamily: 'IBMPlexMono-Regular',
+        ...Typography.mono(),
         fontSize: 12,
         color: theme.colors.text,
         lineHeight: 16,

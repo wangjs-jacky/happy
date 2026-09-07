@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
  * Typography system for Paws app
  * 
  * Default typography: IBM Plex Sans on native, system UI stack on web
- * Monospace typography: IBM Plex Mono  
+ * Monospace typography: Maple Mono NL (no ligatures)
  * Logo typography: Bricolage Grotesque (specific use only)
  * 
  * Usage Examples:
@@ -14,7 +14,7 @@ import { Platform } from 'react-native';
  * <Text style={{ fontSize: 16, ...Typography.default('italic') }}>Italic text</Text>
  * <Text style={{ fontSize: 16, ...Typography.default('semiBold') }}>Semi-bold text</Text>
  * 
- * // Monospace typography (IBM Plex Mono)
+ * // Monospace typography (Maple Mono NL)
  * <Text style={{ fontSize: 14, ...Typography.mono() }}>Code text</Text>
  * <Text style={{ fontSize: 14, ...Typography.mono('italic') }}>Italic code</Text>
  * <Text style={{ fontSize: 14, ...Typography.mono('semiBold') }}>Bold code</Text>
@@ -38,11 +38,11 @@ export const FontFamilies = {
     semiBold: 'IBMPlexSans-SemiBold',
   },
   
-  // IBM Plex Mono (default monospace)
+  // Maple Mono NL (default monospace, no ligatures)
   mono: {
-    regular: 'IBMPlexMono-Regular',
-    italic: 'IBMPlexMono-Italic',
-    semiBold: 'IBMPlexMono-SemiBold',
+    regular: 'MapleMonoNL-Regular',
+    italic: 'MapleMonoNL-Italic',
+    semiBold: 'MapleMonoNL-SemiBold',
   },
   
   // Bricolage Grotesque (logo/special use only)
@@ -112,7 +112,7 @@ export const Typography = {
   // Default font styles (IBM Plex Sans on native, system UI stack on web)
   default: getDefaultTypographyStyle,
   
-  // Monospace font styles (IBM Plex Mono)
+  // Monospace font styles (Maple Mono NL)
   mono: (weight: 'regular' | 'italic' | 'semiBold' = 'regular') => ({
     fontFamily: getMonoFont(weight),
   }),
