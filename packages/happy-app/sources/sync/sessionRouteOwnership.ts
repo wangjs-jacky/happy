@@ -1,7 +1,7 @@
 export type SessionRouteOwner = Readonly<{
     sessionId: string;
     ownerEpoch: number;
-    phase: 'opening' | 'interactive';
+    phase: 'opening' | 'interactive' | 'terminal';
 }>;
 
 export class SessionRouteAbandonedError extends Error {
@@ -28,8 +28,13 @@ export class SessionRouteOwnership {
     }
 
     promote(owner: SessionRouteOwner): SessionRouteOwner | null {
-        if (!this.owns(owner)) return null;
+        if (!this.owns(owner) || this.owner?.phase === 'terminal') return null;
         return this.owner = { ...owner, phase: 'interactive' };
+    }
+
+    terminalize(owner: SessionRouteOwner): SessionRouteOwner | null {
+        if (!this.owns(owner)) return null;
+        return this.owner = { ...owner, phase: 'terminal' };
     }
 
     current(): SessionRouteOwner | null {
