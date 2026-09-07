@@ -110,6 +110,7 @@ import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRange
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, invalidateLocalHistorySession, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
+import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { fetchSessionChanges } from './apiSessionChanges';
 import { reconcileSessionHistory } from './sessionHistoryReconciliation';
 import { createReducer, reducer } from './reducer/reducer';
@@ -130,6 +131,8 @@ type V3GetSessionMessagesResponse = {
     hasMore: boolean;
     localWindow?: HistoryWindow;
     revalidateTail?: boolean;
+    // Local-only ownership stamp, captured before HTTP starts.
+    nativeCacheGeneration?: object;
 };
 
 type SessionOpenResolution = 'ready' | 'not-found';
@@ -1009,7 +1012,7 @@ class Sync {
             try {
                 this.retainSessionMessageCache(sessionId);
                 const lease = this.sessionMessageLoadGate.enter(sessionId);
-                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease));
+                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease), 'warm-cache');
             } catch {
                 removeSessionFromWarmCache(accountKey, sessionId);
             }
@@ -3511,6 +3514,7 @@ class Sync {
         sessionId: string,
     ): Promise<V3GetSessionMessagesResponse> => {
         const owner = this.captureHistoryOwner(sessionId);
+        const nativeCacheGeneration = sessionHistoryPageCache.generation;
         const response = await apiSocket.request(
             `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`,
         );
@@ -3524,6 +3528,7 @@ class Sync {
         const page = {
             messages: Array.isArray(data.messages) ? data.messages : [],
             hasMore: !!data.hasMore,
+            nativeCacheGeneration,
         };
         return page;
     }
@@ -3532,9 +3537,11 @@ class Sync {
         sessionId: string,
         data: V3GetSessionMessagesResponse,
         operation: SessionMessageLoadOperation,
+        source: 'network' | 'warm-cache' = 'network',
     ): Promise<boolean> => {
         const owner = this.captureHistoryOwner(sessionId, operation);
         const warmAccount = this.sessionWarmCacheAccountKey;
+        const pageCacheGeneration = data.nativeCacheGeneration ?? sessionHistoryPageCache.generation;
         if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
         const encryption = this.encryption.getSessionEncryption(sessionId);
         if (!encryption) {
@@ -3589,6 +3596,11 @@ class Sync {
         this.recordRoutePageCommit(operation, maxSeq);
         if (warmAccount) {
             saveSessionWarmLatestPage(warmAccount, sessionId, data);
+            // Startup warm pages can combine non-adjacent realtime records;
+            // only a server page certifies the interval between its messages.
+            if (Platform.OS !== 'web' && source === 'network') {
+                sessionHistoryPageCache.save(warmAccount, sessionId, SEQ_BACKWARD_INITIAL_SENTINEL, data, pageCacheGeneration);
+            }
         }
         if (owner.history) {
             const committed = await owner.history.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
@@ -3750,7 +3762,7 @@ class Sync {
             return;
         }
         const sessionMessages = storage.getState().sessionMessages[sessionId];
-        if (!sessionMessages || sessionMessages.isLoadingOlder || !sessionMessages.hasMoreOlder) {
+        if (!sessionMessages || sessionMessages.isLoadingOlder || this.sessionOlderLoadingTokens.has(sessionId) || !sessionMessages.hasMoreOlder) {
             return;
         }
 
@@ -3759,6 +3771,9 @@ class Sync {
         const loadingToken = {};
         this.sessionOlderLoadingTokens.set(sessionId, loadingToken);
         const encryptionOwner = this.encryption;
+        const warmAccount = Platform.OS !== 'web' ? this.sessionWarmCacheAccountKey : null;
+        let pageCacheGeneration = sessionHistoryPageCache.generation;
+        const cachedPage = warmAccount ? sessionHistoryPageCache.readOlder(warmAccount, sessionId, frontier.olderBeforeSeq) : null;
         const ownsLoading = () => this.encryption === encryptionOwner
             && this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
             && this.sessionOlderLoadingTokens.get(sessionId) === loadingToken;
@@ -3769,7 +3784,7 @@ class Sync {
             ?? this.sessionMessageLoadGate.enter(sessionId);
         const operation = this.sessionMessageLoadGate.begin(lease);
         setOlderError(null);
-        storage.getState().applyOlderMessagesLoading(sessionId, true);
+        if (!cachedPage) storage.getState().applyOlderMessagesLoading(sessionId, true);
         const lock = this.getSessionMessageLock(sessionId);
         try {
             await lock.inLock(async () => {
@@ -3786,17 +3801,40 @@ class Sync {
                 if (!currentFrontier?.hasMoreOlder || beforeSeq == null || beforeSeq <= 1) {
                     return;
                 }
-                const response = await apiSocket.request(
-                    `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
-                );
-                if (!response.ok) {
-                    throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
-                }
-                const data = await response.json() as V3GetSessionMessagesResponse;
-                const messages = Array.isArray(data.messages) ? data.messages : [];
+                const fetchPage = async (): Promise<V3GetSessionMessagesResponse> => {
+                    storage.getState().applyOlderMessagesLoading(sessionId, true);
+                    const response = await apiSocket.request(
+                        `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
+                    );
+                    if (!response.ok) {
+                        throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+                    }
+                    return await response.json() as V3GetSessionMessagesResponse;
+                };
+                let data = warmAccount && pageCacheGeneration === sessionHistoryPageCache.generation
+                    ? beforeSeq === frontier.olderBeforeSeq ? cachedPage : sessionHistoryPageCache.readOlder(warmAccount, sessionId, beforeSeq)
+                    : null;
+                let cached = data !== null;
+                data ??= await fetchPage();
+                let messages = Array.isArray(data.messages) ? data.messages : [];
 
-                const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                let applied;
+                try {
+                    applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                } catch (error) {
+                    if (!cached || !warmAccount || !ownsLoading() || !this.sessionMessageLoadGate.isCurrent(operation)) throw error;
+                    // Valid JSON may still contain ciphertext that cannot be
+                    // decrypted with this session key. Retry the network once.
+                    sessionHistoryPageCache.remove(warmAccount, sessionId);
+                    pageCacheGeneration = sessionHistoryPageCache.generation;
+                    cached = false;
+                    data = await fetchPage();
+                    messages = Array.isArray(data.messages) ? data.messages : [];
+                    applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                }
                 if (!applied.current) return;
+                if (!cached && warmAccount) sessionHistoryPageCache.save(warmAccount, sessionId, beforeSeq,
+                    { messages, hasMore: !!data.hasMore }, pageCacheGeneration);
 
                 if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
                 const liveFrontier = this.sessionMessageFrontiers.get(sessionId);

@@ -1,4 +1,6 @@
 import './sessionViewPlatform.testSupport';
+import { Platform } from 'react-native';
+import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
@@ -511,6 +513,7 @@ describe('message visibility synchronization', () => {
     });
 
     afterEach(() => {
+        Platform.OS = 'web';
         consoleError.mockRestore();
         vi.unstubAllGlobals();
         syncForTest.localHistory?.close();
@@ -1424,6 +1427,81 @@ describe('message visibility synchronization', () => {
         await hydrating;
         await rejected;
         expect(stages).toEqual(['web.messages.latest_started', 'web.session.snapshot_started']);
+    });
+
+    it('reuses downloaded older pages after all session memory is released', async () => {
+        Platform.OS = 'android';
+        const { storage, page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        mocks.apiRequest.mockResolvedValue(response({ messages: page(51, 150), hasMore: true }));
+        await syncForTest.loadOlderMessages('range-session');
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+
+        syncForTest.releaseSessionMessageCache('range-session');
+        const lease = syncForTest.sessionMessageLoadGate.enter('range-session');
+        await syncForTest.applyLatestMessagePage('range-session', { messages: page(151, 250), hasMore: true },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.apiRequest.mockClear();
+        const loading = vi.spyOn(storage.getState(), 'applyOlderMessagesLoading');
+        await syncForTest.loadOlderMessages('range-session');
+
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(loading).not.toHaveBeenCalledWith('range-session', true);
+        loading.mockRestore();
+        expect(storage.getState().sessionMessages['range-session'].messages).toHaveLength(200);
+        expect(syncForTest.sessionMessageFrontiers.get('range-session').olderBeforeSeq).toBe(51);
+    });
+
+    it('retries unreadable native ciphertext from the network instead of trapping the reader on cached errors', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        sessionHistoryPageCache.save('native-server|native-account', 'range-session', 151, {
+            messages: [{ ...apiMessage(150), content: { t: 'encrypted', c: 'invalid ciphertext' } }], hasMore: true,
+        });
+        const encryption = mocks.sessionEncryptions.get('range-session');
+        const detached = encryption.createDetached.bind(encryption);
+        vi.spyOn(encryption, 'createDetached').mockImplementation(() => {
+            const result = detached();
+            const decrypt = result.decryptMessages.bind(result);
+            result.decryptMessages = async (messages: ApiMessage[]) => messages.some(row => row.content.t === 'encrypted' && row.content.c === 'invalid ciphertext')
+                ? messages.map(() => null) : decrypt(messages);
+            return result;
+        });
+        mocks.apiRequest.mockResolvedValue(response({ messages: page(51, 150), hasMore: true }));
+        await expect(syncForTest.loadOlderMessages('range-session')).resolves.toBeUndefined();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 151)?.messages).toHaveLength(100);
+    });
+
+    it('does not certify sparse startup warm messages as durable complete history', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        saveSessionWarmSnapshots('native-server|native-account', [snapshot('range-session', 250)]);
+        saveSessionWarmLatestPage('native-server|native-account', 'range-session', {
+            messages: [...page(80, 80), ...page(150, 150)], hasMore: true,
+        });
+        syncForTest.releaseSessionMessageCache('range-session');
+        await syncForTest.restoreSessionWarmCache();
+        // A socket jump in the small startup cache proves neither the gap
+        // 81..149 nor any earlier page; it must not acquire durable coverage.
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 151)).toBeNull();
+    });
+
+    it('does not repopulate native history from a latest HTTP request started before cache clearing', async () => {
+        Platform.OS = 'android';
+        const { page } = await seedDisconnectedMessageRanges();
+        syncForTest.sessionWarmCacheAccountKey = 'native-server|native-account';
+        const pending = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(pending.promise);
+        const latest = syncForTest.fetchLatestMessagePageRaw('range-session');
+        clearSessionWarmCache();
+        pending.resolve(response({ messages: page(151, 250), hasMore: true }));
+        const data = await latest;
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('range-session');
+        await syncForTest.applyLatestMessagePage('range-session', data, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(sessionHistoryPageCache.readOlder('native-server|native-account', 'range-session', 251)).toBeNull();
     });
 
     it('reaches a gap between cached history and the latest page exactly once', async () => {
