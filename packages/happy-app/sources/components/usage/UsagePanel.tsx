@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { HappyError } from '@/utils/errors';
 import { getCurrentLanguage, t } from '@/text';
 import { storage, useAllMachines } from '@/sync/storage';
+import { apiSocket } from '@/sync/apiSocket';
 
 type TimePeriod = 'today' | '7days' | '30days';
 
@@ -50,6 +51,7 @@ interface CodexUsageDay {
 
 const CODEX_HEATMAP_DAYS = 365;
 const CODEX_HEATMAP_CELL_SIZE = 14;
+const CODEX_USAGE_REFRESH_RPC_TIMEOUT_MS = 60_000;
 
 function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null {
     if (!daemonState || typeof daemonState !== 'object') {
@@ -555,6 +557,14 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         const currentSessionId = state.currentViewingSessionId;
         return currentSessionId ? state.sessions[currentSessionId]?.metadata?.machineId || null : null;
     });
+    const refreshMachineId = React.useMemo(() => {
+        if (currentMachineId) return currentMachineId;
+        return machines.reduce<{ id: string; activeAt: number } | null>((latest, machine) => {
+            if (!machine.active || !machine.id) return latest;
+            const candidate = { id: machine.id, activeAt: machine.activeAt || 0 };
+            return !latest || candidate.activeAt > latest.activeAt ? candidate : latest;
+        }, null)?.id || null;
+    }, [currentMachineId, machines]);
     const codexUsageSnapshots = React.useMemo(() => machines
         .map((machine) => getCodexUsageSnapshot(machine.daemonState))
         .filter((snapshot): snapshot is CodexUsageSnapshot => !!snapshot), [machines]);
@@ -596,6 +606,16 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const displayedCodexUsageDay = codexHeatmapDays.find((day) => day.date === hoveredCodexUsageDate)
         || selectedCodexUsageDay;
     const hasApiUsage = usageData.length > 0;
+
+    useEffect(() => {
+        if (!refreshMachineId) return;
+        void apiSocket.machineRPC(
+            refreshMachineId,
+            'refresh-codex-usage',
+            {},
+            { timeoutMs: CODEX_USAGE_REFRESH_RPC_TIMEOUT_MS },
+        ).catch(() => {});
+    }, [refreshMachineId]);
     
     useEffect(() => {
         let cancelled = false;
@@ -800,7 +820,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                 </View>
             )}
 
-            {loading && (
+            {loading && !codexUsage && (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={theme.colors.accent} />
                 </View>

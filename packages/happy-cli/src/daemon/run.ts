@@ -29,7 +29,8 @@ import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
-import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
+import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
+import { AsyncLock } from '@/utils/lock';
 import {
   buildSessionWorkerEnvironment,
   createDaemonStartupTraceContext,
@@ -981,49 +982,74 @@ export async function startDaemon(): Promise<void> {
     // Create realtime machine session
     const apiMachine = api.machineSyncClient(machine);
 
-    // Set RPC handlers
-    apiMachine.setRPCHandlers({
-      spawnSession,
-      resumeSession,
-      stopSession,
-      requestShutdown: () => requestShutdown('happy-app')
-    });
-
-    // Connect to server
-    apiMachine.connect();
-
     let lastCodexUsageScanAt = 0;
+    let lastImmediateCodexUsageScanAt = 0;
     let lastCodexUsageSignature: string | null = null;
     const codexUsageRefreshIntervalMs = parseInt(process.env.HAPPY_CODEX_USAGE_REFRESH_INTERVAL || '300000');
-    const syncCodexUsage = async (force: boolean = false): Promise<void> => {
+    const codexUsageSyncLock = new AsyncLock();
+    const syncCodexUsage = async (force: boolean = false): Promise<void> => codexUsageSyncLock.inLock(async () => {
+        const now = Date.now();
+        if (!force && now - lastCodexUsageScanAt < codexUsageRefreshIntervalMs) {
+          return;
+        }
+        if (!apiMachine.isConnected()) {
+          return;
+        }
+
+        lastCodexUsageScanAt = now;
+        try {
+          const codexUsage = await collectCodexUsageSnapshot();
+          const signature = codexUsageSignature(codexUsage);
+          if (!force && signature === lastCodexUsageSignature) {
+            return;
+          }
+          lastCodexUsageSignature = signature;
+          await apiMachine.updateDaemonState((state: DaemonState | null) => ({
+            ...(state || {}),
+            status: state?.status || 'running',
+            pid: process.pid,
+            httpPort: controlPort,
+            startedAt: state?.startedAt || Date.now(),
+            codexUsage,
+          }));
+        } catch (error) {
+          logger.debug('[DAEMON RUN] Failed to sync Codex usage snapshot', error);
+        }
+    });
+    const refreshCodexUsage = async (): Promise<void> => codexUsageSyncLock.inLock(async () => {
       const now = Date.now();
-      if (!force && now - lastCodexUsageScanAt < codexUsageRefreshIntervalMs) {
-        return;
-      }
-      if (!apiMachine.isConnected()) {
+      if (now - lastImmediateCodexUsageScanAt < 5000 || !apiMachine.isConnected()) {
         return;
       }
 
+      lastImmediateCodexUsageScanAt = now;
       lastCodexUsageScanAt = now;
-      try {
-        const codexUsage = await collectCodexUsageSnapshot();
-        const signature = codexUsageSignature(codexUsage);
-        if (!force && signature === lastCodexUsageSignature) {
-          return;
-        }
-        lastCodexUsageSignature = signature;
-        await apiMachine.updateDaemonState((state: DaemonState | null) => ({
+      const recentCodexUsage = await collectCodexUsageSnapshot({ maxDays: 1 });
+      await apiMachine.updateDaemonState((state: DaemonState | null) => {
+        const codexUsage = mergeRecentCodexUsageSnapshot(state?.codexUsage, recentCodexUsage);
+        lastCodexUsageSignature = codexUsageSignature(codexUsage);
+        return {
           ...(state || {}),
           status: state?.status || 'running',
           pid: process.pid,
           httpPort: controlPort,
           startedAt: state?.startedAt || Date.now(),
           codexUsage,
-        }));
-      } catch (error) {
-        logger.debug('[DAEMON RUN] Failed to sync Codex usage snapshot', error);
-      }
-    };
+        };
+      });
+    });
+
+    // Set RPC handlers
+    apiMachine.setRPCHandlers({
+      spawnSession,
+      resumeSession,
+      stopSession,
+      requestShutdown: () => requestShutdown('happy-app'),
+      refreshCodexUsage,
+    });
+
+    // Connect to server
+    apiMachine.connect();
 
     const initialCodexUsageTimer = setTimeout(() => {
       syncCodexUsage(true).catch((error) => {

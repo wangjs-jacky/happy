@@ -316,6 +316,22 @@ describe('ApiMachineClient socket reconnection', () => {
         expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('canary');
     });
 
+    it('exposes a machine RPC that refreshes Codex usage on demand', async () => {
+        const refreshCodexUsage = vi.fn().mockResolvedValue(undefined);
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+            refreshCodexUsage,
+        });
+
+        const handler = rpcHandlers.get('refresh-codex-usage');
+        expect(handler).toBeDefined();
+        await expect(handler?.({})).resolves.toEqual({ type: 'success' });
+        expect(refreshCodexUsage).toHaveBeenCalledTimes(1);
+    });
+
     it('does not log an absolute directory when approval is required', async () => {
         const spawnSession = vi.fn().mockResolvedValue({
             type: 'requestToApproveDirectoryCreation',

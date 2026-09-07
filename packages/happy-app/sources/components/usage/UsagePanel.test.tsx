@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     currentMachineId: null as string | null,
     getUsageForPeriod: vi.fn(),
     language: 'en',
+    machineRPC: vi.fn(),
     machines: [] as Array<{
         active?: boolean;
         activeAt?: number;
@@ -61,6 +62,9 @@ vi.mock('@/sync/storage', () => ({
 vi.mock('@/sync/apiUsage', () => ({
     getUsageForPeriod: mocks.getUsageForPeriod,
     calculateTotals: mocks.calculateTotals,
+}));
+vi.mock('@/sync/apiSocket', () => ({
+    apiSocket: { machineRPC: mocks.machineRPC },
 }));
 vi.mock('./UsageChart', () => ({ UsageChart: 'UsageChart' }));
 vi.mock('./UsageBar', () => ({ UsageBar: 'UsageBar' }));
@@ -111,6 +115,8 @@ describe('UsagePanel', () => {
         mocks.machines = [];
         mocks.getUsageForPeriod.mockReset();
         mocks.calculateTotals.mockReset();
+        mocks.machineRPC.mockReset();
+        mocks.machineRPC.mockResolvedValue({ type: 'success' });
         mocks.calculateTotals.mockReturnValue(emptyTotals);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -141,7 +147,7 @@ describe('UsagePanel', () => {
         act(() => renderer.unmount());
     });
 
-    it('shows Codex data while the API usage request is still loading', async () => {
+    it('does not show the API loading spinner once Codex data is visible', async () => {
         mocks.getUsageForPeriod.mockReturnValue(new Promise(() => {}));
         mocks.machines = [{
             daemonState: {
@@ -162,7 +168,70 @@ describe('UsagePanel', () => {
         const texts = renderer.root.findAllByType('Text').map(textValue);
 
         expect(texts).toContain('51%');
-        expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(1);
+        expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+
+        act(() => renderer.unmount());
+    });
+
+    it('requests a fresh Codex usage snapshot from the current session machine', async () => {
+        mocks.currentMachineId = 'current-machine';
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            id: 'current-machine',
+            active: true,
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: 200,
+                    latestEvent: {
+                        rateLimits: {
+                            planType: 'pro',
+                            primary: { usedPercent: 0, windowMinutes: 300 },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+
+        expect(mocks.machineRPC).toHaveBeenCalledWith(
+            'current-machine',
+            'refresh-codex-usage',
+            {},
+            expect.objectContaining({ timeoutMs: expect.any(Number) }),
+        );
+
+        act(() => renderer.unmount());
+    });
+
+    it('requests a fresh snapshot from the active machine when no session is open', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            id: 'active-machine',
+            active: true,
+            activeAt: 300,
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: 200,
+                    latestEvent: {
+                        rateLimits: {
+                            primary: { usedPercent: 12, windowMinutes: 300 },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+
+        expect(mocks.machineRPC).toHaveBeenCalledWith(
+            'active-machine',
+            'refresh-codex-usage',
+            {},
+            expect.objectContaining({ timeoutMs: expect.any(Number) }),
+        );
 
         act(() => renderer.unmount());
     });

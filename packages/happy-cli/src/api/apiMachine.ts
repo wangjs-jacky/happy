@@ -107,6 +107,7 @@ type MachineRpcHandlers = {
     resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
+    refreshCodexUsage?: () => Promise<void>;
 }
 
 function requireNonEmptyString(value: unknown, name: string): string {
@@ -185,7 +186,8 @@ export class ApiMachineClient {
         spawnSession,
         resumeSession,
         stopSession,
-        requestShutdown
+        requestShutdown,
+        refreshCodexUsage,
     }: MachineRpcHandlers) {
         this.resumeSessionHandler = resumeSession ?? null;
 
@@ -245,6 +247,13 @@ export class ApiMachineClient {
             logger.debug(`[API MACHINE] Stopped session ${sessionId}`);
             return { message: 'Session stopped' };
         });
+
+        if (refreshCodexUsage) {
+            this.rpcHandlerManager.registerHandler('refresh-codex-usage', async () => {
+                await refreshCodexUsage();
+                return { type: 'success' };
+            });
+        }
 
         this.rpcHandlerManager.registerHandler('codex-list-attach-candidates', async (params: any) => {
             const rawExistingThreadIds = params?.existingThreadIds;
