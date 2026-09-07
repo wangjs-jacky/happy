@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sessionFileEventSchema } from '@slopus/happy-wire';
 import type { Message } from '@/sync/typesMessage';
-import { getBrowserStepRuns } from './browserStepRunsModel';
+import { getBrowserStepRuns, hideLinkedBrowserSteps } from './browserStepRunsModel';
 
 function skillMessage(id: string, createdAt: number, skillName: string, runId?: string): Message {
     return {
@@ -79,6 +79,40 @@ function userMessage(id: string, createdAt: number): Message {
 }
 
 describe('getBrowserStepRuns', () => {
+    it.each(['skill', 'skillName', 'name', 'skills'])('recognizes the %s Skill input format', (key) => {
+        const skill = skillMessage('invoke', 10, 'ego-browser') as any;
+        skill.tool.input = { [key]: key === 'skills' ? ['ego-browser'] : 'ego-browser' };
+        expect(getBrowserStepRuns([skill, producerWireBrowserStep('frame', 20, 'done', 'run-a', 'ego-browser')])[0].invocationMessageId).toBe('invoke');
+    });
+
+    it('keeps both Ego skills in a mixed batch attached to the same invocation row', () => {
+        const skill = skillMessage('batch', 10, 'ego-browser') as any;
+        skill.tool.input.skillNames = ['review', 'ego-browser', 'ego-ops'];
+        const runs = getBrowserStepRuns([skill,
+            producerWireBrowserStep('browser', 20, 'B', 'run-b', 'ego-browser'),
+            producerWireBrowserStep('ops', 30, 'O', 'run-o', 'ego-ops')]);
+        expect(runs.map(run => [run.invocationMessageId, run.skillName, run.steps[0].id])).toEqual([
+            ['batch', 'ego-browser', 'browser'], ['batch', 'ego-ops', 'ops'],
+        ]);
+    });
+
+    it('isolates child agent queues and preserves orphan and ordinary images', () => {
+        const childA = skillMessage('agent-a', 1, 'review') as any;
+        const childB = skillMessage('agent-b', 2, 'review') as any;
+        childA.tool.name = childB.tool.name = 'Agent';
+        const ordinary = browserStep('ordinary', 50, 'reference') as any;
+        ordinary.tool.input.source = 'user';
+        childA.children = [skillMessage('a-skill', 10, 'ego-browser'), producerWireBrowserStep('a-frame', 30, 'A', 'run-a', 'ego-browser')];
+        childB.children = [producerWireBrowserStep('orphan', 20, 'B', 'run-b', 'ego-browser')];
+        const messages = [childA, childB, ordinary];
+        const runs = getBrowserStepRuns(messages);
+        expect(runs.map(run => run.steps.map(step => step.id))).toEqual([['a-frame']]);
+        const visible = hideLinkedBrowserSteps(messages, runs) as any[];
+        expect(visible[0].children.map((m: Message) => m.id)).toEqual(['a-skill']);
+        expect(visible[1]).toBe(childB);
+        expect(visible[2]).toBe(ordinary);
+        expect(childA.children).toHaveLength(2);
+    });
     it('binds first-seen producer IDs FIFO across multiple pending invocations of one skill', () => {
         const runs = getBrowserStepRuns([
             skillMessage('pending-a', 10, 'ego-browser'),
