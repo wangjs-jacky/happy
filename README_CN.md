@@ -15,7 +15,7 @@
 [![Android APK](https://img.shields.io/github/v/release/wangjs-jacky/happy?label=Android%20APK&color=34d399)](https://github.com/wangjs-jacky/happy/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[🌐 **官网**](https://paws-landing-eo4.pages.dev) • [🖥️ **Web App**](https://47.115.228.20:8443/) • [🚀 **Web 自部署**](docs/selfhost-web-deploy.zh-CN.md) • [📱 **Android APK**](https://github.com/wangjs-jacky/happy/releases) • [📦 **npm CLI**](https://www.npmjs.com/package/@wangjs-jacky/paws) • [📚 **从零上手**](docs/getting-started.zh-CN.md) • [🇬🇧 **English**](README.md)
+[🌐 **官网**](https://paws.rodeo) • [🖥️ **Web App**](https://app.paws.rodeo/) • [🚀 **Web 自部署**](docs/selfhost-web-deploy.zh-CN.md) • [📱 **Android APK**](https://github.com/wangjs-jacky/happy/releases) • [📦 **npm CLI**](https://www.npmjs.com/package/@wangjs-jacky/paws) • [📚 **从零上手**](docs/getting-started.zh-CN.md) • [🇬🇧 **English**](README.md)
 
 </div>
 
@@ -37,7 +37,7 @@ npm install -g @wangjs-jacky/paws
 
 **2. 打开 Web App 或安装手机 App**
 
-在现代浏览器中打开已部署的 [**Paws Web App**](https://47.115.228.20:8443/)，
+在现代浏览器中打开已部署的 [**Paws Web App**](https://app.paws.rodeo/)，
 或者从 [GitHub Releases](https://github.com/wangjs-jacky/happy/releases) 下载最新
 **Android APK**（arm64，直接 sideload 安装）。
 
@@ -115,7 +115,7 @@ CLI 包裹住 Agent 的终端会话：平时在电脑上照常使用；从手机
 
 相关仓库：
 
-- [`paws-landing`](https://github.com/wangjs-jacky/paws-landing) —— [产品官网](https://paws-landing-eo4.pages.dev)，用 AI 驱动的「设计 → 上线」流水线打造
+- [`paws-landing`](https://github.com/wangjs-jacky/paws-landing) —— [产品官网](https://paws.rodeo)，用 AI 驱动的「设计 → 上线」流水线打造
 - [`happy-ota-site`](https://github.com/wangjs-jacky/happy-ota-site) —— OTA 版本浏览站（扫码锁定任意版本）
 
 ## 🏠 自托管
