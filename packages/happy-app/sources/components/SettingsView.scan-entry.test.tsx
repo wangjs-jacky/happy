@@ -3,6 +3,9 @@ import { act } from 'react';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Native update identity has its own tests; these suites do not host Expo modules.
+vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async () => ({ status: 'unsupported', available: false })) }));
+
 // @ts-expect-error react-test-renderer does not publish declarations used by this narrow test.
 import TestRenderer from 'react-test-renderer';
 

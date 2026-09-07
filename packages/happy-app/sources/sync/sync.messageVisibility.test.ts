@@ -2,6 +2,9 @@ import './sessionViewPlatform.testSupport';
 import { Platform } from 'react-native';
 import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Native update identity has its own tests; these suites do not host Expo modules.
+vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async () => ({ status: 'unsupported', available: false })) }));
 import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
