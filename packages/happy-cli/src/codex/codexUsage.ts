@@ -798,6 +798,12 @@ function toRateLimits(rateLimits: unknown): CodexUsageRateLimits | undefined {
     if (!isRecord(rateLimits)) {
         return undefined;
     }
+    // Newer Codex logs interleave account quota with independent model buckets
+    // (for example Spark). Those must not replace the main Codex quota, even
+    // when they arrive later. Older logs omit limit_id or set it to null.
+    if (rateLimits.limit_id != null && rateLimits.limit_id !== 'codex') {
+        return undefined;
+    }
     return {
         planType: typeof rateLimits.plan_type === 'string' ? rateLimits.plan_type : undefined,
         primary: toRateLimitWindow(rateLimits.primary),
