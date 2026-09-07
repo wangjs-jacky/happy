@@ -114,6 +114,7 @@ export async function runCodexWorkerCommand(args: string[], options: CodexWorker
 
   const authenticationDependencies = (options.loadAuthenticationDependencies ?? loadAuthenticationDependencies)()
   const runtimeDependencies = (options.loadRuntimeDependencies ?? loadRuntimeDependencies)()
+  void runtimeDependencies.catch(() => undefined)
   const { authAndSetupMachineIfNeeded } = await authenticationDependencies
   const { credentials } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded, startupLifecycle)
   const { promptInstallSlashCommandIfNeeded, ensureDaemonRunning, runCodex } = await runtimeDependencies

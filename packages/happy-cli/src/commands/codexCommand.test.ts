@@ -1,3 +1,7 @@
+import { spawn } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -185,6 +189,48 @@ describe('handleCodexCommand', () => {
 
     expect(ensureDaemonRunning).toHaveBeenCalledWith({ startedBy: 'daemon' })
     expect(runCodex).toHaveBeenCalledTimes(1)
+  })
+
+  it('observes a runtime loader rejection when authentication fails first', async () => {
+    const workerEntry = await readFile(resolve(process.cwd(), 'dist/codexWorkerEntry.mjs'), 'utf8')
+    const codexCommandModule = workerEntry.match(/'\.\/(codexCommand-[^']+\.mjs)'/)?.[1]
+    expect(codexCommandModule).toBeDefined()
+    const moduleUrl = pathToFileURL(resolve(process.cwd(), 'dist', codexCommandModule!)).href
+    const script = `
+      const { c: codexCommand } = await import(process.argv[1])
+      let rejectAuthenticationDependencies
+      let rejectRuntimeDependencies
+      let authenticationLoads = 0
+      let runtimeLoads = 0
+      const authenticationDependencies = new Promise((_, reject) => { rejectAuthenticationDependencies = reject })
+      const runtimeDependencies = new Promise((_, reject) => { rejectRuntimeDependencies = reject })
+      const command = codexCommand.runCodexWorkerCommand(['codex'], {
+        loadAuthenticationDependencies: () => { authenticationLoads++; return authenticationDependencies },
+        loadRuntimeDependencies: () => { runtimeLoads++; return runtimeDependencies }
+      })
+      await Promise.resolve()
+      if (authenticationLoads !== 1 || runtimeLoads !== 1) throw new Error('both loaders must start before either resolves')
+      rejectAuthenticationDependencies(new Error('authentication failed'))
+      let observedAuthenticationFailure = false
+      try { await command } catch (error) {
+        if (error.message !== 'authentication failed') throw error
+        observedAuthenticationFailure = true
+      }
+      if (!observedAuthenticationFailure) throw new Error('authentication failure must reject the command')
+      rejectRuntimeDependencies(new Error('runtime loading failed'))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      process.stdout.write('runtime rejection observed\\n')
+    `
+    const child = spawn(process.execPath, ['--input-type=module', '--eval', script, moduleUrl])
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    const exitCode = await new Promise<number | null>((resolve) => child.once('close', resolve))
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toBe('runtime rejection observed\n')
+    expect(stderr).toBe('')
   })
 
   it('loads only usage dependencies for the usage command', async () => {
