@@ -526,6 +526,7 @@ function SidebarListsView() {
     React.useEffect(() => {
         if (!selectedSessionId) return;
         const selectedListId = organization.sessions[selectedSessionId]?.listId ?? 'unassigned';
+        if (selectedListId === 'unassigned') return;
         setExpanded((current) => {
             if (current.has(selectedListId)) return current;
             const next = new Set(current);

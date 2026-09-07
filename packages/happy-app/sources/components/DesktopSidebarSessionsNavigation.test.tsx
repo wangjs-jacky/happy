@@ -196,6 +196,25 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps Unassigned collapsed by default while allowing it to be expanded', () => {
+        mocks.organization = {
+            ...mocks.organization,
+            sessions: { 'session-1': { listId: null, tagIds: [] } },
+        };
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+
+        const unassigned = renderer.root.findByProps({ testID: 'sidebar-list-unassigned' });
+        expect(unassigned.props.accessibilityState).toEqual({ expanded: false });
+        expect(renderer.root.findAllByProps({ testID: 'organized-session-session-1' })).toHaveLength(0);
+
+        act(() => unassigned.props.onPress());
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.accessibilityState).toEqual({ expanded: true });
+        expect(renderer.root.findAllByProps({ testID: 'organized-session-session-1' }).length).toBeGreaterThan(0);
+        act(() => renderer.unmount());
+    });
+
     it('exposes Timeline beside Projects and Lists as a top-level view', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
@@ -307,6 +326,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'organize-session-session-1' }).props.onPress());
 
         act(() => renderer.root.findByProps({ testID: 'organize-tag-input' }).props.onChangeText('#available'));
