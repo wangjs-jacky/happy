@@ -1,5 +1,5 @@
 import './sessionViewPlatform.testSupport';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -236,6 +236,7 @@ import { sync } from './sync';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 
 const syncForTest = sync as any;
+const appStateChange = vi.mocked(AppState.addEventListener).mock.calls.find(([event]) => event === 'change')![1];
 
 function snapshot(id: string, seq = 3): ApiSessionSnapshot {
     return {
@@ -517,6 +518,7 @@ describe('message visibility synchronization', () => {
     });
 
     afterEach(() => {
+        syncForTest.historyPrefetch.stop();
         Platform.OS = 'web';
         consoleError.mockRestore();
         vi.unstubAllGlobals();
@@ -529,6 +531,104 @@ describe('message visibility synchronization', () => {
         mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
             messageSync.stop();
+        }
+    });
+
+    it.each(['web', 'ios', 'android'] as const)('archives history after opening on %s without changing the visible transcript', async platform => {
+        Platform.OS = platform;
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const deferredWork = vi.spyOn(syncForTest, 'releaseDeferredSessionWork').mockImplementation(() => undefined);
+        syncForTest.appState = 'active';
+        installSession('prefetch');
+        mocks.state.currentViewingSessionId = 'prefetch';
+        if (platform === 'web') {
+            globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+            syncForTest.localHistory = await openLocalHistory('prefetch-scope');
+        } else syncForTest.sessionWarmCacheAccountKey = 'prefetch-account';
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(201), apiMessage(202)], hasMore: true }))
+            .mockImplementationOnce(async () => {
+                if (platform === 'android') sessionHistoryPageCache.remove('prefetch-account', 'unrelated');
+                return response({ messages: [apiMessage(101), apiMessage(200)], hasMore: true });
+            })
+            .mockResolvedValueOnce(response({ messages: [apiMessage(1), apiMessage(100)], hasMore: false }));
+        const owner = sync.beginSessionRoute('prefetch');
+        try {
+            await expect(sync.openSession('prefetch', owner)).resolves.toBe('ready');
+            const visible = mocks.state.sessionMessages.prefetch;
+            const reading = { version: 1 as const, anchorId: 'message-201', anchorSeq: 201, offset: 12, expandedGroupIds: [] };
+            await sync.saveSessionReadingState('prefetch', reading);
+            sync.promoteSessionRoute(owner);
+            await vi.waitFor(async () => {
+                const cached = platform === 'web'
+                    ? await syncForTest.localHistory.readOlderPage('prefetch', 101)
+                    : sessionHistoryPageCache.readOlder('prefetch-account', 'prefetch', 101);
+                expect(cached?.messages.map((message: ApiMessage) => message.seq)).toEqual([1, 100]);
+            }, { timeout: 4500, interval: 100 });
+            expect(mocks.state.sessionMessages.prefetch.messages).toBe(visible.messages);
+            if (platform === 'web') expect(await sync.readSessionReadingState('prefetch')).toEqual(reading);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(3);
+            await sync.loadOlderMessages('prefetch');
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(3);
+        } finally {
+            sync.leaveSessionRoute(owner);
+            await Promise.resolve();
+            deferredWork.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([
+        ['web', 'scroll'], ['android', 'scroll'],
+        ['web', 'leave'], ['android', 'leave'],
+        ['web', 'background'], ['android', 'background'],
+        ['web', 'reset'], ['android', 'reset'],
+        ['web', 'account'], ['android', 'account'],
+    ] as const)('coordinates a pending background page with %s %s', async (platform, action) => {
+        Platform.OS = platform;
+        syncForTest.appState = 'active';
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const deferredWork = vi.spyOn(syncForTest, 'releaseDeferredSessionWork').mockImplementation(() => undefined);
+        installSession('pending-prefetch');
+        if (platform === 'web') {
+            globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+            syncForTest.localHistory = await openLocalHistory('pending-prefetch-scope');
+        } else syncForTest.sessionWarmCacheAccountKey = 'pending-prefetch-account';
+        const history = syncForTest.localHistory;
+        const held = deferred<Response>();
+        let signal: AbortSignal | undefined;
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(201), apiMessage(202)], hasMore: true }))
+            .mockImplementationOnce((_url: string, options: RequestInit) => { signal = options.signal!; return held.promise; });
+        const owner = sync.beginSessionRoute('pending-prefetch');
+        try {
+            await sync.openSession('pending-prefetch', owner);
+            sync.promoteSessionRoute(owner);
+            await vi.waitFor(() => expect(signal).toBeDefined(), { timeout: 3500, interval: 100 });
+            let foreground: Promise<void> | undefined;
+            if (action === 'scroll') foreground = sync.loadOlderMessages('pending-prefetch');
+            if (action === 'leave') sync.leaveSessionRoute(owner);
+            if (action === 'background') appStateChange('background');
+            if (action === 'reset') await sync.resetLocalHistory();
+            if (action === 'account') {
+                syncForTest.sessionWarmCacheAccountKey = 'other-account';
+                await syncForTest.initializeLocalHistory();
+            }
+            if (action !== 'scroll') expect(signal!.aborted).toBe(true);
+            held.resolve(response({ messages: [apiMessage(1), apiMessage(200)], hasMore: false }));
+            await foreground;
+            await vi.advanceTimersByTimeAsync(1000);
+            const cached = platform === 'web' ? await history.readOlderPage('pending-prefetch', 201)
+                : sessionHistoryPageCache.readOlder('pending-prefetch-account', 'pending-prefetch', 201);
+            expect(cached?.messages.map((message: ApiMessage) => message.seq) ?? null)
+                .toEqual(action === 'scroll' ? [1, 200] : null);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+        } finally {
+            sync.leaveSessionRoute(owner);
+            await Promise.resolve();
+            deferredWork.mockRestore();
+            syncForTest.appState = 'active';
+            vi.useRealTimers();
         }
     });
 

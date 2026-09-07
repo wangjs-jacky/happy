@@ -114,6 +114,7 @@ import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordina
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, invalidateLocalHistorySession, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
 import { sessionHistoryPageCache } from './sessionHistoryPageCache';
+import { SessionHistoryPrefetch } from './sessionHistoryPrefetch';
 import { fetchSessionChanges } from './apiSessionChanges';
 import { reconcileSessionHistory } from './sessionHistoryReconciliation';
 import { createReducer, reducer } from './reducer/reducer';
@@ -357,6 +358,7 @@ class Sync {
     serverID!: string;
     private sessionWarmCacheAccountKey: string | null = null;
     private localHistory: LocalHistory | null = null;
+    private historyPrefetch = new SessionHistoryPrefetch();
     private historyWindows = new Map<string, HistoryWindow>();
     private historyWindowLoads = new Map<string, Promise<void>>();
     private historyBoundaryLoadingTokens = new Map<string, { isCurrent: () => boolean }>();
@@ -480,6 +482,8 @@ class Sync {
         // Listen for app state changes to refresh purchases
         AppState.addEventListener('change', (nextAppState) => {
             this.appState = nextAppState;
+            if (nextAppState !== 'active') this.historyPrefetch.stop();
+            else void this.startHistoryPrefetch();
 
             // Notify server of focus state for push notification routing.
             // Mobile: AppState.currentState reflects fg/bg directly.
@@ -569,6 +573,7 @@ class Sync {
     }
 
     private initializeLocalHistory = async (): Promise<void> => {
+        this.historyPrefetch.stop();
         this.resetSessionListOwner();
         const previous = this.localHistory;
         this.nativeHistoryCursor = undefined;
@@ -654,6 +659,7 @@ class Sync {
     };
 
     public resetLocalHistory = async (): Promise<void> => {
+        this.historyPrefetch.stop();
         clearSessionWarmCache();
         const clearing = clearLocalHistoryCaches();
         this.localHistory = null;
@@ -812,6 +818,12 @@ class Sync {
                 if (direction !== 'latest' || !latest) {
                     let page: HistoryPage | null = direction === 'older' ? await history.readOlderPage(id, boundary!, 100)
                         : direction === 'newer' ? await history.readNewerPage(id, boundary!, 100) : null;
+                    if (!owner.isCurrent()) return;
+                    if (!page && direction === 'older') {
+                        await this.historyPrefetch.waitForPage(id, boundary!);
+                        if (!owner.isCurrent()) return;
+                        page = await history.readOlderPage(id, boundary!, 100);
+                    }
                     if (!owner.isCurrent()) return;
                     if (!page) {
                         const response = await apiSocket.request(`/v3/sessions/${id}/messages?${direction === 'newer' ? 'after_seq' : 'before_seq'}=${boundary}&limit=100`);
@@ -1206,6 +1218,7 @@ class Sync {
     }
 
     private releaseSessionMessageCache(sessionId: string, removeFromRetention = true): void {
+        if (this.sessionRouteOwnership.ownsSession(sessionId)) this.historyPrefetch.stop();
         this.historyWindows.delete(sessionId);
         this.historyWindowLoads.delete(sessionId);
         this.historyBoundaryLoadingTokens.delete(sessionId);
@@ -2443,8 +2456,48 @@ class Sync {
     }
 
     public promoteSessionRoute = (owner: SessionRouteOwner): SessionRouteOwner | null => {
-        return this.sessionRouteOwnership.promote(owner);
+        const promoted = this.sessionRouteOwnership.promote(owner);
+        if (promoted) void this.startHistoryPrefetch();
+        return promoted;
     }
+
+    private startHistoryPrefetch = async (): Promise<void> => {
+        const route = this.sessionRouteOwnership.current();
+        if (!route || route.phase !== 'interactive' || this.appState !== 'active') return;
+        const id = route.sessionId;
+        const frontier = this.sessionMessageFrontiers.get(id);
+        if (!frontier || !storage.getState().sessionMessages[id]?.isLoaded) return;
+        const owner = this.captureHistoryOwner(id);
+        const history = owner.history;
+        const account = Platform.OS !== 'web' ? this.sessionWarmCacheAccountKey : null;
+        if (!history && !account) return;
+        const generation = this.sessionMessageCacheGenerations.get(id);
+        const diskIsCurrent = account ? sessionHistoryPageCache.captureFence(account, id) : () => true;
+        const isCurrent = () => owner.isCurrent() && this.sessionRouteOwnership.owns(route)
+            && this.appState === 'active' && this.sessionMessageCacheGenerations.get(id) === generation
+            && (history !== null || (this.sessionWarmCacheAccountKey === account
+                && diskIsCurrent()));
+        // A restored reading anchor may be in the middle. Walk from the cached
+        // tail so both sides of that anchor eventually become available offline.
+        const tail = history ? await history.readWindow(id) : null;
+        if (!isCurrent()) return;
+        this.historyPrefetch.start({
+            key: route, sessionId: id, beforeSeq: (tail?.newestSeq ?? frontier.latestSeq ?? 0) + 1,
+            isCurrent,
+            canRun: () => !this.historyWindowLoads.has(id) && !this.sessionOlderLoadingTokens.has(id)
+                && !this.hasPendingOutboxMessages(),
+            read: async boundary => history ? history.readOlderPage(id, boundary, 100)
+                : sessionHistoryPageCache.readOlder(account!, id, boundary),
+            fetch: async (boundary, signal) => {
+                const response = await apiSocket.request(`/v3/sessions/${id}/messages?before_seq=${boundary}&limit=100`, { signal });
+                if (!response.ok) throw new Error(`History prefetch failed: ${response.status}`);
+                return await response.json() as V3GetSessionMessagesResponse;
+            },
+            write: async (boundary, page) => isCurrent() && (history
+                ? await history.commitPage(id, { ...page, direction: 'older', boundary })
+                : sessionHistoryPageCache.save(account!, id, boundary, page)),
+        });
+    };
 
     public isSessionRouteOwner = (owner: SessionRouteOwner): boolean => {
         return this.sessionRouteOwnership.owns(owner);
@@ -2452,6 +2505,7 @@ class Sync {
 
     public leaveSessionRoute = (owner: SessionRouteOwner): boolean => {
         if (!this.sessionRouteOwnership.leave(owner)) return false;
+        this.historyPrefetch.stop();
         const operation = this.activeOpenSession;
         if (operation?.owner.ownerEpoch === owner.ownerEpoch) {
             operation.cancelled = true;
@@ -2611,6 +2665,7 @@ class Sync {
         // started latest-message request is still transferring. Ready routes
         // already await their message work as part of `opening`.
         void opening.then(async result => {
+            if (result === 'ready') void this.startHistoryPrefetch();
             if (result === 'not-found') {
                 await targetTransfersSettled;
                 // The not-found screen remains mounted, so component cleanup
@@ -3542,8 +3597,8 @@ class Sync {
             const isInitialLoad = knownLastSeq === null;
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
-                // start chatting immediately. Older history streams in lazily
-                // through loadOlderMessages() only when the user scrolls up.
+                // start chatting immediately. Background prefetch archives older
+                // ciphertext separately; loadOlderMessages projects it on scroll.
                 //
                 // Previously this method walked forward from seq=0 until every
                 // page had been fetched and decrypted, which blocked the chat
@@ -3875,6 +3930,13 @@ class Sync {
                 let data = warmAccount && pageCacheGeneration === sessionHistoryPageCache.generation
                     ? beforeSeq === frontier.olderBeforeSeq ? cachedPage : sessionHistoryPageCache.readOlder(warmAccount, sessionId, beforeSeq)
                     : null;
+                if (!data && warmAccount) {
+                    await this.historyPrefetch.waitForPage(sessionId, beforeSeq);
+                    if (!ownsLoading() || !this.sessionMessageLoadGate.isCurrent(operation)) return;
+                    if (pageCacheGeneration === sessionHistoryPageCache.generation) {
+                        data = sessionHistoryPageCache.readOlder(warmAccount, sessionId, beforeSeq);
+                    }
+                }
                 let cached = data !== null;
                 data ??= await fetchPage();
                 let messages = Array.isArray(data.messages) ? data.messages : [];

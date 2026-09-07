@@ -309,6 +309,29 @@ describe('SessionView deep-link hydration', () => {
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
 
+    it('keeps the parent route owned when a cold-loaded child replays its mount effects', async () => {
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.session = {
+            id: 'strict-cold', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<React.StrictMode><SessionView id="strict-cold" /></React.StrictMode>); });
+            expect(renderer.root.findAllByProps({ testID: 'session-loading' }).length).toBeGreaterThan(0);
+            const owner = mocks.beginSessionRoute.mock.results.at(-1)!.value;
+            mocks.messagesLoaded = true;
+            await act(async () => { opening.resolve('ready'); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+            expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(1);
+            expect(mocks.isSessionRouteOwner(owner)).toBe(true);
+            expect(mocks.currentViewingSessionId).toBe('strict-cold');
+        } finally { act(() => renderer?.unmount()); }
+    });
+
     it('restores the retained main session owner after a modal session loses focus without remounting its composer', async () => {
         mocks.messagesLoaded = true;
         mocks.session = {

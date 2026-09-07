@@ -17,6 +17,16 @@ type Disk = Pick<MMKV, 'getString' | 'set' | 'delete' | 'clearAll' | 'size'>;
  */
 export class SessionHistoryPageCache {
     generation: object = {};
+    private sessionFences = new Map<string, object>();
+
+    /** A background reader must survive unrelated session deletions, while
+     * deletion of its own archive or a full cache clear fences late writes. */
+    captureFence(account: string, session: string): () => boolean {
+        const key = this.key(account, session);
+        const token = this.sessionFences.get(key) ?? {};
+        this.sessionFences.set(key, token);
+        return () => this.sessionFences.get(key) === token;
+    }
     constructor(private disk: Disk, private budget = DISK_BUDGET) {}
 
     private key(account: string, session: string) { return JSON.stringify([account, session]); }
@@ -89,6 +99,7 @@ export class SessionHistoryPageCache {
 
     remove(account: string, session: string): void {
         this.generation = {};
+        this.sessionFences.delete(this.key(account, session));
         try {
             const key = this.key(account, session);
             let entries: z.infer<typeof indexSchema> = [];
@@ -100,6 +111,7 @@ export class SessionHistoryPageCache {
 
     clear(): void {
         this.generation = {};
+        this.sessionFences.clear();
         try { this.disk.clearAll(); } catch { /* optional cache */ }
     }
 }
