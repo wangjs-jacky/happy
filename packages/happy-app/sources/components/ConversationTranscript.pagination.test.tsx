@@ -170,7 +170,7 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
-    it('keeps orphan evidence visible until its invocation loads, then removes only linked frames', async () => {
+    it('hides standalone browser evidence from the transcript before its invocation loads', async () => {
         const invoke: Message = { kind: 'tool-call', id: 'skill', localId: null, createdAt: 1, children: [],
             tool: { name: 'Skill', input: { skill: 'ego-browser' }, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null } };
         const frame: Message = { ...invoke, id: 'frame', createdAt: 2, tool: { ...invoke.tool,
@@ -180,7 +180,10 @@ describe('ConversationTranscript older history pagination', () => {
         const render = (messages: Message[], sessionId: string | undefined = 'session') => <ConversationTranscript metadata={null} sessionId={sessionId} messages={messages} groupToolCalls={false} />;
         await act(async () => { renderer = TestRenderer.create(render([frame, reference])); });
         const ids = () => byId(renderer, 'conversation-transcript-list').props.data.map((item: any) => item.id);
-        expect(ids()).toEqual(['frame', 'reference']);
+        // A complete browser-step identity is sufficient to form a standalone
+        // Browser Steps run.  Do not duplicate its frame in the transcript
+        // while the matching Skill invocation is still loading.
+        expect(ids()).toEqual(['reference']);
         act(() => renderer.update(render([frame, reference, invoke])));
         expect(ids()).toEqual(['reference', 'skill']);
         act(() => renderer.update(<ConversationTranscript metadata={null} messages={[frame, reference, invoke]} groupToolCalls={false} />));
