@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Modal as NativeModal, Platform, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
@@ -19,6 +20,7 @@ type SidebarAccountMenuProps = {
     open: boolean;
     profile: Profile;
     railMode?: boolean;
+    mobileRail?: boolean;
     restoreFocusOnClose?: boolean;
     unreadCount?: number;
 };
@@ -69,12 +71,15 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     open,
     profile,
     railMode = false,
+    mobileRail = false,
     restoreFocusOnClose = true,
     unreadCount = 0,
 }: SidebarAccountMenuProps) {
     const { logout } = useAuth();
     const { theme } = useUnistyles();
     const triggerRef = React.useRef<any>(null);
+    const safeArea = useSafeAreaInsets();
+    const nativeMobileMenu = mobileRail && Platform.OS !== 'web';
     const firstActionRef = React.useRef<any>(null);
     const wasOpenRef = React.useRef(false);
     const [usageDialogOpen, setUsageDialogOpen] = React.useState(false);
@@ -143,22 +148,15 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         onOpenChange(false);
     }, [onOpenChange]);
 
-    return (
-        <View
-            style={[
-                styles.footer,
-                desktopDensity ? styles.footerDesktop : styles.footerRegular,
-                railMode && styles.footerRail,
-            ]}
-            testID="sidebar-account-footer"
-        >
-            {open ? (
+    const menu = open ? (
                 <View
                     accessibilityViewIsModal
                     style={[
                         styles.menu,
                         desktopDensity ? styles.menuDesktop : styles.menuRegular,
                         railMode && styles.menuRail,
+                        mobileRail && styles.menuMobileRail,
+                        nativeMobileMenu && { bottom: safeArea.bottom + 64 },
                     ]}
                     testID="sidebar-account-menu"
                 >
@@ -204,7 +202,26 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                         />
                     </View>
                 </View>
-            ) : null}
+            ) : null;
+
+    return (
+        <View
+            style={[
+                styles.footer,
+                desktopDensity ? styles.footerDesktop : styles.footerRegular,
+                railMode && styles.footerRail,
+                mobileRail && styles.footerMobileRail,
+            ]}
+            testID="sidebar-account-footer"
+        >
+            {nativeMobileMenu ? (
+                <NativeModal transparent visible={open} animationType="fade" onRequestClose={() => onOpenChange(false)}>
+                    <View style={{ flex: 1 }}>
+                        <Pressable accessibilityRole="button" accessibilityLabel={t('sidebarLists.close')} onPress={() => onOpenChange(false)} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} testID="sidebar-account-native-dismiss" />
+                        {menu}
+                    </View>
+                </NativeModal>
+            ) : menu}
 
             <Pressable
                 {...webTitle}
@@ -274,6 +291,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 2,
         width: 60,
     },
+    footerMobileRail: { width: 56 },
     trigger: {
         minHeight: 58,
         paddingHorizontal: 12,
@@ -354,6 +372,7 @@ const styles = StyleSheet.create((theme) => ({
         left: 60,
         right: -224,
     },
+    menuMobileRail: { left: 56, right: undefined, width: 216 },
     menuAction: {
         minHeight: 42,
         paddingHorizontal: 13,

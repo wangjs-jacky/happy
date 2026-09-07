@@ -26,6 +26,7 @@ import {
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { t } from '@/text';
 import { MainView } from './MainView';
+import { SidebarScrollProvider, useSidebarScrollState } from './SidebarScrollState';
 import { DesktopDialogFrame } from './DesktopDialogFrame';
 import { PathPickerContent, PickerContent, type PickerItem } from './SessionConfigPanel';
 import { SessionOrganizerDialog } from './SessionOrganizerDialog';
@@ -359,6 +360,10 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 export const DesktopSidebarSessionsNavigation = React.memo(() => {
+    return <SidebarScrollProvider><SidebarSessionsNavigationContent /></SidebarScrollProvider>;
+});
+
+function SidebarSessionsNavigationContent() {
     const [mode, setMode] = useLocalSettingMutable('desktopSidebarMode');
     const styles = stylesheet;
 
@@ -400,7 +405,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(() => {
                 : <MainView sessionListLayout={mode === 'timeline' ? 'time' : 'projects'} variant="sidebar" />}
         </View>
     );
-});
+}
 
 type SidebarVirtualRow =
     | { key: string; type: 'section'; section: 'lists' | 'pinned' | 'tags' }
@@ -466,6 +471,7 @@ function WebDropTarget({ active, children, draggableEntity, draggableId, dropPos
 }
 
 function SidebarListsView() {
+    const scrollState = useSidebarScrollState<SidebarVirtualRow>('lists');
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -805,6 +811,7 @@ function SidebarListsView() {
     return (
         <View style={styles.container} testID="sidebar-lists-view">
             <FlatList
+                {...scrollState}
                 contentContainerStyle={styles.listsContent}
                 data={rows}
                 initialNumToRender={18}

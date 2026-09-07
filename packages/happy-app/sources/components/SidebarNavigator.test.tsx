@@ -9,6 +9,7 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     isTablet: true,
+    windowWidth: 1200,
     clearSelection: vi.fn(),
     setZenMode: vi.fn(),
     setDesktopLeftSidebarCollapsed: vi.fn(),
@@ -40,7 +41,7 @@ vi.mock('react-native', async () => {
         Pressable: 'Pressable',
         Platform: { OS: 'web' },
         BackHandler: { addEventListener: vi.fn() },
-        useWindowDimensions: () => ({ width: 1200, height: 800 }),
+        useWindowDimensions: () => ({ width: mocks.windowWidth, height: 800 }),
     };
 });
 vi.mock('@/sync/storage', () => ({
@@ -165,6 +166,7 @@ describe('SidebarNavigator drawer behavior', () => {
 
     beforeEach(() => {
         mocks.isTablet = true;
+        mocks.windowWidth = 1200;
         mocks.zenMode = false;
         mocks.desktopLeftSidebarCollapsed = false;
         mocks.pathname = '/';
@@ -177,6 +179,21 @@ describe('SidebarNavigator drawer behavior', () => {
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it.each([[320, 304], [390, 374], [480, 420]])('fits a %ipx phone without covering the dismiss edge', (width, drawerWidth) => {
+        mocks.isTablet = false;
+        mocks.windowWidth = width;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarNavigator />); });
+        expect(renderer.root.findByType('Drawer').props.screenOptions.drawerStyle.width).toBe(drawerWidth);
+        const closeDrawer = vi.fn();
+        let content: any;
+        act(() => { content = TestRenderer.create(renderer.root.findByType('Drawer').props.drawerContent({ navigation: { closeDrawer } })); });
+        act(() => content.root.findByType('SidebarView').props.onCloseDrawer());
+        expect(closeDrawer).toHaveBeenCalledOnce();
+        act(() => content.unmount());
+        act(() => renderer.unmount());
+    });
 
     it('mounts the shortcuts launcher inside the desktop workspace layout around navigator content', () => {
         let renderer: any;
@@ -204,7 +221,7 @@ describe('SidebarNavigator drawer behavior', () => {
         });
 
         const drawer = renderer.root.findByType('Drawer');
-        const sidebar = drawer.props.drawerContent().props.children;
+        const sidebar = drawer.props.drawerContent({ navigation: { closeDrawer: vi.fn() } }).props.children;
         expect(sidebar.props.closeDrawerOnNavigate).toBe(expected);
         expect(sidebar.props.desktopDensity).toBe(isTablet);
         expect(sidebar.props.desktopPrimaryNavigation).toBe(isTablet);
@@ -244,7 +261,7 @@ describe('SidebarNavigator drawer behavior', () => {
         });
 
         const drawer = renderer.root.findByType('Drawer');
-        const drawerContent = drawer.props.drawerContent();
+        const drawerContent = drawer.props.drawerContent({ navigation: { closeDrawer: vi.fn() } });
         expect(drawer.props.screenOptions.drawerStyle.width).toBe(0);
         expect(drawerContent.props['aria-hidden']).toBe(true);
         expect(drawerContent.props.accessibilityElementsHidden).toBe(true);

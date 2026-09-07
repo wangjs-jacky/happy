@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     keydownHandler: null as ((event: any) => void) | null,
     logout: vi.fn(),
     navigate: vi.fn(),
+    platform: 'web',
     triggerFocus: vi.fn(),
 }));
 
@@ -31,7 +32,7 @@ vi.mock('react-native', async () => {
 
     return {
         Modal: ({ children, visible }: any) => visible ? ReactModule.createElement('Modal', null, children) : null,
-        Platform: { OS: 'web' },
+        Platform: { get OS() { return mocks.platform; } },
         Pressable,
         Text: 'Text',
         useWindowDimensions: () => ({ height: 900, width: 1280 }),
@@ -39,6 +40,7 @@ vi.mock('react-native', async () => {
     };
 });
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 24, left: 0, right: 0 }) }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         colors: {
@@ -101,6 +103,7 @@ describe('SidebarAccountMenu', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
+        mocks.platform = 'web';
         mocks.keydownCapture = false;
         mocks.keydownHandler = null;
         vi.stubGlobal('window', {
@@ -127,6 +130,18 @@ describe('SidebarAccountMenu', () => {
         consoleErrorSpy.mockRestore();
         vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it('places native mobile actions in a full-screen modal outside the narrow rail touch bounds', () => {
+        mocks.platform = 'android';
+        const changeOpen = vi.fn();
+        act(() => { renderer = TestRenderer.create(<SidebarAccountMenu mobileRail railMode displayName="Paws" onNavigate={mocks.navigate} onOpenChange={changeOpen} open profile={profile} />); });
+        const modal = renderer.root.findByType('Modal');
+        act(() => modal.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledWith('/settings');
+        expect(changeOpen).toHaveBeenCalledWith(false);
+        act(() => modal.findByProps({ testID: 'sidebar-account-native-dismiss' }).props.onPress());
+        expect(changeOpen).toHaveBeenCalledTimes(2);
     });
 
     it('focuses the first action, closes on Escape, and restores trigger focus', () => {

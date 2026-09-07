@@ -147,20 +147,23 @@ button, input, textarea, select {
     82%, 100% { transform: translateX(calc(-100% + 12rem)); }
 }
 
-[data-testid="session-row-title"] > [data-testid="session-row-title-text"] {
+/* Phones use React Native's two-line clamp; marquee is desktop-only. */
+@media (min-width: 600px) {
+  [data-testid="session-row-title"] > [data-testid="session-row-title-text"] {
     display: inline-block;
     max-width: none;
     min-width: max-content;
     overflow: visible;
     text-overflow: clip;
     white-space: nowrap;
-}
+  }
 
-[data-testid="session-row-title"][data-marquee-active="true"] > [data-testid="session-row-title-text"] {
+  [data-testid="session-row-title"][data-marquee-active="true"] > [data-testid="session-row-title-text"] {
     animation: happy-session-title-marquee 7s ease-in-out infinite alternate;
     display: inline-block;
     min-width: max-content;
     will-change: transform;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
