@@ -54,9 +54,22 @@ export function createDesktopModalRouter(options: StackRouterOptions) {
             // Run forward/reset navigation on the modal's own slice. Even navigate('/')
             // and the session launcher's dismissTo('/') cannot consume the background.
             const scoped = start >= 0 && !['GO_BACK', 'POP'].includes(action.type);
-            const activeState = scoped
+            let activeState = scoped
                 ? { ...state, routes: state.routes.slice(start), index: state.index - start }
                 : state;
+            // Switch conversations atomically instead of publishing an intermediate
+            // home route. Keep the home anchor and at most one conversation; modal
+            // descendants continue to use their isolated stack above.
+            if (start < 0 && !opensModal && action.type === 'NAVIGATE'
+                && action.payload.name === 'session/[id]') {
+                const current = state.routes[state.index];
+                if (current.name === 'session/[id]' && current.params
+                    && (current.params as { id?: unknown }).id === params?.id) {
+                    return state;
+                }
+                const home = state.routes.find(route => route.name === 'index');
+                if (home) activeState = { ...state, routes: [home], index: 0 };
+            }
             const resolved = original.getStateForAction(activeState, nextAction, config);
             if (!resolved) return null;
             const next = resolved.stale === false ? resolved : original.getRehydratedState(resolved, config);

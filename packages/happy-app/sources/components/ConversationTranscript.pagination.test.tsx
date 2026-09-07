@@ -91,6 +91,25 @@ describe('ConversationTranscript older history pagination', () => {
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
 
+    it('preserves React row keys across history replay without conflating blocks of one wire message', async () => {
+        const reading = { key: 'session', read: async () => null, save: vi.fn(),
+            wireId: () => 'same-wire', wireSeq: () => 1,
+            blockKey: (id: string) => id.endsWith('second') ? 'text:1' : 'text:0' };
+        const render = (prefix: string) => <ConversationTranscript metadata={null}
+            messages={[userMessage(`${prefix}-first`), userMessage(`${prefix}-second`)]} reading={reading} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render('original')); });
+        const keys = () => {
+            const list = renderer.root.findByType('FlatList');
+            return list.props.data.map(list.props.keyExtractor);
+        };
+        const before = keys();
+        expect(new Set(before).size).toBe(2);
+        await act(async () => { renderer.update(render('replayed')); });
+        expect(keys()).toEqual(before);
+        act(() => renderer.unmount());
+    });
+
     it('prefetches the next older page two viewports before the visual top', async () => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const onLoadOlder = vi.fn();

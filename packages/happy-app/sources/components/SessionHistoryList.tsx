@@ -26,6 +26,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     container: { flex: 1, minHeight: 0, backgroundColor: theme.colors.groupped.background },
     pageContainer: { alignItems: 'stretch', flexDirection: 'row', justifyContent: 'center' },
     pageContent: { flex: 1, maxWidth: 960 },
+    sidebarContent: { flex: 1, minHeight: 0 },
     listContentPage: { paddingTop: 8 },
     listContentSidebar: { paddingHorizontal: 8, paddingTop: 4 },
     dateHeader: {
@@ -184,6 +185,9 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         : (
             <FlatList
                 {...scrollState}
+                windowSize={5}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
                 contentContainerStyle={[
                     sidebar ? styles.listContentSidebar : styles.listContentPage,
                     { paddingBottom: safeArea.bottom + 16 },
@@ -206,7 +210,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
             style={[styles.container, !sidebar && styles.pageContainer]}
             testID={sidebar ? 'desktop-sidebar-history-list' : 'session-history-list'}
         >
-            <View style={!sidebar ? styles.pageContent : undefined}>{content}</View>
+            <View style={sidebar ? styles.sidebarContent : styles.pageContent}>{content}</View>
         </View>
     );
 });

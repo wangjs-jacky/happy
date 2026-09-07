@@ -134,6 +134,19 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real session writer composition', () => {
+    it('does not publish unchanged foreground snapshots to sidebar subscribers', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const existing = storage.getState().sessions['writer-session'];
+        const publish = vi.spyOn(storage.getState(), 'applySessions');
+        const sessionsData = storage.getState().sessionsData;
+        for (let index = 0; index < 150; index++) subject.applySessions([existing], { replace: false });
+        expect(publish).not.toHaveBeenCalled();
+        expect(storage.getState().sessionsData).toBe(sessionsData);
+        subject.applySessions([], { replace: true });
+        expect(publish).toHaveBeenCalledOnce();
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+    });
+
     it('keeps a historical send stable through ACK and includes its accepted ciphertext after explicit latest navigation', async () => {
         globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
         await sync.ensureSessionHydrated('writer-session');

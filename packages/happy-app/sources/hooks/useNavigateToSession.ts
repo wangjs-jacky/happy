@@ -1,6 +1,7 @@
 import type { Router } from "expo-router"
 import { useRouter } from "expo-router"
 import { useCallback } from 'react';
+import { Platform } from 'react-native';
 import { storage } from '@/sync/storage';
 import { trackSessionSwitched } from '@/track';
 
@@ -17,7 +18,9 @@ export function navigateToSession(router: Router, sessionId: string) {
     //
     // canDismiss() 为 true 表示当前栈里在首页之上还压着别的屏（会话或其子页），
     // 先用 dismissTo 弹回首页；已经在首页时跳过，避免无谓的 POP_TO。
-    if (router.canDismiss()) {
+    // DesktopAppStack compacts session navigation in one router action. A web
+    // dismiss followed by navigate exposes the home screen and restarts its work.
+    if (Platform.OS !== 'web' && router.canDismiss()) {
         router.dismissTo('/');
     }
 
