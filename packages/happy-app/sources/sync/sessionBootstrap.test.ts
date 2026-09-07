@@ -284,6 +284,16 @@ describe('active-first session bootstrap', () => {
         expect(history.settled).toBe(false);
     });
 
+    it('bounds the initial active request while retaining 50-summary explicit history pagination', async () => {
+        await syncForTest.bootstrapSessions();
+
+        expect(mocks.fetchActive).toHaveBeenCalledWith(syncForTest.credentials, 25);
+
+        await syncForTest.hydrateHistoricalSessionPage();
+
+        expect(mocks.fetchPage).toHaveBeenCalledWith(syncForTest.credentials, { limit: 50 });
+    });
+
     it('restores encrypted session and message wire cache before network bootstrap', async () => {
         const cachedSnapshot = snapshot('warm-session');
         const cachedMessage: ApiMessage = {
@@ -987,7 +997,7 @@ describe('deep-link session opening', () => {
 
         expect(mocks.fetchSnapshot).toHaveBeenCalledWith(syncForTest.credentials, 'deep-session');
         expect(mocks.apiRequest).toHaveBeenCalledWith(
-            '/v3/sessions/deep-session/messages?before_seq=2147483647&limit=100',
+            '/v3/sessions/deep-session/messages?before_seq=2147483647&limit=25',
         );
         target.resolve(snapshot('deep-session'));
         latest.resolve(response({

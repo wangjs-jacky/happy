@@ -5,34 +5,48 @@ import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
 import type { collectCodexUsageSnapshot } from '@/codex/codexUsage'
 import { createWorkerSessionStartupLifecycleFromEnvironment, traceWorkerAuthentication, type WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace'
 
-type CodexCommandDependencies = {
+type CodexAuthenticationDependencies = {
   authAndSetupMachineIfNeeded: typeof import('@/ui/auth').authAndSetupMachineIfNeeded
+}
+
+type CodexRuntimeDependencies = {
   runCodex: typeof import('@/codex/runCodex').runCodex
   ensureDaemonRunning: typeof import('@/daemon/ensureDaemonRunning').ensureDaemonRunning
   promptInstallSlashCommandIfNeeded: typeof import('./pawsInstallPrompt').promptInstallSlashCommandIfNeeded
+}
+
+type CodexUsageDependencies = {
   collectCodexUsageSnapshot: typeof collectCodexUsageSnapshot
 }
 
-async function loadCommandDependencies(): Promise<CodexCommandDependencies> {
-  const [auth, codex, daemon, installPrompt, usage] = await Promise.all([
-    import('@/ui/auth'),
+async function loadAuthenticationDependencies(): Promise<CodexAuthenticationDependencies> {
+  const auth = await import('@/ui/auth')
+  return { authAndSetupMachineIfNeeded: auth.authAndSetupMachineIfNeeded }
+}
+
+async function loadRuntimeDependencies(): Promise<CodexRuntimeDependencies> {
+  const [codex, daemon, installPrompt] = await Promise.all([
     import('@/codex/runCodex'),
     import('@/daemon/ensureDaemonRunning'),
     import('./pawsInstallPrompt'),
-    import('@/codex/codexUsage'),
   ])
   return {
-    authAndSetupMachineIfNeeded: auth.authAndSetupMachineIfNeeded,
     runCodex: codex.runCodex,
     ensureDaemonRunning: daemon.ensureDaemonRunning,
     promptInstallSlashCommandIfNeeded: installPrompt.promptInstallSlashCommandIfNeeded,
-    collectCodexUsageSnapshot: usage.collectCodexUsageSnapshot,
   }
+}
+
+async function loadUsageDependencies(): Promise<CodexUsageDependencies> {
+  const usage = await import('@/codex/codexUsage')
+  return { collectCodexUsageSnapshot: usage.collectCodexUsageSnapshot }
 }
 
 type CodexWorkerCommandOptions = {
   startupLifecycle?: WorkerSessionStartupLifecycle
-  loadCommandDependencies?: typeof loadCommandDependencies
+  loadAuthenticationDependencies?: typeof loadAuthenticationDependencies
+  loadRuntimeDependencies?: typeof loadRuntimeDependencies
+  loadUsageDependencies?: typeof loadUsageDependencies
 }
 
 function formatTokens(value: number | undefined | null): string {
@@ -58,12 +72,9 @@ export async function runCodexWorkerCommand(args: string[], options: CodexWorker
   // The daemon preserves the full CLI arguments when choosing its internal entry.
   if (args[0] === 'codex') args = args.slice(1)
   const startupLifecycle = options.startupLifecycle ?? createWorkerSessionStartupLifecycleFromEnvironment()
-  const {
-    authAndSetupMachineIfNeeded, runCodex, ensureDaemonRunning,
-    promptInstallSlashCommandIfNeeded, collectCodexUsageSnapshot,
-  } = await (options.loadCommandDependencies ?? loadCommandDependencies)()
 
   if (args[0] === 'usage') {
+    const { collectCodexUsageSnapshot } = await (options.loadUsageDependencies ?? loadUsageDependencies)()
     const snapshot = await collectCodexUsageSnapshot()
     console.log(`Codex usage source: ${snapshot.sessionsDir}`)
     console.log(`Time zone: ${snapshot.timeZone}`)
@@ -101,11 +112,17 @@ export async function runCodexWorkerCommand(args: string[], options: CodexWorker
     }
   }
 
+  const authenticationDependencies = (options.loadAuthenticationDependencies ?? loadAuthenticationDependencies)()
+  const runtimeDependencies = (options.loadRuntimeDependencies ?? loadRuntimeDependencies)()
+  void runtimeDependencies.catch(() => undefined)
+  const { authAndSetupMachineIfNeeded } = await authenticationDependencies
+  const { credentials } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded, startupLifecycle)
+  const { promptInstallSlashCommandIfNeeded, ensureDaemonRunning, runCodex } = await runtimeDependencies
+
   if (!codexArgs.args.includes('--help') && !codexArgs.args.includes('-h')) {
     await promptInstallSlashCommandIfNeeded({ startedBy });
   }
 
-  const { credentials } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded, startupLifecycle)
   await ensureDaemonRunning({ startedBy })
 
   await runCodex({

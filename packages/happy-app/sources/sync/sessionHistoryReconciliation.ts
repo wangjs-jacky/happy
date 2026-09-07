@@ -3,7 +3,9 @@ import type { fetchSessionChanges } from './apiSessionChanges';
 import type { ApiSessionSnapshot } from './apiTypes';
 
 /** Reconciliation persists invalidation targets with the cursor. Work interrupted
- * after that transaction is recovered from durable missing/stale snapshot work. */
+ * after that transaction resumes only durable, valid cached snapshots whose
+ * recorded change is newer; unseen/indexless identities stay with active,
+ * paginated, or route-targeted snapshot loading. */
 export async function reconcileSessionHistory(history: LocalHistory, deps: {
     fetchChanges: (cursor?: string) => ReturnType<typeof fetchSessionChanges>;
     fetchSnapshot: (id: string) => Promise<ApiSessionSnapshot | null>;
@@ -41,8 +43,9 @@ export async function reconcileSessionHistory(history: LocalHistory, deps: {
             const snapshot = await history.readSnapshot(id);
             const change = await history.readChange(id);
             if (!owned()) continue;
-            // Pre-protocol cached identities lacking an index entry need a point
-            // verification. Absence from an ordinary/initial page is never deletion.
+            // The selector includes only valid cached snapshots with a newer change.
+            // Unseen/indexless identities do not materialize or fan out here; absence
+            // from an ordinary/initial page is never deletion.
             if (snapshot && change && !change.deleted && change.metadataVersion <= snapshot.metadataVersion
                 && change.agentStateVersion <= snapshot.agentStateVersion) continue;
             if (change?.deleted) { deps.deleteSession(id); continue; }

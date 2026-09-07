@@ -231,6 +231,8 @@ class CoalescingMessageSync {
 // 2_147_483_647. We use that exact upper bound to keep the request safely
 // within int4 while still being effectively "infinite" for any session.
 const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
+const INITIAL_ACTIVE_SESSION_LIMIT = 25;
+const INITIAL_LATEST_MESSAGE_LIMIT = 25;
 
 type V3PostSessionMessagesResponse = {
     messages: Array<{
@@ -2080,7 +2082,7 @@ class Sync {
 
     private fetchActiveSessions = async () => {
         if (!this.credentials) return;
-        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, 150));
+        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, INITIAL_ACTIVE_SESSION_LIMIT));
     }
 
     public bootstrapSessions = async (options: { routeReady?: boolean } = {}): Promise<void> => {
@@ -3537,7 +3539,7 @@ class Sync {
         const owner = this.captureHistoryOwner(sessionId);
         const nativeCacheGeneration = sessionHistoryPageCache.generation;
         const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`,
+            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${INITIAL_LATEST_MESSAGE_LIMIT}`,
         );
         if (!owner.isCurrent()) throw new SessionWriteCancelled();
         if (response.status === 404) throw new SessionNotFoundError();
