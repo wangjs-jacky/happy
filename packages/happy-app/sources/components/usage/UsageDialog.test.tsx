@@ -65,6 +65,9 @@ vi.mock('react-native-unistyles', () => {
 });
 vi.mock('@/components/usage/UsagePanel', () => ({ UsagePanel: 'UsagePanel' }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
+}));
 
 import { getUsageDialogLayout, UsageDialog } from './UsageDialog';
 
@@ -93,6 +96,13 @@ describe('UsageDialog', () => {
     it('uses a compact desktop card and viewport-filling narrow layout', () => {
         expect(getUsageDialogLayout({ height: 900, width: 1280 })).toEqual({ height: 720, width: 560 });
         expect(getUsageDialogLayout({ height: 760, width: 390 })).toEqual({ height: 736, width: 366 });
+    });
+
+    it('keeps a narrow dialog clear of Android system bars', () => {
+        expect(getUsageDialogLayout(
+            { height: 760, width: 390 },
+            { bottom: 24, left: 0, right: 0, top: 36 },
+        )).toEqual({ height: 676, width: 366 });
     });
 
     it('focuses close on open and restores the trigger after closing', () => {
