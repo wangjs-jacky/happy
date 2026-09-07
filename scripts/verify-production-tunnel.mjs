@@ -3,7 +3,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { pathToFileURL } from 'node:url';
 
-export const TUNNEL_ORIGIN = 'https://paws.rodeo';
+export const TUNNEL_ORIGIN = 'https://app.paws.rodeo';
 export const FALLBACK_ORIGIN = 'https://47.115.228.20:8443';
 
 function checkedUrl(value) {

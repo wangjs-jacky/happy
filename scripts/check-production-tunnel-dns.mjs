@@ -12,11 +12,13 @@ const cloudflareNs = (name) => /^[a-z0-9-]+\.ns\.cloudflare\.com$/.test(name);
 export async function checkProductionTunnelDns({ zone, origin, resolve, probeHttps,
     expectedNameservers, timeoutMs = 10_000 }) {
     const url = new URL(origin);
-    if (url.protocol !== 'https:' || url.hostname !== zone || url.href !== `${url.origin}/`
-        || url.username || url.password) throw new Error('Certificate origin must be HTTPS at the expected zone, without credentials');
+    if (url.protocol !== 'https:' || (url.hostname !== zone && !url.hostname.endsWith(`.${zone}`))
+        || url.href !== `${url.origin}/` || url.username || url.password) {
+        throw new Error('Certificate origin must be HTTPS within the expected zone, without credentials');
+    }
     if (typeof resolve !== 'function' || typeof probeHttps !== 'function') throw new Error('DNS and HTTPS adapters are required');
     const query = async (type, optional = false) => {
-        try { return await withTimeout(() => resolve(zone, type), timeoutMs, `${type} DNS`); }
+        try { return await withTimeout(() => resolve(type === 'NS' ? zone : url.hostname, type), timeoutMs, `${type} DNS`); }
         catch (error) {
             // NXDOMAIN/SERVFAIL/timeout must not become a false flattened-record success.
             if (optional && error.code === 'ENODATA') return [];
@@ -46,7 +48,7 @@ export async function checkProductionTunnelDns({ zone, origin, resolve, probeHtt
     const notes = [expectedNameservers ? 'Exact assigned nameserver pair matches' : 'Cloudflare delegation observed; pass --nameservers to check the exact assigned pair'];
     if (!cnames.length) notes.push('Public flattened DNS cannot prove the Tunnel ID; use domain verification and retain the approved hostname record separately');
     if (https.status !== 200) notes.push(`HTTPS edge returned HTTP ${https.status}; certificate readiness does not imply application readiness`);
-    return { zone, nameservers, cnames, addresses, recordMode: cnames.length ? 'cname' : 'flattened', certificateReady: true, notes };
+    return { zone, hostname: url.hostname, nameservers, cnames, addresses, recordMode: cnames.length ? 'cname' : 'flattened', certificateReady: true, notes };
 }
 
 async function main(args) {
