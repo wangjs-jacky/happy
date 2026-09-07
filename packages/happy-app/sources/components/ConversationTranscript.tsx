@@ -134,6 +134,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         })),
         [displayItems, inverted, props.reading],
     );
+    const webImageInitialNumToRender = React.useMemo(() => {
+        if (Platform.OS !== 'web' || !inverted) return undefined;
+        let lastImageIndex = -1;
+        for (let index = 0; index < listItems.length; index++) {
+            if (listItems[index].type === 'image-group') lastImageIndex = index;
+        }
+        return lastImageIndex < 0 ? undefined : Math.max(10, lastImageIndex + 1);
+    }, [inverted, listItems]);
     const latestVisibleUserMessageId = React.useMemo(() => {
         for (const item of displayItems) {
             if (item.type === 'message' && item.message.kind === 'user-text') return item.message.id;
@@ -455,6 +463,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 inverted={inverted}
                 keyExtractor={(item) => item.renderKey}
                 disableVirtualization={Platform.OS === 'web' && inverted}
+                // VirtualizedList still grows its render mask in batches when
+                // virtualization is disabled. Cached pages can insert rows in
+                // the middle of a restored window, temporarily pushing an
+                // already-mounted image outside that mask even though its
+                // stable key never leaves data. Keep every current image inside
+                // the synchronous region without eagerly rendering text-only
+                // transcripts in full.
+                initialNumToRender={webImageInitialNumToRender}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}

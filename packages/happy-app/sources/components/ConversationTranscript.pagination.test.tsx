@@ -170,6 +170,57 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps a mounted Web image row in the synchronous render region during pagination', async () => {
+        grouped.items = Array.from({ length: 15 }, (_, index) => ({
+            type: 'message',
+            id: `before-${index}`,
+            message: userMessage(`before-${index}`),
+        }));
+        grouped.items[14] = {
+            type: 'image-group',
+            id: 'stable-image',
+            messages: [userMessage('stable-image')],
+            presentation: 'compact',
+            pendingCount: 0,
+        };
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[]} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBe(15);
+
+        grouped.items = [
+            ...grouped.items.slice(0, 7),
+            ...Array.from({ length: 4 }, (_, index) => ({
+                type: 'message',
+                id: `inserted-${index}`,
+                message: userMessage(`inserted-${index}`),
+            })),
+            ...grouped.items.slice(7),
+        ];
+        await act(async () => {
+            renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('pagination')]} />);
+        });
+
+        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBe(19);
+        act(() => renderer.unmount());
+    });
+
+    it('does not force an eager full render for a Web transcript without image rows', async () => {
+        grouped.items = Array.from({ length: 15 }, (_, index) => ({
+            type: 'message',
+            id: `text-${index}`,
+            message: userMessage(`text-${index}`),
+        }));
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[]} />);
+        });
+
+        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBeUndefined();
+        act(() => renderer.unmount());
+    });
+
     it('hides standalone browser evidence from the transcript before its invocation loads', async () => {
         const invoke: Message = { kind: 'tool-call', id: 'skill', localId: null, createdAt: 1, children: [],
             tool: { name: 'Skill', input: { skill: 'ego-browser' }, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null } };
