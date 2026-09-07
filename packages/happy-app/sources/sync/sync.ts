@@ -152,6 +152,14 @@ function memoryHistoryPage(current: HistoryWindow | undefined, page: V3GetSessio
     };
 }
 const historyNavigationWindowLimit = () => Platform.OS === 'web' ? 1000 : 300;
+function retainMissingHistoryRows(window: HistoryWindow, current: HistoryWindow | undefined): HistoryWindow {
+    if (!current) return window;
+    const knownSeqs = new Set(window.messages.map(message => message.seq));
+    const missing = current.messages.filter(message => !knownSeqs.has(message.seq));
+    if (missing.length === 0) return window;
+    const messages = [...window.messages, ...missing].sort((a, b) => a.seq - b.seq);
+    return { ...window, messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null };
+}
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
@@ -719,17 +727,33 @@ class Sync {
         if (observed) this.observedLocalMessageIds.set(sessionId, observed);
     }
 
-    private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation): Promise<boolean> => {
+    private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation,
+        options: { retainCurrentWebRows?: boolean } = {}): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
         if (!encryption) return false;
-        const decrypted = await encryption.createDetached().decryptMessages(window.messages);
-        if (!owner.isCurrent() || this.encryption.getSessionEncryption(id) !== encryption) return false;
-        if (decrypted.length !== window.messages.length || decrypted.some(message => !message || message.content === null)) throw new Error('history-window-decrypt-failed');
-        const normalized = decrypted.flatMap(message => {
-            const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
-            return value ? [value] : [];
-        });
+        const retainCurrentRows = Platform.OS === 'web' && options.retainCurrentWebRows === true;
+        const normalized: NormalizedMessage[] = [];
+        let pending = window.messages;
+        while (true) {
+            if (pending.length > 0) {
+                const decrypted = await encryption.createDetached().decryptMessages(pending);
+                if (!owner.isCurrent() || this.encryption.getSessionEncryption(id) !== encryption) return false;
+                if (decrypted.length !== pending.length || decrypted.some(message => !message || message.content === null)) {
+                    throw new Error('history-window-decrypt-failed');
+                }
+                normalized.push(...decrypted.flatMap(message => {
+                    const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
+                    return value ? [value] : [];
+                }));
+            }
+            if (!retainCurrentRows) break;
+            const retained = retainMissingHistoryRows(window, this.historyWindows.get(id));
+            if (retained === window) break;
+            const knownSeqs = new Set(window.messages.map(message => message.seq));
+            window = retained;
+            pending = window.messages.filter(message => !knownSeqs.has(message.seq));
+        }
         this.retireObservedLocalMessages(id, normalized);
         // A latest-window replacement contains acknowledged wire rows only.
         // Keep only unobserved local projections in the live view. Receipt
@@ -868,7 +892,9 @@ class Sync {
                     }
                 }
                 if (latest && owner.isCurrent()) {
-                    const applied = await this.applyHistoryWindow(id, latest, operation);
+                    const applied = await this.applyHistoryWindow(id, latest, operation, {
+                        retainCurrentWebRows: direction !== 'latest',
+                    });
                     if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
                         this.markLatestVerified(id, operation);
                     }
@@ -944,7 +970,7 @@ class Sync {
                 const window = this.historyWindows.get(id);
                 const change = await history.readChange(id);
                 if (window && change && change.lastMessageSeq > (window.newestSeq ?? 0)) {
-                    if (window.isAtLatest) await this.loadHistoryBoundary(id, 'latest');
+                    if (window.isAtLatest) await this.loadHistoryBoundary(id, Platform.OS === 'web' ? 'newer' : 'latest');
                     else storage.setState(state => ({ sessionMessages: { ...state.sessionMessages, [id]: {
                         ...state.sessionMessages[id], hasMoreNewer: true, isAtLatest: false,
                     } } }));
@@ -3803,7 +3829,12 @@ class Sync {
 
             const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
             if (!applied.current) return;
-            if (followLatest) memoryWindow = memoryHistoryPage(memoryWindow, { messages, hasMore: data.hasMore }, 'newer');
+            if (followLatest) {
+                const memoryLimit = Platform.OS === 'web'
+                    ? (memoryWindow?.messages.length ?? 0) + messages.length
+                    : 300;
+                memoryWindow = memoryHistoryPage(memoryWindow, { messages, hasMore: data.hasMore }, 'newer', memoryLimit);
+            }
             if (!didInvalidateGit
                 && applied.hasMutableToolResult
                 && storage.getState().currentViewingSessionId === sessionId) {
@@ -3827,9 +3858,10 @@ class Sync {
             afterSeq = maxSeq;
         }
         if (owner.history && owner.isCurrent() && followLatest && memoryWindow) {
-            const disk = persisted ? await owner.history.readWindow(sessionId, { limit: 300 }) : null;
+            const diskLimit = Platform.OS === 'web' ? memoryWindow.messages.length : 300;
+            const disk = persisted ? await owner.history.readWindow(sessionId, { limit: diskLimit }) : null;
             const window = disk && memoryWindow.messages.every(message => disk.messages.some(row => row.id === message.id)) ? disk : memoryWindow;
-            if (owner.isCurrent()) await this.applyHistoryWindow(sessionId, window, operation);
+            if (owner.isCurrent()) await this.applyHistoryWindow(sessionId, window, operation, { retainCurrentWebRows: true });
         }
     }
 
@@ -4184,7 +4216,7 @@ class Sync {
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         if (historyWindow) {
                             const messages = [...historyWindow.messages, updateData.body.message];
-                            if (messages.length > 300 && historyOwner?.history) {
+                            if (Platform.OS !== 'web' && messages.length > 300 && historyOwner?.history) {
                                 const sid = updateData.body.sid;
                                 const fallback = memoryHistoryPage(historyWindow, { messages: [updateData.body.message], hasMore: false }, 'newer');
                                 const disk = persisted ? await historyOwner.history.readWindow(sid, { limit: 300 }) : null;
