@@ -34,7 +34,7 @@ import { AnchorListSheet } from './AnchorListSheet';
 import { BrowserProgressContext } from './BrowserProgressContext';
 import { getBrowserStepRuns, hideLinkedBrowserSteps } from './rightPanel/browserStepRunsModel';
 import { setGroupExpansion, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
-    TranscriptGroupExpansionContext, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
+    TranscriptGroupExpansionContext, handleTranscriptWebWheel, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
 
 const SCROLL_THRESHOLD = 300;
 const ANCHOR_PILL_LINGER_MS = 1600;
@@ -146,6 +146,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
         listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
+    const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
+    cancelReadingRestoreRef.current = reading.cancelRestore;
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
         displayItems.filter(isCollapsibleDisplayItem).map((item) => item.id),
     ));
@@ -416,10 +418,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
         const handler = (event: WheelEvent) => {
-            if (event.shiftKey && Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1) {
-                node.scrollTop += event.deltaX;
-                event.preventDefault();
-            }
+            handleTranscriptWebWheel(event, node, () => cancelReadingRestoreRef.current());
         };
         node.addEventListener('wheel', handler, { passive: false });
         return () => node.removeEventListener('wheel', handler);
