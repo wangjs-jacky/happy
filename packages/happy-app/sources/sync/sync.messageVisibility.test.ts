@@ -494,6 +494,45 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/archive/messages?after_seq=40&limit=100');
         expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
         expect(syncForTest.historyWindows.get('archive').messages.map((m: ApiMessage) => m.seq)).toEqual([40, 41, 42]);
+        expect(mocks.state.sessionMessages.archive.latestVerifiedOwnerEpoch).not.toBeNull();
+    });
+
+    it('does not certify a stale tail when reconciliation advances during catch-up', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('advancing-tail');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('advancing-tail', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'advancing-tail', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('advancing-tail')).resolves.toBe('ready');
+        const tail = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(tail.promise);
+        const catchingUp = syncForTest.jumpToLatestMessages('advancing-tail');
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/advancing-tail/messages?after_seq=40&limit=100',
+        ));
+        await history.commitReconciliation({ changes: [{ sessionId: 'advancing-tail', revision: '2', deleted: false,
+            lastMessageSeq: 45, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '2' });
+        tail.resolve(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
+        await catchingUp;
+        expect(mocks.state.sessionMessages['advancing-tail']).toMatchObject({ isAtLatest: false, latestVerifiedOwnerEpoch: null });
+    });
+
+    it('does not certify a tail when its catch-up request fails', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('failed-tail');
+        const history = (await openLocalHistory('server|account'))!;
+        await history.commitPage('failed-tail', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(40)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'failed-tail', revision: '1', deleted: false,
+            lastMessageSeq: 42, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('failed-tail')).resolves.toBe('ready');
+        mocks.apiRequest.mockResolvedValueOnce(response({}, 503));
+        await syncForTest.jumpToLatestMessages('failed-tail');
+        expect(mocks.state.sessionMessages['failed-tail'].latestVerifiedOwnerEpoch).toBeNull();
     });
 
     it('drops corrupt archived page coverage and retries from the network', async () => {
@@ -797,10 +836,8 @@ describe('message visibility synchronization', () => {
             });
             await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
             const lease = syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
-            await syncForTest.applyHistoryWindow(receipt.sessionId, {
-                messages: [], oldestSeq: null, newestSeq: null,
-                hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true,
-            }, syncForTest.sessionMessageLoadGate.begin(lease));
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: [], hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
 
             const cache = storage.getState().sessionMessages[receipt.sessionId];
             expect(cache.messages).toHaveLength(2);
@@ -811,6 +848,57 @@ describe('message visibility synchronization', () => {
                 kind: 'tool-call', tool: { name: 'file' },
             });
             await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+        } finally {
+            upload.mockRestore();
+        }
+    });
+
+    it('keeps pending text and file once through a latest replacement, then retires their live overlay after echo', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const storage = await seedLocalProjectionSession();
+        const history = (await openLocalHistory('server|account'))!;
+        syncForTest.localHistory = history;
+        // Use the real outbox worker and hold its POST acknowledgement while
+        // the latest replacement occurs; accepted rows must stay visible.
+        syncForTest.sendSync.delete('spawned-session');
+        const acknowledgement = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(acknowledgement.promise);
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            const lease = syncForTest.sessionMessageLoadGate.currentLease(receipt.sessionId)
+                ?? syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: [], hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
+            expect(storage.getState().sessionMessages[receipt.sessionId].messages).toHaveLength(2);
+            acknowledgement.resolve(response({ messages: [
+                { id: 'ack-file', seq: 10, localId: 'local-file', createdAt: 100, updatedAt: 100 },
+                { id: 'ack-text', seq: 11, localId: 'local-text', createdAt: 110, updatedAt: 110 },
+            ] }));
+            await vi.waitFor(() => expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toBeUndefined());
+            expect(syncForTest.sessionMessageCacheGenerations.get(receipt.sessionId).pendingLocalMessages.size).toBe(2);
+
+            const echoed = [
+                { ...apiMessage(10), id: 'remote-file', localId: 'local-file' },
+                { ...apiMessage(11), id: 'remote-text', localId: 'local-text' },
+            ];
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, { messages: echoed, hasMore: false },
+                syncForTest.sessionMessageLoadGate.begin(lease));
+            expect(syncForTest.sessionMessageCacheGenerations.get(receipt.sessionId).acceptedLocalMessages.size).toBe(2);
+            expect(syncForTest.sessionMessageCacheGenerations.get(receipt.sessionId).pendingLocalMessages.size).toBe(0);
+
+            await syncForTest.applyLatestMessagePage(receipt.sessionId, {
+                messages: Array.from({ length: 300 }, (_, index) => apiMessage(index + 100)), hasMore: false,
+            }, syncForTest.sessionMessageLoadGate.begin(lease));
+            expect(storage.getState().sessionMessages[receipt.sessionId].messages.some((message: any) => message.localId === 'local-text')).toBe(false);
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(false);
         } finally {
             upload.mockRestore();
         }
@@ -987,6 +1075,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
         );
+        expect(mocks.state.sessionMessages['warm-route'].latestVerifiedOwnerEpoch).not.toBeNull();
     });
 
     it('removes an offline-deleted cached session when incremental sync returns 404', async () => {
@@ -1325,6 +1414,7 @@ describe('message visibility synchronization', () => {
                 expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
             );
             expect(storage.getState().sessionMessages['opening-session'].reducerState.messageIds.has('latest-visible-message')).toBe(true);
+            expect(storage.getState().sessionMessages['opening-session'].latestVerifiedOwnerEpoch).not.toBeNull();
             expect(storage.getState().currentViewingSessionId).toBeNull();
             probe.markFreshLatestMessageComplete();
             expect(probe.collect().samples).toHaveLength(1);

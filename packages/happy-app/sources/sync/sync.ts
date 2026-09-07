@@ -154,6 +154,7 @@ type SessionRouteOperation = {
     latestPage: Promise<V3GetSessionMessagesResponse>;
     foregroundTarget: number;
     committedPageSeq: number | null;
+    committedPageOperation: SessionMessageLoadOperation | null;
 };
 
 class CoalescingMessageSync {
@@ -259,7 +260,12 @@ export type LocalMessageQueueReceipt = {
 
 type SessionMessageCacheGeneration = {
     localMessageIds?: Map<string, string>;
+    // Receipt provenance outlives the optimistic display overlay so a
+    // same-generation projection retry can recover exactly what was accepted.
     acceptedLocalMessages?: Map<string, NormalizedMessage>;
+    // Only rows not yet observed from the server belong in a replacement's
+    // optimistic overlay. Exact echoes retire this map, never the receipt.
+    pendingLocalMessages?: Map<string, NormalizedMessage>;
 };
 
 function stripNewSessionDiscriminator(
@@ -605,6 +611,15 @@ class Sync {
         return state?.messages.find(message => state.reducerState.messages.get(message.id)?.realID === wireId)?.id ?? null;
     };
 
+    private retireObservedLocalMessages(sessionId: string, messages: readonly NormalizedMessage[]): void {
+        const pending = this.sessionMessageCacheGenerations.get(sessionId)?.pendingLocalMessages;
+        if (!pending) return;
+        for (const message of messages) {
+            if (message.localId !== null) pending.delete(message.localId);
+            pending.delete(message.id);
+        }
+    }
+
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
@@ -616,12 +631,13 @@ class Sync {
             const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
             return value ? [value] : [];
         });
+        this.retireObservedLocalMessages(id, normalized);
         // A latest-window replacement contains acknowledged wire rows only.
-        // Keep accepted local projections in that live view until their exact
-        // local identity is represented by an echo; historical windows stay
-        // bounded and never receive this optimistic overlay.
+        // Keep only unobserved local projections in the live view. Receipt
+        // provenance stays separate so acknowledged rows cannot resurrect
+        // after ordinary bounded retention evicts their remote echo.
         const generation = this.sessionMessageCacheGenerations.get(id);
-        const accepted = window.isAtLatest ? [...(generation?.acceptedLocalMessages?.values() ?? [])] : [];
+        const accepted = window.isAtLatest ? [...(generation?.pendingLocalMessages?.values() ?? [])] : [];
         for (const message of accepted) {
             const represented = normalized.some(candidate => candidate.id === message.id
                 || (message.localId !== null && candidate.localId === message.localId));
@@ -735,7 +751,7 @@ class Sync {
                 }
                 if (latest && owner.isCurrent()) {
                     const applied = await this.applyHistoryWindow(id, latest, operation);
-                    if (applied && direction === 'latest' && verifiedLatestFromNetwork) {
+                    if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
                         this.markLatestVerified(id, operation);
                     }
                 }
@@ -1092,6 +1108,13 @@ class Sync {
                 return fileId !== undefined && cache.reducerState.messages.get(fileId)?.realID === normalizedId;
             });
             if (!generation || localIds.some(id => !generation?.localMessageIds?.has(id)) || !isProjected) {
+                // A retained generation knows whether its local display was
+                // already observed remotely. Receipt retries may rebuild a
+                // pending projection, but must never revive an echoed row
+                // merely because bounded latest retention later evicted it.
+                if (generation && !accepted.every(message => generation!.pendingLocalMessages?.has(message.localId ?? message.id))) {
+                    return false;
+                }
                 // A background gap/retention eviction discards the display
                 // generation, not the accepted encrypted send. Restore from the
                 // original receipt's exact normalized entries, even after ACK
@@ -1099,10 +1122,12 @@ class Sync {
                 generation ??= {};
                 generation.localMessageIds ??= new Map();
                 generation.acceptedLocalMessages ??= new Map();
+                generation.pendingLocalMessages ??= new Map();
                 for (const message of accepted) {
                     const identity = message.localId ?? message.id;
                     generation.localMessageIds.set(identity, message.id);
                     generation.acceptedLocalMessages.set(identity, message);
+                    generation.pendingLocalMessages.set(identity, message);
                 }
                 this.sessionMessageCacheGenerations.set(sessionId, generation);
                 this.applyMessages(sessionId, [...accepted]);
@@ -1525,10 +1550,12 @@ class Sync {
         const generation: SessionMessageCacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
         generation.localMessageIds ??= new Map();
         generation.acceptedLocalMessages ??= new Map();
+        generation.pendingLocalMessages ??= new Map();
         for (const message of stagedMessages) {
             const identity = message.localId ?? message.id;
             generation.localMessageIds.set(identity, message.id);
             generation.acceptedLocalMessages.set(identity, message);
+            generation.pendingLocalMessages.set(identity, message);
         }
         this.sessionMessageCacheGenerations.set(sessionId, generation);
         const receipt: LocalMessageQueueReceipt = Object.freeze({ type: 'queued', sessionId, localIds: Object.freeze(stagedOutbox.map(item => item.localId)) });
@@ -2164,6 +2191,7 @@ class Sync {
             latestPage: latestPagePromise,
             foregroundTarget: 0,
             committedPageSeq: null,
+            committedPageOperation: null,
         };
         this.activeOpenSession = operation;
         // A missing target can be resolved before its concurrently-started
@@ -2179,7 +2207,7 @@ class Sync {
             if (hasLoadedMessageCache) {
                 if (!this.localHistory) {
                     await this.getMessagesSync(sessionId).invalidateAndAwait();
-                    this.markLatestVerified(sessionId, operation.messageLoad);
+                    this.markLatestVerified(sessionId, operation.committedPageOperation);
                 }
                 this.assertSessionRouteCurrent(operation);
                 markSessionCriticalPathAppStage('web.messages.latest_completed');
@@ -2247,7 +2275,7 @@ class Sync {
             }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
-            this.markLatestVerified(sessionId, operation.messageLoad);
+            this.markLatestVerified(sessionId, operation.committedPageOperation);
             markSessionCriticalPathAppStage('web.session.store_committed');
             return 'ready';
         })().catch((error: unknown) => {
@@ -2275,13 +2303,16 @@ class Sync {
         }
     }
 
-    private markLatestVerified(sessionId: string, operation: SessionMessageLoadOperation): void {
+    private markLatestVerified(sessionId: string, operation: SessionMessageLoadOperation | null): void {
         const route = this.activeOpenSession;
         if (route?.sessionId !== sessionId || !this.sessionRouteOwnership.owns(route.owner)
-            || !this.sessionMessageLoadGate.isCurrent(operation)) return;
+            || !operation || !this.sessionMessageLoadGate.isCurrent(operation)
+            || storage.getState().sessionMessages[sessionId]?.isAtLatest === false) return;
         storage.setState(state => state.sessionMessages[sessionId] ? ({ sessionMessages: {
             ...state.sessionMessages,
-            [sessionId]: { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: route.owner.ownerEpoch },
+            [sessionId]: state.sessionMessages[sessionId].latestVerifiedOwnerEpoch === route.owner.ownerEpoch
+                ? state.sessionMessages[sessionId]
+                : { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: route.owner.ownerEpoch },
         } }) : state);
     }
 
@@ -3304,6 +3335,7 @@ class Sync {
             if (normalized) normalizedMessages.push(normalized);
         }
         if (normalizedMessages.length > 0) {
+            this.retireObservedLocalMessages(sessionId, normalizedMessages);
             this.applyMessages(sessionId, normalizedMessages);
         }
 
@@ -3336,6 +3368,7 @@ class Sync {
             && route.messageLease.leaseEpoch === operation.leaseEpoch
             && this.sessionMessageLoadGate.isCurrent(operation)) {
             route.committedPageSeq = Math.max(route.committedPageSeq ?? 0, seq);
+            route.committedPageOperation = operation;
         }
     }
 
@@ -3450,6 +3483,7 @@ class Sync {
             }
         }
         if (normalizedMessages.length > 0) {
+            this.retireObservedLocalMessages(sessionId, normalizedMessages);
             this.applyMessages(sessionId, normalizedMessages);
         }
         this.recordFetchedMessageRange(sessionId, messages);
@@ -3650,6 +3684,7 @@ class Sync {
                 assertCurrent();
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
+                    if (lastMessage) this.retireObservedLocalMessages(updateData.body.sid, [lastMessage]);
 
                     // Startup-ready measures validated realtime receipt, before
                     // sequence, visibility, cache locks or route hydration can

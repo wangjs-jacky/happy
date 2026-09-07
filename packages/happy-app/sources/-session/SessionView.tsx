@@ -546,9 +546,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         && sessionResolution !== 'not-found';
     const verifiedRouteOwnerEpoch = sessionResolution === 'ready'
         && routeOwner?.sessionId === sessionId
-        // Test-only adapters that predate the explicit token omit it; the
-        // production hook always returns null or a concrete owner epoch.
-        && (latestVerifiedOwnerEpoch === undefined || latestVerifiedOwnerEpoch === routeOwner.ownerEpoch)
+        && latestVerifiedOwnerEpoch === routeOwner.ownerEpoch
         ? routeOwner.ownerEpoch
         : null;
     const paintOwnerEpoch = routeOwner?.sessionId === sessionId

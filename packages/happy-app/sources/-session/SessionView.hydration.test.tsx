@@ -20,7 +20,9 @@ const mocks = vi.hoisted(() => ({
     messages: [] as any[],
     messagesLoaded: false,
     messagesAtLatest: true,
-    latestVerifiedOwnerEpoch: undefined as number | null | undefined,
+    latestVerifiedOwnerEpoch: null as number | null,
+    currentRouteOwnerEpoch: null as number | null,
+    autoVerifyRouteOwner: true,
     focusContext: null as unknown as React.Context<boolean>,
     currentViewingSessionId: null as string | null,
 }));
@@ -97,7 +99,7 @@ vi.mock('@/sync/storage', () => ({
         messages: mocks.messages,
         isLoaded: mocks.messagesLoaded,
         isAtLatest: mocks.messagesAtLatest,
-        ...(mocks.latestVerifiedOwnerEpoch === undefined ? {} : { latestVerifiedOwnerEpoch: mocks.latestVerifiedOwnerEpoch }),
+        latestVerifiedOwnerEpoch: mocks.latestVerifiedOwnerEpoch,
     }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
@@ -277,11 +279,17 @@ describe('SessionView deep-link hydration', () => {
         mocks.messages = [];
         mocks.messagesLoaded = false;
         mocks.messagesAtLatest = true;
-        mocks.latestVerifiedOwnerEpoch = undefined;
+        mocks.latestVerifiedOwnerEpoch = null;
+        mocks.autoVerifyRouteOwner = true;
         mocks.currentViewingSessionId = null;
         mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
-        mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
+        mocks.beginSessionRoute.mockImplementation((id: string) => {
+            const owner = owners.enter(id);
+            mocks.currentRouteOwnerEpoch = owner.ownerEpoch;
+            if (mocks.autoVerifyRouteOwner) mocks.latestVerifiedOwnerEpoch = owner.ownerEpoch;
+            return owner;
+        });
         mocks.isSessionRouteOwner.mockImplementation((owner) => owners.owns(owner));
         mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
         mocks.leaveSessionRoute.mockImplementation((owner) => owners.leave(owner));
@@ -676,6 +684,7 @@ describe('SessionView deep-link hydration', () => {
         mocks.messagesLoaded = true;
         mocks.messagesAtLatest = false;
         mocks.latestVerifiedOwnerEpoch = null;
+        mocks.autoVerifyRouteOwner = false;
         mocks.messages = [{ id: 'historical-message' }];
         mocks.session = {
             id: 'historical-window', seq: 400, active: true, activeAt: 10,

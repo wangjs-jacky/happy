@@ -26,6 +26,11 @@ export class SessionMessageLoadGate {
         return this.leases.get(sessionId) ?? null;
     }
 
+    currentOperation(lease: SessionMessageLease): SessionMessageLoadOperation | null {
+        const loadEpoch = this.isLeaseCurrent(lease) ? this.loadEpochs.get(lease.sessionId) : undefined;
+        return loadEpoch === undefined ? null : { sessionId: lease.sessionId, leaseEpoch: lease.leaseEpoch, loadEpoch };
+    }
+
     begin(lease: SessionMessageLease): SessionMessageLoadOperation {
         const loadEpoch = ++this.nextLoadEpoch;
         if (this.isLeaseCurrent(lease)) {
