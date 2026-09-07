@@ -40,6 +40,9 @@ vi.mock('@/text', () => ({
         'rightPanelCapabilityHub.browserProgress.title': 'Browser progress',
     }[key] ?? key),
 }));
+vi.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ bottom: 0, left: 0, right: 0, top: 0 }),
+}));
 vi.mock('./BrowserStepsPanel', () => ({ BrowserStepsPanel: 'BrowserStepsPanel' }));
 vi.mock('../SessionImageViewer', () => ({ SessionImageViewer: 'SessionImageViewer' }));
 vi.mock('react-native-gesture-handler', () => ({ GestureHandlerRootView: 'GestureHandlerRootView' }));
@@ -165,6 +168,14 @@ describe('BrowserStepsPopover', () => {
             { height: 30, width: 80, x: 270, y: 600 },
             { height: 640, width: 360 },
         )).toEqual({ height: 616, left: 12, top: 12, width: 336 });
+    });
+
+    it('keeps a narrow popover clear of Android system bars', () => {
+        expect(getBrowserStepsPopoverLayout(
+            undefined,
+            { height: 760, width: 390 },
+            { bottom: 24, left: 0, right: 0, top: 36 },
+        )).toEqual({ height: 676, left: 12, top: 48, width: 366 });
     });
 
     it('uses active theme tokens for the dialog, backdrop, divider, and shadow', () => {

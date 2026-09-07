@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Modal, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '@/text';
 import { UsagePanel } from './UsagePanel';
 
@@ -8,12 +9,16 @@ const VIEWPORT_GUTTER = 12;
 const DESKTOP_WIDTH = 560;
 const DESKTOP_MAX_HEIGHT = 720;
 
-export function getUsageDialogLayout(viewport: { height: number; width: number }): {
+type SafeAreaInsets = { bottom: number; left: number; right: number; top: number };
+
+const NO_SAFE_AREA: SafeAreaInsets = { bottom: 0, left: 0, right: 0, top: 0 };
+
+export function getUsageDialogLayout(viewport: { height: number; width: number }, safeArea: SafeAreaInsets = NO_SAFE_AREA): {
     height: number;
     width: number;
 } {
-    const availableWidth = Math.max(0, viewport.width - VIEWPORT_GUTTER * 2);
-    const availableHeight = Math.max(0, viewport.height - VIEWPORT_GUTTER * 2);
+    const availableWidth = Math.max(0, viewport.width - safeArea.left - safeArea.right - VIEWPORT_GUTTER * 2);
+    const availableHeight = Math.max(0, viewport.height - safeArea.top - safeArea.bottom - VIEWPORT_GUTTER * 2);
     const narrow = viewport.width < 600;
 
     return {
@@ -30,13 +35,14 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
     returnFocusRef?: React.RefObject<{ focus?: () => void } | null>;
 }) {
     const viewport = useWindowDimensions();
+    const safeArea = useSafeAreaInsets();
     const closeButtonRef = React.useRef<any>(null);
     const dialogRef = React.useRef<any>(null);
     const [closeFocused, setCloseFocused] = React.useState(false);
     const [closeHovered, setCloseHovered] = React.useState(false);
     const layout = React.useMemo(
-        () => getUsageDialogLayout(viewport),
-        [viewport.height, viewport.width],
+        () => getUsageDialogLayout(viewport, safeArea),
+        [safeArea, viewport.height, viewport.width],
     );
     const closeAndRestoreFocus = React.useCallback(() => {
         setCloseFocused(false);
@@ -90,7 +96,15 @@ export const UsageDialog = React.memo(function UsageDialog(props: {
             transparent
             visible
         >
-            <View style={styles.overlay}>
+            <View style={[
+                styles.overlay,
+                {
+                    paddingBottom: safeArea.bottom + VIEWPORT_GUTTER,
+                    paddingLeft: safeArea.left + VIEWPORT_GUTTER,
+                    paddingRight: safeArea.right + VIEWPORT_GUTTER,
+                    paddingTop: safeArea.top + VIEWPORT_GUTTER,
+                },
+            ]}>
                 <View
                     accessible={false}
                     onTouchEnd={Platform.OS === 'web' ? undefined : closeAndRestoreFocus}
