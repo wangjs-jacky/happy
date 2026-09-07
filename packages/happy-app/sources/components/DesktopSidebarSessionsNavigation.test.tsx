@@ -20,10 +20,12 @@ const mocks = vi.hoisted(() => ({
     moveToPinned: vi.fn(),
     setDesktopSidebarListMode: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
+    setSidebarUnassignedExpanded: vi.fn(),
     pinnedOrder: [] as string[],
     organization: null as any,
     desktopSidebarListMode: 'projects',
     desktopSidebarMode: 'projects',
+    sidebarUnassignedExpanded: false,
 }));
 
 vi.mock('@/sync/sync', () => ({ sync: { bootstrapSessions: mocks.bootstrap, loadNextSessionHistoryPage: mocks.history } }));
@@ -107,15 +109,20 @@ vi.mock('@/sync/storage', async () => {
                 ? mocks.desktopSidebarMode
                 : name === 'desktopSidebarListMode'
                     ? mocks.desktopSidebarListMode
-                    : mocks.organization;
+                    : name === 'sidebarUnassignedExpanded'
+                        ? mocks.sidebarUnassignedExpanded
+                        : mocks.organization;
             const [value, setValue] = ReactModule.useState(initialValue);
             const spy = name === 'desktopSidebarMode'
                 ? mocks.setDesktopSidebarMode
                 : name === 'desktopSidebarListMode'
                     ? mocks.setDesktopSidebarListMode
-                    : undefined;
+                    : name === 'sidebarUnassignedExpanded'
+                        ? mocks.setSidebarUnassignedExpanded
+                        : undefined;
             return [value, (next: any) => {
                 spy?.(next);
+                if (name === 'sidebarUnassignedExpanded') mocks.sidebarUnassignedExpanded = next;
                 setValue(next);
             }];
         },
@@ -152,6 +159,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         mocks.pinnedOrder = [];
         mocks.desktopSidebarListMode = 'projects';
         mocks.desktopSidebarMode = 'projects';
+        mocks.sidebarUnassignedExpanded = false;
     });
 
     it.each(['projects', 'lists', 'timeline', 'history'])('exposes recoverable list failure in %s without hiding the current view', (mode) => {
@@ -196,7 +204,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.unmount());
     });
 
-    it('keeps Unassigned collapsed by default while allowing it to be expanded', () => {
+    it('keeps Unassigned collapsed by default and restores the device-local expansion state', () => {
         mocks.organization = {
             ...mocks.organization,
             sessions: { 'session-1': { listId: null, tagIds: [] } },
@@ -212,6 +220,19 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => unassigned.props.onPress());
         expect(renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.accessibilityState).toEqual({ expanded: true });
         expect(renderer.root.findAllByProps({ testID: 'organized-session-session-1' }).length).toBeGreaterThan(0);
+        act(() => renderer.unmount());
+
+        expect(mocks.setSidebarUnassignedExpanded).toHaveBeenCalledWith(true);
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.accessibilityState).toEqual({ expanded: true });
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.onPress());
+        act(() => renderer.unmount());
+
+        expect(mocks.setSidebarUnassignedExpanded).toHaveBeenLastCalledWith(false);
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.accessibilityState).toEqual({ expanded: false });
         act(() => renderer.unmount());
     });
 
