@@ -15,8 +15,8 @@ type FixtureEnvelope = {
     ev: Record<string, unknown>;
 };
 
-export function buildVercelPreviewEnvelopes(baseTime = 1_800_000_000_000): FixtureEnvelope[] {
-    const turn = 'vercel-preview-e2e-turn';
+export function buildCloudflarePreviewEnvelopes(baseTime = 1_800_000_000_000): FixtureEnvelope[] {
+    const turn = 'cloudflare-preview-e2e-turn';
     const events: FixtureEnvelope[] = [
         {
             id: 'preview-fixture-intro', time: baseTime, role: 'agent', turn,
@@ -24,19 +24,19 @@ export function buildVercelPreviewEnvelopes(baseTime = 1_800_000_000_000): Fixtu
         },
         {
             id: 'preview-publishing', time: baseTime + 1, role: 'agent', turn,
-            ev: { t: 'interactive-preview', preview: { version: 1, id: PREVIEW_FIXTURE_IDS.publishing, title: 'Publishing checkout flow', state: 'publishing' } },
+            ev: { t: 'interactive-preview', preview: { version: 1, provider: 'cloudflare', mode: 'hosted', id: PREVIEW_FIXTURE_IDS.publishing, title: 'Publishing checkout flow', state: 'publishing' } },
         },
         {
             id: 'preview-ready', time: baseTime + 2, role: 'agent', turn,
-            ev: { t: 'interactive-preview', preview: { version: 1, id: PREVIEW_FIXTURE_IDS.ready, title: 'Ready checkout flow', state: 'ready', url: 'https://happy-preview.example.invalid/checkout', publishedAt: baseTime, expiresAt: 4_102_444_800_000 } },
+            ev: { t: 'interactive-preview', preview: { version: 1, provider: 'cloudflare', mode: 'hosted', id: PREVIEW_FIXTURE_IDS.ready, title: 'Ready checkout flow', state: 'ready', url: 'https://happy-preview.example.invalid/checkout', publishedAt: baseTime, expiresAt: 4_102_444_800_000 } },
         },
         {
             id: 'preview-failed', time: baseTime + 3, role: 'agent', turn,
-            ev: { t: 'interactive-preview', preview: { version: 1, id: PREVIEW_FIXTURE_IDS.failed, title: 'Failed checkout flow', state: 'failed', errorCode: 'PREVIEW_PROVIDER_ERROR' } },
+            ev: { t: 'interactive-preview', preview: { version: 1, provider: 'cloudflare', mode: 'hosted', id: PREVIEW_FIXTURE_IDS.failed, title: 'Failed checkout flow', state: 'failed', errorCode: 'PREVIEW_PROVIDER_ERROR' } },
         },
         {
             id: 'preview-expired', time: baseTime + 4, role: 'agent', turn,
-            ev: { t: 'interactive-preview', preview: { version: 1, id: PREVIEW_FIXTURE_IDS.expired, title: 'Expired checkout flow', state: 'expired', publishedAt: baseTime - 86_400_000, expiresAt: baseTime - 1 } },
+            ev: { t: 'interactive-preview', preview: { version: 1, provider: 'cloudflare', mode: 'hosted', id: PREVIEW_FIXTURE_IDS.expired, title: 'Expired checkout flow', state: 'expired', publishedAt: baseTime - 86_400_000, expiresAt: baseTime - 1 } },
         },
     ];
 
@@ -92,16 +92,16 @@ async function expectOk(response: Response, action: string): Promise<void> {
     throw new Error(`${action} failed (${response.status}): ${(await response.text()).slice(0, 280)}`);
 }
 
-export async function seedVercelPreviewFixture(options: {
+export async function seedCloudflarePreviewFixture(options: {
     serverUrl: string;
     webUrl: string;
 }): Promise<{ sessionId: string; sessionUrl: string }> {
     const auth = credentials(options.webUrl);
     const metadata = encodeBase64(encryptLegacy({
-        path: '/tmp/paws-vercel-preview-e2e',
+        path: '/tmp/paws-cloudflare-preview-e2e',
         homeDir: '/tmp',
         host: 'preview-evidence.local',
-        name: 'Vercel preview and Ego progress fixture',
+        name: 'Cloudflare preview and Ego progress fixture',
         flavor: 'codex',
         lifecycleState: 'running',
         startedBy: 'terminal',
@@ -110,12 +110,12 @@ export async function seedVercelPreviewFixture(options: {
     const headers = {
         Authorization: `Bearer ${auth.token}`,
         'Content-Type': 'application/json',
-        'X-Happy-Client': 'vercel-preview-e2e-fixture',
+        'X-Happy-Client': 'cloudflare-preview-e2e-fixture',
     };
     const sessionResponse = await fetch(new URL('/v1/sessions', options.serverUrl), {
         method: 'POST', headers,
         body: JSON.stringify({
-            tag: `vercel-preview-e2e-${Date.now()}`,
+            tag: `cloudflare-preview-e2e-${Date.now()}`,
             metadata,
             agentState: null,
             dataEncryptionKey: null,
@@ -124,9 +124,9 @@ export async function seedVercelPreviewFixture(options: {
     await expectOk(sessionResponse, 'Create fixture session');
     const sessionId = ((await sessionResponse.json()) as { session: { id: string } }).session.id;
 
-    const messages = buildVercelPreviewEnvelopes().map((envelope, index) => ({
+    const messages = buildCloudflarePreviewEnvelopes().map((envelope, index) => ({
         content: encodeBase64(encryptLegacy({ role: 'session', content: envelope }, auth.encryptionKey)),
-        localId: `vercel-preview-e2e-${sessionId}-${index}`,
+        localId: `cloudflare-preview-e2e-${sessionId}-${index}`,
     }));
     const messagesResponse = await fetch(new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, options.serverUrl), {
         method: 'POST', headers, body: JSON.stringify({ messages }),

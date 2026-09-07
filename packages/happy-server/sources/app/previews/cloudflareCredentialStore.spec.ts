@@ -1,28 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createVercelCredentialStore } from './vercelCredentialStore';
+import { createCloudflareCredentialStore } from './cloudflareCredentialStore';
 
-describe('createVercelCredentialStore', () => {
+describe('createCloudflareCredentialStore', () => {
     it('fences a successor transition with its account version before reading the encrypted predecessor and staging pending state', async () => {
         const encode = (value: unknown): Uint8Array<ArrayBuffer> => new TextEncoder().encode(JSON.stringify(value)) as Uint8Array<ArrayBuffer>;
         const decode = (value: Uint8Array) => new TextDecoder().decode(value);
         const predecessor = { version: 1 as const, accessToken: 'predecessor-secret', configurationId: 'cfg-a', connectionEpoch: 3, connectionNonce: 'active-nonce' };
         const supersededPending = encode({ version: 1, accessToken: 'crashed-secret', configurationId: 'cfg-a', connectionEpoch: 4, connectionNonce: 'crashed-nonce' });
         let account = {
-            vercelConnectionEpoch: 3, vercelConnectionState: 'active', vercelConnectionNonce: 'active-nonce',
-            vercelConnectionReplacementId: null as string | null, vercelConnectionReplacementStartedAt: null as Date | null,
+            cloudflareConnectionEpoch: 3, cloudflareConnectionState: 'active', cloudflareConnectionNonce: 'active-nonce',
+            cloudflareConnectionReplacementId: null as string | null, cloudflareConnectionReplacementStartedAt: null as Date | null,
         };
         const active = encode(predecessor);
-        const pendingRows = new Map<string, Uint8Array<ArrayBuffer>>([['provider:vercel:pending:4:crashed-nonce', supersededPending]]);
+        const pendingRows = new Map<string, Uint8Array<ArrayBuffer>>([['provider:cloudflare:pending:4:crashed-nonce', supersededPending]]);
         const updateMany = vi.fn(async ({ where, data }: any) => {
-            if (where.vercelConnectionEpoch !== account.vercelConnectionEpoch || where.vercelConnectionState !== account.vercelConnectionState
-                || (where.vercelConnectionNonce ?? null) !== account.vercelConnectionNonce || (where.vercelConnectionReplacementId ?? null) !== account.vercelConnectionReplacementId) return { count: 0 };
+            if (where.cloudflareConnectionEpoch !== account.cloudflareConnectionEpoch || where.cloudflareConnectionState !== account.cloudflareConnectionState
+                || (where.cloudflareConnectionNonce ?? null) !== account.cloudflareConnectionNonce || (where.cloudflareConnectionReplacementId ?? null) !== account.cloudflareConnectionReplacementId) return { count: 0 };
             account = {
                 ...account,
-                vercelConnectionEpoch: data.vercelConnectionEpoch?.increment === undefined ? data.vercelConnectionEpoch : account.vercelConnectionEpoch + data.vercelConnectionEpoch.increment,
-                vercelConnectionState: data.vercelConnectionState ?? account.vercelConnectionState,
-                vercelConnectionNonce: data.vercelConnectionNonce ?? account.vercelConnectionNonce,
-                vercelConnectionReplacementId: data.vercelConnectionReplacementId ?? account.vercelConnectionReplacementId,
-                vercelConnectionReplacementStartedAt: data.vercelConnectionReplacementStartedAt ?? account.vercelConnectionReplacementStartedAt,
+                cloudflareConnectionEpoch: data.cloudflareConnectionEpoch?.increment === undefined ? data.cloudflareConnectionEpoch : account.cloudflareConnectionEpoch + data.cloudflareConnectionEpoch.increment,
+                cloudflareConnectionState: data.cloudflareConnectionState ?? account.cloudflareConnectionState,
+                cloudflareConnectionNonce: data.cloudflareConnectionNonce ?? account.cloudflareConnectionNonce,
+                cloudflareConnectionReplacementId: data.cloudflareConnectionReplacementId ?? account.cloudflareConnectionReplacementId,
+                cloudflareConnectionReplacementStartedAt: data.cloudflareConnectionReplacementStartedAt ?? account.cloudflareConnectionReplacementStartedAt,
             };
             return { count: 1 };
         });
@@ -30,9 +30,9 @@ describe('createVercelCredentialStore', () => {
         const transaction: any = {
             account: { updateMany, findUnique: vi.fn(async () => ({ ...account })) },
             serviceAccountToken: {
-                findUnique: vi.fn(async ({ where }: any) => where.accountId_vendor.vendor === 'provider:vercel' ? { token: active } : null),
+                findUnique: vi.fn(async ({ where }: any) => where.accountId_vendor.vendor === 'provider:cloudflare' ? { token: active } : null),
                 deleteMany: vi.fn(async ({ where }: any) => {
-                    if (where.vendor?.startsWith === 'provider:vercel:pending:') {
+                    if (where.vendor?.startsWith === 'provider:cloudflare:pending:') {
                         const count = pendingRows.size;
                         pendingRows.clear();
                         return { count };
@@ -42,7 +42,7 @@ describe('createVercelCredentialStore', () => {
                 upsert: tokenUpsert,
             },
         };
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(), upsert: vi.fn(), delete: vi.fn(), compareAndSet: vi.fn() },
             encrypt: (_path, value) => encode(JSON.parse(value)), decrypt: (_path, value) => decode(value),
         });
@@ -53,15 +53,15 @@ describe('createVercelCredentialStore', () => {
 
         expect(transition).toMatchObject({ epoch: 4, predecessor });
         expect(pendingRows).toEqual(new Map());
-        account = { ...account, vercelConnectionState: 'finalizing' };
+        account = { ...account, cloudflareConnectionState: 'finalizing' };
         await expect((store as any).stageConnectionReplacementInTransaction(transaction, 'account-1', 4, 'replacement-nonce', {
             version: 1, accessToken: 'replacement-secret', configurationId: 'cfg-a',
         })).resolves.toBe(true);
         expect(tokenUpsert).toHaveBeenCalledWith(expect.objectContaining({
-            where: { accountId_vendor: { accountId: 'account-1', vendor: 'provider:vercel:pending:4:replacement-nonce' } },
+            where: { accountId_vendor: { accountId: 'account-1', vendor: 'provider:cloudflare:pending:4:replacement-nonce' } },
         }));
 
-        account = { ...account, vercelConnectionEpoch: 5, vercelConnectionState: 'active', vercelConnectionNonce: 'later-nonce', vercelConnectionReplacementId: null };
+        account = { ...account, cloudflareConnectionEpoch: 5, cloudflareConnectionState: 'active', cloudflareConnectionNonce: 'later-nonce', cloudflareConnectionReplacementId: null };
         await expect((store as any).stageConnectionReplacementInTransaction(transaction, 'account-1', 4, 'replacement-nonce', {
             version: 1, accessToken: 'late-secret', configurationId: 'cfg-a',
         })).resolves.toBe(false);
@@ -79,7 +79,7 @@ describe('createVercelCredentialStore', () => {
             encrypted = null;
             return true;
         });
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: {
                 find: vi.fn(async () => encrypted), upsert: vi.fn(), compareAndSet: vi.fn(), createIfAbsent: vi.fn(), deleteIfCurrent, delete: vi.fn(),
             },
@@ -101,7 +101,7 @@ describe('createVercelCredentialStore', () => {
         let encrypted = encode({ version: 1, accessToken: 'old-secret', configurationId: 'cfg-old', connectionEpoch: 0 });
         const newer = { version: 1 as const, accessToken: 'newer-secret', configurationId: 'cfg-newer', connectionEpoch: 2 };
         let concurrentWrite = true;
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: {
                 find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), createIfAbsent: vi.fn(),
                 compareAndSet: vi.fn(async (_accountId, _key, _expected, value) => {
@@ -138,7 +138,7 @@ describe('createVercelCredentialStore', () => {
             }),
             delete: vi.fn(),
         };
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository,
             encrypt: (_path, value) => encode(JSON.parse(value)),
             decrypt: (_path, value) => decode(value),
@@ -157,7 +157,7 @@ describe('createVercelCredentialStore', () => {
         const encrypted = new Uint8Array([7, 7, 7]);
         const compareAndSet = vi.fn(async () => false);
         const encrypt = vi.fn(() => new Uint8Array([8, 8, 8]));
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), compareAndSet },
             encrypt,
             decrypt: vi.fn(() => JSON.stringify({ version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1' })),
@@ -167,10 +167,10 @@ describe('createVercelCredentialStore', () => {
             version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1',
         }, 'prj_happy')).resolves.toBe(false);
         expect(encrypt).toHaveBeenCalledWith(
-            ['user', 'account-1', 'providers', 'vercel', 'credential'],
+            ['user', 'account-1', 'providers', 'cloudflare', 'credential'],
             JSON.stringify({ version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' }),
         );
-        expect(compareAndSet).toHaveBeenCalledWith('account-1', 'provider:vercel', encrypted, new Uint8Array([8, 8, 8]));
+        expect(compareAndSet).toHaveBeenCalledWith('account-1', 'provider:cloudflare', encrypted, new Uint8Array([8, 8, 8]));
     });
 
     it.each([
@@ -180,7 +180,7 @@ describe('createVercelCredentialStore', () => {
         ['changed configuration scope', new Uint8Array([6]), { version: 1, accessToken: 'token-a', configurationId: 'icfg_2', teamId: 'team_1' }],
     ])('does not resurrect a %s connection while persisting projectId', async (_race, encrypted, current) => {
         const compareAndSet = vi.fn(async () => true);
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), compareAndSet },
             encrypt: vi.fn(),
             decrypt: vi.fn(() => JSON.stringify(current)),
@@ -195,7 +195,7 @@ describe('createVercelCredentialStore', () => {
     it('encrypts the complete credential with an account-scoped provider path', async () => {
         const upsert = vi.fn(async () => undefined);
         const encrypt = vi.fn(() => new Uint8Array([1, 2, 3]));
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(async () => null), upsert, delete: vi.fn(async () => undefined), compareAndSet: vi.fn() },
             encrypt,
             decrypt: vi.fn(),
@@ -210,7 +210,7 @@ describe('createVercelCredentialStore', () => {
         });
 
         expect(encrypt).toHaveBeenCalledWith(
-            ['user', 'account-1', 'providers', 'vercel', 'credential'],
+            ['user', 'account-1', 'providers', 'cloudflare', 'credential'],
             JSON.stringify({
                 version: 1,
                 accessToken: 'secret-token',
@@ -219,7 +219,7 @@ describe('createVercelCredentialStore', () => {
                 teamName: 'Paws',
             }),
         );
-        expect(upsert).toHaveBeenCalledWith('account-1', 'provider:vercel', new Uint8Array([1, 2, 3]));
+        expect(upsert).toHaveBeenCalledWith('account-1', 'provider:cloudflare', new Uint8Array([1, 2, 3]));
     });
 
     it('decrypts, validates, and deletes provider credentials', async () => {
@@ -230,7 +230,7 @@ describe('createVercelCredentialStore', () => {
             accessToken: 'secret-token',
             configurationId: 'icfg_456',
         }));
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(async () => undefined), delete: remove, compareAndSet: vi.fn() },
             encrypt: vi.fn(),
             decrypt,
@@ -242,15 +242,15 @@ describe('createVercelCredentialStore', () => {
             configurationId: 'icfg_456',
         });
         expect(decrypt).toHaveBeenCalledWith(
-            ['user', 'account-2', 'providers', 'vercel', 'credential'],
+            ['user', 'account-2', 'providers', 'cloudflare', 'credential'],
             encrypted,
         );
         await store.delete('account-2');
-        expect(remove).toHaveBeenCalledWith('account-2', 'provider:vercel');
+        expect(remove).toHaveBeenCalledWith('account-2', 'provider:cloudflare');
     });
 
     it('fails closed for malformed decrypted records', async () => {
-        const store = createVercelCredentialStore({
+        const store = createCloudflareCredentialStore({
             repository: { find: vi.fn(async () => new Uint8Array([1])), upsert: vi.fn(), delete: vi.fn(), compareAndSet: vi.fn() },
             encrypt: vi.fn(),
             decrypt: vi.fn(() => JSON.stringify({ version: 1, accessToken: '', configurationId: 'x', extra: true })),

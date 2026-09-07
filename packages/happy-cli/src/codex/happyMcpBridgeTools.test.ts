@@ -39,7 +39,7 @@ describe('registerHappyBridgeTools', () => {
         const { server, registrations } = createServerMock();
         const callTool = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'published' }] }));
         registerHappyBridgeTools(server, async () => ({ callTool }) as unknown as Client);
-        const args = { previewId: '11111111-1111-4111-8111-111111111111', provider: 'cloudflare' };
+        const args = { previewId: '11111111-1111-4111-8111-111111111111', mode: 'tunnel' };
         await registrations.find((tool) => tool.name === 'publish_preview')!.handler(args);
         expect(callTool).toHaveBeenCalledWith({ name: 'publish_preview', arguments: args });
     });

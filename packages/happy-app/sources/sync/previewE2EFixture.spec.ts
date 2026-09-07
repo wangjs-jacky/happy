@@ -20,14 +20,12 @@ describe('createPreviewE2EFixture', () => {
         expect(createPreviewE2EFixture(`${authenticatedUrl}&happy_preview_fixture=connected`)).toBeNull();
     });
 
-    it('provides deterministic connection, callback, retry, and disconnect-warning states', () => {
+    it('provides deterministic connection, retry, and disconnect-warning states', () => {
         vi.stubEnv('NODE_ENV', 'test');
         vi.stubEnv('EXPO_PUBLIC_HAPPY_E2E_FIXTURES', '1');
 
         const disconnected = createPreviewE2EFixture(`${authenticatedUrl}&happy_preview_fixture=disconnected`)!;
         expect(disconnected.getStatus()).toMatchObject({ available: true, connected: false });
-        expect(disconnected.connectUrl()).toContain('happy_preview_fixture=connected');
-        expect(disconnected.connectUrl()).toContain('vercel=connected');
         disconnected.markConnected();
         expect(disconnected.getStatus()).toMatchObject({ connected: true, account: { projectId: 'happy-previews' } });
 
@@ -38,7 +36,7 @@ describe('createPreviewE2EFixture', () => {
         expect(retry.getStatus()).toMatchObject({ available: true, connected: false });
 
         const warning = createPreviewE2EFixture(`${authenticatedUrl}&happy_preview_fixture=disconnect-warning`)!;
-        expect(warning.disconnect()).toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        expect(warning.disconnect()).toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
         expect(warning.getStatus()).toMatchObject({ connected: false });
     });
 

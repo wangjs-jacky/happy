@@ -2,22 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { cleanupInteractivePreviewRows, createPreviewCleanup } from './previewCleanup';
 
 describe('cleanupInteractivePreviewRows', () => {
-    it('removes expired draft staging without calling Vercel', async () => {
+    it('removes expired draft staging without calling Cloudflare', async () => {
         const dependencies: any = { deleteStaging: vi.fn(), deleteDeployment: vi.fn(), markExpired: vi.fn() };
-        await cleanupInteractivePreviewRows([{ id: 'p1', status: 'draft', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p1', status: 'draft', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: null }], dependencies);
         expect(dependencies.deleteStaging).toHaveBeenCalledWith('u1', 'p1', 'generation-1'); expect(dependencies.deleteDeployment).not.toHaveBeenCalled();
         expect(dependencies.markExpired).toHaveBeenCalledWith('p1');
     });
     it('retains the row for retry when provider deletion fails', async () => {
         const dependencies: any = { deleteStaging: vi.fn(), deleteDeployment: vi.fn(async () => { throw new Error('provider down'); }), markExpired: vi.fn(), retainForRetry: vi.fn() };
-        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_1' }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_1' }], dependencies);
         expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_1');
         expect(dependencies.markExpired).not.toHaveBeenCalled();
         expect(dependencies.retainForRetry).toHaveBeenCalledWith('p2');
     });
 
     it('does not delete an unknown legacy scope with an unproven personal credential', async () => {
-        const row: any = { id: 'legacy', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_legacy', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const row: any = { id: 'legacy', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_legacy', cloudflareTeamId: null, cloudflareScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status && where.status !== row.status) return { count: 0 };
             Object.assign(row, data); return { count: 1 };
@@ -33,13 +33,13 @@ describe('cleanupInteractivePreviewRows', () => {
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
         expect(deleteDeployment).not.toHaveBeenCalled();
-        expect(row).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_legacy' });
+        expect(row).toMatchObject({ status: 'deleting', cloudflareDeploymentId: 'dpl_legacy' });
     });
 
     it('retains an unknown legacy deployment when the current team candidate returns 404', async () => {
-        const row: any = { id: 'legacy-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_gone', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const row: any = { id: 'legacy-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_gone', cloudflareTeamId: null, cloudflareScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
         const updateMany = vi.fn(async ({ where, data }: any) => {
-            if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            if (where.status && where.status !== row.status || 'cloudflareDeploymentId' in where && where.cloudflareDeploymentId !== row.cloudflareDeploymentId) return { count: 0 };
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
         });
@@ -54,14 +54,14 @@ describe('cleanupInteractivePreviewRows', () => {
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
         expect(deleteDeployment).not.toHaveBeenCalled();
-        expect(row).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_gone' });
+        expect(row).toMatchObject({ status: 'deleting', cloudflareDeploymentId: 'dpl_gone' });
         expect(row.cleanupNextAttemptAt).toEqual(new Date('2026-09-04T01:01:00Z'));
     });
 
     it('deletes a legacy deployment after the current encrypted team candidate proves ownership', async () => {
-        const row: any = { id: 'legacy-team', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_team', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const row: any = { id: 'legacy-team', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_team', cloudflareTeamId: null, cloudflareScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
         const updateMany = vi.fn(async ({ where, data }: any) => {
-            if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            if (where.status && where.status !== row.status || 'cloudflareDeploymentId' in where && where.cloudflareDeploymentId !== row.cloudflareDeploymentId) return { count: 0 };
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
         });
@@ -78,13 +78,13 @@ describe('cleanupInteractivePreviewRows', () => {
 
         expect(clientFactory).toHaveBeenCalledWith({ token: 'team-secret', teamId: 'team-current' });
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_team');
-        expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null, vercelTeamId: 'team-current', vercelScopeKnown: true });
+        expect(row).toMatchObject({ status: 'expired', cloudflareDeploymentId: null, cloudflareTeamId: 'team-current', cloudflareScopeKnown: true });
     });
 
     it('accepts an idempotent 404 only after an explicitly personal scope was persisted', async () => {
-        const row: any = { id: 'personal-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_personal', vercelTeamId: null, vercelScopeKnown: true, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const row: any = { id: 'personal-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_personal', cloudflareTeamId: null, cloudflareScopeKnown: true, cleanupClaimedAt: null, cleanupRetryCount: 0 };
         const updateMany = vi.fn(async ({ where, data }: any) => {
-            if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            if (where.status && where.status !== row.status || 'cloudflareDeploymentId' in where && where.cloudflareDeploymentId !== row.cloudflareDeploymentId) return { count: 0 };
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
         });
@@ -99,7 +99,7 @@ describe('cleanupInteractivePreviewRows', () => {
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_personal');
-        expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null });
+        expect(row).toMatchObject({ status: 'expired', cloudflareDeploymentId: null });
     });
 
     it('checkpoints provider deletion before a staging failure so the retry is OSS-only', async () => {
@@ -108,7 +108,7 @@ describe('cleanupInteractivePreviewRows', () => {
             deleteDeployment: vi.fn(), markProviderDeleted: vi.fn(), markExpired: vi.fn(), retainForRetry: vi.fn(),
         };
 
-        await cleanupInteractivePreviewRows([{ id: 'p3', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_3' }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p3', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_3' }], dependencies);
 
         expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_3');
         expect(dependencies.markProviderDeleted).toHaveBeenCalledWith('p3', 'dpl_3');
@@ -123,7 +123,7 @@ describe('cleanupInteractivePreviewRows', () => {
         const cleanup = createPreviewCleanup({
             database: { interactivePreview: {
                 updateMany,
-                findMany: vi.fn(async () => [{ id: 'p4', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_4' }]),
+                findMany: vi.fn(async () => [{ id: 'p4', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_4' }]),
                 deleteMany: vi.fn(async () => ({ count: 0 })),
             } } as any,
             storage: { deletePreview: vi.fn(async () => {}) } as any,
@@ -141,19 +141,19 @@ describe('cleanupInteractivePreviewRows', () => {
             where: expect.objectContaining({ id: 'p4', status: 'failed' }), data: expect.objectContaining({ status: 'deleting' }),
         }));
         expect(updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({
-            where: expect.objectContaining({ id: 'p4', status: 'deleting', vercelDeploymentId: 'dpl_4', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
-            data: expect.objectContaining({ vercelDeploymentId: null, publicationAttemptId: null }),
+            where: expect.objectContaining({ id: 'p4', status: 'deleting', cloudflareDeploymentId: 'dpl_4', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
+            data: expect.objectContaining({ cloudflareDeploymentId: null, publicationAttemptId: null }),
         }));
         expect(updateMany).toHaveBeenNthCalledWith(4, expect.objectContaining({
             where: expect.objectContaining({ id: 'p4', status: 'deleting', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
-            data: expect.objectContaining({ status: 'expired', url: null, vercelDeploymentId: null }),
+            data: expect.objectContaining({ status: 'expired', url: null, cloudflareDeploymentId: null }),
         }));
     });
 
     it('persists a bounded first retry delay after cleanup failure', async () => {
         const updateMany = vi.fn().mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
         const cleanup = createPreviewCleanup({
-            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
             storage: { deletePreview: vi.fn(async () => { throw new Error('oss down'); }) } as any,
             credentialStore: { get: vi.fn() } as any, clientFactory: vi.fn() as any,
         });
@@ -166,7 +166,7 @@ describe('cleanupInteractivePreviewRows', () => {
     });
 
     it('retries ready staging cleanup without deleting the live deployment before its 24-hour expiry', async () => {
-        const row: any = { id: 'p6', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_live', stagingCleanupPending: true,
+        const row: any = { id: 'p6', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', cloudflareDeploymentId: 'dpl_live', stagingCleanupPending: true,
             expiresAt: new Date('2026-09-05T01:00:00Z'), cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status === 'publishing') return { count: 0 };
@@ -185,7 +185,7 @@ describe('cleanupInteractivePreviewRows', () => {
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
         expect(deleteDeployment).not.toHaveBeenCalled();
-        expect(row).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_live', stagingCleanupPending: false });
+        expect(row).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_live', stagingCleanupPending: false });
     });
 
     it('prunes only fully cleaned expired tombstones after the 30-day retention window', async () => {
@@ -199,8 +199,8 @@ describe('cleanupInteractivePreviewRows', () => {
 
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
-        expect(deleteMany).toHaveBeenCalledWith({ where: {
-            status: 'expired', vercelDeploymentId: null, stagingCleanupPending: false,
+        expect(deleteMany).toHaveBeenCalledWith({ where: { stagingGeneration: { startsWith: 'cf-' },
+            status: 'expired', cloudflareDeploymentId: null, stagingCleanupPending: false,
             updatedAt: { lte: new Date('2026-08-05T01:00:00Z') },
         } });
     });

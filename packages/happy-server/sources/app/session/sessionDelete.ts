@@ -97,7 +97,7 @@ export async function sessionDelete(ctx: Context, sessionId: string): Promise<bo
         }, `Deleted ${deletedAccessKeys.count} access keys`);
 
         // 4. Fence externally-backed previews before `Session` sets their relation
-        // to null. The cleanup worker owns Vercel/OSS deletion after the transaction.
+        // to null. The cleanup worker owns Cloudflare/OSS deletion after the transaction.
         await fenceSessionInteractivePreviews(tx, ctx.uid, sessionId);
 
         // 5. Delete the session itself

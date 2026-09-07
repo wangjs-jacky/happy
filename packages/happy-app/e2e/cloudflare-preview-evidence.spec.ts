@@ -1,11 +1,11 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { seedVercelPreviewFixture } from './fixtures/vercel-interactive-previews/fixture';
+import { seedCloudflarePreviewFixture } from './fixtures/cloudflare-interactive-previews/fixture';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
-const evidenceDirectory = path.resolve(process.cwd(), '../../docs/visual-evidence/vercel-interactive-previews');
+const evidenceDirectory = path.resolve(process.cwd(), '../../docs/visual-evidence/cloudflare-interactive-previews');
 
 function authenticatedRoute(pathname: string, fixture?: string): string {
     const url = new URL(authenticatedWebUrl);
@@ -15,7 +15,7 @@ function authenticatedRoute(pathname: string, fixture?: string): string {
 }
 
 function evidencePath(testInfo: TestInfo, filename: string): string {
-    if (process.env.HAPPY_VERCEL_PREVIEW_EVIDENCE_DIR) {
+    if (process.env.HAPPY_CLOUDFLARE_PREVIEW_EVIDENCE_DIR) {
         fs.mkdirSync(evidenceDirectory, { recursive: true });
         return path.join(evidenceDirectory, filename);
     }
@@ -26,12 +26,12 @@ async function expectFixtureReady(page: Page, testId: string): Promise<void> {
     await expect(page.getByTestId(testId)).toBeVisible({ timeout: 60_000 });
 }
 
-test.describe('Happy-managed Vercel preview PC Web evidence', () => {
+test.describe('Happy-managed Cloudflare preview PC Web evidence', () => {
     test.beforeEach(async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
     });
 
-    test('[PREVIEW-SETTINGS] covers availability, popup callback, retry, and disconnect cleanup warning', async ({ page }, testInfo) => {
+    test('[PREVIEW-SETTINGS] covers availability, token form, retry, and disconnect cleanup warning', async ({ page }, testInfo) => {
         test.setTimeout(120_000);
 
         await page.goto(authenticatedRoute('/settings/temporary-previews', 'unavailable'));
@@ -41,17 +41,13 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
 
         await page.goto(authenticatedRoute('/settings/temporary-previews', 'disconnected'));
         await expect(page.getByTestId('temporary-previews-connect')).toBeVisible();
-        const popupPromise = page.waitForEvent('popup');
         await page.getByTestId('temporary-previews-connect').click();
-        const popup = await popupPromise;
-        await popup.waitForEvent('close');
+        await page.getByTestId('temporary-previews-account-id').fill('a'.repeat(32));
+        await page.getByTestId('temporary-previews-api-token').fill('fixture-token-not-a-real-secret');
+        await expect(page.getByTestId('temporary-previews-api-token')).toHaveAttribute('type', 'password');
+        await page.getByTestId('temporary-previews-save').click();
         await expect(page.getByTestId('temporary-previews-project')).toContainText('happy-previews');
         await expect(page.getByTestId('temporary-previews-reconnect')).toBeVisible();
-        const reconnectPopupPromise = page.waitForEvent('popup');
-        await page.getByTestId('temporary-previews-reconnect').click();
-        const reconnectPopup = await reconnectPopupPromise;
-        await reconnectPopup.waitForEvent('close');
-        await expect(page.getByTestId('temporary-previews-project')).toContainText('happy-previews');
 
         await page.goto(authenticatedRoute('/settings/temporary-previews', 'error-once'));
         await expect(page.getByTestId('temporary-previews-error')).toBeVisible();
@@ -68,14 +64,14 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
         await expect(page.getByRole('dialog').last()).toContainText(/remaining deployments|剩余部署|清理/);
 
         await page.screenshot({
-            path: evidencePath(testInfo, 'case-1-vercel-settings-after.png'),
+            path: evidencePath(testInfo, 'case-1-cloudflare-settings-after.png'),
             fullPage: true,
         });
     });
 
     test('[PREVIEW-CARD] renders display-only lifecycle cards and external/copy actions', async ({ page, context }, testInfo) => {
         test.setTimeout(120_000);
-        const fixture = await seedVercelPreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
+        const fixture = await seedCloudflarePreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
         await page.goto(fixture.sessionUrl);
         await expectFixtureReady(page, 'session-message-input');
 
@@ -109,7 +105,7 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
     for (const theme of ['default', 'ginghamDark'] as const) {
         test(`[EGO-POPOVER] opens from inline Skills and isolates repeated runs (${theme})`, async ({ page }, testInfo) => {
             test.setTimeout(120_000);
-            const fixture = await seedVercelPreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
+            const fixture = await seedCloudflarePreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
             if (theme === 'ginghamDark') {
                 await page.goto(authenticatedRoute('/settings/appearance'));
                 await page.getByTestId('appearance-theme-pack-gingham').click();

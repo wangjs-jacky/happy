@@ -34,7 +34,7 @@ import { pluginRoutes } from "@/app/api/routes/pluginRoutes";
 import { publicSessionShareRoutes } from "./routes/publicSessionShareRoutes";
 import { externalSessionShareRoutes } from "./routes/externalSessionShareRoutes";
 import { mcpAppSandboxRoutes } from "./routes/mcpAppSandboxRoutes";
-import { vercelConnectRoutes } from "./routes/vercelConnectRoutes";
+import { cloudflareConnectRoutes } from "./routes/cloudflareConnectRoutes";
 import { interactivePreviewRoutes } from "./routes/interactivePreviewRoutes";
 import { isLiteralMcpAppSandboxRequestUrl } from './mcpAppSandboxHttp';
 import * as path from "path";
@@ -152,7 +152,7 @@ export async function createApiApp(opts: StartApiOptions = {}): Promise<Fastify>
     sessionRoutes(typed);
     accountRoutes(typed);
     connectRoutes(typed);
-    vercelConnectRoutes(typed);
+    cloudflareConnectRoutes(typed);
     interactivePreviewRoutes(typed);
     machinesRoutes(typed);
     artifactsRoutes(typed);

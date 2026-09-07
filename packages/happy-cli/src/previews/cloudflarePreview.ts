@@ -118,7 +118,7 @@ export async function startCloudflarePreview(
         if (stopped || signal?.aborted) throw new Error('Cloudflare preview was stopped');
         const publishedAt = Date.now();
         ready = { version: 1, id: workspace.manifest.previewId, title: workspace.manifest.title,
-            provider: 'cloudflare', state: 'ready', url, publishedAt, expiresAt: publishedAt + MAX_LIFETIME_MS };
+            provider: 'cloudflare', mode: 'tunnel', state: 'ready', url, publishedAt, expiresAt: publishedAt + MAX_LIFETIME_MS };
         timer = setTimeout(stop, MAX_LIFETIME_MS);
         timer.unref();
         return { preview: ready, stop };

@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { createPreviewService, previewRowToEvent } from './previewService';
-import { createVercelCredentialStore } from './vercelCredentialStore';
+import { createCloudflareCredentialStore } from './cloudflareCredentialStore';
 
 describe('createPreviewService publication', () => {
     it('returns fresh upload descriptors for the same canonical account-session draft without recreating its persisted asset key', async () => {
         const previewId = '12121212-1212-4121-8121-121212121212';
-        const storageKey = 'private/interactive-previews/u1/12121212-1212-4121-8121-121212121212/generation-1/index';
+        const storageKey = 'private/interactive-previews/u1/12121212-1212-4121-8121-121212121212/cf-generation-1/index';
         const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
-        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status: 'draft', expiresAt: new Date('2100-01-01T00:00:00.000Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
+        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status: 'draft', expiresAt: new Date('2100-01-01T00:00:00.000Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'cf-generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
         const create = vi.fn(async () => existing);
         const createUpload = vi.fn(async () => ({ method: 'POST' as const, uploadUrl: 'https://oss.test/fresh', formFields: { key: 'fresh' } }));
         const database: any = { session: { findFirst: vi.fn(async () => ({ id: 's1' })) }, interactivePreview: { findUnique: vi.fn(async () => existing), create } };
@@ -27,19 +27,19 @@ describe('createPreviewService publication', () => {
         const previewId = '11111111-1111-4111-8111-111111111111';
         const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
         let accountFenceHeld = false;
-        const created: any = { id: previewId, accountId: 'u1', sessionId: 's1', status: 'draft', expiresAt: new Date('2026-09-05T00:00:00Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey: 'private/interactive-previews/u1/11111111-1111-4111-8111-111111111111/generation-1/index' }] };
+        const created: any = { id: previewId, accountId: 'u1', sessionId: 's1', status: 'draft', expiresAt: new Date('2026-09-05T00:00:00Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'cf-generation-1', assets: [{ ...manifest.assets[0], storageKey: 'private/interactive-previews/u1/11111111-1111-4111-8111-111111111111/cf-generation-1/index' }] };
         const create = vi.fn(async () => {
             if (!accountFenceHeld) throw new Error('draft insert escaped its account fence');
             return created;
         });
         const database: any = {
             session: { findFirst: vi.fn(async () => ({ id: 's1' })) },
-            account: { findUnique: vi.fn(async () => ({ vercelConnectionEpoch: 0, vercelConnectionState: 'active' })), updateMany: vi.fn(async () => ({ count: 0 })) },
+            account: { findUnique: vi.fn(async () => ({ cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active' })), updateMany: vi.fn(async () => ({ count: 0 })) },
             interactivePreview: { findUnique: vi.fn(async () => null), create },
             $transaction: vi.fn(async (work: any) => work({
                 session: { findFirst: vi.fn(async () => ({ id: 's1' })) },
                 account: {
-                    findUnique: vi.fn(async () => ({ vercelConnectionEpoch: 0, vercelConnectionState: 'active' })),
+                    findUnique: vi.fn(async () => ({ cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active' })),
                     updateMany: vi.fn(async () => { accountFenceHeld = true; return { count: 1 }; }),
                 },
                 interactivePreview: { findUnique: vi.fn(async () => null), create },
@@ -62,7 +62,7 @@ describe('createPreviewService publication', () => {
         const previewId = '15151515-1515-4151-8151-151515151515';
         const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
         const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status, expiresAt, cleanupClaimedAt, manifest,
-            assets: [{ ...manifest.assets[0], storageKey: `private/interactive-previews/u1/${previewId}/generation-1/index` }] };
+            assets: [{ ...manifest.assets[0], storageKey: `private/interactive-previews/u1/${previewId}/cf-generation-1/index` }] };
         const createUpload = vi.fn();
         const database: any = { session: { findFirst: vi.fn(async () => ({ id: 's1' })) }, interactivePreview: { findUnique: vi.fn(async () => existing), create: vi.fn() } };
         const service = createPreviewService({ database, storage: { createUpload } as any, credentialStore: {} as any, clientFactory: vi.fn() as any, now: () => new Date('2026-09-04T01:00:00.000Z') });
@@ -88,7 +88,7 @@ describe('createPreviewService publication', () => {
 
     it('uses the persisted asset storage key only after matching the account and session for completion', async () => {
         const previewId = '14141414-1414-4141-8141-141414141414';
-        const storageKey = 'private/interactive-previews/u1/14141414-1414-4141-8141-141414141414/generation-1/index';
+        const storageKey = 'private/interactive-previews/u1/14141414-1414-4141-8141-141414141414/cf-generation-1/index';
         const findFirst = vi.fn(async () => ({ assets: [{ id: 'index', size: 12, storageKey }] }));
         const assertUploaded = vi.fn(async () => {});
         const database: any = { interactivePreview: { findFirst }, interactivePreviewAsset: { update: vi.fn(async () => {}) } };
@@ -96,7 +96,7 @@ describe('createPreviewService publication', () => {
 
         await service.completeAsset('u1', 's1', previewId, 'index');
 
-        expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: previewId, accountId: 'u1', sessionId: 's1', status: 'draft' } }));
+        expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { stagingGeneration: { startsWith: 'cf-' }, id: previewId, accountId: 'u1', sessionId: 's1', status: 'draft' } }));
         expect(assertUploaded).toHaveBeenCalledWith(storageKey, 12);
     });
 
@@ -106,7 +106,7 @@ describe('createPreviewService publication', () => {
 
         await expect(service.list('u1', 's1')).resolves.toEqual([]);
 
-        expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { accountId: 'u1', sessionId: 's1' } }));
+        expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { stagingGeneration: { startsWith: 'cf-' }, accountId: 'u1', sessionId: 's1' } }));
     });
 
     it('projects a deleting tombstone as an expired preview without its URL', () => {
@@ -127,8 +127,8 @@ describe('createPreviewService publication', () => {
         const row: any = {
             id: '90909090-9090-4090-8090-909090909090', accountId: 'u1', sessionId: 's1', title: 'Expired', status: 'draft',
             url: null, publishedAt: null, expiresAt: claimTime, errorCode: null, publicationGeneration: 0, connectionGeneration: 0,
-            stagingGeneration: 'generation-1', cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/90909090-9090-4090-8090-909090909090/generation-1/index', uploadedAt: claimTime }],
+            stagingGeneration: 'cf-generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/90909090-9090-4090-8090-909090909090/cf-generation-1/index', uploadedAt: claimTime }],
         };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status?.in?.includes(row.status) && where.expiresAt?.gt?.getTime?.() === claimTime.getTime()) {
@@ -160,7 +160,7 @@ describe('createPreviewService publication', () => {
     });
 
     it('turns an explicit delete into a retryable tombstone when credentials are unavailable', async () => {
-        const row: any = { id: '77777777-7777-4777-8777-777777777777', accountId: 'u1', sessionId: 's1', status: 'ready', vercelDeploymentId: 'dpl_7' };
+        const row: any = { id: '77777777-7777-4777-8777-777777777777', accountId: 'u1', sessionId: 's1', status: 'ready', cloudflareDeploymentId: 'dpl_7' };
         const updateMany = vi.fn(async () => ({ count: 1 }));
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany, delete: vi.fn() } };
         const storage = { deletePreview: vi.fn() } as any;
@@ -187,11 +187,11 @@ describe('createPreviewService publication', () => {
         const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg-old', teamId: 'team-old', projectId: 'prj_old' };
         const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg-new', teamId: 'team-new' };
         const row: any = {
-            id: '16161616-1616-4161-8161-161616161616', accountId: 'u1', status: 'ready', vercelDeploymentId: 'dpl_old',
-            vercelTeamId: 'team-old', stagingGeneration: 'generation-1', cleanupClaimedAt: null, assets: [],
+            id: '16161616-1616-4161-8161-161616161616', accountId: 'u1', status: 'ready', cloudflareDeploymentId: 'dpl_old',
+            cloudflareTeamId: 'team-old', stagingGeneration: 'cf-generation-1', cleanupClaimedAt: null, assets: [],
         };
         let stored: any = previous;
-        const account: any = { vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionReplacementId: null };
+        const account: any = { cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active', cloudflareConnectionReplacementId: null };
         const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => {
             account[key] = value?.increment === undefined ? value : account[key] + value.increment;
         });
@@ -219,12 +219,12 @@ describe('createPreviewService publication', () => {
         const clientFactory = vi.fn((credential: { token: string; teamId?: string }) => ({ deleteDeployment, credential }));
         const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: clientFactory as any });
 
-        await expect(service.reconnectVercel('u1', replacement)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
+        await expect(service.reconnectCloudflare('u1', replacement)).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
 
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_old');
         expect(clientFactory).toHaveBeenCalledWith({ token: 'old-secret', teamId: 'team-old' });
         expect(stored).toEqual(previous);
-        expect(row).toMatchObject({ status: 'deleting', errorCode: 'VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING' });
+        expect(row).toMatchObject({ status: 'deleting', errorCode: 'CLOUDFLARE_CONNECTION_REPLACEMENT_CLEANUP_PENDING' });
         expect(credentialStore.replaceAtConnectionEpoch).not.toHaveBeenCalled();
     });
 
@@ -238,9 +238,9 @@ describe('createPreviewService publication', () => {
         let signalFirstWrite!: () => void;
         const firstWriteStarted = new Promise<void>((resolve) => { signalFirstWrite = resolve; });
         let writes = 0;
-        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionReplacementId: null };
-        const matches = (where: any) => (!where.vercelConnectionState || where.vercelConnectionState === account.vercelConnectionState)
-            && (!where.vercelConnectionReplacementId || where.vercelConnectionReplacementId === account.vercelConnectionReplacementId);
+        const account: any = { id: 'u1', cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active', cloudflareConnectionReplacementId: null };
+        const matches = (where: any) => (!where.cloudflareConnectionState || where.cloudflareConnectionState === account.cloudflareConnectionState)
+            && (!where.cloudflareConnectionReplacementId || where.cloudflareConnectionReplacementId === account.cloudflareConnectionReplacementId);
         const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => {
             account[key] = value?.increment === undefined ? value : account[key] + value.increment;
         });
@@ -294,15 +294,15 @@ describe('createPreviewService publication', () => {
             clientFactory: vi.fn() as any,
         });
 
-        const first = service.reconnectVercel('u1', firstReplacement);
+        const first = service.reconnectCloudflare('u1', firstReplacement);
         await firstWriteStarted;
-        const later = service.reconnectVercel('u1', laterReplacement);
+        const later = service.reconnectCloudflare('u1', laterReplacement);
         await expect(later).resolves.toBeUndefined();
         releaseFirstWrite();
-        await expect(first).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+        await expect(first).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_SUPERSEDED');
 
         expect(stored).toMatchObject({ ...laterReplacement, connectionEpoch: 2 });
-        expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionEpoch: 2, vercelConnectionReplacementId: null });
+        expect(account).toMatchObject({ cloudflareConnectionState: 'active', cloudflareConnectionEpoch: 2, cloudflareConnectionReplacementId: null });
     });
 
     it('does not let a delayed disconnect erase a reconnect that begins after its epoch fence', async () => {
@@ -313,17 +313,17 @@ describe('createPreviewService publication', () => {
         let signalDelete!: () => void;
         const deleteBlocked = new Promise<void>((resolve) => { releaseDelete = resolve; });
         const deleteStarted = new Promise<void>((resolve) => { signalDelete = resolve; });
-        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionNonce: null, vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null };
+        const account: any = { id: 'u1', cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active', cloudflareConnectionNonce: null, cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null };
         const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => { account[key] = value?.increment === undefined ? value : account[key] + value.increment; });
         const database: any = {
             $transaction: async (work: any) => work({
-                account: { update: vi.fn(async ({ data }: any) => { apply(data); return { vercelConnectionEpoch: account.vercelConnectionEpoch }; }) },
+                account: { update: vi.fn(async ({ data }: any) => { apply(data); return { cloudflareConnectionEpoch: account.cloudflareConnectionEpoch }; }) },
                 interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })) },
             }),
             account: { findUnique: vi.fn(async () => ({ ...account })), updateMany: vi.fn(async ({ where, data }: any) => {
-                if (where.vercelConnectionState && where.vercelConnectionState !== account.vercelConnectionState) return { count: 0 };
-                if (where.vercelConnectionNonce && where.vercelConnectionNonce !== account.vercelConnectionNonce) return { count: 0 };
-                if (where.vercelConnectionReplacementId && where.vercelConnectionReplacementId !== account.vercelConnectionReplacementId) return { count: 0 };
+                if (where.cloudflareConnectionState && where.cloudflareConnectionState !== account.cloudflareConnectionState) return { count: 0 };
+                if (where.cloudflareConnectionNonce && where.cloudflareConnectionNonce !== account.cloudflareConnectionNonce) return { count: 0 };
+                if (where.cloudflareConnectionReplacementId && where.cloudflareConnectionReplacementId !== account.cloudflareConnectionReplacementId) return { count: 0 };
                 apply(data); return { count: 1 };
             }) },
             interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })), findMany: vi.fn(async () => []) },
@@ -339,13 +339,13 @@ describe('createPreviewService publication', () => {
         };
         const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: vi.fn() as any });
 
-        const disconnect = service.disconnectVercel('u1');
+        const disconnect = service.disconnectCloudflare('u1');
         await deleteStarted;
-        await expect(service.reconnectVercel('u1', replacement)).resolves.toBeUndefined();
+        await expect(service.reconnectCloudflare('u1', replacement)).resolves.toBeUndefined();
         releaseDelete();
-        await expect(disconnect).resolves.toMatchObject({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        await expect(disconnect).resolves.toMatchObject({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
 
-        expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionEpoch: 2 });
+        expect(account).toMatchObject({ cloudflareConnectionState: 'active', cloudflareConnectionEpoch: 2 });
         expect(stored).toMatchObject({ accessToken: 'new-secret', connectionEpoch: 2 });
     });
 
@@ -355,7 +355,7 @@ describe('createPreviewService publication', () => {
         const draft: any = { id: 'draft', accountId: 'u1', status: 'draft', connectionGeneration: 0, publicationGeneration: 0, publicationAttemptId: null };
         const publishing: any = { id: 'publishing', accountId: 'u1', status: 'publishing', connectionGeneration: 0, publicationGeneration: 4, publicationAttemptId: 'attempt-1' };
         const rows = [draft, publishing];
-        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionReplacementId: null };
+        const account: any = { id: 'u1', cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active', cloudflareConnectionReplacementId: null };
         const apply = (target: any, data: any) => Object.entries(data).forEach(([key, value]: any) => { target[key] = value?.increment === undefined ? value : target[key] + value.increment; });
         const updateRows = vi.fn(async ({ where, data }: any) => {
             const matching = rows.filter((row) => row.accountId === where.accountId
@@ -365,7 +365,7 @@ describe('createPreviewService publication', () => {
         });
         const database: any = {
             $transaction: async (work: any) => work({
-                account: { update: vi.fn(async ({ data }: any) => { apply(account, data); return { vercelConnectionEpoch: account.vercelConnectionEpoch }; }) },
+                account: { update: vi.fn(async ({ data }: any) => { apply(account, data); return { cloudflareConnectionEpoch: account.cloudflareConnectionEpoch }; }) },
                 interactivePreview: { updateMany: updateRows },
             }),
             account: { findUnique: vi.fn(async () => ({ ...account })), updateMany: vi.fn(async ({ data }: any) => { apply(account, data); return { count: 1 }; }) },
@@ -373,7 +373,7 @@ describe('createPreviewService publication', () => {
         };
         const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore: { get: vi.fn(async () => previous), replaceAtConnectionVersion: vi.fn(async () => true), replaceAtConnectionEpoch: vi.fn(async () => true) } as any, clientFactory: vi.fn() as any });
 
-        await service.reconnectVercel('u1', replacement);
+        await service.reconnectCloudflare('u1', replacement);
 
         expect(draft).toMatchObject({ status: 'draft', connectionGeneration: 1 });
         expect(publishing).toMatchObject({ status: 'deleting', connectionGeneration: 1, publicationGeneration: 5 });
@@ -385,10 +385,10 @@ describe('createPreviewService publication', () => {
         const row: any = {
             id: '17171717-1717-4171-8171-171717171717', accountId: 'u1', sessionId: 's1', title: 'Blocked', status: 'draft',
             url: null, publishedAt: null, expiresAt: new Date('2026-09-04T03:00:00.000Z'), errorCode: null,
-            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'generation-1', cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/17171717-1717-4171-8171-171717171717/generation-1/index', uploadedAt: claimTime }],
+            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'cf-generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/17171717-1717-4171-8171-171717171717/cf-generation-1/index', uploadedAt: claimTime }],
         };
-        const account: any = { vercelConnectionEpoch: 1, vercelConnectionState: 'replacing', vercelConnectionReplacementId: 'replacement-1' };
+        const account: any = { cloudflareConnectionEpoch: 1, cloudflareConnectionState: 'replacing', cloudflareConnectionReplacementId: 'replacement-1' };
         let releaseCredentialWrite!: () => void;
         const credentialWriteBarrier = new Promise<void>((resolve) => { releaseCredentialWrite = resolve; });
         let barrierOpen!: () => void;
@@ -396,8 +396,8 @@ describe('createPreviewService publication', () => {
         const replacement = (async () => {
             barrierOpen();
             await credentialWriteBarrier;
-            account.vercelConnectionState = 'active';
-            account.vercelConnectionReplacementId = null;
+            account.cloudflareConnectionState = 'active';
+            account.cloudflareConnectionReplacementId = null;
         })();
         const credentialStore = { get: vi.fn(async () => ({ version: 1 as const, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj' })) };
         const createDeployment = vi.fn(async (input: any) => {
@@ -419,7 +419,7 @@ describe('createPreviewService publication', () => {
         });
 
         await barrierObserved;
-        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_IN_PROGRESS');
         releaseCredentialWrite();
         await replacement;
 
@@ -433,12 +433,12 @@ describe('createPreviewService publication', () => {
         const row: any = {
             id: '18181818-1818-4181-8181-181818181818', accountId: 'u1', sessionId: 's1', title: 'Recovered', status: 'draft',
             url: null, publishedAt: null, expiresAt: new Date('2026-09-04T03:00:00.000Z'), errorCode: null,
-            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'generation-1', cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/18181818-1818-4181-8181-181818181818/generation-1/index', uploadedAt: claimTime }],
+            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'cf-generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/18181818-1818-4181-8181-181818181818/cf-generation-1/index', uploadedAt: claimTime }],
         };
         const account: any = {
-            vercelConnectionEpoch: 1, vercelConnectionState: 'finalizing', vercelConnectionNonce: 'abandoned-replacement', vercelConnectionReplacementId: 'abandoned-replacement',
-            vercelConnectionReplacementStartedAt: new Date('2026-09-04T01:40:00.000Z'),
+            cloudflareConnectionEpoch: 1, cloudflareConnectionState: 'finalizing', cloudflareConnectionNonce: 'abandoned-replacement', cloudflareConnectionReplacementId: 'abandoned-replacement',
+            cloudflareConnectionReplacementStartedAt: new Date('2026-09-04T01:40:00.000Z'),
         };
         const updateMany = vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; });
         const createDeployment = vi.fn(async (input: any) => {
@@ -450,7 +450,7 @@ describe('createPreviewService publication', () => {
                 account: {
                     findUnique: vi.fn(async () => ({ ...account })),
                     updateMany: vi.fn(async ({ where, data }: any) => {
-                        if (where.vercelConnectionReplacementId !== account.vercelConnectionReplacementId) return { count: 0 };
+                        if (where.cloudflareConnectionReplacementId !== account.cloudflareConnectionReplacementId) return { count: 0 };
                         Object.entries(data).forEach(([key, value]: any) => { account[key] = value?.increment === undefined ? value : account[key] + value.increment; });
                         return { count: 1 };
                     }),
@@ -463,16 +463,16 @@ describe('createPreviewService publication', () => {
             now: () => claimTime,
         });
 
-        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('CLOUDFLARE_CONNECTION_REPLACEMENT_IN_PROGRESS');
 
-        expect(account).toMatchObject({ vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null, vercelConnectionEpoch: 2 });
+        expect(account).toMatchObject({ cloudflareConnectionState: 'disconnected', cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null, cloudflareConnectionEpoch: 2 });
         expect(createDeployment).not.toHaveBeenCalled();
     });
 
     it('does not publish when atomic project persistence loses a reconnect or disconnect race', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/66666666-6666-4666-8666-666666666666/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/66666666-6666-4666-8666-666666666666/cf-generation-1/index', uploadedAt: new Date() }] };
         const database: any = { interactivePreview: {
             findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 1 })), update: vi.fn(async ({ data }: any) => Object.assign(row, data)),
         } };
@@ -488,12 +488,12 @@ describe('createPreviewService publication', () => {
         expect(createDeployment).not.toHaveBeenCalled();
     });
 
-    it('rejects an agent-supplied Vercel configuration before it can override Happy no-index headers', async () => {
+    it('rejects an agent-supplied Cloudflare configuration before it can override Happy no-index headers', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '55555555-5555-4555-8555-555555555555', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+        const row: any = { id: '55555555-5555-4555-8555-555555555555', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
             expiresAt: new Date(), errorCode: null, assets: [
-                { id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/55555555-5555-4555-8555-555555555555/generation-1/index', uploadedAt: new Date() },
-                { id: 'config', path: 'vercel.json', mimeType: 'application/json', size: 2, sha256: 'a'.repeat(64), storageKey: 'private/interactive-previews/u1/55555555-5555-4555-8555-555555555555/generation-1/config', uploadedAt: new Date() },
+                { id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/55555555-5555-4555-8555-555555555555/cf-generation-1/index', uploadedAt: new Date() },
+                { id: 'config', path: '_worker.js', mimeType: 'application/json', size: 2, sha256: 'a'.repeat(64), storageKey: 'private/interactive-previews/u1/55555555-5555-4555-8555-555555555555/cf-generation-1/config', uploadedAt: new Date() },
             ] };
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 1 })), update: vi.fn() } };
         const uploadFile = vi.fn(async () => {});
@@ -501,14 +501,14 @@ describe('createPreviewService publication', () => {
             credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any,
             clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_happy' })), uploadFile, createDeployment: vi.fn() })) as any });
 
-        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow(/vercel\.json/i);
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow(/Reserved Cloudflare/i);
         expect(uploadFile).not.toHaveBeenCalled();
     });
 
-    it('uploads a Happy-owned no-index Vercel configuration and deploys its SHA reference', async () => {
+    it('passes only verified static assets to the Pages client (headers are provider-owned)', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '44444444-4444-4444-8444-444444444444', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/44444444-4444-4444-8444-444444444444/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: '44444444-4444-4444-8444-444444444444', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/44444444-4444-4444-8444-444444444444/cf-generation-1/index', uploadedAt: new Date() }] };
         const database: any = { interactivePreview: {
             findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 1 })),
             update: vi.fn(async ({ data }: any) => Object.assign(row, data)),
@@ -516,7 +516,7 @@ describe('createPreviewService publication', () => {
         const uploadFile = vi.fn(async (_sha: string, _bytes: Uint8Array, _mimeType: string) => {});
         const createDeployment = vi.fn(async (input: any) => {
             await input.onCreated({ id: 'dpl_1' });
-            return { id: 'dpl_1', url: 'https://draft.vercel.app', readyState: 'READY' };
+            return { id: 'dpl_1', url: 'https://draft.cloudflare.app', readyState: 'READY' };
         });
         const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
             credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any,
@@ -524,24 +524,14 @@ describe('createPreviewService publication', () => {
 
         await service.publish('u1', 's1', row.id);
 
-        const configUpload = uploadFile.mock.calls.find(([, uploaded, mimeType]) => mimeType === 'application/json' && new TextDecoder().decode(uploaded).includes('X-Robots-Tag'));
-        expect(configUpload).toBeDefined();
-        const [configSha, configBytes] = configUpload!;
-        expect(configSha).toBe(createHash('sha1').update(configBytes).digest('hex'));
-        expect(JSON.parse(new TextDecoder().decode(configBytes))).toEqual({ headers: [{ source: '/(.*)', headers: [
-            { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
-            { key: 'X-Content-Type-Options', value: 'nosniff' },
-            { key: 'Referrer-Policy', value: 'no-referrer' },
-        ] }] });
-        expect(createDeployment).toHaveBeenCalledWith(expect.objectContaining({ files: expect.arrayContaining([
-            { file: 'vercel.json', sha: configSha, size: configBytes.byteLength },
-        ]) }));
+        expect(uploadFile).toHaveBeenCalledTimes(1);
+        expect(createDeployment).toHaveBeenCalledWith(expect.objectContaining({ files: [{ file: 'index.html', sha: sha256, size: bytes.length }] }));
     });
 
     it('persists a newly provisioned account project before reusing it for a deployment', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '33333333-3333-4333-8333-333333333333', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/33333333-3333-4333-8333-333333333333/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: '33333333-3333-4333-8333-333333333333', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/33333333-3333-4333-8333-333333333333/cf-generation-1/index', uploadedAt: new Date() }] };
         const database: any = { interactivePreview: {
             findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 1 })),
             update: vi.fn(async ({ data }: any) => Object.assign(row, data)),
@@ -550,7 +540,7 @@ describe('createPreviewService publication', () => {
         const setProjectIdIfCurrent = vi.fn(async () => true); const ensurePreviewProject = vi.fn(async () => ({ id: 'prj_happy' }));
         const createDeployment = vi.fn(async (input: any) => {
             await input.onCreated({ id: 'dpl_1' });
-            return { id: 'dpl_1', url: 'https://draft.vercel.app', readyState: 'READY' };
+            return { id: 'dpl_1', url: 'https://draft.cloudflare.app', readyState: 'READY' };
         });
         const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
             credentialStore: { get: vi.fn(async () => credential), setProjectIdIfCurrent } as any,
@@ -564,8 +554,8 @@ describe('createPreviewService publication', () => {
 
     it('verifies bytes, uploads sequentially, creates a non-production deployment, persists expiry, then removes staging', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '11111111-1111-4111-8111-111111111111', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date('2026-09-04T01:00:00Z'), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/11111111-1111-4111-8111-111111111111/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: '11111111-1111-4111-8111-111111111111', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date('2026-09-04T01:00:00Z'), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/11111111-1111-4111-8111-111111111111/cf-generation-1/index', uploadedAt: new Date() }] };
         const database: any = { interactivePreview: {
             findFirst: vi.fn(async () => row), updateMany: vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }),
             findMany: vi.fn(), create: vi.fn(), delete: vi.fn(),
@@ -574,25 +564,25 @@ describe('createPreviewService publication', () => {
         const uploadFile = vi.fn(async () => {});
         const createDeployment = vi.fn(async (input: any) => {
             await input.onCreated({ id: 'dpl_1' });
-            return { id: 'dpl_1', url: 'https://draft.vercel.app', readyState: 'READY' };
+            return { id: 'dpl_1', url: 'https://draft.cloudflare.app', readyState: 'READY' };
         });
         const service = createPreviewService({ database, storage, credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any,
             clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_happy' })), uploadFile, createDeployment, deleteDeployment: vi.fn() })) as any, now: () => new Date('2026-09-04T02:00:00Z') });
         const result = await service.publish('u1', 's1', row.id);
-        const sha1 = createHash('sha1').update(bytes).digest('hex');
+        const sha1 = createHash('sha256').update(bytes).digest('hex');
         expect(uploadFile).toHaveBeenCalledWith(sha1, bytes, 'text/html');
         expect(createDeployment.mock.calls[0][0]).toMatchObject({ files: expect.arrayContaining([{ file: 'index.html', sha: sha1, size: bytes.length }]) });
-        expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { vercelDeploymentId: 'dpl_1' } }));
-        expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'ready', vercelDeploymentId: 'dpl_1', expiresAt: new Date('2026-09-05T02:00:00Z') }) }));
-        expect(storage.deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'generation-1' });
+        expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { cloudflareDeploymentId: 'dpl_1' } }));
+        expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'ready', cloudflareDeploymentId: 'dpl_1', expiresAt: new Date('2026-09-05T02:00:00Z') }) }));
+        expect(storage.deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'cf-generation-1' });
         expect(storage.deletePreview).toHaveBeenCalledAfter(database.interactivePreview.updateMany);
-        expect(result).toMatchObject({ state: 'ready', url: 'https://draft.vercel.app', expiresAt: new Date('2026-09-05T02:00:00Z').getTime() });
+        expect(result).toMatchObject({ state: 'ready', url: 'https://draft.cloudflare.app', expiresAt: new Date('2026-09-05T02:00:00Z').getTime() });
     });
 
     it('retains a created deployment id when final persistence fails so cleanup can remove it', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: '22222222-2222-4222-8222-222222222222', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null,
-            publishedAt: null, expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/22222222-2222-4222-8222-222222222222/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: '22222222-2222-4222-8222-222222222222', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null,
+            publishedAt: null, expiresAt: new Date(), errorCode: null, assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/22222222-2222-4222-8222-222222222222/cf-generation-1/index', uploadedAt: new Date() }] };
         const updateMany = vi.fn()
             .mockResolvedValueOnce({ count: 1 })
             .mockResolvedValueOnce({ count: 1 })
@@ -609,20 +599,20 @@ describe('createPreviewService publication', () => {
             credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any,
             clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_happy' })), uploadFile: vi.fn(), createDeployment: vi.fn(async (input: any) => {
                 await input.onCreated({ id: 'dpl_orphan' });
-                return { id: 'dpl_orphan', url: 'https://draft.vercel.app' };
+                return { id: 'dpl_orphan', url: 'https://draft.cloudflare.app' };
             }) })) as any,
         });
 
         await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('database unavailable');
-        expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { vercelDeploymentId: 'dpl_orphan' } }));
+        expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { cloudflareDeploymentId: 'dpl_orphan' } }));
         expect(updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'publishing', errorCode: 'PUBLISH_RECONCILIATION_PENDING' }) }));
     });
 
     it('does not issue another deployment create for an inconclusive persisted attempt', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'failed', url: null, publishedAt: null,
-            expiresAt: new Date('2026-09-04T01:00:00Z'), errorCode: 'PUBLISH_LEASE_EXPIRED', publicationAttemptId: 'attempt-1', publicationCreateStartedAt: new Date('2026-09-04T00:00:00Z'), publicationGeneration: 1, connectionGeneration: 0, vercelDeploymentId: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'failed', url: null, publishedAt: null,
+            expiresAt: new Date('2026-09-04T01:00:00Z'), errorCode: 'PUBLISH_LEASE_EXPIRED', publicationAttemptId: 'attempt-1', publicationCreateStartedAt: new Date('2026-09-04T00:00:00Z'), publicationGeneration: 1, connectionGeneration: 0, cloudflareDeploymentId: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/cf-generation-1/index', uploadedAt: new Date() }] };
         const updateMany = vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; });
         const createDeployment = vi.fn(async () => { throw new Error('must not create a second deployment'); });
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany } };
@@ -638,13 +628,13 @@ describe('createPreviewService publication', () => {
 
     it('does not allow a publisher fenced by delete to restore a preview to ready', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, cloudflareDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/cf-generation-1/index', uploadedAt: new Date() }] };
         const matches = (where: any): boolean => {
             if (where.id && row.id !== where.id || where.accountId && row.accountId !== where.accountId || where.sessionId && row.sessionId !== where.sessionId) return false;
             if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return false;
-            for (const key of ['publicationAttemptId', 'publicationGeneration', 'connectionGeneration', 'vercelDeploymentId', 'cleanupClaimedAt']) if (key in where && row[key] !== where[key]) return false;
+            for (const key of ['publicationAttemptId', 'publicationGeneration', 'connectionGeneration', 'cloudflareDeploymentId', 'cleanupClaimedAt']) if (key in where && row[key] !== where[key]) return false;
             return !where.OR || where.OR.some((candidate: any) => matches({ ...candidate, id: row.id, accountId: row.accountId, sessionId: row.sessionId, status: row.status, publicationAttemptId: row.publicationAttemptId, publicationGeneration: row.publicationGeneration, connectionGeneration: row.connectionGeneration }));
         };
         const updateMany = vi.fn(async ({ where, data }: any) => {
@@ -656,7 +646,7 @@ describe('createPreviewService publication', () => {
         const createDeployment = vi.fn(async (input: any) => {
             await new Promise<void>((resolve) => { release = resolve; });
             await input.onCreated({ id: 'dpl_fenced' });
-            return { id: 'dpl_fenced', url: 'https://fenced.vercel.app', readyState: 'READY' };
+            return { id: 'dpl_fenced', url: 'https://fenced.cloudflare.app', readyState: 'READY' };
         });
         const deleteDeployment = vi.fn(async () => {});
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany } };
@@ -670,20 +660,20 @@ describe('createPreviewService publication', () => {
         release();
 
         await expect(publication).rejects.toThrow(/fenced/i);
-        expect(row).toMatchObject({ status: 'expired', url: null, vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null });
+        expect(row).toMatchObject({ status: 'expired', url: null, cloudflareDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null });
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_fenced');
     });
 
     it('fences and cleans a delayed publisher during a same-scope reconnect', async () => {
         const bytes = Buffer.from('<h1>same scope</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: 'fefefefe-fefe-4efe-8efe-fefefefefefe', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/fefefefe-fefe-4efe-8efe-fefefefefefe/generation-1/index', uploadedAt: new Date() }] };
-        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionNonce: null, vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null };
+        const row: any = { id: 'fefefefe-fefe-4efe-8efe-fefefefefefe', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, cloudflareDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/fefefefe-fefe-4efe-8efe-fefefefefefe/cf-generation-1/index', uploadedAt: new Date() }] };
+        const account: any = { id: 'u1', cloudflareConnectionEpoch: 0, cloudflareConnectionState: 'active', cloudflareConnectionNonce: null, cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null };
         const matches = (where: any): boolean => {
             if (where.id && where.id !== row.id || where.accountId && where.accountId !== row.accountId || where.sessionId && where.sessionId !== row.sessionId) return false;
             if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return false;
-            for (const key of ['publicationAttemptId', 'publicationGeneration', 'connectionGeneration', 'vercelDeploymentId', 'cleanupClaimedAt']) if (key in where && row[key] !== where[key]) return false;
+            for (const key of ['publicationAttemptId', 'publicationGeneration', 'connectionGeneration', 'cloudflareDeploymentId', 'cleanupClaimedAt']) if (key in where && row[key] !== where[key]) return false;
             return !where.OR || where.OR.some((candidate: any) => matches({ ...candidate, id: row.id, accountId: row.accountId, sessionId: row.sessionId, status: row.status, publicationAttemptId: row.publicationAttemptId, publicationGeneration: row.publicationGeneration, connectionGeneration: row.connectionGeneration }));
         };
         const updateMany = vi.fn(async ({ where, data }: any) => {
@@ -705,13 +695,13 @@ describe('createPreviewService publication', () => {
         };
         const database: any = {
             $transaction: async (work: any) => work({
-                account: { update: vi.fn(async ({ data }: any) => { applyAccount(data); return { vercelConnectionEpoch: account.vercelConnectionEpoch }; }) },
+                account: { update: vi.fn(async ({ data }: any) => { applyAccount(data); return { cloudflareConnectionEpoch: account.cloudflareConnectionEpoch }; }) },
                 interactivePreview: { updateMany },
             }),
             account: { findUnique: vi.fn(async () => ({ ...account })), updateMany: vi.fn(async ({ where, data }: any) => {
-                if (where.vercelConnectionState && where.vercelConnectionState !== account.vercelConnectionState) return { count: 0 };
-                if (where.vercelConnectionNonce && where.vercelConnectionNonce !== account.vercelConnectionNonce) return { count: 0 };
-                if (where.vercelConnectionReplacementId && where.vercelConnectionReplacementId !== account.vercelConnectionReplacementId) return { count: 0 };
+                if (where.cloudflareConnectionState && where.cloudflareConnectionState !== account.cloudflareConnectionState) return { count: 0 };
+                if (where.cloudflareConnectionNonce && where.cloudflareConnectionNonce !== account.cloudflareConnectionNonce) return { count: 0 };
+                if (where.cloudflareConnectionReplacementId && where.cloudflareConnectionReplacementId !== account.cloudflareConnectionReplacementId) return { count: 0 };
                 applyAccount(data); return { count: 1 };
             }) },
             interactivePreview: { findFirst: vi.fn(async () => row), findMany: vi.fn(async () => []), updateMany },
@@ -721,26 +711,26 @@ describe('createPreviewService publication', () => {
 
         const publication = service.publish('u1', 's1', row.id);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        await service.reconnectVercel('u1', { version: 1, accessToken: 'replacement-secret', configurationId: 'icfg', teamId: 'team-1' });
+        await service.reconnectCloudflare('u1', { version: 1, accessToken: 'replacement-secret', configurationId: 'icfg', teamId: 'team-1' });
         release();
 
         await expect(publication).rejects.toThrow(/fenced.*connection change/i);
-        expect(row).toMatchObject({ status: 'expired', connectionGeneration: 1, vercelDeploymentId: null, publicationAttemptId: null });
+        expect(row).toMatchObject({ status: 'expired', connectionGeneration: 1, cloudflareDeploymentId: null, publicationAttemptId: null });
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_same_scope');
     });
 
     it('keeps a different cleanup worker claim and its retry deadline through repeated delete and disconnect', async () => {
         const claimedAt = new Date('2026-09-04T01:00:00Z');
         const retryAt = new Date('2026-09-04T02:00:00Z');
-        const row: any = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', accountId: 'u1', sessionId: 's1', status: 'deleting', url: null, stagingGeneration: 'generation-1',
-            vercelDeploymentId: 'dpl_claimed', cleanupClaimedAt: claimedAt, cleanupNextAttemptAt: retryAt };
+        const row: any = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', accountId: 'u1', sessionId: 's1', status: 'deleting', url: null, stagingGeneration: 'cf-generation-1',
+            cloudflareDeploymentId: 'dpl_claimed', cleanupClaimedAt: claimedAt, cleanupNextAttemptAt: retryAt };
         const updateMany = vi.fn(async () => ({ count: 0 }));
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), findMany: vi.fn(async () => [row]), updateMany } };
         const credentialStore: any = { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })), delete: vi.fn(async () => {}) };
         const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: vi.fn() as any });
 
         await service.delete('u1', 's1', row.id);
-        await service.disconnectVercel('u1');
+        await service.disconnectCloudflare('u1');
 
         expect(row.cleanupClaimedAt).toBe(claimedAt);
         expect(row.cleanupNextAttemptAt).toBe(retryAt);
@@ -749,16 +739,16 @@ describe('createPreviewService publication', () => {
     });
 
     it('reconciles an active publication attempt before disconnecting its credential', async () => {
-        const row: any = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', accountId: 'u1', sessionId: 's1', status: 'publishing', url: null, stagingGeneration: 'generation-1',
-            publicationAttemptId: 'attempt-1', publicationGeneration: 1, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null };
+        const row: any = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', accountId: 'u1', sessionId: 's1', status: 'publishing', url: null, stagingGeneration: 'cf-generation-1',
+            publicationAttemptId: 'attempt-1', publicationGeneration: 1, connectionGeneration: 0, cloudflareDeploymentId: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return { count: 0 };
-            if ('vercelDeploymentId' in where && row.vercelDeploymentId !== where.vercelDeploymentId) return { count: 0 };
+            if ('cloudflareDeploymentId' in where && row.cloudflareDeploymentId !== where.cloudflareDeploymentId) return { count: 0 };
             if ('cleanupClaimedAt' in where && row.cleanupClaimedAt !== where.cleanupClaimedAt) return { count: 0 };
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
         });
-        const lookupDeploymentByMetadata = vi.fn(async () => ({ visibility: 'ready', deployment: { id: 'dpl_reconciled', url: 'https://reconciled.vercel.app', readyState: 'READY' } }));
+        const lookupDeploymentByMetadata = vi.fn(async () => ({ visibility: 'ready', deployment: { id: 'dpl_reconciled', url: 'https://reconciled.cloudflare.app', readyState: 'READY' } }));
         const deleteDeployment = vi.fn(async () => {});
         const deletePreview = vi.fn(async () => {});
         const credentialStore: any = { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })), delete: vi.fn(async () => {}) };
@@ -766,23 +756,23 @@ describe('createPreviewService publication', () => {
         const service = createPreviewService({ database, storage: { deletePreview } as any, credentialStore,
             clientFactory: vi.fn(() => ({ lookupDeploymentByMetadata, deleteDeployment })) as any });
 
-        await expect(service.disconnectVercel('u1')).resolves.toEqual({});
+        await expect(service.disconnectCloudflare('u1')).resolves.toEqual({});
 
         expect(lookupDeploymentByMetadata).toHaveBeenCalledWith({ projectId: 'prj_1', happyPreviewId: row.id, publicationAttemptId: 'attempt-1' });
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_reconciled');
-        expect(deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'generation-1' });
+        expect(deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'cf-generation-1' });
         expect(credentialStore.delete).toHaveBeenCalledAfter(deleteDeployment);
-        expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null });
+        expect(row).toMatchObject({ status: 'expired', cloudflareDeploymentId: null });
     });
 
     it('keeps an unknown-scope deployment tombstone and reports manual cleanup when a scoped disconnect lookup returns 404', async () => {
         const row: any = {
-            id: 'deaddead-dead-4ead-8ead-deaddeaddead', accountId: 'u1', sessionId: 's1', status: 'ready', url: 'https://legacy.vercel.app', stagingGeneration: 'generation-1',
-            vercelDeploymentId: 'dpl_legacy', vercelTeamId: null, vercelScopeKnown: false, publicationAttemptId: null, publicationCreateStartedAt: null, cleanupClaimedAt: null, assets: [],
+            id: 'deaddead-dead-4ead-8ead-deaddeaddead', accountId: 'u1', sessionId: 's1', status: 'ready', url: 'https://legacy.cloudflare.app', stagingGeneration: 'cf-generation-1',
+            cloudflareDeploymentId: 'dpl_legacy', cloudflareTeamId: null, cloudflareScopeKnown: false, publicationAttemptId: null, publicationCreateStartedAt: null, cleanupClaimedAt: null, assets: [],
         };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return { count: 0 };
-            if ('vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            if ('cloudflareDeploymentId' in where && where.cloudflareDeploymentId !== row.cloudflareDeploymentId) return { count: 0 };
             if ('cleanupClaimedAt' in where && where.cleanupClaimedAt !== row.cleanupClaimedAt) return { count: 0 };
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
@@ -796,10 +786,10 @@ describe('createPreviewService publication', () => {
             clientFactory: vi.fn(() => ({ resolveDeploymentScope, deleteDeployment: vi.fn(async () => {}) })) as any,
         });
 
-        await expect(service.disconnectVercel('u1')).resolves.toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        await expect(service.disconnectCloudflare('u1')).resolves.toEqual({ warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
 
         expect(resolveDeploymentScope).toHaveBeenCalledWith('dpl_legacy');
-        expect(row).toMatchObject({ status: 'deleting', url: null, vercelDeploymentId: 'dpl_legacy', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        expect(row).toMatchObject({ status: 'deleting', url: null, cloudflareDeploymentId: 'dpl_legacy', errorCode: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' });
         expect(credentialStore.delete).toHaveBeenCalledWith('u1');
     });
 
@@ -808,7 +798,7 @@ describe('createPreviewService publication', () => {
         const row: any = {
             id: 'feedfeed-feed-4eed-8eed-feedfeedfeed', accountId: 'u1', status: 'deleting', title: 'Legacy', url: null, expiresAt: time,
             publicationAttemptId: 'attempt-legacy', publicationGeneration: 1, connectionGeneration: 0, publicationCreateStartedAt: new Date('2026-09-04T01:00:00.000Z'),
-            publicationReconcileRetryCount: 0, vercelDeploymentId: 'dpl_legacy', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, assets: [],
+            publicationReconcileRetryCount: 0, cloudflareDeploymentId: 'dpl_legacy', cloudflareTeamId: null, cloudflareScopeKnown: false, cleanupClaimedAt: null, assets: [],
         };
         const updateMany = vi.fn(async ({ data }: any) => {
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
@@ -827,34 +817,34 @@ describe('createPreviewService publication', () => {
         await service.recoverStalePublications(time);
 
         expect(resolveDeploymentScope).toHaveBeenCalledWith('dpl_legacy');
-        expect(row).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_legacy', publicationAttemptId: 'attempt-legacy', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null });
+        expect(row).toMatchObject({ status: 'deleting', cloudflareDeploymentId: 'dpl_legacy', publicationAttemptId: 'attempt-legacy', errorCode: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null });
         expect(row.publicationReconcileNextAttemptAt).toEqual(new Date('2026-09-04T02:01:00.000Z'));
     });
 
     it('keeps a ready deployment and persists staging cleanup pending when post-publication OSS removal fails', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/generation-1/index', uploadedAt: new Date() }] };
+        const row: any = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, cloudflareDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/cf-generation-1/index', uploadedAt: new Date() }] };
         const database: any = { interactivePreview: {
             findFirst: vi.fn(async () => row),
             updateMany: vi.fn(async ({ data }: any) => { Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; }); return { count: 1 }; }),
         } };
         const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn(async () => { throw new Error('oss unavailable'); }) } as any,
             credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })) } as any,
-            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_1' })), lookupDeploymentByMetadata: vi.fn(async () => ({ visibility: 'not_found' })), uploadFile: vi.fn(), createDeployment: vi.fn(async (input: any) => { await input.onCreated({ id: 'dpl_ready' }); return { id: 'dpl_ready', url: 'https://ready.vercel.app', readyState: 'READY' }; }) })) as any });
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_1' })), lookupDeploymentByMetadata: vi.fn(async () => ({ visibility: 'not_found' })), uploadFile: vi.fn(), createDeployment: vi.fn(async (input: any) => { await input.onCreated({ id: 'dpl_ready' }); return { id: 'dpl_ready', url: 'https://ready.cloudflare.app', readyState: 'READY' }; }) })) as any });
 
-        await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ state: 'ready', url: 'https://ready.vercel.app' });
+        await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ state: 'ready', url: 'https://ready.cloudflare.app' });
 
-        expect(row).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_ready', stagingCleanupPending: true, cleanupNextAttemptAt: null });
+        expect(row).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_ready', stagingCleanupPending: true, cleanupNextAttemptAt: null });
     });
 
     it('denies publication when a credential does not match the active Account epoch and nonce', async () => {
         const bytes = Buffer.from('<h1>stale credential</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
-        const row: any = { id: 'abababab-abab-4bab-8bab-abababababab', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
-            expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 5, vercelDeploymentId: null, cleanupClaimedAt: null,
-            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/abababab-abab-4bab-8bab-abababababab/generation-1/index', uploadedAt: new Date() }] };
-        const account = { vercelConnectionEpoch: 5, vercelConnectionState: 'active', vercelConnectionNonce: 'active-nonce', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null };
+        const row: any = { id: 'abababab-abab-4bab-8bab-abababababab', accountId: 'u1', sessionId: 's1', stagingGeneration: 'cf-generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 5, cloudflareDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/abababab-abab-4bab-8bab-abababababab/cf-generation-1/index', uploadedAt: new Date() }] };
+        const account = { cloudflareConnectionEpoch: 5, cloudflareConnectionState: 'active', cloudflareConnectionNonce: 'active-nonce', cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null };
         const staleCredential = { version: 1 as const, accessToken: 'stale-secret', configurationId: 'icfg', connectionEpoch: 4, connectionNonce: 'stale-nonce' };
         const updateMany = vi.fn(async ({ data }: any) => {
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
@@ -868,7 +858,7 @@ describe('createPreviewService publication', () => {
             clientFactory: clientFactory as any,
         });
 
-        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_NOT_CONNECTED');
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('CLOUDFLARE_NOT_CONNECTED');
 
         expect(clientFactory).not.toHaveBeenCalled();
         // A mismatched active record is unauthorized, but its exact snapshot
@@ -879,14 +869,14 @@ describe('createPreviewService publication', () => {
         const staleCredential = { version: 1 as const, accessToken: 'stale-secret', configurationId: 'icfg', connectionEpoch: 4, connectionNonce: 'stale-nonce' };
         const service = createPreviewService({
             database: { account: { findUnique: vi.fn(async () => ({
-                vercelConnectionEpoch: 5, vercelConnectionState: 'disconnected', vercelConnectionNonce: 'disconnect-nonce', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+                cloudflareConnectionEpoch: 5, cloudflareConnectionState: 'disconnected', cloudflareConnectionNonce: 'disconnect-nonce', cloudflareConnectionReplacementId: null, cloudflareConnectionReplacementStartedAt: null,
             })) } } as any,
             storage: {} as any,
             credentialStore: { get: vi.fn(async () => staleCredential) } as any,
             clientFactory: vi.fn() as any,
         });
 
-        await expect(service.getActiveVercelCredential('u1')).resolves.toBeNull();
+        await expect(service.getActiveCloudflareCredential('u1')).resolves.toBeNull();
 
     });
 

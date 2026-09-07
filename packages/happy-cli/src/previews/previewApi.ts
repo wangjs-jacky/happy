@@ -19,6 +19,12 @@ export async function publishPreviewWorkspace(input: {
     const fetchImpl = input.fetchImpl || (fetch as unknown as FetchLike);
     const server = input.serverUrl.replace(/\/$/, '');
     const authHeaders = { Authorization: `Bearer ${input.token}`, 'Content-Type': 'application/json' };
+    const connectionResponse = await expectOk(await fetchImpl(`${server}/v1/connect/cloudflare/status`, {
+        method: 'GET', headers: authHeaders, redirect: 'error',
+    }), 'Cloudflare connection check');
+    const connection = z.object({ available: z.boolean(), connected: z.boolean() }).parse(await connectionResponse.json());
+    if (!connection.available) throw new Error('Cloud hosting requires preview staging configuration on Happy Server.');
+    if (!connection.connected) throw new Error('Connect Cloudflare in Settings > Temporary previews before publishing with mode=hosted.');
     const previewBaseUrl = `${server}/v1/sessions/${encodeURIComponent(input.sessionId)}/previews/${encodeURIComponent(input.workspace.manifest.previewId)}`;
     const draftResponse = await expectOk(await fetchImpl(
         `${previewBaseUrl}/draft`,
