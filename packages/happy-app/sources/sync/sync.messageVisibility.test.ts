@@ -670,6 +670,28 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     }, 20000);
 
+    it('lets active Web pagination move past a stale restored reading anchor', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('anchored-web-history');
+        const history = await openLocalHistory('server|anchored-web-history');
+        await history!.commitPage('anchored-web-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 1_100 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        await history!.writeReadingState('anchored-web-history', { version: 1,
+            anchorId: 'message-1050', anchorSeq: 1050, offset: 16, expandedGroupIds: [], followLatest: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('anchored-web-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('anchored-web-history');
+        await syncForTest.loadOlderMessages('anchored-web-history');
+
+        const window = syncForTest.historyWindows.get('anchored-web-history');
+        expect(window.oldestSeq).toBe(1);
+        expect(window.messages.some((message: ApiMessage) => message.seq === 1050)).toBe(false);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 60000);
+
     it('keeps native cached history navigation bounded to 300 raw events', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;

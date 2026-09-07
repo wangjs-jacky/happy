@@ -835,13 +835,6 @@ class Sync {
                         latest = await history.readWindow(id, { anchorSeq, limit: navigationWindowLimit });
                     }
                 }
-                if (latest && direction !== 'latest') {
-                    const reading = await history.readReadingState(id);
-                    if (reading && current?.messages.some(message => message.seq === reading.anchorSeq)
-                        && !latest.messages.some(message => message.seq === reading.anchorSeq)) {
-                        latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: navigationWindowLimit }) ?? latest;
-                    }
-                }
                 if (latest && owner.isCurrent()) {
                     const applied = await this.applyHistoryWindow(id, latest, operation);
                     if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
