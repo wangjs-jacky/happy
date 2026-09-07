@@ -106,6 +106,14 @@ const stylesheet = StyleSheet.create((theme) => ({
     newSessionIcon: {
         color: theme.colors.status.connected,
     },
+    newSessionGlyph: {
+        alignItems: 'center',
+        backgroundColor: theme.colors.status.connected,
+        borderRadius: 5,
+        height: 22,
+        justifyContent: 'center',
+        width: 22,
+    },
     desktopRailTooltip: {
         alignItems: 'center',
         backgroundColor: theme.colors.text,
@@ -335,6 +343,20 @@ interface SidebarViewProps {
 
 type FooterMenu = 'account' | 'help' | null;
 
+function NewSessionGlyph() {
+    return (
+        <View style={stylesheet.newSessionGlyph} testID="sidebar-new-session-glyph">
+            <Ionicons
+                color="#FFFFFF"
+                dataSet={{ iconName: 'add' }}
+                name="add"
+                size={20}
+                testID="sidebar-new-session-icon"
+            />
+        </View>
+    );
+}
+
 function DesktopRailItem({
     icon,
     iconColor,
@@ -375,13 +397,15 @@ function DesktopRailItem({
                 ]}
                 testID={testID}
             >
-                <Ionicons
-                    color={iconColor ?? (selected ? stylesheet.newSessionText.color : stylesheet.pluginsChevron.color)}
-                    dataSet={testID === 'sidebar-new-session-button' ? { iconName: 'add' } : undefined}
-                    name={icon}
-                    size={21}
-                    testID={testID === 'sidebar-new-session-button' ? 'sidebar-new-session-icon' : undefined}
-                />
+                {testID === 'sidebar-new-session-button' ? (
+                    <NewSessionGlyph />
+                ) : (
+                    <Ionicons
+                        color={iconColor ?? (selected ? stylesheet.newSessionText.color : stylesheet.pluginsChevron.color)}
+                        name={icon}
+                        size={21}
+                    />
+                )}
                 {showLabel ? <Text numberOfLines={2} style={styles.mobileRailLabel}>{label}</Text> : null}
             </Pressable>
             {active && !showLabel ? (
@@ -546,7 +570,7 @@ export const SidebarView = React.memo(({
                         pressed && styles.newSessionButtonPressed,
                     ]}
                 >
-                    <Ionicons name="add" size={18} color={stylesheet.newSessionIcon.color} />
+                    <NewSessionGlyph />
                     <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
                 </Pressable>
 

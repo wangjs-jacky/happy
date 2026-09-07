@@ -9,7 +9,7 @@ import { EmptySessionsTablet, shouldShowSessionEmptyState } from '@/components/E
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { useAllSessions, useIsDataReady } from '@/sync/storage';
+import { storage, useAllSessions, useIsDataReady } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
@@ -130,6 +130,20 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
         return () => clearTimeout(timer);
     }, [isDataReady, pathname, sidebar]);
+    const hasSessions = (allSessions?.length ?? 0) > 0;
+    const hasArchivedSessions = groupedItems.length > 0;
+    React.useEffect(() => {
+        if (!isDataReady || !hasSessions || hasArchivedSessions) return;
+        let cancelled = false;
+        const loadUntilArchived = async () => {
+            let hasMore = true;
+            while (!cancelled && hasMore && !Object.values(storage.getState().sessions).some(isSessionArchived)) {
+                hasMore = await sync.loadNextSessionHistoryPage();
+            }
+        };
+        void loadUntilArchived();
+        return () => { cancelled = true; };
+    }, [hasArchivedSessions, hasSessions, isDataReady]);
     const loadNextHistoryPage = React.useCallback(() => {
         if (!scrollIntent.consumeAtEnd()) return;
         void sync.loadNextSessionHistoryPage();

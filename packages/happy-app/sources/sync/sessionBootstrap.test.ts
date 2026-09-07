@@ -710,15 +710,20 @@ describe('active-first session bootstrap', () => {
             nextCursor: null,
             hasNext: false,
         });
-        await Promise.all([initial, repeatedInteractive, ...repeatedNearEnd]);
+        await expect(Promise.all([initial, repeatedInteractive, ...repeatedNearEnd])).resolves.toEqual([
+            undefined,
+            undefined,
+            true,
+            true,
+        ]);
 
         expect(callsAfterFirstPage).toBe(1);
         expect(mocks.state.sessions['history-page-2']).toBeUndefined();
 
-        await Promise.all([
+        await expect(Promise.all([
             syncForTest.loadNextSessionHistoryPage(),
             syncForTest.loadNextSessionHistoryPage(),
-        ]);
+        ])).resolves.toEqual([false, false]);
 
         expect(mocks.fetchPage).toHaveBeenCalledTimes(2);
         expect(mocks.fetchPage).toHaveBeenLastCalledWith(syncForTest.credentials, {
@@ -743,7 +748,7 @@ describe('active-first session bootstrap', () => {
         const concurrent = syncForTest.loadNextSessionHistoryPage();
         failedPage.reject(new Error('history unavailable'));
 
-        await expect(Promise.all([initial, concurrent])).resolves.toEqual([undefined, undefined]);
+        await expect(Promise.all([initial, concurrent])).resolves.toEqual([undefined, false]);
         expect(syncForTest.nextSessionHistoryCursor).toBeUndefined();
         expect(syncForTest.initialSessionHistoryScheduled).toBe(false);
         expect(mocks.fetchPage).toHaveBeenCalledTimes(1);

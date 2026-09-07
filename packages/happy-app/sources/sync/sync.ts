@@ -2141,8 +2141,9 @@ class Sync {
         }
     }
 
-    public loadNextSessionHistoryPage = async (): Promise<void> => {
-        await this.requestNextSessionHistoryPage();
+    public loadNextSessionHistoryPage = async (): Promise<boolean> => {
+        const loaded = await this.requestNextSessionHistoryPage();
+        return loaded && this.nextSessionHistoryCursor !== null;
     }
 
     private requestNextSessionHistoryPage = async (): Promise<boolean> => {

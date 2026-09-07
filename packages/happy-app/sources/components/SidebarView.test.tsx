@@ -314,6 +314,19 @@ describe('SidebarView Agent space exit', () => {
             expect(button.findAllByType('Text')).toHaveLength(1);
             expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ minHeight: 56, width: 48 }));
         }
+        const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
+        const mobileNewSessionGlyph = mobileNewSession.findByProps({ testID: 'sidebar-new-session-glyph' });
+        expect(mobileNewSessionGlyph.props.style).toEqual(expect.objectContaining({
+            backgroundColor: '#0a6',
+            borderRadius: 5,
+            height: 22,
+            width: 22,
+        }));
+        expect(mobileNewSessionGlyph.findByType('Ionicons').props).toMatchObject({
+            name: 'add',
+            color: '#FFFFFF',
+            size: 20,
+        });
         expect(renderer.root.findByType('AgentSheet').props.visible).toBe(false);
         act(() => renderer.root.findByProps({ testID: 'sidebar-my-agents-button' }).props.onPress());
         expect(renderer.root.findByType('AgentSheet').props.visible).toBe(true);
@@ -546,7 +559,20 @@ describe('SidebarView Agent space exit', () => {
             .find((node: any) => node.props.testID === 'sidebar-new-session-button')!;
         expect(newSession).toBeDefined();
         expect(newSession.findAllByType('Text')).toHaveLength(0);
-        expect(newSession.findByType('Ionicons').props).toMatchObject({ name: 'add', color: '#0a6' });
+        const newSessionGlyph = newSession.findByProps({ testID: 'sidebar-new-session-glyph' });
+        expect(newSessionGlyph.props.style).toEqual(expect.objectContaining({
+            alignItems: 'center',
+            backgroundColor: '#0a6',
+            borderRadius: 5,
+            height: 22,
+            justifyContent: 'center',
+            width: 22,
+        }));
+        expect(newSessionGlyph.findByType('Ionicons').props).toMatchObject({
+            name: 'add',
+            color: '#FFFFFF',
+            size: 20,
+        });
         act(() => newSession.props.onPress());
         expect(mocks.navigate).toHaveBeenCalledWith('/new');
         act(() => newSession.props.onHoverIn());
