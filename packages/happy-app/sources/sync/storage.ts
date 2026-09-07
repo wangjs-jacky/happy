@@ -127,7 +127,7 @@ export interface SessionRowData {
     hasUnread: boolean;
 }
 
-function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): SessionRowData {
+export function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): SessionRowData {
     const resolved = resolveSessionState(session);
 
     return {
