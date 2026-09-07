@@ -373,6 +373,8 @@ class Sync {
     private sessionBootstrapInFlight: Promise<void> | null = null;
     private sessionListOwner: Encryption | null = null;
     private cancelScheduledSessionHistory: (() => void) | null = null;
+    private sessionHistoryTask: object | null = null;
+    private sessionHistoryReconciliationPending = false;
     private sessionReconnectSync: InvalidateSync;
     private sessionHistoryInFlight: Promise<boolean> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
@@ -2089,6 +2091,8 @@ class Sync {
 
     private resetSessionListOwner = () => {
         this.cancelScheduledSessionHistory?.();
+        this.sessionHistoryTask = null;
+        this.sessionHistoryReconciliationPending = false;
         this.sessionListOwner = this.encryption;
         this.sessionBootstrapInFlight = null;
         this.sessionHistoryInFlight = null;
@@ -2143,11 +2147,16 @@ class Sync {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
         this.releaseDeferredSessionWork(this.sessionRouteOwnership.current() ?? undefined);
         if (this.initialSessionHistoryScheduled) {
-            if (!this.cancelScheduledSessionHistory && !this.sessionHistoryInFlight
+            if (!this.sessionHistoryTask && !this.sessionHistoryInFlight
                 && this.historyReconciliationDeferred) this.requestHistoryReconciliation();
             return;
         }
         this.initialSessionHistoryScheduled = true;
+        // This intent outlives a failed page and is consumed by the successful
+        // automatic page or manual retry, not by firing/cancelling its timer.
+        this.sessionHistoryReconciliationPending = true;
+        const task = {};
+        this.sessionHistoryTask = task;
         const owner = this.captureHistoryOwner('');
         await new Promise<void>(resolve => {
             let idle: number | undefined;
@@ -2176,27 +2185,40 @@ class Sync {
                         return;
                     }
                     const loaded = await this.requestNextSessionHistoryPage();
-                    if (loaded && owner.isCurrent()) this.requestHistoryReconciliation();
+                    if (loaded && owner.isCurrent() && this.sessionHistoryReconciliationPending) {
+                        this.sessionHistoryReconciliationPending = false;
+                        this.requestHistoryReconciliation();
+                    }
                 })().finally(resolve);
             };
             const fallback = setTimeout(run, 1000);
             this.cancelScheduledSessionHistory = cancel;
             if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run, { timeout: 1000 });
+        }).finally(() => {
+            if (this.sessionHistoryTask === task) this.sessionHistoryTask = null;
         });
     }
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
         const owner = this.captureHistoryOwner('');
-        const reconcileAfterPage = Boolean(this.cancelScheduledSessionHistory);
         if (this.cancelScheduledSessionHistory) {
             this.cancelScheduledSessionHistory();
         }
         this.initialSessionHistoryScheduled = true;
-        if (this.sessionBootstrapInFlight) await this.sessionBootstrapInFlight;
-        if (!owner.isCurrent()) return;
-        const loaded = await this.requestNextSessionHistoryPage();
-        if (loaded && owner.isCurrent() && reconcileAfterPage) this.requestHistoryReconciliation();
+        const task = {};
+        this.sessionHistoryTask = task;
+        try {
+            if (this.sessionBootstrapInFlight) await this.sessionBootstrapInFlight;
+            if (!owner.isCurrent()) return;
+            const loaded = await this.requestNextSessionHistoryPage();
+            if (loaded && owner.isCurrent() && this.sessionHistoryReconciliationPending) {
+                this.sessionHistoryReconciliationPending = false;
+                this.requestHistoryReconciliation();
+            }
+        } finally {
+            if (this.sessionHistoryTask === task) this.sessionHistoryTask = null;
+        }
     }
 
     private requestNextSessionHistoryPage = async (): Promise<boolean> => {

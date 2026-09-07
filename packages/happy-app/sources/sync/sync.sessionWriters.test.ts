@@ -219,6 +219,30 @@ describe('real session writer composition', () => {
         expect(subject.nativeHistoryCursor).toBe('deleted');
     });
 
+    it('reconciles native deletions after a failed automatic history page is manually retried', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        mocks.fetchActive.mockResolvedValue([]);
+        mocks.fetchPage.mockRejectedValueOnce(new Error('history offline'))
+            .mockResolvedValue({ sessions: [], nextCursor: null, hasNext: false });
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{
+            sessionId: 'writer-session', revision: '2', deleted: true,
+            lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0,
+        }], nextCursor: 'retried-delete', hasMore: false });
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await sync.bootstrapSessions();
+        const scheduled = sync.sessionRouteBecameInteractive();
+        idle();
+        await scheduled;
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        await sync.loadNextSessionHistoryPage();
+        await subject.changesInFlight;
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(subject.nativeHistoryCursor).toBe('retried-delete');
+    });
+
     it('keeps native history absent from a page, and only removes it after a point lookup confirms 404', async () => {
         Object.assign(Platform, { OS: 'android' });
         await sync.ensureSessionHydrated('writer-session');

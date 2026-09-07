@@ -651,6 +651,33 @@ describe('active-first session bootstrap', () => {
         expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps repeated interactive signals behind the whole idle history task', async () => {
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        const active = deferred<ApiSessionSnapshot[]>();
+        const history = deferred<{ sessions: ApiSessionSnapshot[]; nextCursor: string | null; hasNext: boolean }>();
+        mocks.fetchActive.mockReturnValue(active.promise);
+        mocks.fetchPage.mockReturnValue(history.promise);
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+        const bootstrap = syncForTest.bootstrapSessions();
+        syncForTest.historyReconciliationDeferred = true;
+        const first = syncForTest.sessionRouteBecameInteractive();
+        idle();
+        const second = syncForTest.sessionRouteBecameInteractive();
+        const callsBeforeActive = reconcile.mock.calls.length;
+        active.resolve([]);
+        await bootstrap;
+        await vi.waitFor(() => expect(mocks.fetchPage).toHaveBeenCalledTimes(1));
+        const callsBeforeHistory = reconcile.mock.calls.length;
+        history.resolve({ sessions: [], nextCursor: null, hasNext: false });
+        await Promise.all([first, second]);
+        expect(callsBeforeActive).toBe(0);
+        expect(callsBeforeHistory).toBe(0);
+        expect(reconcile).toHaveBeenCalledTimes(1);
+        reconcile.mockRestore();
+    });
+
     it('releases a foreground-only deferred bootstrap when target transfers finish', async () => {
         await syncForTest.bootstrapSessions();
         vi.stubGlobal('window', { location: { pathname: '/session/foreground-only' } });
