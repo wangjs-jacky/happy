@@ -237,6 +237,59 @@ describe('collectCodexUsageSnapshot', () => {
         expect(snapshot.latestEvent?.rateLimits?.primary?.usedPercent).toBe(25);
     });
 
+    it.each([false, true])('does not replace Codex quota with newer model-specific buckets (stream fallback: %s)', async (streamFallback) => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+        const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/account.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', usage, {
+                limit_id: 'codex',
+                primary: { used_percent: 14, window_minutes: 10080, resets_at: 1783414235 },
+            }),
+            tokenCount('2026-07-05T05:01:00.000Z', usage, {
+                limit_id: 'base_model_inference',
+                primary: { used_percent: 0, window_minutes: 10080 },
+            }, { input_tokens: 20, output_tokens: 4, total_tokens: 24 }),
+        ]);
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/spark.jsonl'), [
+            tokenCount('2026-07-05T05:02:00.000Z', usage, {
+                limit_id: 'codex_bengalfox',
+                limit_name: 'GPT-5.3-Codex-Spark',
+                primary: { used_percent: 0, window_minutes: 300 },
+                secondary: { used_percent: 0, window_minutes: 10080 },
+            }),
+        ]);
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-07-05T06:00:00.000Z'),
+            timeZone: 'UTC',
+            ...(streamFallback ? { ripgrepCommands: ['definitely-missing-ripgrep-for-test'] } : {}),
+        });
+        expect(snapshot.latestEvent?.timestamp).toBe('2026-07-05T05:02:00.000Z');
+        expect(snapshot.latestEvent?.rateLimitsTimestamp).toBe('2026-07-05T05:00:00.000Z');
+        expect(snapshot.latestEvent?.rateLimits?.primary).toEqual({
+            usedPercent: 14, windowMinutes: 10080, resetsAt: 1783414235,
+        });
+        expect(snapshot.latestEvent?.rateLimits?.secondary).toBeUndefined();
+        expect(snapshot.today?.totalTokens).toBe(36);
+    });
+
+    it('does not report unused Codex quota when only a model-specific bucket is available', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+        writeJsonl(join(codexHome, 'sessions/2026/07/05/spark.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', { input_tokens: 10, total_tokens: 10 }, {
+                limit_id: 'codex_bengalfox', primary: { used_percent: 0, window_minutes: 300 },
+            }),
+        ]);
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome, now: new Date('2026-07-05T06:00:00.000Z'), timeZone: 'UTC',
+        });
+        expect(snapshot.latestEvent?.rateLimits).toBeUndefined();
+        expect(snapshot.latestEvent?.rateLimitsTimestamp).toBeUndefined();
+        expect(snapshot.today?.totalTokens).toBe(10);
+    });
+
     it('limits usage to the latest calendar window and includes archived sessions', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
         created.push(codexHome);
