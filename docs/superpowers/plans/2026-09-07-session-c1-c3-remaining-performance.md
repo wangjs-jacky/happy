@@ -61,4 +61,3 @@
 - [ ] Build the merged CLI locally and switch only the local dev-link artifact used for new daemon sessions; do not restart the daemon unless required, and never kill existing workers.
 - [ ] In Ego task space 105, re-run a populated fresh deep link and one real new Codex session. Report every meaningful verified browser round with a screenshot. Validate lower request count/bytes, faster route paint, one first message, and a real encrypted processor-ready event.
 - [ ] Complete Ego task space 105 after the final verified browser state.
-
