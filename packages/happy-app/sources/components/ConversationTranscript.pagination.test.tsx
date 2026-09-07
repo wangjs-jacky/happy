@@ -246,6 +246,34 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('lets a new Web wheel retry an older boundary whose previous load made no progress', async () => {
+        const onLoadOlder = vi.fn();
+        const listeners = new Map<string, (event: any) => void>();
+        const node = {
+            addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
+            removeEventListener: vi.fn(),
+        };
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} sessionId="session" messages={[userMessage('oldest')]}
+                    hasMoreOlder onLoadOlder={onLoadOlder} />,
+                { createNodeMock: (element: any) => element.type === 'FlatList'
+                    ? { ...node, getScrollableNode: () => node }
+                    : null },
+            );
+        });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => list.props.onEndReached());
+        act(() => list.props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+        act(() => listeners.get('wheel')!({ shiftKey: false, deltaX: 0, deltaY: -120, preventDefault: vi.fn() }));
+        act(() => list.props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
     it('uses the current history adapter when boundary identity changes without new messages', async () => {
         const onLoadOlder = vi.fn();
         const messages = [userMessage('rendered-oldest')];
