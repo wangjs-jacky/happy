@@ -1,7 +1,7 @@
 # Session Critical Path Phase 2 Design
 
-**Status:** approved in chat on 2026-09-05; implementation has not started  
-**Base:** `3906949b26293701d16d2c159eb6faaac081a1a2`  
+**Status:** approved in chat on 2026-09-05; implementation has not started
+**Base:** `3906949b26293701d16d2c159eb6faaac081a1a2`
 **Delivery shape:** two pull requests, with the second gated by measurements from the first
 
 ## 1. Problem statement

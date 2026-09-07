@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiMachineClient } from './apiMachine';
 import type { Machine } from './types';
+import type { ComponentObservation } from '@slopus/happy-wire';
+import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
+import { createProcessRunner } from '@/environment/processRunner';
+import { createGitHubCliAdapter } from '@/environment/githubCliAdapter';
+import { createEnvironmentService } from '@/environment/environmentService';
+import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
 
 const {
     mockIo,
@@ -37,18 +43,83 @@ vi.mock('@/modules/common/registerCommonHandlers', () => ({
     registerCommonHandlers: vi.fn()
 }));
 
+vi.mock('@/environment/processRunner', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/environment/processRunner')>(),
+    createProcessRunner: vi.fn(() => ({ run: vi.fn(async () => { throw new Error('No processes in machine RPC tests'); }) })),
+}));
+
 vi.mock('@/api/rpc/RpcHandlerManager', () => ({
     RpcHandlerManager: class {
-        onSocketConnect = vi.fn();
-        onSocketDisconnect = vi.fn();
-        handleRequest = vi.fn(async () => '');
-        hasHandler = vi.fn(() => false);
-        registerHandler = vi.fn((method: string, handler: (params: any) => any) => {
-            rpcHandlers.set(method, handler);
+        private readonly handlers = new Map<string, (params: any) => any>();
+        private socket: any;
+
+        constructor(private readonly config: { scopePrefix: string, encryptionKey: Uint8Array, encryptionVariant: Machine['encryptionVariant'] }) {}
+
+        onSocketConnect = vi.fn((socket: any) => {
+            this.socket = socket;
+            for (const method of this.handlers.keys()) {
+                socket.emit('rpc-register', { method });
+            }
         });
-        unregisterHandler = vi.fn();
+        onSocketDisconnect = vi.fn(() => {
+            this.socket = undefined;
+        });
+        handleRequest = vi.fn(async (request: { method: string, params: string }) => {
+            const handler = this.handlers.get(request.method);
+            if (!handler) throw new Error(`No handler for ${request.method}`);
+            const params = decrypt(this.config.encryptionKey, this.config.encryptionVariant, decodeBase64(request.params));
+            const result = await handler(params);
+            return encodeBase64(encrypt(this.config.encryptionKey, this.config.encryptionVariant, result));
+        });
+        hasHandler = vi.fn((method: string) => this.handlers.has(`${this.config.scopePrefix}:${method}`));
+        registerHandler = vi.fn((method: string, handler: (params: any) => any) => {
+            const prefixedMethod = `${this.config.scopePrefix}:${method}`;
+            this.handlers.set(prefixedMethod, handler);
+            rpcHandlers.set(method, handler);
+            this.socket?.emit('rpc-register', { method: prefixedMethod });
+        });
+        unregisterHandler = vi.fn((method: string) => {
+            const prefixedMethod = `${this.config.scopePrefix}:${method}`;
+            this.handlers.delete(prefixedMethod);
+            rpcHandlers.delete(method);
+            this.socket?.emit('rpc-unregister', { method: prefixedMethod });
+        });
     }
 }));
+
+vi.mock('@/environment/githubCliAdapter', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/githubCliAdapter')>();
+    return {
+        ...actual,
+        createGitHubCliAdapter: vi.fn((deps: Parameters<typeof actual.createGitHubCliAdapter>[0]) => {
+            let state: ComponentObservation = {
+                componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
+                installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
+                packageManager: { kind: 'homebrew', available: true, stableVersion: '2.80.0' },
+                authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: Date.now(),
+            };
+            return {
+                id: 'github-cli',
+                inspect: async () => structuredClone(state),
+                plan: actual.createGitHubCliAdapter(deps).plan,
+                apply: async () => {
+                    state = { ...state, installedVersion: '2.80.0' };
+                    return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+                },
+            };
+        }),
+    };
+});
+
+vi.mock('@/environment/environmentService', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/environmentService')>();
+    return { ...actual, createEnvironmentService: vi.fn(actual.createEnvironmentService) };
+});
+
+vi.mock('@/environment/registerEnvironmentHandlers', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/registerEnvironmentHandlers')>();
+    return { ...actual, registerEnvironmentHandlers: vi.fn(actual.registerEnvironmentHandlers) };
+});
 
 vi.mock('@/utils/detectCLI', () => ({
     detectCLIAvailability: vi.fn(() => ({
@@ -160,6 +231,61 @@ describe('ApiMachineClient socket reconnection', () => {
         expect(mockSocket.connect).toHaveBeenCalledTimes(2);
 
         client.shutdown();
+    });
+
+    it('retains daemon-issued environment previews across socket reconnects', async () => {
+        vi.useFakeTimers();
+        const machine = makeMachine();
+        const client = new ApiMachineClient('fake-token', machine);
+        vi.spyOn(client, 'updateDaemonState').mockResolvedValue(undefined);
+        client.connect();
+
+        const callRpc = (method: string, raw: unknown): Promise<any> => new Promise((resolve) => {
+            emitSocketEvent('rpc-request', {
+                method: `${machine.id}:${method}`,
+                params: encodeBase64(encrypt(machine.encryptionKey, machine.encryptionVariant, raw)),
+            }, (response: string) => resolve(decrypt(machine.encryptionKey, machine.encryptionVariant, decodeBase64(response))));
+        });
+
+        try {
+            mockSocket.connected = true;
+            emitSocketEvent('connect');
+            expect(mockSocket.emit.mock.calls.filter(([event]: [string]) => event === 'rpc-register')).toEqual([
+                ['rpc-register', { method: 'test-machine-id:environment-inspect' }],
+                ['rpc-register', { method: 'test-machine-id:environment-apply' }],
+            ]);
+            const desired = { componentId: 'github-cli', targetVersion: '2.80.0' };
+            const preview = await callRpc('environment-inspect', { componentIds: ['github-cli'], desired });
+            expect(preview.plans[0].action).toBe('upgrade');
+            const approvedAt = Date.now();
+
+            mockSocket.connected = false;
+            emitSocketEvent('disconnect', 'transport close');
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(mockSocket.connect).toHaveBeenCalledOnce();
+            mockSocket.connected = true;
+            emitSocketEvent('connect');
+
+            const response = await callRpc('environment-apply', { desired, plan: preview.plans[0], approvedAt });
+            expect(response.result).toMatchObject({
+                status: 'succeeded', changed: true, after: { installedVersion: '2.80.0' },
+            });
+            expect(mockSocket.emit.mock.calls.filter(([event]: [string]) => event === 'rpc-register')).toHaveLength(4);
+            expect(registerEnvironmentHandlers).toHaveBeenCalledOnce();
+            const registration = vi.mocked(registerEnvironmentHandlers).mock.calls[0]!;
+            expect(typeof registration[0].registerHandler).toBe('function');
+            // Chai treats an object's inspect() as a formatter; compare identity without formatting the service.
+            expect(registration[1] === vi.mocked(createEnvironmentService).mock.results[0]?.value).toBe(true);
+            expect(createEnvironmentService).toHaveBeenCalledOnce();
+            expect(createProcessRunner).toHaveBeenCalledOnce();
+            expect(createGitHubCliAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
+                env: process.env, platform: process.platform, architecture: process.arch,
+                resolveExecutable: expect.any(Function), resolveRealpath: expect.any(Function), now: expect.any(Function),
+            }));
+        } finally {
+            client.shutdown();
+        }
     });
 
     it('propagates a startup trace into the daemon spawn without logging sensitive params', async () => {

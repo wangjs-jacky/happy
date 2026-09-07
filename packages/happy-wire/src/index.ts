@@ -5,6 +5,7 @@ export * from './voice';
 export * from './motionPhoto';
 export * from './plugins';
 export * from './publicSessionShare';
+export * from './environment';
 export * from './interactivePreview';
 export * from './interactivePreviewPrompt';
 export * from './toolFailure';

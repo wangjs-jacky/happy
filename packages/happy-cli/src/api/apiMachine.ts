@@ -5,6 +5,7 @@
 
 import { io, Socket } from 'socket.io-client';
 import { join } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
 import { MachineMetadata, DaemonState, Machine, Update, UpdateMachineBody } from './types';
@@ -12,6 +13,10 @@ import { registerCommonHandlers, SpawnSessionOptions, SpawnSessionResult } from 
 import { encodeBase64, decodeBase64, encrypt, decrypt } from './encryption';
 import { backoff } from '@/utils/time';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
+import { createProcessRunner, resolveExecutable } from '@/environment/processRunner';
+import { createGitHubCliAdapter } from '@/environment/githubCliAdapter';
+import { createEnvironmentService } from '@/environment/environmentService';
+import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
 import { detectCLIAvailability, CLIAvailability } from '@/utils/detectCLI';
 import { detectResumeSupport, type ResumeSupport } from '@/resume/localHappyAgentAuth';
 import { shouldReconnect } from '@/utils/lidState';
@@ -162,6 +167,18 @@ export class ApiMachineClient {
         });
 
         registerCommonHandlers(this.rpcHandlerManager, process.cwd());
+
+        // Keep issued previews and apply locks alive across socket reconnections.
+        const environmentService = createEnvironmentService([createGitHubCliAdapter({
+            runner: createProcessRunner(),
+            resolveExecutable,
+            resolveRealpath: async (path) => realpath(path).catch(() => null),
+            env: process.env,
+            platform: process.platform,
+            architecture: process.arch,
+            now: Date.now,
+        })]);
+        registerEnvironmentHandlers(this.rpcHandlerManager, environmentService);
     }
 
     setRPCHandlers({

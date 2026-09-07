@@ -82,6 +82,14 @@ export default function RootLayout() {
             <Stack.Screen name="settings/voice" options={{ headerTitle: t('settings.voiceAssistant') }} />
             <Stack.Screen name="settings/voice/language" options={{ headerTitle: t('settingsVoice.languageTitle') }} />
             <Stack.Screen
+                name="settings/device-environment"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('deviceEnvironment.title'),
+                    headerBackTitle: t('settings.title'),
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]"
                 options={{
                     headerShown: false

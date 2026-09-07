@@ -3,7 +3,7 @@ import { StackActions, StackRouter } from '@react-navigation/routers';
 vi.mock('@react-navigation/native', () => ({ StackRouter }));
 import { createDesktopModalRouter, getDesktopModalStart, getDesktopModalBackgroundPath } from './desktopModalRouter';
 
-const options = { routeNames: ['index', 'inbox/index', 'settings/index', 'settings/appearance', 'settings/profile', 'session/[id]', 'machine/[id]', 'dev/index', 'dev/logs', 'relationship-advisor'], routeParamList: {}, routeGetIdList: {} };
+const options = { routeNames: ['index', 'inbox/index', 'settings/index', 'settings/appearance', 'settings/device-environment', 'settings/profile', 'session/[id]', 'machine/[id]', 'dev/index', 'dev/logs', 'relationship-advisor'], routeParamList: {}, routeGetIdList: {} };
 function setup() {
     const original = StackRouter({ initialRouteName: 'index' });
     const router = createDesktopModalRouter({ initialRouteName: 'index' });
@@ -65,6 +65,27 @@ describe('desktop modal navigation boundary', () => {
         app.send({ type: 'CLOSE_DESKTOP_MODAL' });
         app.send(StackActions.push('inbox/index', { desktopModal: '1' }));
         expect(app.state.routes.map(r => r.name)).toEqual(['index', 'inbox/index']);
+    });
+
+    it('keeps Device Environment inside Settings until back and close restore the workspace', () => {
+        const app = setup();
+        app.send(StackActions.push('session/[id]', { id: 'background' }));
+        const background = app.state.routes;
+        app.send(StackActions.push('settings/index', { desktopModal: '1' }));
+        app.send(StackActions.push('settings/device-environment'));
+
+        expect(app.state.routes.map(route => route.name)).toEqual([
+            'index', 'session/[id]', 'settings/index', 'settings/device-environment',
+        ]);
+        expect(getDesktopModalStart(app.state)).toBe(2);
+
+        app.send({ type: 'GO_BACK' });
+        expect(app.state.routes.map(route => route.name)).toEqual(['index', 'session/[id]', 'settings/index']);
+        expect(getDesktopModalStart(app.state)).toBe(2);
+
+        app.send({ type: 'CLOSE_DESKTOP_MODAL' });
+        expect(app.state.routes).toEqual(background);
+        expect(getDesktopModalStart(app.state)).toBe(-1);
     });
 });
 

@@ -41,10 +41,6 @@ vi.mock('react-native-unistyles', () => {
         useUnistyles: () => ({ theme }),
     };
 });
-vi.mock('@/components/SettingsView', () => ({ SettingsView: 'SettingsView' }));
-vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/utils/responsive', () => ({ useIsTablet: () => mocks.isTablet }));
 
 import {

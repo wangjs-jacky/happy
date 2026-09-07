@@ -99,7 +99,7 @@ function createDelayedIo(steps: Array<{ delayMs: number; sockets: FakeTargetSock
 async function callRpc(
     method: string,
     target: FakeTargetSocket,
-    params: Record<string, unknown> = {},
+    params: unknown = {},
 ) {
     const caller = new FakeCallerSocket();
     const io = createIo(target);
@@ -113,6 +113,24 @@ async function callRpc(
 }
 
 describe('rpcHandler', () => {
+    it('relays opaque environment apply data with a ten-minute acknowledgement deadline', async () => {
+        const target = new FakeTargetSocket();
+        const encryptedRequest = 'opaque-encrypted-environment-request';
+        const { acknowledge } = await callRpc('machine-1:environment-apply', target, encryptedRequest);
+
+        expect(target.timeout).toHaveBeenCalledWith(600_000);
+        expect(target.timeout.mock.results[0].value.emitWithAck).toHaveBeenCalledWith('rpc-request', {
+            method: 'machine-1:environment-apply', params: encryptedRequest,
+        });
+        expect(acknowledge).toHaveBeenCalledWith({ ok: true, result: 'encrypted-response' });
+    });
+
+    it('keeps environment inspection on the ordinary relay acknowledgement deadline', async () => {
+        const target = new FakeTargetSocket();
+        await callRpc('machine-1:environment-inspect', target);
+        expect(target.timeout).toHaveBeenCalledWith(30_000);
+    });
+
     beforeEach(() => {
         log.mockReset();
     });
@@ -189,7 +207,6 @@ describe('rpcHandler', () => {
         expect(target.timeout).toHaveBeenCalledTimes(1);
         expect(acknowledge).toHaveBeenCalledWith({ ok: true, result: 'encrypted-response' });
     });
-
     it('keeps ordinary RPC calls on the 30-second target acknowledgement timeout', async () => {
         const target = new FakeTargetSocket();
 
