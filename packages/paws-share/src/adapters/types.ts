@@ -5,6 +5,7 @@ export type TranscriptCandidate = {
     provider: Extract<ShareSource, 'codex' | 'claude-code'>;
     path: string;
     cwd?: string;
+    attachmentRoots?: string[];
     modifiedAt?: number;
 };
 

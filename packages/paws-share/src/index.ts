@@ -24,3 +24,8 @@ export {
     type InstallSkillResult,
     type InstallSkillTarget,
 } from './installSkill';
+export {
+    exportSessionHtml,
+    type ExportSessionHtmlOptions,
+    type ExportSessionHtmlResult,
+} from './localHtml';
