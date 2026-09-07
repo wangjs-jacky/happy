@@ -10,6 +10,7 @@ import TestRenderer from 'react-test-renderer';
 vi.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000001' }));
 
 const mocks = vi.hoisted(() => ({
+    platformOS: 'web',
     isDataReady: true,
     sessionRouteBecameInteractive: vi.fn(),
     machineSpawnNewSession: vi.fn(),
@@ -49,7 +50,10 @@ vi.mock('react-native', () => ({
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     LayoutAnimation: { configureNext: vi.fn(), Presets: { easeInEaseOut: {} } },
-    Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
+    Platform: {
+        get OS() { return mocks.platformOS; },
+        select: (values: Record<string, unknown>) => values[mocks.platformOS] ?? values.default,
+    },
     useWindowDimensions: () => ({ width: 480, height: 800 }),
 }));
 vi.mock('react-native-unistyles', () => {
@@ -204,6 +208,7 @@ describe('ComposeHome session hydration recovery', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.platformOS = 'web';
         mocks.isDataReady = true;
         mocks.selectedImages = [
             { id: 'image-a', uri: 'file:///a.png' },
@@ -262,8 +267,9 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => renderer.unmount());
     });
 
-    it('preserves newer compose revisions through the real navigate hook dismiss, unmount, and remount', async () => {
+    it.each(['web', 'android'])('preserves newer compose revisions through real %s navigation, unmount, and remount', async (platform) => {
         vi.useFakeTimers();
+        mocks.platformOS = platform;
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
         act(() => { renderer.root.findByType('MessageComposer').props.onChangeText('submitted-revision'); });
@@ -279,10 +285,19 @@ describe('ComposeHome session hydration recovery', () => {
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
         mocks.onDismiss = () => renderer.unmount();
+        // Web navigates atomically; native dismisses the compose screen first.
+        if (platform === 'web') {
+            mocks.navigateToSession.mockImplementationOnce(() => renderer.unmount());
+        }
         await act(async () => {
             await renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress();
         });
-        expect(mocks.dismissTo).toHaveBeenCalledWith('/');
+        if (platform === 'web') {
+            expect(mocks.dismissTo).not.toHaveBeenCalled();
+        } else {
+            expect(mocks.dismissTo).toHaveBeenCalledWith('/');
+        }
+        expect(mocks.navigateToSession).toHaveBeenCalledExactlyOnceWith('session-1');
         expect(renderer.toJSON()).toBeNull();
         mocks.onDismiss = null;
         act(() => { renderer = TestRenderer.create(<ComposeHome variant="home" />); });
