@@ -1810,6 +1810,8 @@ export const zhHant: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: '上一張圖片',
+        nextImage: '下一張圖片',
         download: '下載圖片',
         downloadOriginalMotionPhoto: '下載原始動態照片',
         playMotionPhoto: '播放動態照片',

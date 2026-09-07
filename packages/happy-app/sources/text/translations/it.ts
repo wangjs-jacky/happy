@@ -1700,6 +1700,8 @@ export const it: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: 'Immagine precedente',
+        nextImage: 'Immagine successiva',
         download: 'Scarica immagine',
         downloadOriginalMotionPhoto: 'Scarica la foto in movimento originale',
         playMotionPhoto: 'Riproduci foto in movimento',

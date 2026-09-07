@@ -3,10 +3,13 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
-import { SkillItemRow } from './CapabilityHubDetailView';
+import { CapabilityHubDetailView, SkillItemRow } from './CapabilityHubDetailView';
+import { useImageViewerStore } from '@/sync/imageViewer';
+import type { CapabilityItem } from './sessionCapabilityHubModel';
 import type { BrowserStepRun } from './browserStepRunsModel';
 
 const mocks = vi.hoisted(() => ({
+    sessionMessages: {} as Record<string, any>,
     theme: {
         colors: {
             divider: '#30343a',
@@ -34,8 +37,8 @@ vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (value: any) => typeof value === 'function' ? value(mocks.theme) : value },
     useUnistyles: () => ({ theme: mocks.theme }),
 }));
-vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => ({ loading: false, uri: null }) }));
-vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
+vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => ({ loading: false, uri: 'blob:current' }) }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => mocks } }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: vi.fn() }));
 vi.mock('@/text', () => ({
@@ -80,6 +83,23 @@ describe('SkillItemRow browser progress', () => {
         if (renderer) act(() => renderer.unmount());
         renderer = undefined;
         consoleErrorSpy.mockRestore();
+    });
+
+    it.each(['image', 'taskResource'] as const)('opens %s resources with the full session image history', (kind) => {
+        mocks.sessionMessages.s1 = { messages: ['current', 'older'].map((ref, index) => ({
+            id: ref, createdAt: 2 - index, kind: 'tool-call', children: [], tool: { name: 'file', input: { ref, name: `${ref}.png` } },
+        })) };
+        const item: CapabilityItem = kind === 'image'
+            ? { kind, id: 'current', title: 'current.png', meta: 'session', ref: 'current', messageId: 'current', createdAt: 2 }
+            : { kind, id: 'current', title: 'current.png', meta: 'session', event: {
+                id: 'current', kind: 'preview_created', sessionId: 's1', messageId: 'current', messageIds: ['current'], title: 'current.png',
+                createdAt: 2, firstSeenAt: 2, occurrences: 1, resourceType: 'image', uri: 'current',
+            } };
+        act(() => { renderer = TestRenderer.create(<CapabilityHubDetailView count={1} items={[item]} onBack={() => {}} sessionId="s1" title="Images" type="images" />); });
+        const imageButton = renderer.root.findAllByType('Pressable').find((node: any) => node.props.disabled === false);
+        act(() => imageButton.props.onPress());
+        expect(useImageViewerStore.getState().sources.map(source => source.attachmentRef)).toEqual(['older', 'current']);
+        expect(useImageViewerStore.getState().index).toBe(1);
     });
 
     it('adds progress triggers only to the matching Ego Skill row', () => {
