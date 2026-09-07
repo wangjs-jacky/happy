@@ -19,6 +19,7 @@ import { Modal } from '@/modal';
 import {
     useAllMachines,
     useLocalSettingMutable,
+    useLocalSettingUpdater,
     useSetting,
     useSettingUpdater,
     type SessionRowData,
@@ -60,6 +61,7 @@ import { useSessionManagementPreferences } from '@/hooks/useSessionManagementPre
 import { partitionSessionsByPinnedOrder } from '@/utils/sessionPinning';
 import { SessionHistoryList } from './SessionHistoryList';
 import { SessionListRecovery } from './SessionListRecovery';
+import { isSidebarGroupExpanded, setSidebarGroupExpanded } from '@/utils/sidebarGroupExpansion';
 
 const AGENT_TYPES = ['codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
 const AGENT_LABEL_KEYS = {
@@ -491,8 +493,8 @@ function SidebarListsView() {
     const data = useVisibleSessionListViewData();
     const organization = useSetting('sidebarOrganization');
     const updateOrganization = useSettingUpdater('sidebarOrganization');
-    const [unassignedExpanded, setUnassignedExpanded] = useLocalSettingMutable('sidebarUnassignedExpanded');
-    const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+    const [sidebarGroupExpansion] = useLocalSettingMutable('sidebarGroupExpansion');
+    const updateSidebarGroupExpansion = useLocalSettingUpdater('sidebarGroupExpansion');
     const [selectedTagId, setSelectedTagId] = React.useState<string | null>(null);
     const [editorVisible, setEditorVisible] = React.useState(false);
     const [editingList, setEditingList] = React.useState<SidebarList | null>(null);
@@ -523,30 +525,28 @@ function SidebarListsView() {
         () => buildSidebarSessionIndex(partitionedSessions.regular, organization.sessions),
         [organization.sessions, partitionedSessions.regular],
     );
-
-    React.useEffect(() => {
-        if (!selectedSessionId) return;
-        const selectedListId = organization.sessions[selectedSessionId]?.listId ?? 'unassigned';
-        if (selectedListId === 'unassigned') return;
-        setExpanded((current) => {
-            if (current.has(selectedListId)) return current;
-            const next = new Set(current);
-            next.add(selectedListId);
-            return next;
-        });
+    const selectedListId = React.useMemo(() => {
+        if (!selectedSessionId) return null;
+        return organization.sessions[selectedSessionId]?.listId ?? 'unassigned';
     }, [organization.sessions, selectedSessionId]);
 
+    React.useEffect(() => {
+        if (!selectedListId || selectedListId === 'unassigned') return;
+        updateSidebarGroupExpansion((current) => setSidebarGroupExpanded(
+            current,
+            'lists',
+            selectedListId,
+            true,
+            false,
+        ));
+    }, [selectedListId, updateSidebarGroupExpansion]);
+
     const toggleExpanded = React.useCallback((id: string) => {
-        if (id === 'unassigned') {
-            setUnassignedExpanded(!unassignedExpanded);
-            return;
-        }
-        setExpanded((current) => {
-            const next = new Set(current);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
+        updateSidebarGroupExpansion((current) => {
+            const expanded = isSidebarGroupExpanded(current, 'lists', id, false);
+            return setSidebarGroupExpanded(current, 'lists', id, !expanded, false);
         });
-    }, [setUnassignedExpanded, unassignedExpanded]);
+    }, [updateSidebarGroupExpansion]);
 
     const addTag = React.useCallback(async () => {
         if (organization.tags.length >= SIDEBAR_TAG_MAX_COUNT) return;
@@ -619,13 +619,15 @@ function SidebarListsView() {
         }
         const nextListId = listId === 'unassigned' ? null : listId;
         updateOrganization((current) => moveSidebarSessionToList(current, data.id, nextListId));
-        if (listId === 'unassigned') {
-            setUnassignedExpanded(true);
-        } else {
-            setExpanded((current) => new Set(current).add(listId));
-        }
+        updateSidebarGroupExpansion((current) => setSidebarGroupExpanded(
+            current,
+            'lists',
+            listId,
+            true,
+            false,
+        ));
         finishSidebarDrag();
-    }, [finishSidebarDrag, setUnassignedExpanded, updateOrganization]);
+    }, [finishSidebarDrag, updateOrganization, updateSidebarGroupExpansion]);
     const deleteList = React.useCallback(async (list: SidebarList) => {
         const confirmed = await Modal.confirm(
             t('sidebarLists.deleteList'),
@@ -659,7 +661,7 @@ function SidebarListsView() {
             next.push({ key: 'lists-section', type: 'section', section: 'lists' });
             for (const list of organization.lists) {
                 next.push({ key: `list-${list.id}`, type: 'list', list });
-                if (!expanded.has(list.id)) continue;
+                if (!isSidebarGroupExpanded(sidebarGroupExpansion, 'lists', list.id, false)) continue;
                 next.push({ key: `new-session-${list.id}`, type: 'new-session', list });
                 const listSessions = sessionIndex.byListId.get(list.id) ?? [];
                 if (listSessions.length > 0) {
@@ -669,14 +671,14 @@ function SidebarListsView() {
                 }
             }
             next.push({ key: 'unassigned', type: 'unassigned' });
-            if (unassignedExpanded) {
+            if (isSidebarGroupExpanded(sidebarGroupExpansion, 'lists', 'unassigned', false)) {
                 sessionIndex.unassigned.forEach((session) => next.push({ key: `unassigned-${session.id}`, type: 'session', session, nested: true }));
             }
         }
         next.push({ key: 'tags-section', type: 'section', section: 'tags' });
         next.push({ key: 'tags', type: 'tags' });
         return next;
-    }, [expanded, organization.lists, organization.tags, partitionedSessions.pinned, selectedTagId, sessionIndex, unassignedExpanded]);
+    }, [organization.lists, organization.tags, partitionedSessions.pinned, selectedTagId, sessionIndex, sidebarGroupExpansion]);
 
     const renderRow = React.useCallback(({ item }: { item: SidebarVirtualRow }) => {
         if (item.type === 'section') {
@@ -726,7 +728,7 @@ function SidebarListsView() {
         }
         if (item.type === 'list') {
             const { list } = item;
-            const isExpanded = expanded.has(list.id);
+            const isExpanded = isSidebarGroupExpanded(sidebarGroupExpansion, 'lists', list.id, false);
             const meta = list.kind === 'agent'
                 ? `${t('sidebarLists.agentList')} · ${t('newSession.askMode')}`
                 : [list.machineId, list.path].filter(Boolean).join(' · ') || t('sidebarLists.workspaceList');
@@ -768,7 +770,7 @@ function SidebarListsView() {
             );
         }
         if (item.type === 'unassigned') {
-            const isExpanded = unassignedExpanded;
+            const isExpanded = isSidebarGroupExpanded(sidebarGroupExpansion, 'lists', 'unassigned', false);
             return (
                 <WebDropTarget
                     active={dropFeedback?.entity === 'session' && dropFeedback.listId === 'unassigned'}
@@ -826,7 +828,7 @@ function SidebarListsView() {
                 {organization.tags.length === 0 ? <Text style={styles.empty}>{t('sidebarLists.noTags')}</Text> : null}
             </View>
         );
-    }, [addTag, changeDropTarget, createSession, deleteList, draggedListId, draggedSessionId, dropFeedback, dropOntoList, expanded, finishSidebarDrag, leaveDropTarget, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.sessions, organization.tags, selectedSessionId, selectedTagId, sessionIndex, sessionManagement.moveToPinned, startListDrag, startSessionDrag, styles, theme.colors, unassignedExpanded]);
+    }, [addTag, changeDropTarget, createSession, deleteList, draggedListId, draggedSessionId, dropFeedback, dropOntoList, finishSidebarDrag, leaveDropTarget, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.sessions, organization.tags, selectedSessionId, selectedTagId, sessionIndex, sessionManagement.moveToPinned, sidebarGroupExpansion, startListDrag, startSessionDrag, styles, theme.colors]);
 
     return (
         <View style={styles.container} testID="sidebar-lists-view">

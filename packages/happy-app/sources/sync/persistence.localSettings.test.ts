@@ -1,17 +1,26 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { clearPersistence, loadLocalSettings, saveLocalSettings } from './persistence';
 
-describe('device-local sidebar expansion persistence', () => {
+describe('device-local sidebar group expansion persistence', () => {
     afterEach(() => clearPersistence());
 
-    it('round-trips the Unassigned expansion state through MMKV-backed local settings', () => {
+    it('round-trips project and List expansion states through MMKV-backed local settings', () => {
         const settings = loadLocalSettings();
-        expect(settings.sidebarUnassignedExpanded).toBe(false);
+        expect(settings.sidebarGroupExpansion).toEqual({});
 
-        saveLocalSettings({ ...settings, sidebarUnassignedExpanded: true });
-        expect(loadLocalSettings().sidebarUnassignedExpanded).toBe(true);
+        saveLocalSettings({
+            ...settings,
+            sidebarGroupExpansion: {
+                'lists:unassigned': true,
+                'lists:happy': true,
+                'projects:mac--%2Frepo': false,
+            },
+        });
 
-        saveLocalSettings({ ...settings, sidebarUnassignedExpanded: false });
-        expect(loadLocalSettings().sidebarUnassignedExpanded).toBe(false);
+        expect(loadLocalSettings().sidebarGroupExpansion).toEqual({
+            'lists:unassigned': true,
+            'lists:happy': true,
+            'projects:mac--%2Frepo': false,
+        });
     });
 });

@@ -118,10 +118,21 @@ describe('localSettings desktop Lists and Tags', () => {
         expect(localSettingsParse({ desktopSidebarMode: 'archive' }).desktopSidebarMode).toBe('archive');
     });
 
-    it('defaults Unassigned to collapsed and restores its device-local expansion state', () => {
+    it('defaults sidebar groups to their current behavior and migrates the legacy Unassigned preference', () => {
         expect(localSettingsDefaults.sidebarUnassignedExpanded).toBe(false);
+        expect(localSettingsDefaults.sidebarGroupExpansion).toEqual({});
         expect(localSettingsParse({}).sidebarUnassignedExpanded).toBe(false);
-        expect(localSettingsParse({ sidebarUnassignedExpanded: true }).sidebarUnassignedExpanded).toBe(true);
+        expect(localSettingsParse({ sidebarUnassignedExpanded: true })).toMatchObject({
+            sidebarUnassignedExpanded: true,
+            sidebarGroupExpansion: { 'lists:unassigned': true },
+        });
+        expect(localSettingsParse({
+            sidebarUnassignedExpanded: true,
+            sidebarGroupExpansion: { 'lists:unassigned': false, 'projects:mac--%2Frepo': false },
+        }).sidebarGroupExpansion).toEqual({
+            'lists:unassigned': false,
+            'projects:mac--%2Frepo': false,
+        });
     });
 
     it('migrates the removed History surface to Archive while preserving the last session-list view', () => {
