@@ -251,7 +251,10 @@ export class LocalHistory {
             if (anchor === undefined) return null;
             const interval = record.intervals.find(([lo, hi]) => lo <= anchor && hi >= anchor);
             if (!interval) return null;
-            const limit = Math.max(1, Math.min(options.limit ?? 100, 300));
+            // Native keeps requesting the existing 300-row window. PC Web can
+            // request a wider navigation window because its inverted transcript
+            // deliberately keeps visited rows mounted for scroll stability.
+            const limit = Math.max(1, Math.min(options.limit ?? 100, 1000));
             let messages: ApiMessage[];
             if (options.anchorSeq === undefined) messages = await this.messages(tx, id, interval[0], anchor, 'prev', limit);
             else {

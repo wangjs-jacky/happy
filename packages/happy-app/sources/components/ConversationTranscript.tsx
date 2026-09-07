@@ -110,14 +110,15 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const more = direction === 'older' ? props.hasMoreOlder : props.hasMoreNewer;
         const error = direction === 'older' ? props.olderError : props.newerError;
         const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
-        const boundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const boundary = renderedBoundary ? props.reading?.wireId(renderedBoundary) ?? renderedBoundary : undefined;
         const key = JSON.stringify([props.sessionId, direction, boundary]);
         if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
         attempted.current.add(key);
         if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
         load();
     }, [props.sessionId, props.messages, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
-        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
+        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError, props.reading]);
     const listItems = React.useMemo(
         () => (inverted ? displayItems : [...displayItems].reverse()).map(item => ({
             ...item, renderKey: transcriptRenderKey(item, props.reading),

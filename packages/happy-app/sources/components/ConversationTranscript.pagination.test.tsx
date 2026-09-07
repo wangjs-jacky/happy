@@ -224,6 +224,53 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('does not retry the same older wire boundary when history replay changes reducer ids', async () => {
+        const onLoadOlder = vi.fn();
+        const reading = {
+            key: 'session', read: async () => null, save: vi.fn(),
+            wireId: (id: string) => id.replace('-replayed', ''),
+            wireSeq: () => 1,
+        };
+        const render = (id: string) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={[userMessage(id)]}
+                reading={reading} hasMoreOlder onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render('oldest')); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.update(render('oldest-replayed')));
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('uses the current history adapter when boundary identity changes without new messages', async () => {
+        const onLoadOlder = vi.fn();
+        const messages = [userMessage('rendered-oldest')];
+        const adapter = (wireId: string) => ({
+            key: wireId,
+            read: async () => null,
+            save: vi.fn(),
+            wireId: () => wireId,
+            wireSeq: () => 1,
+        });
+        const render = (reading: ReturnType<typeof adapter>) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                reading={reading} hasMoreOlder onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(adapter('wire-a'))); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.update(render(adapter('wire-b'))));
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
     it('keeps partial counts and an open sheet live until the last history page arrives', async () => {
         const onLoadOlder = vi.fn();
         const messages = ['u5', 'u4', 'u3'].map(userMessage);
