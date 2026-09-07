@@ -9,7 +9,7 @@ vi.hoisted(() => {
     };
 });
 
-const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } = vi.hoisted(() => {
+const { apiSocket, fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } = vi.hoisted(() => {
     const storageState = {
         sessions: {} as Record<string, HydratedSession>,
         sessionMessages: {} as Record<string, unknown>,
@@ -27,6 +27,11 @@ const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } =
         },
     };
     return {
+        apiSocket: {
+            onMessage: vi.fn(),
+            onReconnected: vi.fn(),
+            sendAppState: vi.fn(),
+        },
         fetchSessionSnapshot: vi.fn(),
         hydrateSessionSnapshots: vi.fn(),
         storage: {
@@ -49,11 +54,7 @@ vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots,
 vi.mock('./apiSessions', () => ({ fetchSessionSnapshot }));
 vi.mock('./storage', () => ({ storage }));
 vi.mock('./apiSocket', () => ({
-    apiSocket: {
-        onMessage: vi.fn(),
-        onReconnected: vi.fn(),
-        sendAppState: vi.fn(),
-    },
+    apiSocket,
     getCurrentAppState: vi.fn(() => 'active'),
     getHappyClientId: vi.fn(() => 'test-client'),
 }));
@@ -143,6 +144,9 @@ describe('new-session updates', () => {
         syncForTest.inFlightSessionRefreshes.clear();
         syncForTest.sessionDeletionMutationGenerations.clear();
         fetchSessionSnapshot.mockReset();
+        apiSocket.onMessage.mockReset();
+        apiSocket.onReconnected.mockReset();
+        apiSocket.sendAppState.mockReset();
         hydrateSessionSnapshots.mockReset();
         hydrateSessionSnapshots.mockResolvedValue([hydratedSession]);
         storageState.sessions = {};
@@ -175,6 +179,46 @@ describe('new-session updates', () => {
             expect.objectContaining({ id: 'session-1' }),
         ], syncForTest.encryption);
         expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+    });
+
+    it('refreshes bounded active summaries and incremental history on Native reconnect without the legacy full list', async () => {
+        const { Platform } = await import('react-native');
+        const originalPlatform = Platform.OS;
+        const activeInvalidate = vi.fn();
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+        const original = {
+            sessionBootstrapSync: syncForTest.sessionBootstrapSync,
+            machinesSync: syncForTest.machinesSync,
+            artifactsSync: syncForTest.artifactsSync,
+            feedSync: syncForTest.feedSync,
+            pluginCatalogSync: syncForTest.pluginCatalogSync,
+            localHistory: syncForTest.localHistory,
+            sendSync: syncForTest.sendSync,
+            boundedSessionBootstrapDeferred: syncForTest.boundedSessionBootstrapDeferred,
+        };
+        syncForTest.localHistory = null;
+        syncForTest.sessionBootstrapSync = { invalidate: activeInvalidate };
+        syncForTest.machinesSync = { invalidate: vi.fn() };
+        syncForTest.artifactsSync = { invalidate: vi.fn() };
+        syncForTest.feedSync = { invalidate: vi.fn() };
+        syncForTest.pluginCatalogSync = { invalidate: vi.fn() };
+        syncForTest.sendSync = new Map();
+
+        try {
+            (Platform as { OS: string }).OS = 'android';
+            syncForTest.subscribeToUpdates();
+            const reconnected = apiSocket.onReconnected.mock.calls.at(-1)?.[0];
+            expect(reconnected).toBeTypeOf('function');
+            reconnected();
+
+            expect(activeInvalidate).toHaveBeenCalledTimes(1);
+            expect(reconcile).toHaveBeenCalledTimes(1);
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            reconcile.mockRestore();
+            (Platform as { OS: string }).OS = originalPlatform;
+            Object.assign(syncForTest, original);
+        }
     });
 
     // Regression: a delayed socket snapshot must not replace newer metadata
