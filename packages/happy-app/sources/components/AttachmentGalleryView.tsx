@@ -4,8 +4,8 @@
  * The wire/sync format still stores each sent image as its own `file`
  * tool-call message (see sync.ts). useGroupedMessages collapses a run of
  * adjacent attachments into a single `image-group` DisplayItem. Ordinary
- * uploaded reference images render as a compact Kimi-style thumbnail strip;
- * GPT Image Agent outputs render larger, preserving the image aspect ratio.
+ * uploaded reference images render as a compact thumbnail strip;
+ * generated outputs use a wrapping grid with the same thumbnail size.
  * Running GPT Image batches can also reserve pending slots so the user sees
  * one loading placeholder per expected image before the file events arrive.
  *
@@ -23,10 +23,11 @@ import { Message } from '@/sync/typesMessage';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { ATTACHMENT_THUMBNAIL_MAX_DIMENSION } from '@/hooks/attachmentImageTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
-import { imageViewer } from '@/sync/imageViewer';
+import { openSessionImageViewer } from '@/sync/openSessionImageViewer';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 import {
     computeAttachmentGalleryImageSize,
+    CHAT_IMAGE_THUMB_SIZE,
     computeGeneratedAttachmentGridLayout,
     formatPendingImageElapsed,
 } from '@/utils/attachmentGalleryLayout';
@@ -36,7 +37,7 @@ import { t } from '@/text';
 import { GeneratedImageBatchDownload } from '@/components/GeneratedImageBatchDownload';
 import type { ImageBatchDownloadItem } from '@/utils/imageBatchDownload';
 
-const THUMB_SIZE = 100;
+const THUMB_SIZE = CHAT_IMAGE_THUMB_SIZE;
 const FEATURED_MAX_WIDTH = 360;
 const FEATURED_MAX_HEIGHT = 520;
 const BORDER_RADIUS = 10;
@@ -150,13 +151,13 @@ export const AttachmentGalleryView = React.memo<{
     })();
 
     const handleOpen = React.useCallback((tappedId: string) => {
-        // Build the gallery in display order from whatever has resolved so far.
+        // Keep unresolved images in the gallery; the viewer loads them on demand.
         const ordered = images
-            .map((img) => ({ img, uri: resolvedRef.current.get(img.id) }))
-            .filter((x): x is { img: GalleryImage; uri: string } => !!x.uri);
+            .filter((img) => img.kind !== 'audio' && img.kind !== 'video')
+            .map((img) => ({ img, uri: resolvedRef.current.get(img.id) ?? '' }));
         const index = ordered.findIndex((x) => x.img.id === tappedId);
         if (index < 0) return;
-        imageViewer.open(
+        openSessionImageViewer(
             ordered.map((x) => ({
                 uri: x.uri,
                 width: x.img.width,

@@ -5,6 +5,10 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { BrowserStepsPanel } from './BrowserStepsPanel';
 import type { BrowserStep } from './browserStepsModel';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SessionImageViewer } from '../SessionImageViewer';
+import { getSessionImageViewerGallery } from '@/sync/openSessionImageViewer';
+import type { ImageViewerSource } from '@/sync/imageViewer';
 
 export type BrowserStepsAnchorRect = {
     height: number;
@@ -69,6 +73,15 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
 }) {
     const { theme } = useUnistyles();
     const viewport = useWindowDimensions();
+    const [gallery, setGallery] = React.useState<ReturnType<typeof getSessionImageViewerGallery>>();
+    const imageButtonRef = React.useRef<View>(null);
+    const closeGallery = React.useCallback(() => {
+        setGallery(undefined);
+        if (Platform.OS === 'web') requestAnimationFrame(() => imageButtonRef.current?.focus());
+    }, []);
+    const openImage = React.useCallback((source: ImageViewerSource) => {
+        setGallery(getSessionImageViewerGallery(source));
+    }, []);
     const layout = React.useMemo(
         () => getBrowserStepsPopoverLayout(props.anchor, viewport),
         [props.anchor, viewport.height, viewport.width],
@@ -86,11 +99,16 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
             accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.title')}
             animationType={Platform.OS === 'web' ? 'none' : 'fade'}
             nativeID={props.dialogId}
-            onRequestClose={closeAndRestoreFocus}
+            onRequestClose={gallery ? closeGallery : closeAndRestoreFocus}
             transparent
             visible
         >
-            <View style={styles.overlay}>
+            {gallery ? (
+                <GestureHandlerRootView style={styles.fullscreen}>
+                    <SessionImageViewer sources={gallery.sources} initialIndex={gallery.index} onClose={closeGallery} />
+                </GestureHandlerRootView>
+            ) : null}
+            <View style={[styles.overlay, gallery && styles.hidden]}>
                 <Pressable
                     accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.close')}
                     onPress={closeAndRestoreFocus}
@@ -132,7 +150,7 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
                         </Pressable>
                     </View>
                     <View style={styles.body} testID="browser-steps-popover-content">
-                        <BrowserStepsPanel sessionId={props.sessionId} steps={props.steps} />
+                        <BrowserStepsPanel sessionId={props.sessionId} steps={props.steps} onOpenImage={openImage} imageButtonRef={imageButtonRef} />
                     </View>
                 </View>
             </View>
@@ -141,6 +159,8 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
 });
 
 const styles = StyleSheet.create(() => ({
+    fullscreen: { flex: 1 },
+    hidden: { display: 'none' },
     overlay: { flex: 1, position: 'relative' },
     scrim: { ...StyleSheet.absoluteFillObject, opacity: 0.28 },
     card: {

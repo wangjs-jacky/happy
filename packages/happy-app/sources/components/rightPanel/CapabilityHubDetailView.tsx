@@ -6,7 +6,7 @@ import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import type { SessionActionItem } from '@/hooks/useSessionQuickActions';
-import { imageViewer } from '@/sync/imageViewer';
+import { openSessionImageViewer } from '@/sync/openSessionImageViewer';
 import { getCurrentLanguage, t } from '@/text';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
@@ -305,8 +305,10 @@ const TaskResourceImageItemRow = React.memo(function TaskResourceImageItemRow(pr
         <Pressable
             accessibilityRole="button"
             disabled={!uri}
-            onPress={uri ? () => imageViewer.open({
+            onPress={uri ? () => openSessionImageViewer({
                 uri,
+                sessionId: props.sessionId,
+                attachmentRef: ref,
                 width: event.width,
                 height: event.height,
                 filename: event.title,
@@ -595,7 +597,7 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
     return (
         <Pressable
             disabled={!uri}
-            onPress={uri ? () => imageViewer.open({ uri, width: props.item.width, height: props.item.height, filename: props.item.title }) : undefined}
+            onPress={uri ? () => openSessionImageViewer({ uri, sessionId: props.sessionId, attachmentRef: props.item.ref, width: props.item.width, height: props.item.height, filename: props.item.title }) : undefined}
             style={({ pressed }) => [
                 styles.rowCard,
                 styles.imageRowCard,

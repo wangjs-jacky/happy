@@ -74,4 +74,13 @@ describe('imageViewer store', () => {
         expect(s.sources.map((x) => x.uri)).toEqual(['file:///b.png', 'file:///c.png']);
         expect(s.index).toBe(1);
     });
+
+    it('resets the mounted viewer on each open but preserves it throughout closing animation', () => {
+        imageViewer.open({ uri: 'first' });
+        const first = useImageViewerStore.getState().openId;
+        imageViewer.close();
+        expect(useImageViewerStore.getState().openId).toBe(first);
+        imageViewer.open({ uri: 'second' });
+        expect(useImageViewerStore.getState().openId).not.toBe(first);
+    });
 });

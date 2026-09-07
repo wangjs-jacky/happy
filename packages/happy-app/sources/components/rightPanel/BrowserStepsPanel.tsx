@@ -5,6 +5,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { t } from '@/text';
 import type { BrowserStep } from './browserStepsModel';
+import { openSessionImageViewer } from '@/sync/openSessionImageViewer';
+import type { ImageViewerSource } from '@/sync/imageViewer';
 
 function formatTime(timestamp: number): string {
     return new Intl.DateTimeFormat(undefined, {
@@ -17,11 +19,23 @@ function formatTime(timestamp: number): string {
 const BrowserStepPreview = React.memo(function BrowserStepPreview(props: {
     sessionId: string;
     step: BrowserStep;
+    onOpenImage?: (source: ImageViewerSource) => void;
+    imageButtonRef?: React.RefObject<View | null>;
 }) {
     const { theme } = useUnistyles();
     const { uri, loading } = useAttachmentImage(props.sessionId, props.step.ref);
     return (
-        <View style={[styles.preview, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+        <Pressable
+            ref={props.imageButtonRef}
+            testID="browser-step-open-image"
+            accessibilityRole="button"
+            accessibilityLabel={props.step.label}
+            onPress={() => (props.onOpenImage ?? openSessionImageViewer)({
+                uri: uri ?? '', sessionId: props.sessionId, attachmentRef: props.step.ref,
+                filename: props.step.name, width: props.step.width, height: props.step.height,
+            })}
+            style={({ pressed }) => [styles.preview, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}
+        >
             {uri ? (
                 <Image resizeMode="contain" source={{ uri }} style={styles.previewImage} />
             ) : (
@@ -29,7 +43,10 @@ const BrowserStepPreview = React.memo(function BrowserStepPreview(props: {
                     {loading ? <ActivityIndicator color={theme.colors.textSecondary} size="small" /> : <Ionicons color={theme.colors.textSecondary} name="image-outline" size={28} />}
                 </View>
             )}
-        </View>
+            <View style={styles.openIcon} pointerEvents="none">
+                <Ionicons name="expand-outline" size={18} color={theme.colors.text} />
+            </View>
+        </Pressable>
     );
 });
 
@@ -49,6 +66,8 @@ const BrowserStepThumbnail = React.memo(function BrowserStepThumbnail(props: {
 export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
     sessionId: string;
     steps: BrowserStep[];
+    onOpenImage?: (source: ImageViewerSource) => void;
+    imageButtonRef?: React.RefObject<View | null>;
 }) {
     const { theme } = useUnistyles();
     const latestId = props.steps.at(-1)?.id ?? null;
@@ -73,7 +92,7 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
                 </View>
             </View>
 
-            <BrowserStepPreview sessionId={props.sessionId} step={selected} />
+            <BrowserStepPreview sessionId={props.sessionId} step={selected} onOpenImage={props.onOpenImage} imageButtonRef={props.imageButtonRef} />
             <View style={styles.activeCopy}>
                 <Text style={[styles.activeLabel, { color: theme.colors.text }]} numberOfLines={2}>
                     {selected.label}
@@ -127,6 +146,7 @@ const styles = StyleSheet.create(() => ({
     subtitle: { fontSize: 12, marginTop: 2 },
     preview: { height: 186, borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
     previewImage: { width: '100%', height: '100%' },
+    openIcon: { position: 'absolute', right: 8, bottom: 8 },
     previewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     activeCopy: { marginTop: 10, marginBottom: 18 },
     activeLabel: { fontSize: 15, fontWeight: '600', lineHeight: 21 },

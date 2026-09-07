@@ -1731,6 +1731,8 @@ export const pl: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: 'Poprzedni obraz',
+        nextImage: 'Następny obraz',
         download: 'Pobierz obraz',
         downloadOriginalMotionPhoto: 'Pobierz oryginalne ruchome zdjęcie',
         playMotionPhoto: 'Odtwórz ruchome zdjęcie',

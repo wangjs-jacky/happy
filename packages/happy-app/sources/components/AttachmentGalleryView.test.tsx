@@ -53,6 +53,7 @@ vi.mock('@/hooks/useAttachmentImage', () => ({
 }));
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: () => undefined }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessionMessages: {} }) } }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/components/HorizontalScrollView', () => ({ HorizontalScrollView: 'HorizontalScrollView' }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));

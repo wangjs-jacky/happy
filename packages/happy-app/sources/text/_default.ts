@@ -661,6 +661,8 @@ export const en = {
     },
 
     imageViewer: {
+        previousImage: 'Previous image',
+        nextImage: 'Next image',
         download: 'Download image',
         downloadOriginalMotionPhoto: 'Download original motion photo',
         playMotionPhoto: 'Play motion photo',
