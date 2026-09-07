@@ -2199,7 +2199,7 @@ class Sync {
         });
     }
 
-    public loadNextSessionHistoryPage = async (): Promise<void> => {
+    public loadNextSessionHistoryPage = async (): Promise<boolean> => {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
         const owner = this.captureHistoryOwner('');
         if (this.cancelScheduledSessionHistory) {
@@ -2208,10 +2208,11 @@ class Sync {
         this.initialSessionHistoryScheduled = true;
         const task = {};
         this.sessionHistoryTask = task;
+        let loaded = false;
         try {
             if (this.sessionBootstrapInFlight) await this.sessionBootstrapInFlight;
-            if (!owner.isCurrent()) return;
-            const loaded = await this.requestNextSessionHistoryPage();
+            if (!owner.isCurrent()) return false;
+            loaded = await this.requestNextSessionHistoryPage();
             if (loaded && owner.isCurrent() && this.sessionHistoryReconciliationPending) {
                 this.sessionHistoryReconciliationPending = false;
                 this.requestHistoryReconciliation();
@@ -2219,6 +2220,7 @@ class Sync {
         } finally {
             if (this.sessionHistoryTask === task) this.sessionHistoryTask = null;
         }
+        return loaded && this.nextSessionHistoryCursor !== null;
     }
 
     private requestNextSessionHistoryPage = async (): Promise<boolean> => {

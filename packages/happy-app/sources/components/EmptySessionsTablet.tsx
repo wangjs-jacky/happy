@@ -59,7 +59,17 @@ export function shouldShowSessionEmptyState(sessionCount: number): boolean {
     return sessionCount === 0;
 }
 
-export function EmptySessionsTablet({ title = t('sidebar.emptySessionsTitle') }: { title?: string }) {
+export function EmptySessionsTablet({
+    description,
+    icon = 'terminal-outline',
+    showNewSessionAction = true,
+    title = t('sidebar.emptySessionsTitle'),
+}: {
+    description?: string;
+    icon?: React.ComponentProps<typeof Ionicons>['name'];
+    showNewSessionAction?: boolean;
+    title?: string;
+}) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const router = useRouter();
@@ -76,7 +86,7 @@ export function EmptySessionsTablet({ title = t('sidebar.emptySessionsTitle') }:
     return (
         <View style={styles.container}>
             <Ionicons 
-                name="terminal-outline" 
+                name={icon}
                 size={64} 
                 color={theme.colors.textSecondary}
                 style={styles.iconContainer}
@@ -86,25 +96,31 @@ export function EmptySessionsTablet({ title = t('sidebar.emptySessionsTitle') }:
                 {title}
             </Text>
             
-            {hasOnlineMachines ? (
+            {description ? (
+                <Text style={styles.descriptionText}>
+                    {description}
+                </Text>
+            ) : hasOnlineMachines ? (
                 <>
                     <Text style={styles.descriptionText}>
                         {t('sidebar.emptySessionsOnlineDescription')}
                     </Text>
-                    <Pressable
-                        style={styles.button}
-                        onPress={handleStartNewSession}
-                    >
-                        <Ionicons
-                            name="add"
-                            size={20}
-                            color={theme.colors.button.primary.tint}
-                            style={styles.buttonIcon}
-                        />
-                        <Text style={styles.buttonText}>
-                            {t('newSession.title')}
-                        </Text>
-                    </Pressable>
+                    {showNewSessionAction ? (
+                        <Pressable
+                            style={styles.button}
+                            onPress={handleStartNewSession}
+                        >
+                            <Ionicons
+                                name="add"
+                                size={20}
+                                color={theme.colors.button.primary.tint}
+                                style={styles.buttonIcon}
+                            />
+                            <Text style={styles.buttonText}>
+                                {t('newSession.title')}
+                            </Text>
+                        </Pressable>
+                    ) : null}
                 </>
             ) : (
                 <Text style={styles.descriptionText}>

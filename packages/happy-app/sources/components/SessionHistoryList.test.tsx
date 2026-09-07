@@ -12,9 +12,10 @@ const mocks = vi.hoisted(() => ({
     pathname: '/session/older',
     platform: 'web',
     sessions: [
-        { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session' },
-        { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session' },
-        { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session' },
+        { id: 'regular', updatedAt: Date.UTC(2026, 8, 5, 9), name: 'Regular session', metadata: { lifecycleState: 'running' } },
+        { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session', metadata: { lifecycleState: 'archived' } },
+        { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session', metadata: { lifecycleState: 'archiveRequested' } },
+        { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session', metadata: { lifecycleState: 'archived' } },
     ] as any[],
 }));
 
@@ -54,7 +55,11 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/Avatar', () => ({ Avatar: 'Avatar' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
-vi.mock('@/sync/storage', () => ({ useAllSessions: () => mocks.sessions, useIsDataReady: () => true }));
+vi.mock('@/sync/storage', () => ({
+    storage: { getState: () => ({ sessions: Object.fromEntries(mocks.sessions.map((session) => [session.id, session])) }) },
+    useAllSessions: () => mocks.sessions,
+    useIsDataReady: () => true,
+}));
 vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => mocks.navigateToSession }));
 vi.mock('@/utils/sessionUtils', () => ({
     getSessionAvatarId: (session: any) => `avatar-${session.id}`,
@@ -82,6 +87,12 @@ describe('SessionHistoryList', () => {
         vi.setSystemTime(new Date(2026, 8, 4, 12));
         mocks.pathname = '/session/older';
         mocks.platform = 'web';
+        mocks.sessions = [
+            { id: 'regular', updatedAt: Date.UTC(2026, 8, 5, 9), name: 'Regular session', metadata: { lifecycleState: 'running' } },
+            { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session', metadata: { lifecycleState: 'archived' } },
+            { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session', metadata: { lifecycleState: 'archiveRequested' } },
+            { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session', metadata: { lifecycleState: 'archived' } },
+        ];
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -95,7 +106,7 @@ describe('SessionHistoryList', () => {
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
 
-    it('groups newest conversations first and opens the selected conversation in the existing session route', () => {
+    it('shows only archived conversations, newest first, and opens them in the existing session route', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
 
@@ -106,6 +117,7 @@ describe('SessionHistoryList', () => {
             'session-history-row-same-day',
             'session-history-row-older',
         ]);
+        expect(renderer.root.findAllByProps({ testID: 'session-history-row-regular' })).toHaveLength(0);
         expect(renderer.root.findByProps({ testID: 'session-history-row-older' }).props.accessibilityState).toEqual({ selected: true });
 
         act(() => renderer.root.findByProps({ testID: 'session-history-row-newest' }).props.onPress());
@@ -192,6 +204,65 @@ describe('SessionHistoryList', () => {
         expect(mocks.loadNextSessionHistoryPage.mock.calls.length).toBe(1);
         act(() => list.props.onEndReached?.());
         expect(mocks.loadNextSessionHistoryPage.mock.calls.length).toBe(1);
+        act(() => renderer.unmount());
+    });
+
+    it('shows archive-specific empty guidance when no archived conversations exist', () => {
+        mocks.sessions = [{
+            id: 'regular',
+            updatedAt: Date.UTC(2026, 8, 5, 9),
+            name: 'Regular session',
+            metadata: { lifecycleState: 'running' },
+        }];
+        let renderer: any;
+
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
+
+        expect(renderer.root.findByType('EmptySessionsTablet').props).toMatchObject({
+            description: 'sessionHistory.archiveEmptyDescription',
+            icon: 'archive-outline',
+            showNewSessionAction: false,
+            title: 'sessionHistory.archiveEmpty',
+        });
+
+        act(() => renderer.unmount());
+        vi.useRealTimers();
+    });
+
+    it('keeps requesting older history pages when a page only repeats already-loaded active conversations', async () => {
+        mocks.sessions = [{
+            id: 'already-loaded-active',
+            updatedAt: Date.UTC(2026, 8, 5, 9),
+            name: 'Already loaded active session',
+            metadata: { lifecycleState: 'running' },
+        }];
+        mocks.loadNextSessionHistoryPage
+            .mockResolvedValueOnce(true)
+            .mockImplementationOnce(async () => {
+                mocks.sessions = [
+                    ...mocks.sessions,
+                    {
+                        id: 'archived-page-2',
+                        updatedAt: Date.UTC(2026, 7, 25, 9),
+                        name: 'Archived page 2',
+                        metadata: { lifecycleState: 'archived' },
+                    },
+                ];
+                return false;
+            });
+        let renderer: any;
+
+        await act(async () => {
+            renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />);
+        });
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+            renderer.update(<SessionHistoryList variant="page" />);
+        });
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findByProps({ testID: 'session-history-row-archived-page-2' })).toBeDefined();
+
         act(() => renderer.unmount());
     });
 });
