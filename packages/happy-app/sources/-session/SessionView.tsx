@@ -67,7 +67,7 @@ import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
-import { SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
+import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
@@ -501,15 +501,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 setSessionResolution(resolution);
             }).catch((error: unknown) => {
                 if (cancelled) return;
-                if (owner) sync.leaveSessionRoute(owner);
-                if (error instanceof SessionRouteAbandonedError) {
-                    setSessionResolution('not-found');
-                    return;
-                }
                 if (error instanceof SessionRouteCoordinationError || index === delays.length) {
+                    if (owner) sync.leaveSessionRoute(owner);
                     setSessionResolution('error');
                     return;
                 }
+                // Keep this owner reserved across the bounded retry delay.
+                // beginSessionRoute() replaces it synchronously on the next
+                // attempt, preventing background account sync from taking the
+                // cold-route network lane in the owner-less gap.
                 setSessionResolution('retrying');
                 retryTimer = setTimeout(() => attempt(index + 1), delays[index]);
             });
@@ -560,6 +560,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         : null;
     const paintOwnerEpoch = routeOwner?.sessionId === sessionId
         && session?.id === sessionId
+        && (sessionResolution === 'loading' || sessionResolution === 'ready')
         && (canRenderCachedSession || sessionResolution === 'ready')
         ? routeOwner.ownerEpoch
         : null;

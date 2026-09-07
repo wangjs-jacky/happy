@@ -12,6 +12,7 @@ export type SkillConversationActivity = {
     updatedAt: number;
     depth: number;
     order: number;
+    invocationMessageIds: string[];
 };
 
 export type SubagentConversationActivity = {
@@ -103,6 +104,7 @@ function getToolFailure(message: ToolCallMessage): ToolCall['failure'] | null {
 }
 
 export function getSkillNamesFromTool(tool: Pick<ToolCall, 'name' | 'input'>): string[] {
+    if (tool.name === 'ego-browser' || tool.name === 'ego-ops') return [tool.name];
     if (tool.name !== 'Skill') {
         return [];
     }
@@ -191,11 +193,18 @@ export function collectConversationActivities(
                     updatedAt: message.tool.completedAt ?? message.createdAt,
                     depth,
                     order: sequence,
+                    invocationMessageIds: [message.id],
                 };
                 const key = JSON.stringify([ownerPath, isBatch ? 'batch' : 'skill', isBatch ? message.id : name]);
                 const existing = skillActivities.get(key);
                 if (!existing || next.status === 'running' || next.updatedAt >= existing.updatedAt) {
-                    skillActivities.set(key, existing ? { ...next, order: existing.order } : next);
+                    skillActivities.set(key, existing ? {
+                        ...next,
+                        order: existing.order,
+                        invocationMessageIds: [...existing.invocationMessageIds, message.id],
+                    } : next);
+                } else if (existing) {
+                    existing.invocationMessageIds.push(message.id);
                 }
             }
 

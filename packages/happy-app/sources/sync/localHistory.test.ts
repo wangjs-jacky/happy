@@ -63,14 +63,29 @@ describe('local encrypted history archive', () => {
         expect((await b!.readReconciliation()).cursor).toBeNull();
         expect((await b!.readChange('s'))?.revision).toBe('2');
     });
-    it('reopens durable snapshot work for unseen revisions and excludes resolved or deleted records', async () => {
+    it('reopens only stale cached snapshot work without materializing unseen change identities', async () => {
         const a = (await openLocalHistory('pending'))!;
-        await a.commitReconciliation({ changes: [change('unseen'), change('gone', '2', true)], nextCursor: '2' });
+        await a.writeSnapshots([snapshot('stale')]);
+        await a.commitReconciliation({ changes: [
+            change('unseen'),
+            { ...change('stale', '2'), metadataVersion: 2 },
+            change('gone', '2', true),
+        ], nextCursor: '2' });
         a.close();
         const b = (await openLocalHistory('pending'))!;
-        expect(await b.listSnapshotRefreshIds()).toEqual(['unseen']);
-        await b.writeSnapshots([snapshot('unseen')]);
+        expect(await b.listSnapshotRefreshIds()).toEqual(['stale']);
+        await b.writeSnapshots([{ ...snapshot('stale'), metadataVersion: 2 }]);
         expect(await b.listSnapshotRefreshIds()).toEqual([]);
+        expect((await b.readReconciliation()).cursor).toBe('2');
+        expect(await b.readChange('unseen')).toBeNull();
+        expect(await b.readSnapshot('unseen')).toBeNull();
+        expect((await b.readChange('gone'))?.deleted).toBe(true);
+    });
+    it('does not schedule valid cached snapshots without a newer recorded change', async () => {
+        const a = (await openLocalHistory('unchanged'))!;
+        await a.writeSnapshots(Array.from({ length: 174 }, (_, index) => snapshot(`cached-${index}`)));
+
+        expect(await a.listSnapshotRefreshIds()).toEqual([]);
     });
     it('does not publish partial coverage or cursor when a transaction cannot clone a record', async () => {
         const a = await openLocalHistory('server|a');

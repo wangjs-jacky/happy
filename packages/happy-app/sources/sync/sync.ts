@@ -112,6 +112,7 @@ import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRange
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, invalidateLocalHistorySession, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
+import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { fetchSessionChanges } from './apiSessionChanges';
 import { reconcileSessionHistory } from './sessionHistoryReconciliation';
 import { createReducer, reducer } from './reducer/reducer';
@@ -132,6 +133,8 @@ type V3GetSessionMessagesResponse = {
     hasMore: boolean;
     localWindow?: HistoryWindow;
     revalidateTail?: boolean;
+    // Local-only ownership stamp, captured before HTTP starts.
+    nativeCacheGeneration?: object;
 };
 
 type SessionOpenResolution = 'ready' | 'not-found';
@@ -230,6 +233,8 @@ class CoalescingMessageSync {
 // 2_147_483_647. We use that exact upper bound to keep the request safely
 // within int4 while still being effectively "infinite" for any session.
 const SEQ_BACKWARD_INITIAL_SENTINEL = 2_147_483_647;
+const INITIAL_ACTIVE_SESSION_LIMIT = 25;
+const INITIAL_LATEST_MESSAGE_LIMIT = 25;
 
 type V3PostSessionMessagesResponse = {
     messages: Array<{
@@ -368,6 +373,7 @@ class Sync {
     private sessionBootstrapInFlight: Promise<void> | null = null;
     private sessionListOwner: Encryption | null = null;
     private cancelScheduledSessionHistory: (() => void) | null = null;
+    private sessionReconnectSync: InvalidateSync;
     private sessionHistoryInFlight: Promise<boolean> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
     private initialSessionHistoryScheduled = false;
@@ -404,6 +410,9 @@ class Sync {
     private sessionDeletionMutationGenerations = new Map<string, number>();
     private inFlightSessionRefreshes = new Set<{ mutationGeneration: number }>();
     private sessionHydrations = new Map<string, Promise<boolean>>();
+    private initialSessionBootstrapDeferred = false;
+    private boundedSessionBootstrapDeferred = false;
+    private historyReconciliationDeferred = false;
     private sessionEventCursors = new Map<string, number>();
     private sessionDataKeys = new Map<string, Uint8Array>(); // Store session data encryption keys internally
     private machineDataKeys = new Map<string, Uint8Array>(); // Store machine data encryption keys internally
@@ -448,6 +457,7 @@ class Sync {
         });
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
         this.sessionBootstrapSync = new InvalidateSync(this.bootstrapSessions);
+        this.sessionReconnectSync = new InvalidateSync(this.refreshSessionsAfterReconnect);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
         this.purchasesSync = new InvalidateSync(this.syncPurchases);
@@ -475,7 +485,7 @@ class Sync {
             apiSocket.sendAppState(getCurrentAppState());
 
             if (nextAppState === 'active') {
-                void this.reconcileHistory().catch(() => undefined);
+                this.requestHistoryReconciliation();
                 const shouldFailAfterResume = this.backgroundSendStartedAt !== null
                     && this.hasPendingOutboxMessages()
                     && (Date.now() - this.backgroundSendStartedAt) >= Sync.BACKGROUND_SEND_TIMEOUT_MS;
@@ -487,13 +497,13 @@ class Sync {
                 }
                 log.log('📱 App became active');
                 log.log('📱 App became active: Invalidating artifacts sync');
+                this.requestBoundedSessionBootstrap();
                 resyncOnForeground({
                     globalSyncs: [
                         this.purchasesSync,
                         this.profileSync,
                         this.machinesSync,
                         this.pushTokenSync,
-                        this.sessionBootstrapSync,
                         this.nativeUpdateSync,
                         this.artifactsSync,
                         this.feedSync,
@@ -578,6 +588,65 @@ class Sync {
         void this.writeSessionSnapshots(() => history.listSnapshots(), { replace: false }, undefined, false).then(snapshots => {
             if (this.localHistory === history && snapshots.length) storage.getState().applyReady();
         }).catch(() => undefined);
+    };
+
+    private shouldPrioritizeInitialSessionRoute = (): boolean => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+        if (!window.location.pathname.match(/^\/session\/[^/]+\/?$/)) return false;
+        const owner = this.sessionRouteOwnership.current();
+        return owner === null || owner.phase === 'opening';
+    };
+
+    /** Route-aware gate shared by foreground, reconnect, and startup refreshes. */
+    private requestBoundedSessionBootstrap = (): void => {
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.boundedSessionBootstrapDeferred = true;
+            return;
+        }
+        this.boundedSessionBootstrapDeferred = false;
+        this.sessionBootstrapSync.invalidate();
+    };
+
+    private requestHistoryReconciliation = (): void => {
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.historyReconciliationDeferred = true;
+            return;
+        }
+        this.historyReconciliationDeferred = false;
+        void this.reconcileHistory().catch(() => undefined);
+    };
+
+    private releaseDeferredSessionWork = (
+        owner?: SessionRouteOwner,
+        credentials: AuthCredentials = this.credentials,
+        options: { terminal?: boolean } = {},
+    ): void => {
+        if (this.credentials !== credentials) return;
+        const current = this.sessionRouteOwnership.current();
+        // A replacement opening route inherits the network lane. An old
+        // route's late completion must never release work ahead of it.
+        if (owner && current && current.ownerEpoch !== owner.ownerEpoch) return;
+
+        const reconcileAfterBootstrap = options.terminal && this.historyReconciliationDeferred;
+        if (options.terminal) this.historyReconciliationDeferred = false;
+        let bootstrap: Promise<void>;
+        if (this.initialSessionBootstrapDeferred) {
+            bootstrap = this.bootstrapSessions({ routeReady: true });
+        } else if (this.boundedSessionBootstrapDeferred) {
+            // The target transfers have completed, but the route may not yet
+            // have been promoted by its first paint. Release this owned attempt
+            // explicitly instead of re-entering the opening-route gate.
+            bootstrap = this.bootstrapSessions({ routeReady: true });
+        } else {
+            bootstrap = this.sessionBootstrapInFlight ?? this.sessionBootstrapSync.awaitQueue();
+        }
+        if (reconcileAfterBootstrap && this.localHistory) {
+            void bootstrap.then(() => {
+                if (this.credentials === credentials && this.localHistory) {
+                    return this.reconcileHistory();
+                }
+            }).catch(() => undefined);
+        }
     };
 
     public resetLocalHistory = async (): Promise<void> => {
@@ -923,6 +992,25 @@ class Sync {
         if (current() && supported) this.nativeHistoryCursor = cursor;
     };
 
+    private refreshSessionsAfterReconnect = async (): Promise<void> => {
+        const history = this.localHistory;
+        const credentials = this.credentials;
+        this.requestBoundedSessionBootstrap();
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.historyReconciliationDeferred = true;
+            return;
+        }
+        this.historyReconciliationDeferred = false;
+        const canReconcile = Boolean(history) || (Platform.OS !== 'web' && Boolean(credentials));
+        if (!canReconcile) return;
+        const earlierReconciliation = this.changesInFlight;
+        if (earlierReconciliation) {
+            await earlierReconciliation;
+            if (this.localHistory !== history || this.credentials !== credentials) return;
+        }
+        await this.reconcileHistory();
+    };
+
     private restoreSessionWarmCache = async (): Promise<void> => {
         const accountKey = this.sessionWarmCacheAccountKey;
         if (!accountKey) return;
@@ -949,7 +1037,7 @@ class Sync {
             try {
                 this.retainSessionMessageCache(sessionId);
                 const lease = this.sessionMessageLoadGate.enter(sessionId);
-                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease));
+                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease), 'warm-cache');
             } catch {
                 removeSessionFromWarmCache(accountKey, sessionId);
             }
@@ -960,6 +1048,12 @@ class Sync {
     async #init() {
         this.sessionEventCursors.clear();
         this.sessionHydrations.clear();
+        // Scheduler intent belongs to one authenticated account only. Late
+        // completions from the previous account are fenced by credential
+        // identity and must leave no work for the next account to consume.
+        this.initialSessionBootstrapDeferred = false;
+        this.boundedSessionBootstrapDeferred = false;
+        this.historyReconciliationDeferred = false;
 
         // Subscribe to updates
         this.subscribeToUpdates();
@@ -1990,7 +2084,7 @@ class Sync {
 
     private fetchActiveSessions = async () => {
         if (!this.credentials) return;
-        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, 150));
+        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, INITIAL_ACTIVE_SESSION_LIMIT));
     }
 
     private resetSessionListOwner = () => {
@@ -2003,8 +2097,14 @@ class Sync {
         useSessionListSyncState.setState({ bootstrap: 'idle', history: 'idle' });
     };
 
-    public bootstrapSessions = (): Promise<void> => {
+    public bootstrapSessions = (options: { routeReady?: boolean } = {}): Promise<void> => {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
+        if (!options.routeReady && this.shouldPrioritizeInitialSessionRoute()) {
+            this.initialSessionBootstrapDeferred = true;
+            return Promise.resolve();
+        }
+        this.initialSessionBootstrapDeferred = false;
+        this.boundedSessionBootstrapDeferred = false;
         if (this.sessionBootstrapInFlight) return this.sessionBootstrapInFlight;
         const owner = this.captureHistoryOwner('');
         useSessionListSyncState.setState({ bootstrap: 'loading' });
@@ -2041,7 +2141,12 @@ class Sync {
 
     public sessionRouteBecameInteractive = async (): Promise<void> => {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
-        if (this.initialSessionHistoryScheduled) return;
+        this.releaseDeferredSessionWork(this.sessionRouteOwnership.current() ?? undefined);
+        if (this.initialSessionHistoryScheduled) {
+            if (!this.cancelScheduledSessionHistory && !this.sessionHistoryInFlight
+                && this.historyReconciliationDeferred) this.requestHistoryReconciliation();
+            return;
+        }
         this.initialSessionHistoryScheduled = true;
         const owner = this.captureHistoryOwner('');
         await new Promise<void>(resolve => {
@@ -2058,8 +2163,21 @@ class Sync {
                 finished = true;
                 cleanup();
                 if (!owner.isCurrent()) { resolve(); return; }
-                void this.reconcileHistory().catch(() => undefined);
-                void this.requestNextSessionHistoryPage().finally(resolve);
+                void (async () => {
+                    // Idle grants CPU time, not permission to compete with the
+                    // active summary/target network lane. Direct bootstrap
+                    // attempts are owned outside the invalidator queue.
+                    await this.sessionBootstrapInFlight;
+                    await this.sessionBootstrapSync.awaitQueue();
+                    if (!owner.isCurrent()) return;
+                    if (this.shouldPrioritizeInitialSessionRoute()) {
+                        this.initialSessionHistoryScheduled = false;
+                        this.historyReconciliationDeferred = true;
+                        return;
+                    }
+                    const loaded = await this.requestNextSessionHistoryPage();
+                    if (loaded && owner.isCurrent()) this.requestHistoryReconciliation();
+                })().finally(resolve);
             };
             const fallback = setTimeout(run, 1000);
             this.cancelScheduledSessionHistory = cancel;
@@ -2069,12 +2187,16 @@ class Sync {
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
         if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
+        const owner = this.captureHistoryOwner('');
+        const reconcileAfterPage = Boolean(this.cancelScheduledSessionHistory);
         if (this.cancelScheduledSessionHistory) {
             this.cancelScheduledSessionHistory();
-            void this.reconcileHistory().catch(() => undefined);
         }
         this.initialSessionHistoryScheduled = true;
-        await this.requestNextSessionHistoryPage();
+        if (this.sessionBootstrapInFlight) await this.sessionBootstrapInFlight;
+        if (!owner.isCurrent()) return;
+        const loaded = await this.requestNextSessionHistoryPage();
+        if (loaded && owner.isCurrent() && reconcileAfterPage) this.requestHistoryReconciliation();
     }
 
     private requestNextSessionHistoryPage = async (): Promise<boolean> => {
@@ -2317,6 +2439,14 @@ class Sync {
             this.messagesSync.get(owner.sessionId)?.stop();
             this.activeOpenSession = null;
         }
+        const credentials = this.credentials;
+        // beginSessionRoute() may synchronously install a replacement owner.
+        // Give it that chance before treating this as a real navigation away.
+        queueMicrotask(() => {
+            if (!this.sessionRouteOwnership.current()) {
+                this.releaseDeferredSessionWork(undefined, credentials, { terminal: true });
+            }
+        });
         return true;
     }
 
@@ -2360,9 +2490,12 @@ class Sync {
         // message request finishes. Attach a rejection observer immediately so
         // that discarded 404/network results never become unhandled promises.
         void latestPagePromise.catch(() => undefined);
+        const snapshotPromise = this.hydrateSessionSnapshot(sessionId, operation);
+        const targetTransfersSettled = Promise.allSettled([snapshotPromise, latestPagePromise]);
+        const routeCredentials = this.credentials;
 
         const opening = (async (): SessionOpenPromise => {
-            const found = await this.hydrateSessionSnapshot(sessionId, operation);
+            const found = await snapshotPromise;
             this.assertSessionRouteCurrent(operation);
             if (!found) return 'not-found';
 
@@ -2453,6 +2586,29 @@ class Sync {
                 return 'not-found' as const;
             }
             throw error;
+        });
+        // A missing snapshot may resolve the UI immediately while the already
+        // started latest-message request is still transferring. Ready routes
+        // already await their message work as part of `opening`.
+        void opening.then(async result => {
+            if (result === 'not-found') {
+                await targetTransfersSettled;
+                // The not-found screen remains mounted, so component cleanup
+                // cannot end its opening phase. Keep the epoch for stale-cleanup
+                // fencing, but terminalize it so later foreground/reconnect work
+                // is no longer held behind a route that can never paint.
+                if (this.credentials !== routeCredentials || this.activeOpenSession !== operation
+                    || !this.sessionRouteOwnership.terminalize(owner)) return;
+                operation.cancelled = true;
+                this.sessionMessageLoadGate.leave(operation.messageLease);
+                this.messagesSync.get(owner.sessionId)?.stop();
+                this.activeOpenSession = null;
+            }
+            this.releaseDeferredSessionWork(owner, routeCredentials, { terminal: result === 'not-found' });
+        }, () => {
+            // SessionView keeps ownership across a bounded transient retry and
+            // explicitly leaves on terminal error/unmount. Releasing here would
+            // create an owner-less lane during the retry delay.
         });
         this.sessionRouteOperations.set(opening, operation);
         return opening;
@@ -3449,8 +3605,9 @@ class Sync {
         sessionId: string,
     ): Promise<V3GetSessionMessagesResponse> => {
         const owner = this.captureHistoryOwner(sessionId);
+        const nativeCacheGeneration = sessionHistoryPageCache.generation;
         const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`,
+            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${INITIAL_LATEST_MESSAGE_LIMIT}`,
         );
         if (!owner.isCurrent()) throw new SessionWriteCancelled();
         if (response.status === 404) throw new SessionNotFoundError();
@@ -3462,6 +3619,7 @@ class Sync {
         const page = {
             messages: Array.isArray(data.messages) ? data.messages : [],
             hasMore: !!data.hasMore,
+            nativeCacheGeneration,
         };
         return page;
     }
@@ -3470,9 +3628,11 @@ class Sync {
         sessionId: string,
         data: V3GetSessionMessagesResponse,
         operation: SessionMessageLoadOperation,
+        source: 'network' | 'warm-cache' = 'network',
     ): Promise<boolean> => {
         const owner = this.captureHistoryOwner(sessionId, operation);
         const warmAccount = this.sessionWarmCacheAccountKey;
+        const pageCacheGeneration = data.nativeCacheGeneration ?? sessionHistoryPageCache.generation;
         if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
         const encryption = this.encryption.getSessionEncryption(sessionId);
         if (!encryption) {
@@ -3527,6 +3687,11 @@ class Sync {
         this.recordRoutePageCommit(operation, maxSeq);
         if (warmAccount) {
             saveSessionWarmLatestPage(warmAccount, sessionId, data);
+            // Startup warm pages can combine non-adjacent realtime records;
+            // only a server page certifies the interval between its messages.
+            if (Platform.OS !== 'web' && source === 'network') {
+                sessionHistoryPageCache.save(warmAccount, sessionId, SEQ_BACKWARD_INITIAL_SENTINEL, data, pageCacheGeneration);
+            }
         }
         if (owner.history) {
             const committed = await owner.history.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
@@ -3688,7 +3853,7 @@ class Sync {
             return;
         }
         const sessionMessages = storage.getState().sessionMessages[sessionId];
-        if (!sessionMessages || sessionMessages.isLoadingOlder || !sessionMessages.hasMoreOlder) {
+        if (!sessionMessages || sessionMessages.isLoadingOlder || this.sessionOlderLoadingTokens.has(sessionId) || !sessionMessages.hasMoreOlder) {
             return;
         }
 
@@ -3697,6 +3862,9 @@ class Sync {
         const loadingToken = {};
         this.sessionOlderLoadingTokens.set(sessionId, loadingToken);
         const encryptionOwner = this.encryption;
+        const warmAccount = Platform.OS !== 'web' ? this.sessionWarmCacheAccountKey : null;
+        let pageCacheGeneration = sessionHistoryPageCache.generation;
+        const cachedPage = warmAccount ? sessionHistoryPageCache.readOlder(warmAccount, sessionId, frontier.olderBeforeSeq) : null;
         const ownsLoading = () => this.encryption === encryptionOwner
             && this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
             && this.sessionOlderLoadingTokens.get(sessionId) === loadingToken;
@@ -3707,7 +3875,7 @@ class Sync {
             ?? this.sessionMessageLoadGate.enter(sessionId);
         const operation = this.sessionMessageLoadGate.begin(lease);
         setOlderError(null);
-        storage.getState().applyOlderMessagesLoading(sessionId, true);
+        if (!cachedPage) storage.getState().applyOlderMessagesLoading(sessionId, true);
         const lock = this.getSessionMessageLock(sessionId);
         try {
             await lock.inLock(async () => {
@@ -3724,17 +3892,40 @@ class Sync {
                 if (!currentFrontier?.hasMoreOlder || beforeSeq == null || beforeSeq <= 1) {
                     return;
                 }
-                const response = await apiSocket.request(
-                    `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
-                );
-                if (!response.ok) {
-                    throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
-                }
-                const data = await response.json() as V3GetSessionMessagesResponse;
-                const messages = Array.isArray(data.messages) ? data.messages : [];
+                const fetchPage = async (): Promise<V3GetSessionMessagesResponse> => {
+                    storage.getState().applyOlderMessagesLoading(sessionId, true);
+                    const response = await apiSocket.request(
+                        `/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=100`
+                    );
+                    if (!response.ok) {
+                        throw new Error(`Failed to load older messages for ${sessionId}: ${response.status}`);
+                    }
+                    return await response.json() as V3GetSessionMessagesResponse;
+                };
+                let data = warmAccount && pageCacheGeneration === sessionHistoryPageCache.generation
+                    ? beforeSeq === frontier.olderBeforeSeq ? cachedPage : sessionHistoryPageCache.readOlder(warmAccount, sessionId, beforeSeq)
+                    : null;
+                let cached = data !== null;
+                data ??= await fetchPage();
+                let messages = Array.isArray(data.messages) ? data.messages : [];
 
-                const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                let applied;
+                try {
+                    applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                } catch (error) {
+                    if (!cached || !warmAccount || !ownsLoading() || !this.sessionMessageLoadGate.isCurrent(operation)) throw error;
+                    // Valid JSON may still contain ciphertext that cannot be
+                    // decrypted with this session key. Retry the network once.
+                    sessionHistoryPageCache.remove(warmAccount, sessionId);
+                    pageCacheGeneration = sessionHistoryPageCache.generation;
+                    cached = false;
+                    data = await fetchPage();
+                    messages = Array.isArray(data.messages) ? data.messages : [];
+                    applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                }
                 if (!applied.current) return;
+                if (!cached && warmAccount) sessionHistoryPageCache.save(warmAccount, sessionId, beforeSeq,
+                    { messages, hasMore: !!data.hasMore }, pageCacheGeneration);
 
                 if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
                 const liveFrontier = this.sessionMessageFrontiers.get(sessionId);
@@ -3797,7 +3988,11 @@ class Sync {
             // covers the very first connect; this covers reconnects).
             apiSocket.sendAppState(getCurrentAppState());
 
-            this.sessionsSync.invalidate();
+            // Active summaries discover current sessions while the retrying
+            // reconnect invalidator reconciles change cursors. Both respect the
+            // route-aware opening gate; repeated signals retain a trailing pass.
+            // No reconnect path uses the legacy account-wide session response.
+            this.sessionReconnectSync.invalidate();
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');
             this.artifactsSync.invalidate();
@@ -3805,7 +4000,7 @@ class Sync {
             this.pluginCatalogSync.invalidate();
             // Messages are fetched lazily per-session via onSessionVisible (called by SessionView
             // when realtimeStatus changes). Session metadata + agentState (including permission
-            // requests) are already refreshed by sessionsSync.invalidate() above.
+            // requests) are refreshed through changes or bounded active summaries above.
             for (const sync of this.sendSync.values()) {
                 sync.invalidate();
             }

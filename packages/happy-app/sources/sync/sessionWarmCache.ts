@@ -1,6 +1,7 @@
 import { MMKV } from 'react-native-mmkv';
 import { z } from 'zod';
 import { ApiMessageSchema, ApiSessionSnapshotSchema, type ApiMessage, type ApiSessionSnapshot } from './apiTypes';
+import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 
 const cacheStorage = new MMKV({ id: 'session-warm-cache' });
 const CACHE_KEY = 'encrypted-wire-v1';
@@ -128,6 +129,7 @@ export function touchSessionWarmLatestPage(accountId: string, sessionId: string)
 }
 
 export function removeSessionFromWarmCache(accountId: string, sessionId: string): void {
+    sessionHistoryPageCache.remove(accountId, sessionId);
     const cache = read(accountId);
     cache.snapshots = cache.snapshots.filter((snapshot) => snapshot.id !== sessionId);
     delete cache.latestPages[sessionId];
@@ -136,5 +138,6 @@ export function removeSessionFromWarmCache(accountId: string, sessionId: string)
 }
 
 export function clearSessionWarmCache(): void {
+    sessionHistoryPageCache.clear();
     try { cacheStorage.delete(CACHE_KEY); } catch { /* optional cache */ }
 }

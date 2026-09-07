@@ -1,5 +1,6 @@
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { getBrowserSteps, type BrowserStep } from './browserStepsModel';
+import { getSkillNamesFromTool } from '@/utils/conversationActivity';
 
 export type EgoSkillName = 'ego-browser' | 'ego-ops';
 
@@ -24,16 +25,12 @@ function asEgoSkillName(value: unknown): EgoSkillName | null {
     return value === 'ego-browser' || value === 'ego-ops' ? value : null;
 }
 
-function getEgoSkillName(message: ToolCallMessage): EgoSkillName | null {
+function getEgoSkillNames(message: ToolCallMessage): EgoSkillName[] {
     const directName = asEgoSkillName(message.tool.name);
-    if (directName) return directName;
-    if (message.tool.name !== 'Skill' || !isRecord(message.tool.input)) return null;
-    const names = Array.isArray(message.tool.input.skillNames) ? message.tool.input.skillNames : [];
-    for (const name of names) {
-        const egoName = asEgoSkillName(name);
-        if (egoName) return egoName;
-    }
-    return null;
+    if (directName) return [directName];
+    if (message.tool.name !== 'Skill' || !isRecord(message.tool.input)) return [];
+    const names = getSkillNamesFromTool(message.tool);
+    return names.filter((name): name is EgoSkillName => asEgoSkillName(name) !== null);
 }
 
 function compareMessages(a: Message, b: Message): number {
@@ -44,16 +41,17 @@ function createRuns(messages: Message[]): MutableRun[] {
     return messages
         .filter((message): message is ToolCallMessage => message.kind === 'tool-call')
         .flatMap((message) => {
-            const skillName = getEgoSkillName(message);
-            if (!skillName) return [];
+            const skillNames = getEgoSkillNames(message);
+            if (!skillNames.length) return [];
             const input = isRecord(message.tool.input) ? message.tool.input : {};
             const explicitRunId = typeof input.runId === 'string' && input.runId.trim().length > 0
                 ? input.runId.trim()
                 : null;
-            const id = explicitRunId ?? message.id;
+            return skillNames.map(skillName => {
+            const id = explicitRunId ?? (skillNames.length > 1 ? `${message.id}:${skillName}` : message.id);
             const aliases = new Set([id, message.id]);
             if (message.tool.callId) aliases.add(message.tool.callId);
-            return [{
+            return {
                 id,
                 invocationMessageId: message.id,
                 createdAt: message.createdAt,
@@ -61,7 +59,8 @@ function createRuns(messages: Message[]): MutableRun[] {
                 steps: [],
                 aliases,
                 boundExplicitRunId: explicitRunId,
-            } satisfies MutableRun];
+            } satisfies MutableRun;
+            });
         })
         .sort((a, b) => a.createdAt - b.createdAt || a.invocationMessageId.localeCompare(b.invocationMessageId));
 }
@@ -76,11 +75,18 @@ function createRuns(messages: Message[]): MutableRun[] {
 export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
     const orderedMessages = messages.slice().sort(compareMessages);
     const runs = createRuns(orderedMessages);
-    const runByAlias = new Map<string, MutableRun>();
-    const runByInvocationMessageId = new Map<string, MutableRun>();
+    const runByAlias = new Map<string, MutableRun[]>();
+    const runByInvocationMessageId = new Map<string, MutableRun[]>();
+    const addAlias = (alias: string, run: MutableRun) => {
+        const entries = runByAlias.get(alias) ?? [];
+        if (!entries.includes(run)) entries.push(run);
+        runByAlias.set(alias, entries);
+    };
     for (const run of runs) {
-        runByInvocationMessageId.set(run.invocationMessageId, run);
-        for (const alias of run.aliases) runByAlias.set(alias, run);
+        const invocations = runByInvocationMessageId.get(run.invocationMessageId) ?? [];
+        invocations.push(run);
+        runByInvocationMessageId.set(run.invocationMessageId, invocations);
+        for (const alias of run.aliases) addAlias(alias, run);
     }
 
     const stepByMessageId = new Map(getBrowserSteps(orderedMessages).map((step) => [step.id, step]));
@@ -98,16 +104,16 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
         run.id = runId;
         run.boundExplicitRunId = runId;
         run.aliases.add(runId);
-        runByAlias.set(runId, run);
+        addAlias(runId, run);
         removePending(run);
     };
 
     for (const message of orderedMessages) {
         if (message.kind === 'user-text') continue;
         if (message.kind === 'tool-call') {
-            const invocation = runByInvocationMessageId.get(message.id);
-            if (invocation) {
-                latestLegacyRun = invocation;
+            const invocations = runByInvocationMessageId.get(message.id) ?? [];
+            if (invocations.length) latestLegacyRun = invocations.length === 1 ? invocations[0] : null;
+            for (const invocation of invocations) {
                 if (invocation.boundExplicitRunId === null) {
                     const pending = pendingInvocationsBySkill.get(invocation.skillName) ?? [];
                     pending.push(invocation);
@@ -120,7 +126,9 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
         if (!step) continue;
         if (step.skillName && !asEgoSkillName(step.skillName)) continue;
 
-        let run = step.runId ? runByAlias.get(step.runId) : latestLegacyRun;
+        const candidates = step.runId ? (runByAlias.get(step.runId) ?? [])
+            .filter(run => !step.skillName || run.skillName === step.skillName) : [];
+        let run = step.runId ? (candidates.length === 1 ? candidates[0] : undefined) : latestLegacyRun;
         if (step.runId && !run && step.skillName) {
             const skillName = asEgoSkillName(step.skillName);
             const candidate = skillName ? pendingInvocationsBySkill.get(skillName)?.[0] : undefined;
@@ -135,10 +143,28 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
         run.steps.push(step);
     }
 
-    return runs
+    const ownRuns = runs
         .filter((run) => run.steps.length > 0)
         .map(({ aliases: _aliases, boundExplicitRunId: _boundExplicitRunId, ...run }) => ({
             ...run,
             steps: run.steps.slice().sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)),
         }));
+    // Each nested tool transcript owns its legacy/FIFO queue; never bind a
+    // sibling agent's screenshot merely because its timestamp is nearby.
+    const childRuns = messages.flatMap(message => message.kind === 'tool-call'
+        ? getBrowserStepRuns(message.children) : []);
+    return [...ownRuns, ...childRuns].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+}
+
+/** Only remove evidence when its invocation has a matching progress entry. */
+export function hideLinkedBrowserSteps(messages: Message[], runs: BrowserStepRun[]): Message[] {
+    const linked = new Set(runs.flatMap(run => run.steps.map(step => step.id)));
+    const filter = (items: Message[]): Message[] => items.flatMap(message => {
+        if (linked.has(message.id)) return [];
+        if (message.kind !== 'tool-call' || !message.children.length) return [message];
+        const children = filter(message.children);
+        return [children.length === message.children.length && children.every((child, i) => child === message.children[i])
+            ? message : { ...message, children }];
+    });
+    return linked.size ? filter(messages) : messages;
 }

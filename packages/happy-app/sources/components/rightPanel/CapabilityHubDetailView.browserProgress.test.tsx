@@ -6,7 +6,6 @@ import TestRenderer from 'react-test-renderer';
 import { CapabilityHubDetailView, SkillItemRow } from './CapabilityHubDetailView';
 import { useImageViewerStore } from '@/sync/imageViewer';
 import type { CapabilityItem } from './sessionCapabilityHubModel';
-import type { BrowserStepRun } from './browserStepRunsModel';
 
 const mocks = vi.hoisted(() => ({
     sessionMessages: {} as Record<string, any>,
@@ -50,22 +49,6 @@ vi.mock('@/text', () => ({
 }));
 vi.mock('./BrowserStepsPopover', () => ({ BrowserStepsPopover: 'BrowserStepsPopover' }));
 
-function run(id: string, skillName: 'ego-browser' | 'ego-ops', stepId: string): BrowserStepRun {
-    return {
-        id,
-        invocationMessageId: `skill-${id}`,
-        createdAt: Number(id.at(-1)) || 1,
-        skillName,
-        steps: [{
-            id: stepId,
-            createdAt: 1,
-            label: stepId,
-            name: `${stepId}.png`,
-            ref: `attachment://${stepId}`,
-        }],
-    };
-}
-
 describe('SkillItemRow browser progress', () => {
     let renderer: any;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -102,76 +85,9 @@ describe('SkillItemRow browser progress', () => {
         expect(useImageViewerStore.getState().index).toBe(1);
     });
 
-    it('adds progress triggers only to the matching Ego Skill row', () => {
-        act(() => {
-            renderer = TestRenderer.create(
-                <SkillItemRow browserStepRuns={[run('run-1', 'ego-browser', 'step-1')]} sessionId="s1" title="dev" />,
-            );
-        });
-        expect(renderer.root.findAll((node: any) => node.props.testID?.startsWith('browser-progress-trigger-'))).toHaveLength(0);
-
-        act(() => {
-            renderer.update(
-                <SkillItemRow browserStepRuns={[run('run-1', 'ego-browser', 'step-1')]} sessionId="s1" title="ego-browser" />,
-            );
-        });
-        const trigger = renderer.root.findByProps({ testID: 'browser-progress-trigger-run-1' });
-        expect(trigger.props.accessibilityRole).toBe('button');
-        expect(trigger.props.accessibilityLabel).toBe('View progress: ego-browser');
-        expect(trigger.props['aria-controls']).toBe('browser-progress-dialog-run-1');
-        expect(trigger.props['aria-expanded']).toBe(false);
-    });
-
-    it('opens the exact selected run by pointer instead of a global latest timeline', () => {
-        const first = run('run-1', 'ego-browser', 'step-first');
-        const second = run('run-2', 'ego-browser', 'step-second');
-        act(() => {
-            renderer = TestRenderer.create(
-                <SkillItemRow browserStepRuns={[first, second]} sessionId="s1" title="ego-browser" />,
-            );
-        });
-
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-1' }).props.onPress());
-        const popover = renderer.root.findByType('BrowserStepsPopover');
-        expect(popover.props.open).toBe(true);
-        expect(popover.props.dialogId).toBe('browser-progress-dialog-run-1');
-        expect(popover.props.steps.map((step: { id: string }) => step.id)).toEqual(['step-first']);
-        expect(renderer.root.findByProps({ testID: 'browser-progress-trigger-run-1' }).props['aria-expanded']).toBe(true);
-        expect(renderer.root.findByProps({ testID: 'browser-progress-trigger-run-2' }).props['aria-expanded']).toBe(false);
-    });
-
-    it.each(['Enter', ' '])('opens with the %s key and closes without intercepting unrelated keys', (key) => {
-        const selectedRun = run('run-1', 'ego-ops', 'step-1');
-        act(() => {
-            renderer = TestRenderer.create(
-                <SkillItemRow browserStepRuns={[selectedRun]} sessionId="s1" title="ego-ops" />,
-            );
-        });
-        const trigger = renderer.root.findByProps({ testID: 'browser-progress-trigger-run-1' });
-        const preventDefault = vi.fn();
-        act(() => trigger.props.onKeyDown({ key: 'ArrowDown', preventDefault }));
+    it('keeps installed Ego skills informational; progress belongs to the transcript', () => {
+        act(() => { renderer = TestRenderer.create(<SkillItemRow sessionId="s1" title="ego-browser" />); });
+        expect(renderer.root.findAllByType('Pressable')).toHaveLength(0);
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-
-        act(() => trigger.props.onKeyDown({ key, preventDefault }));
-        expect(preventDefault).toHaveBeenCalledOnce();
-        expect(renderer.root.findByType('BrowserStepsPopover').props.open).toBe(true);
-
-        act(() => renderer.root.findByType('BrowserStepsPopover').props.onClose());
-        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-    });
-
-    it('uses semantic surfaces from the ginghamDark palette fixture', () => {
-        act(() => {
-            renderer = TestRenderer.create(
-                <SkillItemRow browserStepRuns={[run('run-1', 'ego-browser', 'step-1')]} sessionId="s1" title="ego-browser" />,
-            );
-        });
-        const trigger = renderer.root.findByProps({ testID: 'browser-progress-trigger-run-1' });
-        expect(trigger.props.style({ pressed: false })).toEqual(expect.arrayContaining([
-            expect.objectContaining({ backgroundColor: '#1A2330' }),
-        ]));
-        expect(trigger.props.style({ pressed: true })).toEqual(expect.arrayContaining([
-            expect.objectContaining({ backgroundColor: '#1F2A38' }),
-        ]));
     });
 });

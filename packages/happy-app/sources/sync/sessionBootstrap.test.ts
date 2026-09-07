@@ -80,6 +80,10 @@ const mocks = vi.hoisted(() => {
     };
 });
 
+const nativeCallbacks = vi.hoisted(() => ({
+    appStateChanges: [] as Array<(nextAppState: string) => void>,
+}));
+
 vi.mock('./apiSessions', async importOriginal => ({
     ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
@@ -133,7 +137,12 @@ vi.mock('@/realtime/hooks/voiceHooks', () => ({
     },
 }));
 vi.mock('react-native', () => ({
-    AppState: { currentState: 'active', addEventListener: vi.fn() },
+    AppState: {
+        currentState: 'active',
+        addEventListener: vi.fn((_event: string, callback: (nextAppState: string) => void) => {
+            nativeCallbacks.appStateChanges.push(callback);
+        }),
+    },
     Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web },
 }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }));
@@ -248,6 +257,11 @@ describe('active-first session bootstrap', () => {
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
         syncForTest.sessionWarmCacheAccountKey = 'warm-account';
+        syncForTest.localHistory = null;
+        syncForTest.changesInFlight = null;
+        syncForTest.initialSessionBootstrapDeferred = false;
+        syncForTest.boundedSessionBootstrapDeferred = false;
+        syncForTest.historyReconciliationDeferred = false;
         clearSessionWarmCache();
     });
 
@@ -413,6 +427,16 @@ describe('active-first session bootstrap', () => {
             expect(outcome).toBe('failed');
             await request;
         } finally { vi.useRealTimers(); }
+    });
+
+    it('bounds the initial active request while retaining 50-summary explicit history pagination', async () => {
+        await syncForTest.bootstrapSessions();
+
+        expect(mocks.fetchActive).toHaveBeenCalledWith(syncForTest.credentials, 25);
+
+        await syncForTest.hydrateHistoricalSessionPage();
+
+        expect(mocks.fetchPage).toHaveBeenCalledWith(syncForTest.credentials, { limit: 50 });
     });
 
     it('restores encrypted session and message wire cache before network bootstrap', async () => {
@@ -590,6 +614,255 @@ describe('active-first session bootstrap', () => {
         expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
         expect(mocks.fetchPage).toHaveBeenCalledWith(syncForTest.credentials, { limit: 50 });
         expect(mocks.state.sessions['historical-session']).toBeDefined();
+    });
+
+    it('keeps history reconciliation off the startup path until the route is interactive', async () => {
+        syncForTest.localHistory = {
+            captureSessionFence: () => ({}),
+            isFenceCurrent: () => true,
+            writeSnapshots: vi.fn(async () => true),
+        };
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+
+        await syncForTest.bootstrapSessions();
+
+        expect(reconcile).not.toHaveBeenCalled();
+        await syncForTest.sessionRouteBecameInteractive();
+        expect(reconcile).toHaveBeenCalledTimes(1);
+        reconcile.mockRestore();
+    });
+
+    it('keeps an idle history callback behind the owned bootstrap attempt', async () => {
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        const active = deferred<ApiSessionSnapshot[]>();
+        mocks.fetchActive.mockReturnValue(active.promise);
+        const bootstrap = syncForTest.bootstrapSessions();
+        const interactive = syncForTest.sessionRouteBecameInteractive();
+        await vi.waitFor(() => expect(idle).toBeTypeOf('function'));
+        idle();
+        await Promise.resolve();
+        const prematureHistoryRequests = mocks.fetchPage.mock.calls.length;
+        active.resolve([snapshot('active-before-history')]);
+        await Promise.all([bootstrap, interactive]);
+        expect(prematureHistoryRequests).toBe(0);
+        expect(mocks.state.sessions['active-before-history']).toBeDefined();
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases a foreground-only deferred bootstrap when target transfers finish', async () => {
+        await syncForTest.bootstrapSessions();
+        vi.stubGlobal('window', { location: { pathname: '/session/foreground-only' } });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+        const opening = syncForTest.openSession('foreground-only');
+        syncForTest.requestBoundedSessionBootstrap();
+        expect(mocks.fetchActive).toHaveBeenCalledTimes(1);
+        target.resolve(snapshot('foreground-only'));
+        latest.resolve(response({ messages: [], hasMore: false }));
+        await expect(opening).resolves.toBe('ready');
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(2));
+        expect(useSessionListSyncState.getState().bootstrap).toBe('ready');
+    });
+
+    it('keeps active-session bootstrap behind a cold deep-link target', async () => {
+        vi.stubGlobal('window', { location: { pathname: '/session/deep-session' } });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        await syncForTest.bootstrapSessions();
+        const opening = syncForTest.openSession('deep-session');
+        await Promise.resolve();
+
+        expect(mocks.fetchActive).not.toHaveBeenCalled();
+        target.resolve(snapshot('deep-session'));
+        latest.resolve(response({ messages: [], hasMore: false }));
+        await expect(opening).resolves.toBe('ready');
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+    });
+
+    it('keeps foreground-resume active bootstrap behind a cold deep-link target', async () => {
+        vi.stubGlobal('window', { location: { pathname: '/session/foreground-session' } });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        const globalSyncKeys = [
+            'purchasesSync', 'profileSync', 'machinesSync', 'pushTokenSync',
+            'nativeUpdateSync', 'artifactsSync', 'feedSync', 'pluginCatalogSync',
+        ];
+        const originals = Object.fromEntries(globalSyncKeys.map(key => [key, syncForTest[key]]));
+        for (const key of globalSyncKeys) syncForTest[key] = { invalidate: vi.fn() };
+
+        try {
+            await syncForTest.bootstrapSessions();
+            const opening = syncForTest.openSession('foreground-session');
+            nativeCallbacks.appStateChanges.at(-1)?.('active');
+            await Promise.resolve();
+
+            expect(mocks.fetchActive).not.toHaveBeenCalled();
+            target.resolve(snapshot('foreground-session'));
+            latest.resolve(response({ messages: [], hasMore: false }));
+            await expect(opening).resolves.toBe('ready');
+            await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+        } finally {
+            Object.assign(syncForTest, originals);
+        }
+    });
+
+    it('keeps Web reconnect bootstrap behind a cold deep link when IndexedDB is unavailable', async () => {
+        vi.stubGlobal('window', { location: { pathname: '/session/reconnect-session' } });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        const globalSyncKeys = ['machinesSync', 'artifactsSync', 'feedSync', 'pluginCatalogSync'];
+        const originals = Object.fromEntries(globalSyncKeys.map(key => [key, syncForTest[key]]));
+        const originalSendSync = syncForTest.sendSync;
+        for (const key of globalSyncKeys) syncForTest[key] = { invalidate: vi.fn() };
+        syncForTest.sendSync = new Map();
+
+        try {
+            await syncForTest.bootstrapSessions();
+            const opening = syncForTest.openSession('reconnect-session');
+            syncForTest.subscribeToUpdates();
+            const { apiSocket } = await import('./apiSocket');
+            const reconnected = vi.mocked(apiSocket.onReconnected).mock.calls.at(-1)?.[0];
+            expect(reconnected).toBeTypeOf('function');
+            reconnected?.();
+            await Promise.resolve();
+
+            expect(mocks.fetchActive).not.toHaveBeenCalled();
+            target.resolve(snapshot('reconnect-session'));
+            latest.resolve(response({ messages: [], hasMore: false }));
+            await expect(opening).resolves.toBe('ready');
+            await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+        } finally {
+            Object.assign(syncForTest, originals);
+            syncForTest.sendSync = originalSendSync;
+        }
+    });
+
+    it('restores bounded bootstrap when a cold deep link is left while its target is loading', async () => {
+        const location = { pathname: '/session/left-session' };
+        vi.stubGlobal('window', { location });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        await syncForTest.bootstrapSessions();
+        const owner = syncForTest.beginSessionRoute('left-session');
+        const opening = syncForTest.openSession('left-session', owner);
+        location.pathname = '/';
+        expect(syncForTest.leaveSessionRoute(owner)).toBe(true);
+
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mocks.state.readyCount).toBe(1));
+        target.resolve(snapshot('left-session'));
+        latest.resolve(response({ messages: [], hasMore: false }));
+        await expect(opening).rejects.toThrow('abandoned');
+    });
+
+    it('waits for the target latest-message transfer before releasing bootstrap for a missing session', async () => {
+        vi.stubGlobal('window', { location: { pathname: '/session/missing-session' } });
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        await syncForTest.bootstrapSessions();
+        const opening = syncForTest.openSession('missing-session');
+        target.resolve(null);
+
+        await expect(opening).resolves.toBe('not-found');
+        expect(mocks.fetchActive).not.toHaveBeenCalled();
+        latest.resolve(response({ error: 'not found' }, 404));
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not strand foreground refreshes after a missing deep link becomes terminal', async () => {
+        vi.stubGlobal('window', { location: { pathname: '/session/missing-session' } });
+        const latest = deferred<Response>();
+        mocks.fetchSnapshot.mockResolvedValue(null);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+
+        await syncForTest.bootstrapSessions();
+        const opening = syncForTest.openSession('missing-session');
+        await expect(opening).resolves.toBe('not-found');
+        latest.resolve(response({ error: 'not found' }, 404));
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+
+        syncForTest.localHistory = {
+            captureSessionFence: () => ({}),
+            isFenceCurrent: () => true,
+        };
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+        const globalSyncKeys = [
+            'purchasesSync', 'profileSync', 'machinesSync', 'pushTokenSync',
+            'nativeUpdateSync', 'artifactsSync', 'feedSync', 'pluginCatalogSync',
+        ];
+        const originals = Object.fromEntries(globalSyncKeys.map(key => [key, syncForTest[key]]));
+        for (const key of globalSyncKeys) syncForTest[key] = { invalidate: vi.fn() };
+
+        try {
+            nativeCallbacks.appStateChanges.at(-1)?.('active');
+            await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+        } finally {
+            Object.assign(syncForTest, originals);
+            reconcile.mockRestore();
+        }
+    });
+
+    it('runs deferred reconciliation once after the route is interactive and its first history page settles', async () => {
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        vi.stubGlobal('window', { location: { pathname: '/session/history-priority-session' } });
+        syncForTest.localHistory = {
+            captureSessionFence: () => ({}),
+            isFenceCurrent: () => true,
+            writeSnapshots: vi.fn(async () => true),
+            readSnapshot: vi.fn(async () => null),
+            readReadingState: vi.fn(async () => null),
+            readWindow: vi.fn(async () => null),
+            commitPage: vi.fn(async () => false),
+        };
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+        const target = deferred<ApiSessionSnapshot | null>();
+        const latest = deferred<Response>();
+        const history = deferred<{ sessions: ApiSessionSnapshot[]; nextCursor: string | null; hasNext: boolean }>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockReturnValue(latest.promise);
+        mocks.fetchPage.mockReturnValue(history.promise);
+
+        await syncForTest.bootstrapSessions();
+        syncForTest.requestHistoryReconciliation();
+        const owner = syncForTest.beginSessionRoute('history-priority-session');
+        const opening = syncForTest.openSession('history-priority-session', owner);
+        target.resolve(snapshot('history-priority-session'));
+        latest.resolve(response({ messages: [], hasMore: false }));
+        await expect(opening).resolves.toBe('ready');
+        await vi.waitFor(() => expect(mocks.fetchActive).toHaveBeenCalledTimes(1));
+        expect(reconcile).not.toHaveBeenCalled();
+
+        expect(syncForTest.promoteSessionRoute(owner)).not.toBeNull();
+        const interactive = syncForTest.sessionRouteBecameInteractive();
+        idle();
+        await vi.waitFor(() => expect(mocks.fetchPage).toHaveBeenCalledTimes(1));
+        expect(reconcile).not.toHaveBeenCalled();
+        history.resolve({ sessions: [], nextCursor: null, hasNext: false });
+        await interactive;
+        await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+        reconcile.mockRestore();
     });
 
     it('coalesces pending history requests without automatically consuming the next cursor', async () => {
@@ -909,7 +1182,7 @@ describe('deep-link session opening', () => {
 
         expect(mocks.fetchSnapshot).toHaveBeenCalledWith(syncForTest.credentials, 'deep-session');
         expect(mocks.apiRequest).toHaveBeenCalledWith(
-            '/v3/sessions/deep-session/messages?before_seq=2147483647&limit=100',
+            '/v3/sessions/deep-session/messages?before_seq=2147483647&limit=25',
         );
         target.resolve(snapshot('deep-session'));
         latest.resolve(response({

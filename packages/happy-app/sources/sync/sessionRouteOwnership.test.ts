@@ -28,4 +28,16 @@ describe('session route ownership', () => {
         expect(owners.leave(current)).toBe(true);
         expect(owners.promote(current)).toBeNull();
     });
+
+    it('terminalizes only the current epoch while preserving its cleanup capability', () => {
+        const owners = new SessionRouteOwnership();
+        const old = owners.enter('a');
+        const current = owners.enter('a');
+
+        expect(owners.terminalize(old)).toBeNull();
+        expect(owners.terminalize(current)).toEqual({ ...current, phase: 'terminal' });
+        expect(owners.owns(current)).toBe(true);
+        expect(owners.promote(current)).toBeNull();
+        expect(owners.leave(current)).toBe(true);
+    });
 });

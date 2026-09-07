@@ -83,15 +83,14 @@ describe('SessionCapabilityHub browser progress routing', () => {
         expect(renderer.root.findAllByProps({ testID: 'browser-steps-popover' })).toHaveLength(0);
     });
 
-    it('keeps the existing full browser-step panel on non-Web clients', () => {
+    it('keeps the ordinary capability panel on non-Web clients too', () => {
         mocks.platformOS = 'ios';
         act(() => {
             renderer = TestRenderer.create(<SessionCapabilityHub sessionId="s1" />);
         });
 
-        const panel = renderer.root.findByType('BrowserStepsPanel');
-        expect(panel.props.steps.map((step: { id: string }) => step.id)).toEqual(['step-1']);
-        expect(renderer.root.findAllByProps({ testID: 'capability-block-skills' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('BrowserStepsPanel')).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'capability-block-skills' })).toHaveLength(1);
         expect(renderer.root.findAll((node: any) => node.props.testID?.startsWith('browser-progress-trigger-'))).toHaveLength(0);
     });
 });

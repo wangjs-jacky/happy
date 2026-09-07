@@ -24,12 +24,11 @@ it('does not restore a cleared scope from a late changes response', async () => 
     expect(applied).toEqual([]);
     reopened.close();
 });
-it('preserves histories on reset and verifies pre-protocol deletions with point lookups', async () => {
+it('preserves snapshots on reset when the replacement page has no change identity', async () => {
     const history = (await openLocalHistory('a'))!;
     await history.writeSnapshots([snapshot, { ...snapshot, id: 'gone' }]);
     await history.commitReconciliation({ changes: [], nextCursor: 'old' });
     const cursors: Array<string | undefined> = [];
-    const deleted: string[] = [];
     const checked: string[] = [];
     const result = await reconcileSessionHistory(history, {
         fetchChanges: async cursor => {
@@ -38,13 +37,35 @@ it('preserves histories on reset and verifies pre-protocol deletions with point 
                 lastMessageSeq: 10, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: 'new', hasMore: false };
         },
         fetchSnapshot: async id => { checked.push(id); return null; },
-        applySnapshot: async () => {}, deleteSession: id => { deleted.push(id); },
+        applySnapshot: async () => {}, deleteSession: () => {},
     });
     expect(result).toBe('supported');
     expect(cursors).toEqual(['old', undefined]);
-    expect(checked).toEqual(['gone']);
-    expect(deleted).toEqual(['gone']);
+    expect(checked).toEqual([]);
     expect((await history.readSnapshot('s'))?.metadata).toBe('cipher');
+    expect((await history.readSnapshot('gone'))?.metadata).toBe('cipher');
+});
+
+it('does not point-fetch cached snapshots after a reset followed by an empty change page', async () => {
+    const history = (await openLocalHistory('reset-empty'))!;
+    await history.writeSnapshots(Array.from({ length: 174 }, (_, index) => ({ ...snapshot, id: `cached-${index}` })));
+    await history.commitReconciliation({ changes: [], nextCursor: 'old' });
+    const cursors: Array<string | undefined> = [];
+    const fetched: string[] = [];
+
+    await reconcileSessionHistory(history, {
+        fetchChanges: async cursor => {
+            cursors.push(cursor);
+            return cursor ? { kind: 'reset' } : { kind: 'page', changes: [], nextCursor: 'new', hasMore: false };
+        },
+        fetchSnapshot: async id => { fetched.push(id); return null; },
+        applySnapshot: async () => {}, deleteSession: () => {},
+    });
+
+    expect(cursors).toEqual(['old', undefined]);
+    expect(fetched).toEqual([]);
+    expect((await history.readReconciliation()).cursor).toBe('new');
+    expect((await history.listSnapshots()).map(value => value.id)).toHaveLength(174);
 });
 it('replays durable pending snapshot invalidations after interruption without body requests', async () => {
     const history = (await openLocalHistory('a'))!;
@@ -61,22 +82,34 @@ it('replays durable pending snapshot invalidations after interruption without bo
     expect((await history.readSnapshot('s'))?.metadataVersion).toBe(2);
 });
 
-it.each([false, true])('discovers unseen session snapshots including after a committed-cursor restart (%s)', async restarted => {
-    let history = (await openLocalHistory('discovery'))!;
-    const changes = [{ sessionId: 'new', revision: '4', deleted: false, lastMessageSeq: 7, metadataVersion: 1, agentStateVersion: 0 }];
-    if (restarted) {
-        await history.commitReconciliation({ changes, nextCursor: '4' });
-        history.close();
-        history = (await openLocalHistory('discovery'))!;
-    }
+it('advances hundreds of unseen changes without snapshot requests while refreshing known stale snapshots and deleting known tombstones', async () => {
+    const history = (await openLocalHistory('discovery'))!;
+    await history.writeSnapshots([snapshot, { ...snapshot, id: 'gone' }]);
+    await history.commitReconciliation({ changes: [{ sessionId: 'gone', revision: '1', deleted: false,
+        lastMessageSeq: 10, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: 'old' });
+    const unseen = Array.from({ length: 174 }, (_, index) => ({
+        sessionId: `unseen-${index}`, revision: '1', deleted: false,
+        lastMessageSeq: index, metadataVersion: 1, agentStateVersion: 0,
+    }));
+    const changes = [
+        ...unseen,
+        { sessionId: 's', revision: '2', deleted: false, lastMessageSeq: 10, metadataVersion: 2, agentStateVersion: 0 },
+        { sessionId: 'gone', revision: '2', deleted: true, lastMessageSeq: 10, metadataVersion: 1, agentStateVersion: 0 },
+    ];
     const applied: string[] = [];
     const fetched: string[] = [];
+    const deleted: string[] = [];
     await reconcileSessionHistory(history, {
-        fetchChanges: async () => ({ kind: 'page', changes: restarted ? [] : changes, nextCursor: '4', hasMore: false }),
-        fetchSnapshot: async id => { fetched.push(id); return { ...snapshot, id }; },
-        applySnapshot: async value => { applied.push(value.id); }, deleteSession: () => {},
+        fetchChanges: async () => ({ kind: 'page', changes, nextCursor: '4', hasMore: false }),
+        fetchSnapshot: async id => { fetched.push(id); return { ...snapshot, id, metadataVersion: 2 }; },
+        applySnapshot: async value => { applied.push(value.id); }, deleteSession: id => { deleted.push(id); },
     });
-    expect(fetched).toEqual(['new']);
-    expect(applied).toEqual(['new']);
-    expect((await history.readSnapshot('new'))?.id).toBe('new');
+    expect(fetched).toEqual(['s']);
+    expect(applied).toEqual(['s']);
+    expect((await history.readReconciliation()).cursor).toBe('4');
+    expect(await history.listSnapshotRefreshIds()).toEqual([]);
+    expect(await history.readSnapshot('unseen-0')).toBeNull();
+    expect(await history.readChange('unseen-0')).toBeNull();
+    expect(await history.readSnapshot('gone')).toBeNull();
+    expect(deleted).toEqual(['gone']);
 });
