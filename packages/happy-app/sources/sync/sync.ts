@@ -4343,6 +4343,11 @@ class Sync {
             return [merged];
         });
 
+        // Foreground snapshots are often identical. Do not rebuild/sort every
+        // sidebar list (or notify its subscribers) for an empty incremental merge.
+        // An empty replacement still has meaning: it removes missing sessions.
+        if (!options?.replace && mergedSessions.length === 0) return;
+
         if (options?.replace && refreshMutationGeneration !== undefined) {
             const incomingIds = new Set(mergedSessions.map((session) => session.id));
             for (const [sessionId, existing] of Object.entries(storage.getState().sessions)) {

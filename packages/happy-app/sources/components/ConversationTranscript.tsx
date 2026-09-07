@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { transcriptRenderKey } from './transcriptReading';
 import {
     AppState,
     ActivityIndicator,
@@ -110,8 +111,10 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, [props.sessionId, props.messages, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
         props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
     const listItems = React.useMemo(
-        () => inverted ? displayItems : [...displayItems].reverse(),
-        [displayItems, inverted],
+        () => (inverted ? displayItems : [...displayItems].reverse()).map(item => ({
+            ...item, renderKey: transcriptRenderKey(item, props.reading),
+        })),
+        [displayItems, inverted, props.reading],
     );
     const latestVisibleUserMessageId = React.useMemo(() => {
         for (const item of displayItems) {
@@ -418,12 +421,12 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         <TranscriptReadingContext.Provider value={reading.markers}>
         <TranscriptGroupExpansionContext.Provider value={nestedExpansion}>
         <View ref={viewportRef} collapsable={false} style={styles.container}>
-            <FlatList
+            <FlatList<DisplayItem & { renderKey: string }>
                 ref={flatListRef}
                 testID="conversation-transcript-list"
                 data={listItems}
                 inverted={inverted}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item) => item.renderKey}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}

@@ -13,6 +13,21 @@ function setup() {
 }
 
 describe('desktop modal navigation boundary', () => {
+    it('switches conversations in one action while keeping only the original home anchor', () => {
+        const app = setup();
+        const home = app.state.routes[0];
+        app.send(StackActions.push('session/[id]', { id: 'first' }));
+        app.send({ type: 'NAVIGATE', payload: { name: 'session/[id]', params: { id: 'second' } } });
+        expect(app.state.routes.map(route => route.name)).toEqual(['index', 'session/[id]']);
+        expect(app.state.routes[0]).toBe(home);
+        expect(app.state.routes[app.state.index].params).toEqual({ id: 'second' });
+        const selected = app.state;
+        app.send({ type: 'NAVIGATE', payload: { name: 'session/[id]', params: { id: 'second' } } });
+        expect(app.state).toBe(selected);
+        app.send({ type: 'GO_BACK' });
+        expect(app.state.routes).toEqual([home]);
+    });
+
     it('retains the exact background and keeps nested destinations inside until close', () => {
         const app = setup();
         app.send(StackActions.push('session/[id]', { id: 'background' }));

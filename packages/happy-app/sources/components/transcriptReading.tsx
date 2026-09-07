@@ -12,6 +12,16 @@ export type TranscriptReadingAdapter = {
     blockKey?: (renderedId: string) => string | null;
 };
 export const itemMessages = (item: DisplayItem) => item.type === 'message' ? [item.message] : item.messages;
+
+/** Reducer IDs are transient across bounded history replay. React row identity
+ * follows the source block so refreshed history keeps mounted text/media views. */
+export function transcriptRenderKey(item: DisplayItem, adapter?: TranscriptReadingAdapter): string {
+    const message = itemMessages(item)[0];
+    if (!message || !adapter?.blockKey) return item.id;
+    const wire = adapter.wireId(message.id);
+    const block = adapter.blockKey(message.id);
+    return wire && block ? JSON.stringify([item.type, wire, block]) : item.id;
+}
 export function expandedGroupKeys(items: DisplayItem[], collapsed: Set<string>, wireId: TranscriptReadingAdapter['wireId']) {
     return items.flatMap(item => {
         if ((item.type !== 'tool-group' && item.type !== 'agent-work-group') || collapsed.has(item.id)) return [];
