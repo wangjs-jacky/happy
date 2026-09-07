@@ -11,6 +11,88 @@ const group = (id: string, ids: string[]) => ({ type: 'tool-group', id, messages
 const wire = (id: string) => id.replace(/-replayed$/, '');
 
 describe('durable transcript reading anchors', () => {
+    it('ignores a persisted restore that resolves after a Web wheel claims the viewport', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
+        let resolveRead!: (state: ReadingState) => void;
+        const read = new Promise<ReadingState>((resolve) => { resolveRead = resolve; });
+        const save = vi.fn();
+        const scrollToOffset = vi.fn();
+        const list = { current: { scrollToOffset, scrollToIndex: vi.fn() } };
+        const viewport = { current: { measureInWindow: (cb: any) => cb(0, 100, 800, 600) } };
+        const items = [{ type: 'message', id: 'wire2-replayed', message: msg('wire2-replayed') }] as any;
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({
+                adapter: { key: 'account/session', read: () => read, save, wireId: wire, wireSeq: () => 2 },
+                items,
+                inverted: true,
+                isAtLatest: false,
+                listRef: list as any,
+                viewportRef: viewport as any,
+                expanded: [],
+                restoreExpanded: () => {},
+            });
+            return <TranscriptReadingContext.Provider value={reading.markers}>
+                <TranscriptReadingMarker messageId="wire2-replayed"><></></TranscriptReadingMarker>
+            </TranscriptReadingContext.Provider>;
+        }
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<Probe />, {
+                createNodeMock: () => ({ measureInWindow: (cb: any) => cb(0, 150, 800, 200) }),
+            });
+        });
+        reading!.cancelRestore();
+        await act(async () => { await reading!.capture(); });
+        await act(async () => { resolveRead(saved); await read; });
+        await act(async () => { await reading!.layout(); });
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        expect(save).toHaveBeenCalledWith(expect.objectContaining({ anchorId: 'wire2', followLatest: false }));
+        act(() => renderer.unmount());
+        delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('does not re-arm a stale persisted anchor when projection changes after a Web wheel', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
+        const scrollToOffset = vi.fn();
+        const list = { current: { scrollToOffset, scrollToIndex: vi.fn() } };
+        const viewport = { current: { measureInWindow: (cb: any) => cb(0, 100, 800, 600) } };
+        let items = [{ type: 'message', id: 'wire2-replayed', message: msg('wire2-replayed') }] as any;
+        let reading: ReturnType<typeof useTranscriptReading>;
+        const adapter = { key: 'account/session', read: async () => saved, save: vi.fn(), wireId: wire, wireSeq: () => 2 };
+        function Probe(_props: { revision?: number }) {
+            reading = useTranscriptReading({
+                adapter,
+                items,
+                inverted: true,
+                isAtLatest: false,
+                listRef: list as any,
+                viewportRef: viewport as any,
+                expanded: [],
+                restoreExpanded: () => {},
+            });
+            return <TranscriptReadingContext.Provider value={reading.markers}>
+                <TranscriptReadingMarker messageId="wire2-replayed"><></></TranscriptReadingMarker>
+            </TranscriptReadingContext.Provider>;
+        }
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<Probe />, {
+                createNodeMock: () => ({ measureInWindow: (cb: any) => cb(0, 150, 800, 200) }),
+            });
+        });
+        scrollToOffset.mockClear();
+        reading!.cancelRestore();
+        items = [...items, { type: 'message', id: 'older', message: msg('older') }];
+        await act(async () => { renderer.update(<Probe revision={1} />); });
+        await act(async () => { await reading!.layout(); });
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+        delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+    });
+
     it('lets a Web wheel take ownership before a pending restore can snap the viewport back', async () => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
         const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
