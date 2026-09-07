@@ -31,18 +31,48 @@ function buildSessionHeaders(credentials: AuthCredentials) {
     };
 }
 
+// The deadline includes body consumption. Abort alone is insufficient when a
+// browser/adapter fails to reject a stalled fetch or response.json().
+async function readSessionResponse<T>(
+    credentials: AuthCredentials,
+    path: string,
+    read: (response: Response) => Promise<T>,
+): Promise<T> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+            reject(new Error('Session request timed out'));
+            controller.abort();
+        }, 20_000);
+    });
+    try {
+        return await Promise.race([
+            (async () => {
+                const response = await fetch(`${getServerUrl()}${path}`, {
+                    headers: buildSessionHeaders(credentials), signal: controller.signal,
+                });
+                return read(response);
+            })(),
+            deadline,
+        ]);
+    } finally {
+        clearTimeout(timer!);
+        controller.abort();
+    }
+}
+
 export async function fetchSessionSnapshot(
     credentials: AuthCredentials,
     sessionId: string,
 ): Promise<ApiSessionSnapshot | null> {
-    const response = await fetch(`${getServerUrl()}/v2/sessions/${encodeURIComponent(sessionId)}`, {
-        headers: buildSessionHeaders(credentials),
+    return readSessionResponse(credentials, `/v2/sessions/${encodeURIComponent(sessionId)}`, async response => {
+        if (response.status === 404) return null;
+        if (!response.ok) {
+            throw new Error(`Failed to fetch session ${sessionId}: ${response.status}`);
+        }
+        return sessionSnapshotResponseSchema.parse(await response.json()).session;
     });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-        throw new Error(`Failed to fetch session ${sessionId}: ${response.status}`);
-    }
-    return sessionSnapshotResponseSchema.parse(await response.json()).session;
 }
 
 export async function fetchActiveSessionSnapshots(
@@ -50,13 +80,12 @@ export async function fetchActiveSessionSnapshots(
     limit: number,
 ): Promise<ApiSessionSnapshot[]> {
     const query = new URLSearchParams({ limit: String(limit) });
-    const response = await fetch(`${getServerUrl()}/v2/sessions/active?${query}`, {
-        headers: buildSessionHeaders(credentials),
+    return readSessionResponse(credentials, `/v2/sessions/active?${query}`, async response => {
+        if (!response.ok) {
+            throw new Error(`Failed to fetch active sessions: ${response.status}`);
+        }
+        return sessionSnapshotsResponseSchema.parse(await response.json()).sessions;
     });
-    if (!response.ok) {
-        throw new Error(`Failed to fetch active sessions: ${response.status}`);
-    }
-    return sessionSnapshotsResponseSchema.parse(await response.json()).sessions;
 }
 
 export async function fetchSessionSnapshotPage(
@@ -68,11 +97,17 @@ export async function fetchSessionSnapshotPage(
     if (options.limit !== undefined) query.set('limit', String(options.limit));
     if (options.changedSince !== undefined) query.set('changedSince', String(options.changedSince));
     const queryString = query.toString();
-    const response = await fetch(`${getServerUrl()}/v2/sessions${queryString ? `?${queryString}` : ''}`, {
-        headers: buildSessionHeaders(credentials),
+    return readSessionResponse(credentials, `/v2/sessions${queryString ? `?${queryString}` : ''}`, async response => {
+        if (!response.ok) {
+            throw new Error(`Failed to fetch session page: ${response.status}`);
+        }
+        return sessionSnapshotPageResponseSchema.parse(await response.json());
     });
-    if (!response.ok) {
-        throw new Error(`Failed to fetch session page: ${response.status}`);
-    }
-    return sessionSnapshotPageResponseSchema.parse(await response.json());
+}
+
+export async function fetchLegacySessionSnapshots(credentials: AuthCredentials): Promise<ApiSessionSnapshot[]> {
+    return readSessionResponse(credentials, '/v1/sessions', async response => {
+        if (!response.ok) throw new Error(`Failed to fetch sessions: ${response.status}`);
+        return sessionSnapshotsResponseSchema.parse(await response.json()).sessions;
+    });
 }

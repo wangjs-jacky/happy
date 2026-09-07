@@ -63,6 +63,18 @@ export function findAnchorIndex(items: DisplayItem[], wire: string, wireId: Tran
         && (block === undefined || blockKey?.(message.id) === block)));
 }
 
+export function handleTranscriptWebWheel(
+    event: { shiftKey: boolean; deltaX: number; deltaY: number; preventDefault: () => void },
+    node: { scrollTop: number },
+    claimUserScroll: () => void,
+) {
+    claimUserScroll();
+    if (event.shiftKey && Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1) {
+        node.scrollTop += event.deltaX;
+        event.preventDefault();
+    }
+}
+
 type Measurable = { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void };
 type Markers = { register: (id: string, node: Measurable, depth: number) => () => void; layout: () => void };
 export const TranscriptReadingContext = React.createContext<Markers | null>(null);
@@ -109,6 +121,9 @@ export function useTranscriptReading(options: {
     const offset = React.useRef(0);
     const following = React.useRef(options.isAtLatest);
     const generation = React.useRef(0);
+    const ownershipEpoch = React.useRef(0);
+    const latestEpoch = React.useRef(-1);
+    const deferredCapture = React.useRef(false);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastCapture = React.useRef(0);
     const mountedTarget = React.useRef<string | null>(null);
@@ -117,7 +132,9 @@ export function useTranscriptReading(options: {
     const previousProjection = React.useRef(projection);
     if (projection !== previousProjection.current) {
         previousProjection.current = projection;
-        if (!following.current && latest.current) { pending.current = latest.current; mountedTarget.current = null; }
+        if (!following.current && latest.current && latestEpoch.current === ownershipEpoch.current) {
+            pending.current = latest.current; mountedTarget.current = null;
+        }
     }
     const measurements = React.useCallback(async () => {
         const viewport = await measure(current.current.viewportRef.current);
@@ -127,15 +144,18 @@ export function useTranscriptReading(options: {
     }, []);
     const persist = React.useCallback(() => {
         const adapter = current.current.adapter;
-        if (ready.current && adapter && latest.current) void Promise.resolve(adapter.save({ ...latest.current,
+        if (ready.current && adapter && latest.current && latestEpoch.current === ownershipEpoch.current) void Promise.resolve(adapter.save({ ...latest.current,
             expandedGroupIds: current.current.expanded, followLatest: following.current && current.current.isAtLatest })).catch(() => undefined);
     }, []);
     const capture = React.useCallback(async () => {
         const { adapter } = current.current;
-        if (!adapter || !ready.current || pending.current) return;
+        if (!adapter) return;
+        if (!ready.current) { deferredCapture.current = true; return; }
+        if (pending.current) return;
         const owner = generation.current;
+        const epoch = ownershipEpoch.current;
         const result = await measurements();
-        if (!result || owner !== generation.current || adapter !== current.current.adapter) return;
+        if (!result || owner !== generation.current || epoch !== ownershipEpoch.current || adapter !== current.current.adapter) return;
         const { viewport } = result;
         const row = result.rows.filter(row => row.bounds.y < viewport.y + viewport.height && row.bounds.y + row.bounds.height > viewport.y
             && adapter.wireId(row.id) && adapter.wireSeq(row.id) !== null)
@@ -144,6 +164,7 @@ export function useTranscriptReading(options: {
         latest.current = { version: 1, anchorId: adapter.wireId(row.id)!, anchorSeq: adapter.wireSeq(row.id)!,
             ...(adapter.blockKey?.(row.id) != null ? { anchorBlock: adapter.blockKey(row.id)! } : {}),
             offset: row.bounds.y - viewport.y, expandedGroupIds: current.current.expanded, followLatest: following.current && current.current.isAtLatest };
+        latestEpoch.current = epoch;
         persist();
     }, [measurements, persist]);
     const layout = React.useCallback(async () => {
@@ -171,23 +192,38 @@ export function useTranscriptReading(options: {
     React.useEffect(() => {
         const adapter = options.adapter;
         const owner = ++generation.current;
-        ready.current = false; latest.current = null; pending.current = null; mountedTarget.current = null;
+        const epoch = ++ownershipEpoch.current;
+        ready.current = false; latest.current = null; latestEpoch.current = -1; pending.current = null; mountedTarget.current = null;
+        deferredCapture.current = false;
+        following.current = current.current.isAtLatest;
         current.current.restoreExpanded([]);
         if (adapter) void adapter.read().then(state => {
             if (owner !== generation.current) return;
-            ready.current = true; latest.current = state;
-            if (state) {
+            ready.current = true;
+            if (epoch === ownershipEpoch.current && state) {
+                latest.current = state; latestEpoch.current = epoch;
                 following.current = state.followLatest === true;
                 current.current.restoreExpanded(state.expandedGroupIds);
                 if (!state.followLatest) pending.current = state;
             }
-        }).catch(() => { if (owner === generation.current) ready.current = true; });
+            const shouldCapture = deferredCapture.current;
+            deferredCapture.current = false;
+            if (shouldCapture && !pending.current) void capture();
+        }).catch(() => {
+            if (owner !== generation.current) return;
+            ready.current = true;
+            const shouldCapture = deferredCapture.current;
+            deferredCapture.current = false;
+            if (shouldCapture) void capture();
+        });
         return () => {
             // Save to the captured owner, never to an account mounted later.
-            if (ready.current && adapter && latest.current) void Promise.resolve(adapter.save(latest.current)).catch(() => undefined);
+            if (ready.current && adapter && latest.current && latestEpoch.current === ownershipEpoch.current) {
+                void Promise.resolve(adapter.save(latest.current)).catch(() => undefined);
+            }
             generation.current += 1; if (timer.current) clearTimeout(timer.current);
         };
-    }, [adapterKey, options.adapter]);
+    }, [adapterKey, options.adapter, capture]);
     React.useEffect(() => {
         if (latest.current) latest.current.expandedGroupIds = options.expanded;
     }, [options.expanded]);
@@ -204,8 +240,14 @@ export function useTranscriptReading(options: {
             if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(() => { void capture(); }, 120);
         },
-        cancelRestore() { pending.current = null; },
-        pin() { if (latest.current && !following.current) pending.current = latest.current; },
+        cancelRestore() {
+            ownershipEpoch.current += 1;
+            pending.current = null;
+            mountedTarget.current = null;
+        },
+        pin() {
+            if (latest.current && latestEpoch.current === ownershipEpoch.current && !following.current) pending.current = latest.current;
+        },
         jumpLatest() { pending.current = null; following.current = true; if (latest.current) { latest.current.followLatest = true; persist(); } },
     };
 }

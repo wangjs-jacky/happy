@@ -28,7 +28,11 @@ test('uses the current origin only for approved production web hosts', () => {
     const script = extractManagedScript(output);
 
     assert.equal(runInjectedScript(script, 'https://paws.rodeo').serverUrl, 'https://paws.rodeo');
+    assert.equal(runInjectedScript(script, 'https://app.paws.rodeo').serverUrl, 'https://app.paws.rodeo');
+    assert.equal(runInjectedScript(script, 'http://app.paws.rodeo')?.serverUrl, undefined);
+    assert.equal(runInjectedScript(script, 'https://app.paws.rodeo.evil.example')?.serverUrl, undefined);
     assert.equal(runInjectedScript(script, 'https://47.115.228.20:8443').serverUrl, 'https://47.115.228.20:8443');
+    assert.equal(runInjectedScript(script, 'https://121.43.32.242:8443')?.serverUrl, 'https://121.43.32.242:8443');
     assert.equal(runInjectedScript(script, 'https://preview.example')?.serverUrl, undefined);
 });
 

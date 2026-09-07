@@ -1,10 +1,12 @@
 import * as React from 'react';
 import { act } from 'react';
+import { Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { ConversationTranscript } from './ConversationTranscript';
 import { ChatList } from './ChatList';
+import type { ReadingState } from '@/sync/localHistoryStore';
 import type { Message } from '@/sync/typesMessage';
 
 const sessionState = vi.hoisted(() => ({
@@ -88,7 +90,84 @@ describe('ConversationTranscript older history pagination', () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore();
+        (Platform as any).OS = 'web';
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('wires Web wheel ownership to the native scroll node and removes the listener on cleanup', async () => {
+        const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
+        let resolveRead!: (state: ReadingState) => void;
+        const read = new Promise<ReadingState>((resolve) => { resolveRead = resolve; });
+        const scrollToOffset = vi.fn();
+        const listeners = new Map<string, (event: any) => void>();
+        const node = {
+            scrollTop: 100,
+            addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
+            removeEventListener: vi.fn((type: string, listener: (event: any) => void) => {
+                if (listeners.get(type) === listener) listeners.delete(type);
+            }),
+        };
+        const adapter = {
+            key: 'owner/session', read: () => read, save: vi.fn(),
+            wireId: (id: string) => id.replace(/-replayed$/, ''), wireSeq: () => 2,
+        };
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} messages={[userMessage('wire2-replayed')]}
+                    reading={adapter} isAtLatest={false} />,
+                { createNodeMock: (element: any) => element.type === 'FlatList'
+                    ? { ...node, getScrollableNode: () => node, scrollToOffset, scrollToIndex: vi.fn() }
+                    : { measureInWindow: (cb: any) => cb(0, element.props.onLayout ? 150 : 100, 800, 200) } },
+            );
+        });
+        expect(node.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), { passive: false });
+        const wheel = listeners.get('wheel');
+        expect(wheel).toBeDefined();
+        wheel!({ shiftKey: false, deltaX: 0, deltaY: 120, preventDefault: vi.fn() });
+        const preventDefault = vi.fn();
+        wheel!({ shiftKey: true, deltaX: 40, deltaY: 0, preventDefault });
+        expect(node.scrollTop).toBe(140);
+        expect(preventDefault).toHaveBeenCalledOnce();
+        await act(async () => { resolveRead(saved); await read; });
+        await act(async () => { byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(100, 2000); });
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+        expect(node.removeEventListener).toHaveBeenCalledWith('wheel', wheel);
+        expect(listeners.has('wheel')).toBe(false);
+    });
+
+    it('does not register the Web wheel listener on native platforms', async () => {
+        (Platform as any).OS = 'ios';
+        const node = { addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[]} />, {
+                createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node } : null,
+            });
+        });
+        expect(node.addEventListener).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('disables recycling only for inverted Web transcripts so dynamic rows cannot create a scroll feedback loop', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('web')]} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(true);
+
+        await act(async () => {
+            renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('public')]} inverted={false} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+
+        (Platform as any).OS = 'ios';
+        await act(async () => {
+            renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('native')]} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+        act(() => renderer.unmount());
     });
 
     it('keeps orphan evidence visible until its invocation loads, then removes only linked frames', async () => {
