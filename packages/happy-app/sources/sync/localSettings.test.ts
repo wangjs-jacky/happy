@@ -118,6 +118,12 @@ describe('localSettings desktop Lists and Tags', () => {
         expect(localSettingsParse({ desktopSidebarMode: 'archive' }).desktopSidebarMode).toBe('archive');
     });
 
+    it('defaults Unassigned to collapsed and restores its device-local expansion state', () => {
+        expect(localSettingsDefaults.sidebarUnassignedExpanded).toBe(false);
+        expect(localSettingsParse({}).sidebarUnassignedExpanded).toBe(false);
+        expect(localSettingsParse({ sidebarUnassignedExpanded: true }).sidebarUnassignedExpanded).toBe(true);
+    });
+
     it('migrates the removed History surface to Archive while preserving the last session-list view', () => {
         expect(localSettingsParse({
             desktopSidebarMode: 'history',
