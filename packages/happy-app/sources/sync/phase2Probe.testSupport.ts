@@ -8,7 +8,7 @@ const expression = execFileSync(process.execPath, [
     '--origin', 'https://example.test', '--session-id', 'test-session', '--mode', 'print-phase-2-ego-probe',
 ], { encoding: 'utf8' });
 
-export function installPhase2Probe(kind: 'deep-link' | 'spawn') {
+export function installPhase2Probe(kind: 'deep-link' | 'spawn', options: { mountsRoute?: boolean } = {}) {
     let time = 1;
     const context = {
         URL,
@@ -24,6 +24,7 @@ export function installPhase2Probe(kind: 'deep-link' | 'spawn') {
     if (kind === 'deep-link') {
         probe.initFreshDeepLink();
         for (const stage of ['web.fonts.critical_ready', 'web.crypto.ready', 'web.credentials.ready', 'web.route.mounted']) {
+            if (options.mountsRoute && stage === 'web.route.mounted') continue;
             probe.markAppStage(stage);
         }
     }

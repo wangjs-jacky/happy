@@ -370,8 +370,8 @@ class Sync {
     // The caller owns receipt lifetime. Keep recovery provenance weakly, outside
     // evictable display caches; deleting a session revokes all its receipts.
     private acceptedLocalMessageReceipts = new Map<string, WeakMap<LocalMessageQueueReceipt, readonly NormalizedMessage[]>>();
-    // Observation outlives a display-cache generation. A freshly retained
-    // empty generation is unknown, not proof that a receipt was echoed.
+    // Observation bounds overlay/retry lifetime within one display cache.
+    // Full cache release keeps receipt provenance but resets observation.
     private observedLocalMessageIds = new Map<string, Set<string>>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
@@ -1036,6 +1036,7 @@ class Sync {
         this.messagesSync.delete(sessionId);
         this.sessionMessageLoadGate.invalidate(sessionId);
         this.sessionMessageCacheGenerations.delete(sessionId);
+        this.observedLocalMessageIds.delete(sessionId);
         this.sessionOlderLoadingTokens.delete(sessionId);
         this.sessionMessageFrontiers.delete(sessionId);
         this.sessionCachedMessageSeqs.delete(sessionId);
@@ -2239,7 +2240,11 @@ class Sync {
                     markSessionCriticalPathAppStage('web.messages.latest_completed');
                     markSessionCriticalPathAppStage('web.session.store_committed');
                     if (latestPage.revalidateTail) setTimeout(() => {
-                        if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)) {
+                        // A superseding load may already have verified latest.
+                        // Replaying that winner as local history would clear its
+                        // verification before Deferred can paint it.
+                        if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)
+                            && this.historyWindows.get(sessionId)?.isAtLatest !== true) {
                             void this.jumpToLatestMessages(sessionId);
                         }
                     }, 0);
