@@ -275,7 +275,7 @@ function readEvidence(inputPath, phase2 = false) {
 // browser's performance clock; only aggregate durations cross the boundary.
 function phase2StageContract() {
   const deep = [
-    'web.root.module_ready', 'web.fonts.critical_ready', 'web.crypto.ready', 'web.credentials.ready',
+    'web.root.module_ready', 'web.crypto.ready', 'web.credentials.ready',
     'web.route.mounted', 'web.session.snapshot_started', 'web.session.snapshot_completed',
     'web.messages.latest_started', 'web.messages.latest_completed', 'web.session.store_committed',
     'web.session.latest_message_painted',
@@ -288,7 +288,6 @@ function phase2StageContract() {
   // fabricated total order; processor-ready may arrive before route paint.
   const prerequisites = {
     'web.root.module_ready': ['web.deep_link.navigation_started'],
-    'web.fonts.critical_ready': ['web.root.module_ready'],
     'web.crypto.ready': ['web.root.module_ready'],
     'web.credentials.ready': ['web.crypto.ready'],
     'web.route.mounted': ['web.credentials.ready'],
@@ -311,7 +310,8 @@ function phase2StageContract() {
 
 function createPhase2Probe({ state, now, navigationStart, beginResourceCollection, freezeResources, requireCollection, contract }) {
   const { deep, spawn, prerequisites } = contract;
-  const allowed = new Set([...deep, ...spawn]);
+  // Fonts report their real completion, but are no longer a Web paint prerequisite.
+  const allowed = new Set([...deep, ...spawn, 'web.fonts.critical_ready']);
   const samples = [];
   const resources = [];
   let configured = null;

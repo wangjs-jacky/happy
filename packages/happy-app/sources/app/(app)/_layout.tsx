@@ -356,7 +356,7 @@ export default function RootLayout() {
                 name="session/recent"
                 options={{
                     headerShown: true,
-                    headerTitle: t('sessionHistory.title'),
+                    headerTitle: t('sessionHistory.archiveTitle'),
                     headerBackTitle: t('common.back'),
                 }}
             />

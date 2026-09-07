@@ -9,10 +9,11 @@ import { EmptySessionsTablet, shouldShowSessionEmptyState } from '@/components/E
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { useAllSessions, useIsDataReady } from '@/sync/storage';
+import { storage, useAllSessions, useIsDataReady } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
+import { isSessionArchived } from '@/utils/sessionLifecycle';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { SessionHistoryScrollIntent } from './sessionHistoryScrollIntent';
 
@@ -118,7 +119,10 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const groupedItems = React.useMemo(
+        () => groupSessionsByDate((allSessions ?? []).filter(isSessionArchived)),
+        [allSessions],
+    );
     const showEmptyState = shouldShowSessionEmptyState(groupedItems.length);
     const scrollIntent = React.useMemo(() => new SessionHistoryScrollIntent(), [showEmptyState]);
     React.useEffect(() => {
@@ -126,6 +130,20 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
         return () => clearTimeout(timer);
     }, [isDataReady, pathname, sidebar]);
+    const hasSessions = (allSessions?.length ?? 0) > 0;
+    const hasArchivedSessions = groupedItems.length > 0;
+    React.useEffect(() => {
+        if (!isDataReady || !hasSessions || hasArchivedSessions) return;
+        let cancelled = false;
+        const loadUntilArchived = async () => {
+            let hasMore = true;
+            while (!cancelled && hasMore && !Object.values(storage.getState().sessions).some(isSessionArchived)) {
+                hasMore = await sync.loadNextSessionHistoryPage();
+            }
+        };
+        void loadUntilArchived();
+        return () => { cancelled = true; };
+    }, [hasArchivedSessions, hasSessions, isDataReady]);
     const loadNextHistoryPage = React.useCallback(() => {
         if (!scrollIntent.consumeAtEnd()) return;
         void sync.loadNextSessionHistoryPage();
@@ -181,7 +199,14 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
 
     const content = showEmptyState
-        ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
+        ? (
+            <EmptySessionsTablet
+                description={t('sessionHistory.archiveEmptyDescription')}
+                icon="archive-outline"
+                showNewSessionAction={false}
+                title={t('sessionHistory.archiveEmpty')}
+            />
+        )
         : (
             <FlatList
                 {...scrollState}
@@ -208,7 +233,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     return (
         <View
             style={[styles.container, !sidebar && styles.pageContainer]}
-            testID={sidebar ? 'desktop-sidebar-history-list' : 'session-history-list'}
+            testID={sidebar ? 'desktop-sidebar-archive-list' : 'session-archive-list'}
         >
             <View style={sidebar ? styles.sidebarContent : styles.pageContent}>{content}</View>
         </View>

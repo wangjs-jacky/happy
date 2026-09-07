@@ -121,7 +121,8 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
@@ -648,7 +649,43 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
         await syncForTest.loadOlderMessages('archive');
         expect(mocks.apiRequest).not.toHaveBeenCalled();
-        expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.state.sessionMessages.archive.messages).toHaveLength(400);
+    }, 20000);
+
+    it('keeps cached Web history additive across older navigation instead of replacing every 300 raw events', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('web-history');
+        const history = await openLocalHistory('server|web-history');
+        await history!.commitPage('web-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('web-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('web-history');
+
+        expect(syncForTest.historyWindows.get('web-history').messages.map((message: ApiMessage) => message.seq))
+            .toEqual(Array.from({ length: 500 }, (_, i) => i + 1));
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('keeps native cached history navigation bounded to 300 raw events', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'android';
+        installSession('native-history');
+        const history = await openLocalHistory('server|native-history');
+        await history!.commitPage('native-history', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+
+        await expect(syncForTest.openSession('native-history')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('native-history');
+
+        expect(syncForTest.historyWindows.get('native-history').messages.length).toBeGreaterThan(0);
+        expect(syncForTest.historyWindows.get('native-history').messages.length).toBeLessThanOrEqual(300);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
     }, 20000);
 
     it('jumps from a stale cached tail by requesting only newer records', async () => {

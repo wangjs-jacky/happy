@@ -34,7 +34,7 @@ import { AnchorListSheet } from './AnchorListSheet';
 import { BrowserProgressContext } from './BrowserProgressContext';
 import { getBrowserStepRuns, hideLinkedBrowserSteps } from './rightPanel/browserStepRunsModel';
 import { setGroupExpansion, groupIsExpanded, itemMessages, TranscriptReadingContext, TranscriptReadingMarker,
-    TranscriptGroupExpansionContext, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
+    TranscriptGroupExpansionContext, handleTranscriptWebWheel, useTranscriptReading, type TranscriptReadingAdapter } from './transcriptReading';
 
 const SCROLL_THRESHOLD = 300;
 const ANCHOR_PILL_LINGER_MS = 1600;
@@ -110,14 +110,15 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const more = direction === 'older' ? props.hasMoreOlder : props.hasMoreNewer;
         const error = direction === 'older' ? props.olderError : props.newerError;
         const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
-        const boundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const boundary = renderedBoundary ? props.reading?.wireId(renderedBoundary) ?? renderedBoundary : undefined;
         const key = JSON.stringify([props.sessionId, direction, boundary]);
         if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
         attempted.current.add(key);
         if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
         load();
     }, [props.sessionId, props.messages, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
-        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
+        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError, props.reading]);
     const listItems = React.useMemo(
         () => (inverted ? displayItems : [...displayItems].reverse()).map(item => ({
             ...item, renderKey: transcriptRenderKey(item, props.reading),
@@ -146,6 +147,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
         listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
+    const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
+    cancelReadingRestoreRef.current = reading.cancelRestore;
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
         displayItems.filter(isCollapsibleDisplayItem).map((item) => item.id),
     ));
@@ -416,10 +419,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
         const handler = (event: WheelEvent) => {
-            if (event.shiftKey && Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1) {
-                node.scrollTop += event.deltaX;
-                event.preventDefault();
-            }
+            handleTranscriptWebWheel(event, node, () => cancelReadingRestoreRef.current());
         };
         node.addEventListener('wheel', handler, { passive: false });
         return () => node.removeEventListener('wheel', handler);
@@ -436,6 +436,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 data={listItems}
                 inverted={inverted}
                 keyExtractor={(item) => item.renderKey}
+                disableVirtualization={Platform.OS === 'web' && inverted}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}

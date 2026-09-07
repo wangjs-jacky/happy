@@ -53,7 +53,10 @@ vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots,
         return sessions[0] ? { session: sessions[0], commitEncryption: () => true } : null;
     },
 }));
-vi.mock('./apiSessions', () => ({ fetchSessionSnapshot }));
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
+    fetchSessionSnapshot,
+}));
 vi.mock('./sessionHistoryReconciliation', () => ({ reconcileSessionHistory }));
 vi.mock('./storage', () => ({ storage }));
 vi.mock('./apiSocket', () => ({

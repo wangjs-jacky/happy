@@ -235,11 +235,11 @@ test('Phase 2 rejects inherited classification, arrays and throwing classificati
   }
 });
 
-function deepStages(harness) {
+function deepStages(harness, fonts = true) {
   const { probe, at } = harness;
   probe.configureSample({ kind: 'deep-link', cache: 'cold' });
   at(100); probe.initFreshDeepLink();
-  at(110); probe.markAppStage('web.fonts.critical_ready');
+  if (fonts) { at(110); probe.markAppStage('web.fonts.critical_ready'); }
   at(120); probe.markAppStage('web.crypto.ready');
   at(130); probe.markAppStage('web.credentials.ready');
   at(140); probe.markFreshHeaderVisible();
@@ -250,6 +250,14 @@ function deepStages(harness) {
   at(190); probe.markAppStage('web.session.store_committed');
 }
 
+test('Phase 2 completes first useful paint while optional Web fonts are still pending', () => {
+  const h = phase2Probe(); deepStages(h, false);
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  assert.equal(h.probe.collect().samples[0].deepLinkInteractiveMs, 200);
+  h.at(5000); h.probe.markAppStage('web.fonts.critical_ready');
+  assert.equal(h.probe.collect().samples[0].deepLinkInteractiveMs, 200);
+});
+
 test('Phase 2 retains immutable identifier-free stage durations after later samples start', () => {
   const h = phase2Probe(); deepStages(h);
   h.at(200); h.probe.markFreshLatestMessageComplete();
@@ -257,7 +265,6 @@ test('Phase 2 retains immutable identifier-free stage durations after later samp
   assert.deepEqual(JSON.parse(JSON.stringify(sample.stages)), [
     { stage: 'web.deep_link.navigation_started', duration: 0 },
     { stage: 'web.root.module_ready', duration: 100 },
-    { stage: 'web.fonts.critical_ready', duration: 110 },
     { stage: 'web.crypto.ready', duration: 120 },
     { stage: 'web.credentials.ready', duration: 130 },
     { stage: 'web.route.mounted', duration: 140 },
