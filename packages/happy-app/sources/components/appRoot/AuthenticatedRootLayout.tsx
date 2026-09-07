@@ -138,11 +138,11 @@ export default function AuthenticatedRootLayout() {
     React.useEffect(() => {
         void (async () => {
             try {
-                try {
-                    await loadAppRootFonts();
-                } catch (error) {
-                    if (Platform.OS !== 'web') throw error;
-                    console.log('[fonts] Loading timed out; continuing with fallback fonts.', error);
+                const fonts = loadAppRootFonts();
+                if (Platform.OS === 'web') {
+                    void fonts.catch(error => console.log('[fonts] Background loading failed; using fallback fonts.', error));
+                } else {
+                    await fonts;
                 }
                 await sodium.ready;
                 markSessionCriticalPathAppStage('web.crypto.ready');

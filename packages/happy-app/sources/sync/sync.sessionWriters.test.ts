@@ -13,7 +13,8 @@ vi.hoisted(() => {
 });
 
 const mocks = vi.hoisted(() => ({ apiRequest: vi.fn(), fetchActive: vi.fn(), fetchPage: vi.fn(), fetchSnapshot: vi.fn() }));
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
@@ -196,6 +197,52 @@ describe('real session writer composition', () => {
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     });
 
+    it('runs native deletion reconciliation at the deferred interactive opportunity', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        mocks.fetchActive.mockResolvedValue([]);
+        mocks.fetchPage.mockResolvedValue({ sessions: [], nextCursor: null, hasNext: false });
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{
+            sessionId: 'writer-session', revision: '2', deleted: true,
+            lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0,
+        }], nextCursor: 'deleted', hasMore: false });
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await sync.bootstrapSessions();
+        const scheduled = sync.sessionRouteBecameInteractive();
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        idle();
+        await scheduled;
+        await subject.changesInFlight;
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(subject.nativeHistoryCursor).toBe('deleted');
+    });
+
+    it('reconciles native deletions after a failed automatic history page is manually retried', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        mocks.fetchActive.mockResolvedValue([]);
+        mocks.fetchPage.mockRejectedValueOnce(new Error('history offline'))
+            .mockResolvedValue({ sessions: [], nextCursor: null, hasNext: false });
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{
+            sessionId: 'writer-session', revision: '2', deleted: true,
+            lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0,
+        }], nextCursor: 'retried-delete', hasMore: false });
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await sync.bootstrapSessions();
+        const scheduled = sync.sessionRouteBecameInteractive();
+        idle();
+        await scheduled;
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        await sync.loadNextSessionHistoryPage();
+        await subject.changesInFlight;
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(subject.nativeHistoryCursor).toBe('retried-delete');
+    });
+
     it('keeps native history absent from a page, and only removes it after a point lookup confirms 404', async () => {
         Object.assign(Platform, { OS: 'android' });
         await sync.ensureSessionHydrated('writer-session');
@@ -275,6 +322,26 @@ describe('real session writer composition', () => {
         await expect(subject.reconcileHistory()).rejects.toThrow('snapshot');
         expect(subject.nativeHistoryCursor).toBe('previous');
         expect(storage.getState().sessions['writer-session'].metadataVersion).toBe(1);
+    });
+
+    it('publishes a decrypted page in three bounded store updates and skips the unchanged replay', async () => {
+        const rows = Array.from({ length: 25 }, (_, index) => snapshot({ id: `store-batch-${index}` }));
+        const publications: number[] = [];
+        const unsubscribe = storage.subscribe((state, previous) => {
+            if (state.sessionsData === previous.sessionsData) return;
+            publications.push(Object.keys(state.sessions).length);
+            for (const id of Object.keys(state.sessions)) expect(subject.encryption.getSessionEncryption(id)).not.toBeNull();
+        });
+        let between = 0;
+        const timer = setTimeout(() => { between = Object.keys(storage.getState().sessions).length; }, 0);
+        try {
+            await subject.writeSessionSnapshots(async () => rows, { replace: false }, undefined, false);
+            expect(publications).toEqual([10, 20, 25]);
+            expect(between).toBe(10);
+            expect(Object.keys(storage.getState().sessions)).toHaveLength(25);
+            await subject.writeSessionSnapshots(async () => rows, { replace: false }, undefined, false);
+            expect(publications).toEqual([10, 20, 25]);
+        } finally { clearTimeout(timer); unsubscribe(); }
     });
 
     it('does not publish unchanged foreground snapshots to sidebar subscribers', async () => {

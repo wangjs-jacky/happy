@@ -93,9 +93,11 @@ import { shouldMarkSessionEventUnread } from '@/utils/sessionAttentionBadge';
 import { PluginCatalogStore, type PluginCatalogSnapshot } from './pluginCatalogStore';
 import {
     fetchActiveSessionSnapshots,
+    fetchLegacySessionSnapshots,
     fetchSessionSnapshot,
     fetchSessionSnapshotPage,
 } from './apiSessions';
+import { useSessionListSyncState } from './sessionListSyncState';
 import {
     hydrateSessionSnapshotForRoute,
     type HydratedSession,
@@ -368,6 +370,11 @@ class Sync {
     public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
     private sessionBootstrapSync: InvalidateSync;
+    private sessionBootstrapInFlight: Promise<void> | null = null;
+    private sessionListOwner: Encryption | null = null;
+    private cancelScheduledSessionHistory: (() => void) | null = null;
+    private sessionHistoryTask: object | null = null;
+    private sessionHistoryReconciliationPending = false;
     private sessionReconnectSync: InvalidateSync;
     private sessionHistoryInFlight: Promise<boolean> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
@@ -451,7 +458,7 @@ class Sync {
             this.sessionWarmCacheAccountKey = null;
         });
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
-        this.sessionBootstrapSync = new InvalidateSync(this.fetchActiveSessions);
+        this.sessionBootstrapSync = new InvalidateSync(this.bootstrapSessions);
         this.sessionReconnectSync = new InvalidateSync(this.refreshSessionsAfterReconnect);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
@@ -560,6 +567,7 @@ class Sync {
     }
 
     private initializeLocalHistory = async (): Promise<void> => {
+        this.resetSessionListOwner();
         const previous = this.localHistory;
         this.nativeHistoryCursor = undefined;
         this.changesInFlight = null;
@@ -579,13 +587,8 @@ class Sync {
             const snapshot = await history.readSnapshot(decodeURIComponent(id));
             if (snapshot) await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false);
         }
-        void history.listSnapshots().then(async snapshots => {
-            for (const snapshot of snapshots) {
-                if (this.localHistory !== history) return;
-                try { await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false); }
-                catch { /* one corrupt snapshot must not block other sessions */ }
-            }
-            if (snapshots.length) storage.getState().applyReady();
+        void this.writeSessionSnapshots(() => history.listSnapshots(), { replace: false }, undefined, false).then(snapshots => {
+            if (this.localHistory === history && snapshots.length) storage.getState().applyReady();
         }).catch(() => undefined);
     };
 
@@ -631,12 +634,13 @@ class Sync {
         let bootstrap: Promise<void>;
         if (this.initialSessionBootstrapDeferred) {
             bootstrap = this.bootstrapSessions({ routeReady: true });
+        } else if (this.boundedSessionBootstrapDeferred) {
+            // The target transfers have completed, but the route may not yet
+            // have been promoted by its first paint. Release this owned attempt
+            // explicitly instead of re-entering the opening-route gate.
+            bootstrap = this.bootstrapSessions({ routeReady: true });
         } else {
-            if (this.boundedSessionBootstrapDeferred) {
-                this.boundedSessionBootstrapDeferred = false;
-                this.sessionBootstrapSync.invalidate();
-            }
-            bootstrap = this.sessionBootstrapSync.awaitQueue();
+            bootstrap = this.sessionBootstrapInFlight ?? this.sessionBootstrapSync.awaitQueue();
         }
         if (reconcileAfterBootstrap && this.localHistory) {
             void bootstrap.then(() => {
@@ -2085,21 +2089,43 @@ class Sync {
         await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, INITIAL_ACTIVE_SESSION_LIMIT));
     }
 
-    public bootstrapSessions = async (options: { routeReady?: boolean } = {}): Promise<void> => {
+    private resetSessionListOwner = () => {
+        this.cancelScheduledSessionHistory?.();
+        this.sessionHistoryTask = null;
+        this.sessionHistoryReconciliationPending = false;
+        this.sessionListOwner = this.encryption;
+        this.sessionBootstrapInFlight = null;
+        this.sessionHistoryInFlight = null;
+        this.nextSessionHistoryCursor = undefined;
+        this.initialSessionHistoryScheduled = false;
+        useSessionListSyncState.setState({ bootstrap: 'idle', history: 'idle' });
+    };
+
+    public bootstrapSessions = (options: { routeReady?: boolean } = {}): Promise<void> => {
+        if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
         if (!options.routeReady && this.shouldPrioritizeInitialSessionRoute()) {
             this.initialSessionBootstrapDeferred = true;
-            return;
+            return Promise.resolve();
         }
         this.initialSessionBootstrapDeferred = false;
         this.boundedSessionBootstrapDeferred = false;
-        this.nextSessionHistoryCursor = undefined;
-        this.initialSessionHistoryScheduled = false;
-        await this.sessionBootstrapSync.invalidateAndAwait();
-        storage.getState().applyReady();
-        // Native deletion reconciliation is lightweight and has no route-level
-        // persistent history owner. Keep it behind the bounded active snapshot
-        // so it cannot delay first paint or fall back to the legacy full list.
-        if (Platform.OS !== 'web') void this.reconcileHistory().catch(() => undefined);
+        if (this.sessionBootstrapInFlight) return this.sessionBootstrapInFlight;
+        const owner = this.captureHistoryOwner('');
+        useSessionListSyncState.setState({ bootstrap: 'loading' });
+        const request = (async () => {
+            try {
+                await this.fetchActiveSessions();
+                if (!owner.isCurrent()) return;
+                storage.getState().applyReady();
+                useSessionListSyncState.setState({ bootstrap: 'ready' });
+            } catch {
+                if (owner.isCurrent()) useSessionListSyncState.setState({ bootstrap: 'error' });
+            }
+        })().finally(() => {
+            if (this.sessionBootstrapInFlight === request) this.sessionBootstrapInFlight = null;
+        });
+        this.sessionBootstrapInFlight = request;
+        return request;
     }
 
     public hydrateHistoricalSessionPage = async (
@@ -2118,31 +2144,81 @@ class Sync {
     }
 
     public sessionRouteBecameInteractive = async (): Promise<void> => {
+        if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
         this.releaseDeferredSessionWork(this.sessionRouteOwnership.current() ?? undefined);
-        // Background history is strictly sequenced behind the bounded active
-        // summary request; neither may compete with an opening deep link.
-        await this.sessionBootstrapSync.awaitQueue();
         if (this.initialSessionHistoryScheduled) {
-            if (this.historyReconciliationDeferred && this.localHistory) {
-                this.historyReconciliationDeferred = false;
-                void this.reconcileHistory().catch(() => undefined);
-            }
+            if (!this.sessionHistoryTask && !this.sessionHistoryInFlight
+                && this.historyReconciliationDeferred) this.requestHistoryReconciliation();
             return;
         }
         this.initialSessionHistoryScheduled = true;
-        const loaded = await this.requestNextSessionHistoryPage();
-        if (!loaded) {
-            this.initialSessionHistoryScheduled = false;
-            return;
-        }
-        if (this.localHistory) {
-            this.historyReconciliationDeferred = false;
-            void this.reconcileHistory().catch(() => undefined);
-        }
+        // This intent outlives a failed page and is consumed by the successful
+        // automatic page or manual retry, not by firing/cancelling its timer.
+        this.sessionHistoryReconciliationPending = true;
+        const task = {};
+        this.sessionHistoryTask = task;
+        const owner = this.captureHistoryOwner('');
+        await new Promise<void>(resolve => {
+            let idle: number | undefined;
+            let finished = false;
+            const cleanup = () => {
+                clearTimeout(fallback);
+                if (idle !== undefined && typeof cancelIdleCallback === 'function') cancelIdleCallback(idle);
+                if (this.cancelScheduledSessionHistory === cancel) this.cancelScheduledSessionHistory = null;
+            };
+            const cancel = () => { finished = true; cleanup(); resolve(); };
+            const run = () => {
+                if (finished) return;
+                finished = true;
+                cleanup();
+                if (!owner.isCurrent()) { resolve(); return; }
+                void (async () => {
+                    // Idle grants CPU time, not permission to compete with the
+                    // active summary/target network lane. Direct bootstrap
+                    // attempts are owned outside the invalidator queue.
+                    await this.sessionBootstrapInFlight;
+                    await this.sessionBootstrapSync.awaitQueue();
+                    if (!owner.isCurrent()) return;
+                    if (this.shouldPrioritizeInitialSessionRoute()) {
+                        this.initialSessionHistoryScheduled = false;
+                        this.historyReconciliationDeferred = true;
+                        return;
+                    }
+                    const loaded = await this.requestNextSessionHistoryPage();
+                    if (loaded && owner.isCurrent() && this.sessionHistoryReconciliationPending) {
+                        this.sessionHistoryReconciliationPending = false;
+                        this.requestHistoryReconciliation();
+                    }
+                })().finally(resolve);
+            };
+            const fallback = setTimeout(run, 1000);
+            this.cancelScheduledSessionHistory = cancel;
+            if (typeof requestIdleCallback === 'function') idle = requestIdleCallback(run, { timeout: 1000 });
+        }).finally(() => {
+            if (this.sessionHistoryTask === task) this.sessionHistoryTask = null;
+        });
     }
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
-        await this.requestNextSessionHistoryPage();
+        if (this.sessionListOwner !== this.encryption) this.resetSessionListOwner();
+        const owner = this.captureHistoryOwner('');
+        if (this.cancelScheduledSessionHistory) {
+            this.cancelScheduledSessionHistory();
+        }
+        this.initialSessionHistoryScheduled = true;
+        const task = {};
+        this.sessionHistoryTask = task;
+        try {
+            if (this.sessionBootstrapInFlight) await this.sessionBootstrapInFlight;
+            if (!owner.isCurrent()) return;
+            const loaded = await this.requestNextSessionHistoryPage();
+            if (loaded && owner.isCurrent() && this.sessionHistoryReconciliationPending) {
+                this.sessionHistoryReconciliationPending = false;
+                this.requestHistoryReconciliation();
+            }
+        } finally {
+            if (this.sessionHistoryTask === task) this.sessionHistoryTask = null;
+        }
     }
 
     private requestNextSessionHistoryPage = async (): Promise<boolean> => {
@@ -2152,13 +2228,21 @@ class Sync {
         }
 
         const cursor = this.nextSessionHistoryCursor;
+        const owner = this.captureHistoryOwner('');
+        useSessionListSyncState.setState({ history: 'loading' });
         const request = (async () => {
             try {
                 const nextCursor = await this.hydrateHistoricalSessionPage(cursor);
+                if (!owner.isCurrent()) return false;
                 this.nextSessionHistoryCursor = nextCursor;
+                useSessionListSyncState.setState({ history: 'ready' });
                 return true;
             } catch (error) {
                 log.log('session-history-load-failed');
+                if (owner.isCurrent()) {
+                    this.initialSessionHistoryScheduled = false;
+                    useSessionListSyncState.setState({ history: 'error' });
+                }
                 return false;
             }
         })();
@@ -2177,23 +2261,7 @@ class Sync {
             await this.reconcileHistory();
             if (this.changesSupported) return;
         }
-        await this.writeSessionSnapshots(async () => {
-            const API_ENDPOINT = getServerUrl();
-            const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
-                headers: {
-                    'Authorization': `Bearer ${this.credentials.token}`,
-                    'Content-Type': 'application/json',
-                    'X-Happy-Client': getHappyClientId(),
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch sessions: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data.sessions as ApiSessionSnapshot[];
-        }, { replace: false });
+        await this.writeSessionSnapshots(() => fetchLegacySessionSnapshots(this.credentials), { replace: false });
         if (!this.localHistory && Platform.OS !== 'web') await this.reconcileHistory();
     }
 
@@ -2244,40 +2312,62 @@ class Sync {
         const committedWireSnapshots: ApiSessionSnapshot[] = [];
         try {
             const snapshots = deduplicateSessionSnapshots(await load());
-            for (const snapshot of snapshots) {
-                const fence = historyOwner?.captureSessionFence(snapshot.id);
-                const assertCurrent = () => {
-                    if (operation) this.assertSessionRouteCurrent(operation);
-                    if (!scopeOwner.isCurrent() || this.encryption !== encryptionOwner || this.localHistory !== historyOwner
-                        || (historyOwner && fence && !historyOwner.isFenceCurrent(fence))
-                        || (this.sessionDeletionMutationGenerations.get(snapshot.id) ?? 0) > write.mutationGeneration) {
-                        throw new SessionWriteCancelled();
+            for (let offset = 0; offset < snapshots.length; offset += 10) {
+                if (offset > 0) await new Promise<void>(resolve => setTimeout(resolve, 0));
+                if (!scopeOwner.isCurrent()) break;
+                let pending = snapshots.slice(offset, offset + 10);
+                for (let attempt = 0; attempt < 2 && pending.length; attempt++) {
+                    const preparedBatch: Array<{
+                        snapshot: ApiSessionSnapshot;
+                        prepared: NonNullable<Awaited<ReturnType<typeof hydrateSessionSnapshotForRoute>>>;
+                        assertCurrent: () => void;
+                    }> = [];
+                    for (const snapshot of pending) {
+                        const fence = historyOwner?.captureSessionFence(snapshot.id);
+                        const assertCurrent = () => {
+                            if (operation) this.assertSessionRouteCurrent(operation);
+                            if (!scopeOwner.isCurrent() || this.encryption !== encryptionOwner || this.localHistory !== historyOwner
+                                || (historyOwner && fence && !historyOwner.isFenceCurrent(fence))
+                                || (this.sessionDeletionMutationGenerations.get(snapshot.id) ?? 0) > write.mutationGeneration) {
+                                throw new SessionWriteCancelled();
+                            }
+                        };
+                        try {
+                            assertCurrent();
+                            const prepared = await hydrateSessionSnapshotForRoute(snapshot, encryptionOwner, { assertCurrent });
+                            assertCurrent();
+                            if (prepared) preparedBatch.push({ snapshot, prepared, assertCurrent });
+                        } catch (error) {
+                            if (operation && !(error instanceof SessionWriteCancelled)) throw error;
+                            // Corrupt ciphertext is isolated to its row. Account and
+                            // deletion cancellation never prevents healthy rows committing.
+                        }
                     }
-                };
-                try {
-                    // A competing writer can install the same session while
-                    // preparation is awaiting crypto. Reprepare through that
-                    // winner once; losing ownership is not route cancellation.
-                    for (let attempt = 0; attempt < 2; attempt++) {
-                        assertCurrent();
-                        const prepared = await hydrateSessionSnapshotForRoute(snapshot, this.encryption, { assertCurrent });
-                        assertCurrent();
-                        if (!prepared) break;
-                        if (!prepared.commitEncryption()) continue;
-                        this.applySessions([prepared.session], { replace: false });
-                        committed.push(prepared.session);
+                    pending = [];
+                    const batch: HydratedSession[] = [];
+                    // No await between these final ownership checks, installing
+                    // encryption and publishing the corresponding batch of rows.
+                    for (const { snapshot, prepared, assertCurrent } of preparedBatch) {
+                        try { assertCurrent(); }
+                        catch (error) {
+                            if (!(error instanceof SessionWriteCancelled)) throw error;
+                            continue;
+                        }
+                        if (!prepared.commitEncryption()) { pending.push(snapshot); continue; }
+                        batch.push(prepared.session);
                         committedWireSnapshots.push(snapshot);
-                        break;
                     }
-                } catch (error) {
-                    if (!(error instanceof SessionWriteCancelled)) throw error;
+                    this.applySessions(batch, { replace: false });
+                    committed.push(...batch);
                 }
             }
             const current = scopeOwner.isCurrent();
             if (options.replace && current) this.applySessions(committed, options, write.mutationGeneration);
             if (persist && current && warmAccount && this.sessionWarmCacheAccountKey === warmAccount && committedWireSnapshots.length > 0) {
-                saveSessionWarmSnapshots(warmAccount, committedWireSnapshots);
-                await historyOwner?.writeSnapshots(committedWireSnapshots);
+                const survivingSnapshots = committedWireSnapshots.filter(snapshot =>
+                    (this.sessionDeletionMutationGenerations.get(snapshot.id) ?? 0) <= write.mutationGeneration);
+                saveSessionWarmSnapshots(warmAccount, survivingSnapshots);
+                await historyOwner?.writeSnapshots(survivingSnapshots);
             }
             return committed;
         } finally {
@@ -2339,7 +2429,7 @@ class Sync {
         );
         if (isReady()) return true;
 
-        await this.sessionBootstrapSync.awaitQueue();
+        await (this.sessionBootstrapInFlight ?? this.sessionBootstrapSync.awaitQueue());
         if (isReady()) return true;
 
         if (!await this.ensureSessionHydrated(sessionId)) return false;
@@ -4629,7 +4719,17 @@ class Sync {
 
             const existing = storage.getState().sessions[sessionId];
             const merged = mergeHydratedSessions(existing ? [existing, ...incoming] : incoming);
-            if (!options?.replace && existing && merged === existing) return [];
+            if (!options?.replace && existing && (merged === existing || (
+                merged.seq === existing.seq && merged.updatedAt === existing.updatedAt
+                && merged.active === existing.active && merged.activeAt === existing.activeAt
+                && merged.thinking === existing.thinking && merged.thinkingAt === existing.thinkingAt
+                && (merged.presence === undefined || merged.presence === existing.presence)
+                && merged.createdAt === existing.createdAt
+                && merged.metadataVersion === existing.metadataVersion
+                && merged.agentStateVersion === existing.agentStateVersion
+                && JSON.stringify(merged.metadata) === JSON.stringify(existing.metadata)
+                && JSON.stringify(merged.agentState) === JSON.stringify(existing.agentState)
+            ))) return [];
             return [merged];
         });
 
