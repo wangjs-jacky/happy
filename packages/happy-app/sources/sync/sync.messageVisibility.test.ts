@@ -848,6 +848,48 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-reconciled-history/messages?after_seq=301&limit=100');
     }, 20000);
 
+    it('keeps a restored Web history island reachable when a disconnected latest window is applied', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('web-disconnected-retention');
+        const history = await openLocalHistory('server|web-disconnected-retention');
+        await history!.commitPage('web-disconnected-retention', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 30 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-disconnected-retention');
+        const restored = await history!.readWindow('web-disconnected-retention', { anchorSeq: 5, limit: 10 });
+        const latest = await history!.readWindow('web-disconnected-retention', { limit: 10 });
+        expect(restored?.messages.map(message => message.seq)).toEqual(
+            Array.from({ length: 10 }, (_, i) => i + 1),
+        );
+        expect(latest?.messages.map(message => message.seq)).toEqual(
+            Array.from({ length: 10 }, (_, i) => i + 21),
+        );
+
+        await syncForTest.applyHistoryWindow('web-disconnected-retention', restored,
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        await syncForTest.applyHistoryWindow('web-disconnected-retention', latest,
+            syncForTest.sessionMessageLoadGate.begin(lease), { retainCurrentWebRows: true });
+
+        const retained = syncForTest.historyWindows.get('web-disconnected-retention');
+        expect(retained.messages.map((message: ApiMessage) => message.seq)).toEqual(
+            Array.from({ length: 10 }, (_, i) => i + 1),
+        );
+        expect(retained).toMatchObject({
+            oldestSeq: 1,
+            newestSeq: 10,
+            hasMoreOlder: false,
+            hasMoreNewer: true,
+            isAtLatest: false,
+        });
+
+        await syncForTest.loadNewerMessages('web-disconnected-retention');
+        expect(syncForTest.historyWindows.get('web-disconnected-retention').messages
+            .some((message: ApiMessage) => message.seq === 11)).toBe(true);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 20000);
+
     it('does not let a stale Web older projection overwrite a concurrent realtime row', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;

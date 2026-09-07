@@ -157,6 +157,14 @@ function retainMissingHistoryRows(window: HistoryWindow, current: HistoryWindow 
     const knownSeqs = new Set(window.messages.map(message => message.seq));
     const missing = current.messages.filter(message => !knownSeqs.has(message.seq));
     if (missing.length === 0) return window;
+    const overlaps = current.messages.some(message => knownSeqs.has(message.seq));
+    // A restored reading window and a separately fetched latest window can be
+    // two disconnected islands. Flattening them into one HistoryWindow lies
+    // about the missing middle: both boundary flags can become exhausted even
+    // though thousands of cached rows remain unreachable. Keep the historical
+    // island authoritative until explicit newer navigation connects it. A
+    // latest-following window may instead accept the new authoritative island.
+    if (!overlaps) return current.isAtLatest ? window : current;
     const messages = [...window.messages, ...missing].sort((a, b) => a.seq - b.seq);
     return { ...window, messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null };
 }
@@ -751,6 +759,15 @@ class Sync {
             const retained = retainMissingHistoryRows(window, this.historyWindows.get(id));
             if (retained === window) break;
             const knownSeqs = new Set(window.messages.map(message => message.seq));
+            const retainedSeqs = new Set(retained.messages.map(message => message.seq));
+            if (!window.messages.every(message => retainedSeqs.has(message.seq))) {
+                // Retention can deliberately select the already-visible
+                // historical island instead of a disconnected replacement.
+                // Discard normalized rows from that rejected island before
+                // replaying the retained window.
+                normalized.length = 0;
+                knownSeqs.clear();
+            }
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
