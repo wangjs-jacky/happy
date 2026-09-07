@@ -62,9 +62,9 @@ const SidebarNavigatorContent = React.memo(() => {
 
     // Calculate target drawer width
     const fullDrawerWidth = React.useMemo(() => {
-        if (!isDesktopLayout) return 320;
+        if (!isDesktopLayout) return Math.max(0, Math.min(windowWidth - 16, 420));
         return leftExpandedWidth + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0);
-    }, [isDesktopLayout, leftExpandedWidth]);
+    }, [isDesktopLayout, leftExpandedWidth, windowWidth]);
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;
 
     React.useEffect(() => {
@@ -151,7 +151,7 @@ const SidebarNavigatorContent = React.memo(() => {
     }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, selectionMode, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
-        () => (
+        ({ navigation }: { navigation: { closeDrawer: () => void } }) => (
             <View
                 aria-hidden={isDesktopLayout && !showSidebar}
                 accessibilityElementsHidden={isDesktopLayout && !showSidebar}
@@ -178,6 +178,7 @@ const SidebarNavigatorContent = React.memo(() => {
                 testID={isDesktopLayout ? 'desktop-left-sidebar' : undefined}
             >
                 <SidebarView
+                    onCloseDrawer={() => navigation.closeDrawer()}
                     closeDrawerOnNavigate={!isDesktopLayout}
                     desktopDensity={isDesktopLayout}
                     desktopPrimaryNavigation={isDesktopLayout && Platform.OS === 'web'}

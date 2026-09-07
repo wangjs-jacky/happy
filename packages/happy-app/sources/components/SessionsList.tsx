@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, View, Pressable, FlatList } from 'react-native';
+import { ActivityIndicator, View, Pressable, FlatList, useWindowDimensions } from 'react-native';
+import { useSidebarScrollState } from './SidebarScrollState';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem } from '@/sync/storage';
@@ -9,7 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useIsTablet } from '@/utils/responsive';
 import { requestReview } from '@/utils/requestReview';
 import { UpdateBanner } from './UpdateBanner';
 import { layout } from './layout';
@@ -131,15 +131,19 @@ const stylesheet = StyleSheet.create((theme) => ({
     bulkToolbarDangerText: {
         color: theme.colors.status.error,
     },
+    bulkToolbarCompact: { flexWrap: 'wrap' },
+    bulkToolbarTitleCompact: { flexBasis: '100%' },
+    bulkToolbarButtonCompact: { minWidth: 44, minHeight: 44, height: undefined, flex: 1, paddingHorizontal: 4 },
 }));
 
 export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projects' | 'time' }) {
+    const scrollState = useSidebarScrollState<SessionListViewItem>(layoutMode);
+    const compactToolbar = useWindowDimensions().width < 600;
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const data = useVisibleSessionListViewData();
     const pathname = usePathname();
-    const isTablet = useIsTablet();
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
     const selectionMode = useSessionSelection((s) => s.active);
     const selectedIds = useSessionSelection((s) => s.selectedIds);
@@ -155,10 +159,9 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
     // the previously- and newly-selected rows re-render, instead of the
     // whole visible window.
     const selectedSessionId = React.useMemo<string | undefined>(() => {
-        if (!isTablet) return undefined;
         if (!pathname.startsWith('/session/')) return undefined;
         return pathname.split('/')[2];
-    }, [isTablet, pathname]);
+    }, [pathname]);
 
     const selectedCount = selectedIds.size;
 
@@ -328,6 +331,8 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
         <View style={styles.container}>
             <View style={styles.contentContainer}>
                 <FlatList
+                    key={layoutMode}
+                    {...scrollState}
                     data={data}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
@@ -339,15 +344,15 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                     initialNumToRender={12}
                 />
                 {selectionMode && (
-                    <View style={[styles.bulkToolbar, { bottom: safeArea.bottom + 16 }]}>
-                        <Text style={styles.bulkToolbarTitle}>
+                    <View testID="session-bulk-toolbar" style={[styles.bulkToolbar, compactToolbar && styles.bulkToolbarCompact, { bottom: safeArea.bottom + 16 }]}>
+                        <Text style={[styles.bulkToolbarTitle, compactToolbar && styles.bulkToolbarTitleCompact]}>
                             {t('sessionInfo.selectedSessions', { count: selectedCount })}
                         </Text>
                         <Pressable
                             accessibilityRole="button"
                             disabled={bulkProcessing !== null || selectedCount === 0}
                             onPress={archiveSelected}
-                            style={[styles.bulkToolbarButton, styles.bulkToolbarTextButton]}
+                            style={[styles.bulkToolbarButton, styles.bulkToolbarTextButton, compactToolbar && styles.bulkToolbarButtonCompact]}
                         >
                             {bulkProcessing === 'archive' ? (
                                 <ActivityIndicator size="small" />
@@ -359,7 +364,7 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                             accessibilityRole="button"
                             disabled={bulkProcessing !== null || selectedCount === 0}
                             onPress={deleteSelected}
-                            style={[styles.bulkToolbarButton, styles.bulkToolbarTextButton]}
+                            style={[styles.bulkToolbarButton, styles.bulkToolbarTextButton, compactToolbar && styles.bulkToolbarButtonCompact]}
                         >
                             {bulkProcessing === 'delete' ? (
                                 <ActivityIndicator size="small" />
@@ -369,9 +374,10 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                         </Pressable>
                         <Pressable
                             accessibilityRole="button"
+                            accessibilityLabel={t('common.cancel')}
                             disabled={bulkProcessing !== null}
                             onPress={clearSelection}
-                            style={styles.bulkToolbarButton}
+                            style={[styles.bulkToolbarButton, compactToolbar && styles.bulkToolbarButtonCompact]}
                         >
                             <Feather name="x" size={18} color={theme.colors.text} />
                         </Pressable>

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useSidebarScrollState } from './SidebarScrollState';
 import { FlatList, Platform, Pressable, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -109,6 +110,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     variant?: SessionHistoryListVariant;
 }) {
     const styles = stylesheet;
+    const scrollState = useSidebarScrollState<SessionHistoryItem>('history');
     const safeArea = useSafeAreaInsets();
     const allSessions = useAllSessions();
     const isDataReady = useIsDataReady();
@@ -181,16 +183,18 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
         : (
             <FlatList
+                {...scrollState}
                 contentContainerStyle={[
                     sidebar ? styles.listContentSidebar : styles.listContentPage,
                     { paddingBottom: safeArea.bottom + 16 },
                 ]}
                 data={groupedItems}
                 keyExtractor={(item) => item.key}
-                onScroll={Platform.OS === 'web'
-                    ? (event) => { scrollIntent.noteWebScroll(event.nativeEvent.contentOffset.y); }
-                    : undefined}
-                onScrollBeginDrag={() => { scrollIntent.noteNativeDrag(); }}
+                onScroll={(event) => {
+                    const userScroll = scrollState.onScroll(event);
+                    if (Platform.OS === 'web' && userScroll) scrollIntent.noteWebScroll(event.nativeEvent.contentOffset.y);
+                }}
+                onScrollBeginDrag={() => { scrollState.onScrollBeginDrag(); scrollIntent.noteNativeDrag(); }}
                 onEndReached={loadNextHistoryPage}
                 onEndReachedThreshold={0.5}
                 renderItem={renderItem}

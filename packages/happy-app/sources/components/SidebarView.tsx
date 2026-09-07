@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, View, Pressable } from 'react-native';
+import { Text, View, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -53,6 +53,27 @@ const stylesheet = StyleSheet.create((theme) => ({
     desktopPrimarySpacer: {
         flex: 1,
     },
+    mobilePrimaryColumn: {
+        width: 56,
+        paddingBottom: 4,
+    },
+    mobileRailScroll: { flex: 1, minHeight: 0 },
+    mobileRailButton: { width: 48, minHeight: 56, height: undefined, gap: 4, paddingVertical: 6 },
+    mobileRailLabel: {
+        color: theme.colors.textSecondary,
+        fontSize: 10,
+        textAlign: 'center',
+        width: 48,
+        ...Typography.default(),
+    },
+    mobileHeader: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+        minHeight: 52, paddingHorizontal: 8,
+    },
+    mobileHeaderTitle: { flex: 1, fontSize: 17, color: theme.colors.text, ...Typography.default('semiBold') },
+    mobileHeaderButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+    mobileContent: { flex: 1, minHeight: 0 },
+    hiddenContent: { display: 'none' },
     desktopRail: {
         alignItems: 'center',
         gap: 4,
@@ -303,6 +324,7 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 interface SidebarViewProps {
+    onCloseDrawer?: () => void;
     closeDrawerOnNavigate?: boolean;
     desktopDensity?: boolean;
     desktopPrimaryNavigation?: boolean;
@@ -316,12 +338,14 @@ function DesktopRailItem({
     onPress,
     selected = false,
     testID,
+    showLabel = false,
 }: {
     icon: React.ComponentProps<typeof Ionicons>['name'];
     label: string;
     onPress: () => void;
     selected?: boolean;
     testID: string;
+    showLabel?: boolean;
 }) {
     const styles = stylesheet;
     const [active, setActive] = React.useState(false);
@@ -340,6 +364,7 @@ function DesktopRailItem({
                 onPress={onPress}
                 style={({ pressed }) => [
                     styles.desktopRailButton,
+                    showLabel && styles.mobileRailButton,
                     selected && styles.desktopRailButtonSelected,
                     (active || pressed) && styles.desktopRailButtonActive,
                 ]}
@@ -350,8 +375,9 @@ function DesktopRailItem({
                     name={icon}
                     size={21}
                 />
+                {showLabel ? <Text numberOfLines={2} style={styles.mobileRailLabel}>{label}</Text> : null}
             </Pressable>
-            {active ? (
+            {active && !showLabel ? (
                 <View
                     pointerEvents="none"
                     style={styles.desktopRailTooltip}
@@ -364,23 +390,25 @@ function DesktopRailItem({
     );
 }
 
-function DesktopPluginRailItems({ onNavigate }: { onNavigate: (path: string) => void }) {
+function DesktopPluginRailItems({ onNavigate, showLabels = false, selectedPath }: { onNavigate: (path: string) => void; showLabels?: boolean; selectedPath?: string | null }) {
     const views = usePluginSurfaceViews('left-sidebar');
     const pathname = usePathname();
 
     return views.map((view) => view.path ? (
         <DesktopRailItem
+            showLabel={showLabels}
             icon={view.icon as React.ComponentProps<typeof Ionicons>['name']}
             key={`${view.pluginId}:${view.viewId}`}
-            label={resolvePluginText(view.contribution.title)}
+            label={showLabels && view.pluginId === 'relationship-advisor' ? t('relationshipAdvisor.title') : resolvePluginText(view.contribution.title)}
             onPress={() => onNavigate(view.path!)}
-            selected={pathname === view.path}
+            selected={(selectedPath === undefined ? pathname : selectedPath) === view.path}
             testID={`sidebar-plugin-${view.pluginId}-button`}
         />
     ) : null);
 }
 
 export const SidebarView = React.memo(({
+    onCloseDrawer,
     closeDrawerOnNavigate = true,
     desktopDensity = false,
     desktopPrimaryNavigation = false,
@@ -390,7 +418,13 @@ export const SidebarView = React.memo(({
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
     const pathname = usePathname();
-    const advisorSidebarActive = desktopPrimaryNavigation && pathname === '/relationship-advisor';
+    const mobileNavigation = !desktopDensity;
+    const railNavigation = desktopPrimaryNavigation || mobileNavigation;
+    const [mobilePanel, setMobilePanel] = React.useState<'sessions' | 'advisor'>(pathname === '/relationship-advisor' ? 'advisor' : 'sessions');
+    React.useEffect(() => {
+        setMobilePanel(pathname === '/relationship-advisor' ? 'advisor' : 'sessions');
+    }, [pathname]);
+    const advisorSidebarActive = railNavigation && (mobileNavigation ? mobilePanel === 'advisor' : pathname === '/relationship-advisor');
     const navigation = useNavigation();
     const realtimeStatus = useRealtimeStatus();
     const profile = useProfile();
@@ -415,8 +449,9 @@ export const SidebarView = React.memo(({
         if (!closeDrawerOnNavigate) {
             return;
         }
-        navigation.dispatch(DrawerActions.closeDrawer());
-    }, [closeDrawerOnNavigate, navigation]);
+        if (onCloseDrawer) onCloseDrawer();
+        else navigation.dispatch(DrawerActions.closeDrawer());
+    }, [closeDrawerOnNavigate, navigation, onCloseDrawer]);
 
     // Navigate, closing the drawer first. On phone the drawer is a `front` overlay
     // that would otherwise stay open on top of the pushed screen; on desktop the
@@ -428,7 +463,8 @@ export const SidebarView = React.memo(({
 
     const openDesktopHistory = () => {
         setDesktopSidebarMode('history');
-        if (advisorSidebarActive) go('/');
+        if (mobileNavigation) setMobilePanel('sessions');
+        else if (advisorSidebarActive) go('/');
     };
 
     const openSettingsFromSidebar = React.useCallback(() => {
@@ -611,18 +647,21 @@ export const SidebarView = React.memo(({
     const desktopNavigationRail = (
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="create-outline"
                 label={t('sidebar.newSession')}
                 onPress={() => go('/new')}
                 testID="sidebar-new-session-button"
             />
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="chatbubble-ellipses-outline"
                 label={t('tabs.inbox')}
                 onPress={() => { closeDrawer(); openActivity(); }}
                 testID="sidebar-inbox-button"
             />
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="search-outline"
                 label={t('sidebar.searchSessions')}
                 onPress={openSessionSearch}
@@ -630,21 +669,30 @@ export const SidebarView = React.memo(({
             />
             <View style={styles.desktopRailDivider} />
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="extension-puzzle-outline"
                 label={t('relationshipAdvisorPlugin.marketTitle')}
                 onPress={openPluginMarketplace}
                 testID="sidebar-plugins-button"
             />
-            <DesktopPluginRailItems onNavigate={go} />
+            <DesktopPluginRailItems showLabels={mobileNavigation} selectedPath={mobileNavigation ? (advisorSidebarActive ? '/relationship-advisor' : null) : undefined} onNavigate={(path) => {
+                if (mobileNavigation && path === '/relationship-advisor') {
+                    setMobilePanel('advisor');
+                    return;
+                }
+                go(path);
+            }} />
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="people-outline"
                 label={t('agents.cardTitle')}
                 onPress={() => setSheetOpen(true)}
                 testID="sidebar-my-agents-button"
             />
             <DesktopRailItem
+                showLabel={mobileNavigation}
                 icon="time-outline"
-                label={t('relationshipAdvisor.historyTitle')}
+                label={mobileNavigation ? t('sessionHistory.title') : t('relationshipAdvisor.historyTitle')}
                 onPress={openDesktopHistory}
                 selected={!advisorSidebarActive && desktopSidebarMode === 'history'}
                 testID="sidebar-history-button"
@@ -665,7 +713,7 @@ export const SidebarView = React.memo(({
                 style={[
                     styles.footerMenuSlot,
                     desktopDensity && styles.footerMenusDesktop,
-                    desktopPrimaryNavigation && styles.footerMenusRail,
+                    railNavigation && styles.footerMenusRail,
                     { paddingBottom: safeArea.bottom },
                 ]}
                 testID={desktopDensity ? 'sidebar-footer-menus' : undefined}
@@ -687,6 +735,8 @@ export const SidebarView = React.memo(({
                 ) : (
                     <SidebarAccountMenu
                         desktopDensity={desktopDensity}
+                        railMode={mobileNavigation}
+                        mobileRail={mobileNavigation}
                         displayName={displayName}
                         onNavigate={go}
                         onOpenSettings={openSettingsFromSidebar}
@@ -724,10 +774,10 @@ export const SidebarView = React.memo(({
         <View
             style={[
                 styles.container,
-                desktopDensity && styles.containerDesktop,
+                (desktopDensity || railNavigation) && styles.containerDesktop,
                 { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
             ]}
-            testID={desktopDensity ? 'sidebar-desktop-density' : undefined}
+            testID={desktopDensity ? 'sidebar-desktop-density' : 'sidebar-mobile-rail-layout'}
         >
             {footerMenu !== null ? (
                 <Pressable
@@ -739,15 +789,36 @@ export const SidebarView = React.memo(({
                 />
             ) : null}
 
-            {desktopPrimaryNavigation ? (
+            {railNavigation ? (
                 <>
-                    <View style={styles.desktopPrimaryColumn} testID="desktop-primary-navigation-column">
-                        {desktopNavigationRail}
-                        <View style={styles.desktopPrimarySpacer} />
+                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
+                        {mobileNavigation ? (
+                            <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                                {desktopNavigationRail}
+                            </ScrollView>
+                        ) : <>{desktopNavigationRail}<View style={styles.desktopPrimarySpacer} /></>}
                         {footerNavigation}
                     </View>
                     <View style={styles.desktopSecondaryColumn} testID="desktop-secondary-navigation-column">
-                        {advisorSidebarActive ? (
+                        {mobileNavigation ? (
+                            <>
+                                <View style={styles.mobileHeader}>
+                                    {advisorSidebarActive ? (
+                                        <Pressable accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => setMobilePanel('sessions')} style={styles.mobileHeaderButton} testID="mobile-sidebar-back-to-sessions">
+                                            <Ionicons name="chevron-back" size={20} color={styles.mobileHeaderTitle.color} />
+                                        </Pressable>
+                                    ) : null}
+                                    <Text style={styles.mobileHeaderTitle} numberOfLines={1}>{advisorSidebarActive ? t('relationshipAdvisor.title') : t('tabs.sessions')}</Text>
+                                    <Pressable accessibilityRole="button" accessibilityLabel={t('sidebarLists.close')} onPress={closeDrawer} style={styles.mobileHeaderButton} testID="mobile-sidebar-close">
+                                        <Ionicons name="close" size={20} color={styles.mobileHeaderTitle.color} />
+                                    </Pressable>
+                                </View>
+                                <View style={[styles.mobileContent, advisorSidebarActive && styles.hiddenContent]} accessibilityElementsHidden={advisorSidebarActive} importantForAccessibility={advisorSidebarActive ? 'no-hide-descendants' : 'auto'}>
+                                    <DesktopSidebarSessionsNavigation />
+                                </View>
+                                {advisorSidebarActive ? <PluginLeftSidebarSlot desktopDensity fillAvailableSpace onNavigate={go} /> : null}
+                            </>
+                        ) : advisorSidebarActive ? (
                             <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />
                         ) : (
                             <DesktopSidebarSessionsNavigation />
