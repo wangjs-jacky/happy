@@ -139,16 +139,17 @@ type V3GetSessionMessagesResponse = {
 
 type SessionOpenResolution = 'ready' | 'not-found';
 function memoryHistoryPage(current: HistoryWindow | undefined, page: V3GetSessionMessagesResponse,
-    direction: 'older' | 'newer' | 'latest'): HistoryWindow {
+    direction: 'older' | 'newer' | 'latest', limit = 300): HistoryWindow {
     const combined = direction === 'latest' ? page.messages : [...(current?.messages ?? []), ...page.messages];
     const unique = [...new Map(combined.map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
-    const messages = direction === 'older' ? unique.slice(0, 300) : unique.slice(-300);
+    const messages = direction === 'older' ? unique.slice(0, limit) : unique.slice(-limit);
     return { messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null,
-        hasMoreOlder: direction === 'older' || direction === 'latest' ? page.hasMore : (current?.hasMoreOlder ?? false) || unique.length > 300,
-        hasMoreNewer: direction === 'older' ? (current?.hasMoreNewer ?? false) || unique.length > 300 : direction === 'newer' && page.hasMore,
-        isAtLatest: direction === 'latest' || (direction === 'older' ? current?.isAtLatest === true && unique.length <= 300 : !page.hasMore),
+        hasMoreOlder: direction === 'older' || direction === 'latest' ? page.hasMore : (current?.hasMoreOlder ?? false) || unique.length > limit,
+        hasMoreNewer: direction === 'older' ? (current?.hasMoreNewer ?? false) || unique.length > limit : direction === 'newer' && page.hasMore,
+        isAtLatest: direction === 'latest' || (direction === 'older' ? current?.isAtLatest === true && unique.length <= limit : !page.hasMore),
     };
 }
+const historyNavigationWindowLimit = () => Platform.OS === 'web' ? 1000 : 300;
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
@@ -759,6 +760,7 @@ class Sync {
         const history = this.localHistory;
         if (!history) return Promise.resolve();
         const pending = (async () => {
+            const navigationWindowLimit = historyNavigationWindowLimit();
             let verifiedLatestFromNetwork = false;
             const current = this.historyWindows.get(id);
             if (!current && direction !== 'latest') return;
@@ -822,7 +824,7 @@ class Sync {
                         if (!committed) {
                             // Quota failures keep the visible records and use the network
                             // page in memory. The durable cursor/coverage remains unchanged.
-                            latest = memoryHistoryPage(current, page, direction);
+                            latest = memoryHistoryPage(current, page, direction, navigationWindowLimit);
                         }
                     }
                     if (!latest) {
@@ -830,14 +832,14 @@ class Sync {
                         const anchorSeq = direction === 'latest' ? undefined : direction === 'older'
                             ? page!.messages[Math.max(0, page!.messages.length - 50)]?.seq ?? boundary!
                             : page!.messages[Math.min(49, page!.messages.length - 1)]?.seq ?? boundary!;
-                        latest = await history.readWindow(id, { anchorSeq, limit: 300 });
+                        latest = await history.readWindow(id, { anchorSeq, limit: navigationWindowLimit });
                     }
                 }
                 if (latest && direction !== 'latest') {
                     const reading = await history.readReadingState(id);
                     if (reading && current?.messages.some(message => message.seq === reading.anchorSeq)
                         && !latest.messages.some(message => message.seq === reading.anchorSeq)) {
-                        latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: 300 }) ?? latest;
+                        latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: navigationWindowLimit }) ?? latest;
                     }
                 }
                 if (latest && owner.isCurrent()) {

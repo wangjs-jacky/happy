@@ -74,13 +74,20 @@ type GalleryImageResolution = {
 /** Extract renderable descriptors from a run of `file` messages. */
 function toGalleryImages(messages: Message[]): GalleryImage[] {
     const result: GalleryImage[] = [];
+    const refOccurrences = new Map<string, number>();
     for (const msg of messages) {
         if (msg.kind !== 'tool-call' || msg.tool.name !== 'file') continue;
         const parsed = fileInputSchema.safeParse(msg.tool.input);
         if (!parsed.success) continue;
         const { ref, name, image, kind, size } = parsed.data;
+        const occurrence = refOccurrences.get(ref) ?? 0;
+        refOccurrences.set(ref, occurrence + 1);
         result.push({
-            id: msg.id,
+            // Reducer row ids are regenerated whenever a bounded history
+            // window is replayed. The encrypted attachment ref is the stable
+            // identity. Include its occurrence so intentional duplicate refs
+            // stay distinct without remounting across the same replay.
+            id: `${ref}:${occurrence}`,
             ref,
             name,
             width: image?.width,
