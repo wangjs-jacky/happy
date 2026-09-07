@@ -34,7 +34,10 @@ function renderVisibleRows() {
 describe('useVisibleSessionListViewData', () => {
     it('keeps lifecycle-archived sessions out of the shared Projects, Lists, and Timeline source', () => {
         fixtures.data = [
-            { type: 'active-sessions', sessions: [{ id: 'regular', archived: false }] },
+            { type: 'active-sessions', sessions: [
+                { id: 'online', active: true, archived: false },
+                { id: 'disconnected', active: false, archived: false },
+            ] },
             { type: 'project-group', displayPath: '~/paws', machine: { id: 'mac' } },
             { type: 'session', session: { id: 'archived', archived: true } },
         ];
@@ -42,7 +45,10 @@ describe('useVisibleSessionListViewData', () => {
         const renderer = renderVisibleRows();
 
         expect(renderer.root.findByType(View).props.value).toEqual([
-            { type: 'active-sessions', sessions: [{ id: 'regular', archived: false }] },
+            { type: 'active-sessions', sessions: [
+                { id: 'online', active: true, archived: false },
+                { id: 'disconnected', active: false, archived: false },
+            ] },
         ]);
         act(() => renderer.unmount());
     });

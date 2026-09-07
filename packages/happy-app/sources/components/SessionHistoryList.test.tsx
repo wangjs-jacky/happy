@@ -54,8 +54,10 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/Avatar', () => ({ Avatar: 'Avatar' }));
+vi.mock('./ActiveSessionsGroupCompact', () => ({ CompactSessionRow: 'CompactSessionRow' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/sync/storage', () => ({
+    buildSessionRowData: (session: any) => ({ id: session.id, name: session.name, updatedAt: session.updatedAt }),
     storage: { getState: () => ({ sessions: Object.fromEntries(mocks.sessions.map((session) => [session.id, session])) }) },
     useAllSessions: () => mocks.sessions,
     useIsDataReady: () => true,
@@ -106,22 +108,16 @@ describe('SessionHistoryList', () => {
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
 
-    it('shows only archived conversations, newest first, and opens them in the existing session route', () => {
+    it('renders archived conversations with the compact rows used by the main sidebar', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
 
-        const rows = renderer.root.findAll((node: any) => node.props.testID?.startsWith('session-history-row-'));
-        const uniqueRows = rows.filter((node: any) => node.type === 'Pressable');
-        expect(uniqueRows.map((node: any) => node.props.testID)).toEqual([
-            'session-history-row-newest',
-            'session-history-row-same-day',
-            'session-history-row-older',
+        expect(renderer.root.findAllByType('Avatar')).toHaveLength(0);
+        expect(renderer.root.findAllByType('CompactSessionRow').map((node: any) => node.props.session.id)).toEqual([
+            'newest',
+            'same-day',
+            'older',
         ]);
-        expect(renderer.root.findAllByProps({ testID: 'session-history-row-regular' })).toHaveLength(0);
-        expect(renderer.root.findByProps({ testID: 'session-history-row-older' }).props.accessibilityState).toEqual({ selected: true });
-
-        act(() => renderer.root.findByProps({ testID: 'session-history-row-newest' }).props.onPress());
-        expect(mocks.navigateToSession).toHaveBeenCalledWith('newest');
 
         act(() => renderer.unmount());
     });
