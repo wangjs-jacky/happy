@@ -5,6 +5,8 @@ import { z } from "zod";
 //
 
 export const MetadataSchema = z.object({
+    // Time the worker fetched its model catalog, not the last session activity.
+    modelsUpdatedAt: z.number().finite().nonnegative().optional(),
     models: z.array(z.object({
         code: z.string(),
         value: z.string(),

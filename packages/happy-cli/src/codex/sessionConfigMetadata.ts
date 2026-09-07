@@ -11,6 +11,7 @@ type MetadataOption = {
 
 export type CodexSessionConfigSnapshot = {
     models?: Model[] | null;
+    modelsUpdatedAt?: number;
     currentModel: string;
     currentEffort?: ReasoningEffort | null;
 };
@@ -55,8 +56,14 @@ export function mergeCodexSessionConfigIntoMetadata(
 
         if (modelOptions.length > 0) {
             next.models = modelOptions;
+            if (snapshot.modelsUpdatedAt !== undefined) {
+                next.modelsUpdatedAt = snapshot.modelsUpdatedAt;
+            } else {
+                delete next.modelsUpdatedAt;
+            }
         } else {
             delete next.models;
+            delete next.modelsUpdatedAt;
         }
     }
 

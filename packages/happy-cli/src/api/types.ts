@@ -359,6 +359,8 @@ export type Metadata = {
    */
   // `code` = protocol value ID, `value` = human label
   models?: Array<{ code: string; value: string; description?: string | null; serviceTiers?: Array<{ id: string; name: string; description?: string | null }> }>,
+  /** Catalog fetch time, unchanged by heartbeats and model/effort selection. */
+  modelsUpdatedAt?: number,
   currentModelCode?: string,
   operatingModes?: Array<{ code: string; value: string; description?: string | null }>,
   currentOperatingModeCode?: string,

@@ -7,6 +7,7 @@ export function getLatestSessionModelMetadata(args: {
 }): Metadata | null {
     const { sessions, selectedMachineId, agent } = args;
     let latest: Session | null = null;
+    let latestCatalogTime = -Infinity;
 
     for (const entry of sessions ?? []) {
         if (typeof entry === 'string') {
@@ -24,8 +25,20 @@ export function getLatestSessionModelMetadata(args: {
             continue;
         }
 
-        if (!latest || entry.activeAt > latest.activeAt) {
+        // Codex captures its catalog on connection, including resume-in-place.
+        // Heartbeats and config edits must not make an old snapshot look newer.
+        // Older CLIs lack capture time, so use immutable creation time for them.
+        // Other agents can publish live model updates; retain their existing policy.
+        const catalogTime = metadata.flavor === 'codex'
+            ? metadata.modelsUpdatedAt ?? entry.createdAt
+            : entry.activeAt;
+        if (
+            !latest
+            || catalogTime > latestCatalogTime
+            || (catalogTime === latestCatalogTime && entry.id > latest.id)
+        ) {
             latest = entry;
+            latestCatalogTime = catalogTime;
         }
     }
 
