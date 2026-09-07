@@ -178,10 +178,10 @@ export function registerHappyBridgeTools(
   server.registerTool(
     'publish_preview',
     {
-      description: 'Validate and publish a Happy-managed static preview to Vercel for 24 hours.',
+      description: 'Publish a managed static preview. provider: vercel (default, connected account, 24 hours) or cloudflare (no login, requires cloudflared, session lifetime up to 24 hours). Links are public.',
       title: 'Publish Interactive Preview',
-      inputSchema: { previewId: z.string().uuid() },
+      inputSchema: { previewId: z.string().uuid(), provider: z.enum(['vercel', 'cloudflare']).optional() },
     },
-    async (args) => forwardHappyToolCall('publish_preview', { previewId: args.previewId }, ensureHttpClient, 'Failed to publish preview')
+    async (args) => forwardHappyToolCall('publish_preview', { previewId: args.previewId, ...(args.provider ? { provider: args.provider } : {}) }, ensureHttpClient, 'Failed to publish preview')
   );
 }

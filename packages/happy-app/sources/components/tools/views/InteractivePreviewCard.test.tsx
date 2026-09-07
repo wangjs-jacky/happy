@@ -31,6 +31,8 @@ vi.mock('@/text', () => ({
         'interactivePreviews.copy': 'Copy preview link',
         'interactivePreviews.expiresAt': 'Expires at',
         'interactivePreviews.provider': 'Vercel',
+        'interactivePreviews.cloudflareProvider': 'Cloudflare',
+        'interactivePreviews.sessionLifetime': 'Session lifetime, up to 24 hours',
     })[key] ?? key,
 }));
 vi.mock('react-native-unistyles', async () => {
@@ -56,6 +58,17 @@ function preview(state: 'publishing' | 'ready' | 'failed' | 'expired', url?: str
 }
 
 describe('InteractivePreviewCard', () => {
+    it('labels Cloudflare and explains its shorter session-bound lifetime', () => {
+        const tool = preview('ready', 'https://example.trycloudflare.com');
+        tool.input.provider = 'cloudflare';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<InteractivePreviewCard tool={tool} metadata={null} messages={[]} />); });
+        const text = renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
+        expect(text).toContain('Cloudflare');
+        expect(text).toContain('Session lifetime, up to 24 hours');
+        expect(text).not.toContain('Vercel');
+        act(() => renderer.unmount());
+    });
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         vi.clearAllMocks();

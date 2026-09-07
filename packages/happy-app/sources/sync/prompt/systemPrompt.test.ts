@@ -9,7 +9,8 @@ describe('systemPrompt image handling', () => {
         expect(systemPrompt).toContain('mcp__happy__publish_preview');
         expect(systemPrompt).toContain('public, non-sensitive');
         expect(systemPrompt).toContain('Do not publish an arbitrary directory or localhost port');
-        expect(systemPrompt).toContain('Do not fall back to Vercel CLI or Cloudflare');
+        expect(systemPrompt).toContain('Use the managed Cloudflare provider when requested');
+        expect(systemPrompt).toContain('do not launch a separate tunnel');
         expect(systemPrompt).toContain('mcp__happy__send_file');
         expect(systemPrompt).toContain('~/.codex/generated_images/<task-id>/');
         expect(systemPrompt).toContain('Do not claim that an image cannot be returned');

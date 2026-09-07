@@ -95,6 +95,7 @@ export const interactivePreviewEventSchema = z.object({
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   state: interactivePreviewStateSchema,
+  provider: z.enum(['vercel', 'cloudflare']).optional(),
   url: z.string().url().optional(),
   publishedAt: z.number().int().nonnegative().optional(),
   expiresAt: z.number().int().nonnegative().optional(),

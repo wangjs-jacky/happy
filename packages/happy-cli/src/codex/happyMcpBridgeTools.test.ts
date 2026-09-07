@@ -35,6 +35,14 @@ function createServerMock(): { server: McpServer; registrations: ToolRegistratio
 }
 
 describe('registerHappyBridgeTools', () => {
+    it('preserves an explicit Cloudflare channel across the Codex bridge', async () => {
+        const { server, registrations } = createServerMock();
+        const callTool = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'published' }] }));
+        registerHappyBridgeTools(server, async () => ({ callTool }) as unknown as Client);
+        const args = { previewId: '11111111-1111-4111-8111-111111111111', provider: 'cloudflare' };
+        await registrations.find((tool) => tool.name === 'publish_preview')!.handler(args);
+        expect(callTool).toHaveBeenCalledWith({ name: 'publish_preview', arguments: args });
+    });
     it('registers every first-party Happy bridge tool, including media delivery and finance_chart', () => {
         const { server, registrations } = createServerMock();
 

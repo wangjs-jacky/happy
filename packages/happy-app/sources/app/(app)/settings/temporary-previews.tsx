@@ -205,6 +205,16 @@ export default function TemporaryPreviewsSettings() {
             <Text style={[styles.title, { color: theme.colors.text }]}>{t('interactivePreviews.title')}</Text>
             <Text style={[styles.copy, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.disclosure')}</Text>
         </View>
+        <ItemGroup title={t('interactivePreviews.cloudflareProvider')}>
+            <Item
+                title={t('interactivePreviews.cloudflareProvider')}
+                subtitle={t('interactivePreviews.cloudflareDescription')}
+                icon={<Ionicons color={theme.colors.accent} name="cloud-outline" size={28} />}
+                showChevron={false}
+                testID="temporary-previews-cloudflare"
+            />
+            <Text style={[styles.error, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.sessionLifetime')}</Text>
+        </ItemGroup>
         <ItemGroup title={t('interactivePreviews.connection')}>
             {loadState.kind === 'loading' ? <View testID="temporary-previews-status-loading" style={styles.loading}><ActivityIndicator color={theme.colors.accent} /><Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.loading')}</Text></View> : null}
             {loadState.kind === 'error' ? <>
