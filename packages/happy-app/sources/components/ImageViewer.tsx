@@ -57,14 +57,25 @@ interface ImageViewerProps {
     sources: ImageViewerSource[];
     initialIndex: number;
     onClose: () => void;
+    active?: boolean;
+    hasEarlier?: boolean;
+    earliestAvailableRef?: string;
+    loadEarlier?: (sources: ImageViewerSource[], signal: AbortSignal) => Promise<ImageViewerSource[]>;
 }
 
-export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps) {
+export function ImageViewer({ sources: initialSources, initialIndex, onClose, active = true, hasEarlier: hasUnloadedEarlier = false, earliestAvailableRef, loadEarlier }: ImageViewerProps) {
+    const [sources, setSources] = React.useState(initialSources);
+    const hasEarlier = hasUnloadedEarlier || (!!earliestAvailableRef && earliestAvailableRef !== sources[0]?.attachmentRef);
+    const [loadingEarlier, setLoadingEarlier] = React.useState(false);
+    const historyRequest = React.useRef<AbortController | null>(null);
+    React.useEffect(() => () => historyRequest.current?.abort(), []);
+    React.useEffect(() => { if (!active) historyRequest.current?.abort(); }, [active]);
     const { theme } = useUnistyles();
     const { width: screenW, height: screenH } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 
     const scrollRef = React.useRef<ScrollView>(null);
+    const pendingHistoryIndex = React.useRef<number | null>(null);
     const rootRef = React.useRef<View>(null);
     const [currentIndex, setCurrentIndex] = React.useState(initialIndex);
     // Paging is disabled while the active image is zoomed in, so the pan gesture
@@ -92,12 +103,18 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     }, []);
 
     const updateCurrentIndex = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        if (pendingHistoryIndex.current !== null) return;
         const next = Math.max(0, Math.min(
             Math.round(e.nativeEvent.contentOffset.x / screenW),
             sources.length - 1,
         ));
+        if (next !== currentIndex) {
+            historyRequest.current?.abort();
+            historyRequest.current = null;
+            setLoadingEarlier(false);
+        }
         setCurrentIndex((prev) => (prev === next ? prev : next));
-    }, [screenW, sources.length]);
+    }, [currentIndex, screenW, sources.length]);
 
     const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
 
@@ -172,11 +189,63 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     }, [currentSource, motionLoading, motionSource, stopMotionPhoto]);
 
     const handleClose = React.useCallback(() => {
+        historyRequest.current?.abort();
         stopMotionPhoto();
         onClose();
     }, [onClose, stopMotionPhoto]);
 
     const navigate = React.useCallback((direction: number) => {
+        if (direction < 0 && currentIndex === 0 && hasEarlier && loadEarlier) {
+            if (historyRequest.current) return;
+            const controller = new AbortController();
+            historyRequest.current = controller;
+            setLoadingEarlier(true);
+            if (Platform.OS === 'web') rootRef.current?.focus();
+            void (async () => {
+                let retryMs = 1000;
+                try {
+                    while (!controller.signal.aborted) {
+                        try {
+                            const earlier = await loadEarlier(sources, controller.signal);
+                            if (controller.signal.aborted) return;
+                            const anchor = earlier.findIndex(source => source.attachmentRef === sources[0]?.attachmentRef);
+                            const next = Math.max(0, anchor - 1);
+                            if (earlier.length !== sources.length) pendingHistoryIndex.current = next;
+                            setSources(earlier);
+                            setCurrentIndex(next);
+                            setPagingEnabled(true);
+                            stopMotionPhoto();
+                            // The new native content width does not exist until
+                            // onContentSizeChange; scrolling before it can clamp
+                            // to the old width and show a different picture.
+                            return;
+                        } catch {
+                            if (controller.signal.aborted) return;
+                            await new Promise<void>(resolve => {
+                                const finish = () => {
+                                    clearTimeout(timer);
+                                    controller.signal.removeEventListener('abort', finish);
+                                    resolve();
+                                };
+                                const timer = setTimeout(finish, retryMs);
+                                controller.signal.addEventListener('abort', finish, { once: true });
+                            });
+                            retryMs = Math.min(retryMs * 2, 30_000);
+                        }
+                    }
+                } finally {
+                    if (historyRequest.current === controller) {
+                        historyRequest.current = null;
+                        if (!controller.signal.aborted) setLoadingEarlier(false);
+                    }
+                }
+            })();
+            return;
+        }
+        historyRequest.current?.abort();
+        historyRequest.current = null;
+        setLoadingEarlier(false);
+        pendingHistoryIndex.current = null;
         const next = Math.max(0, Math.min(currentIndex + direction, sources.length - 1));
         if (next === currentIndex) return;
         // An edge button becomes disabled after paging. Move focus before that
@@ -186,7 +255,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
         setPagingEnabled(true);
         setCurrentIndex(next);
         scrollRef.current?.scrollTo({ x: next * screenW, y: 0, animated: false });
-    }, [currentIndex, screenW, sources.length, stopMotionPhoto]);
+    }, [currentIndex, screenW, sources, stopMotionPhoto, hasEarlier, loadEarlier]);
 
     // These keys belong only to the focused modal, not the app's global shortcuts.
     const onKeyDown = (event: React.KeyboardEvent) => {
@@ -247,6 +316,12 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                 onLayout={onScrollLayout}
                 onScroll={updateCurrentIndex}
                 onMomentumScrollEnd={updateCurrentIndex}
+                onContentSizeChange={() => {
+                    const next = pendingHistoryIndex.current;
+                    if (next === null) return;
+                    pendingHistoryIndex.current = null;
+                    scrollRef.current?.scrollTo({ x: next * screenW, y: 0, animated: false });
+                }}
                 scrollEventThrottle={16}
                 decelerationRate="fast"
                 style={styles.fill}
@@ -290,8 +365,8 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                 </View>
             )}
 
-            {!single && ([-1, 1] as const).map((direction) => {
-                const disabled = direction === -1 ? currentIndex === 0 : currentIndex === sources.length - 1;
+            {(!single || hasEarlier || loadingEarlier) && ([-1, 1] as const).map((direction) => {
+                const disabled = direction === -1 ? (currentIndex === 0 && !hasEarlier) || loadingEarlier : currentIndex === sources.length - 1;
                 return (
                     <Pressable
                         key={direction}
@@ -308,7 +383,9 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                             opacity: disabled ? 0.4 : 1,
                         }]}
                     >
-                        <Ionicons name={direction === -1 ? 'chevron-back' : 'chevron-forward'} size={26} color={theme.colors.text} />
+                        {direction === -1 && loadingEarlier
+                            ? <ActivityIndicator testID="image-viewer-history-loading" color={theme.colors.text} />
+                            : <Ionicons name={direction === -1 ? 'chevron-back' : 'chevron-forward'} size={26} color={theme.colors.text} />}
                     </Pressable>
                 );
             })}

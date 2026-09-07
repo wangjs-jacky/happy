@@ -36,6 +36,7 @@ export interface ImageViewerSource extends ImageDownloadSource {
 
 interface ImageViewerState {
     visible: boolean;
+    openId: number;
     /** All images in the current run, in display order. */
     sources: ImageViewerSource[];
     /** Index of the image currently shown / initially focused. */
@@ -47,13 +48,14 @@ interface ImageViewerState {
 
 export const useImageViewerStore = create<ImageViewerState>()((set) => ({
     visible: false,
+    openId: 0,
     sources: [],
     index: 0,
     open: (sources, index = 0) => {
         const list = Array.isArray(sources) ? sources : [sources];
         if (list.length === 0) return;
         const clamped = Math.max(0, Math.min(index, list.length - 1));
-        set({ visible: true, sources: list, index: clamped });
+        set(state => ({ visible: true, sources: list, index: clamped, openId: state.openId + 1 }));
     },
     close: () => set({ visible: false }),
     clear: () => set((state) => {

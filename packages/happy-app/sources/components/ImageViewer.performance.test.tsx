@@ -174,6 +174,65 @@ describe('ImageViewer large gallery performance', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('loads the previous history page at the left edge and lands on the preceding image', async () => {
+        let finish!: (value: any) => void;
+        const loadEarlier = vi.fn(() => new Promise<any>(resolve => { finish = resolve; }));
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<ImageViewer sources={[{ uri: 'new', attachmentRef: 'new' }]}
+                initialIndex={0} onClose={() => {}} hasEarlier loadEarlier={loadEarlier} />);
+        });
+        act(() => renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'image-viewer-history-loading' })).toBeTruthy();
+        await act(async () => finish([{ uri: 'oldest', attachmentRef: 'oldest' }, { uri: 'old', attachmentRef: 'old' }, { uri: 'new', attachmentRef: 'new' }]));
+        // A native ScrollView may report its old offset before the prepended
+        // pages have laid out. That event must not replace the requested image.
+        act(() => renderer.root.findByType('ScrollView').props.onScroll({ nativeEvent: { contentOffset: { x: 0 } } }));
+        expect(renderer.root.findByProps({ testID: 'image-viewer-image' }).props.source.uri).toBe('old');
+        act(() => renderer.root.findByType('ScrollView').props.onContentSizeChange());
+        act(() => renderer.root.findByProps({ testID: 'image-viewer-next' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'image-viewer-image' }).props.source.uri).toBe('new');
+        act(() => renderer.unmount());
+    });
+
+    it('does not jump back when an older-page request finishes after swiping to a newer image', async () => {
+        let finish!: (value: any) => void;
+        const loadEarlier = vi.fn(() => new Promise<any>(resolve => { finish = resolve; }));
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ImageViewer
+            sources={[{ uri: 'first', attachmentRef: 'first' }, { uri: 'second', attachmentRef: 'second' }]}
+            initialIndex={0} onClose={() => {}} hasEarlier loadEarlier={loadEarlier} />); });
+        act(() => renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.onPress());
+        act(() => renderer.root.findByType('ScrollView').props.onScroll({ nativeEvent: { contentOffset: { x: 1280 } } }));
+        await act(async () => finish([{ uri: 'old', attachmentRef: 'old' }, { uri: 'first', attachmentRef: 'first' }, { uri: 'second', attachmentRef: 'second' }]));
+        expect(renderer.root.findByProps({ testID: 'image-viewer-image' }).props.source.uri).toBe('second');
+        expect(renderer.root.findAllByProps({ testID: 'image-viewer-history-loading' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('still offers older images loaded concurrently even after server pagination is exhausted', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ImageViewer sources={[{ uri: 'new', attachmentRef: 'new' }]}
+            initialIndex={0} onClose={() => {}} hasEarlier={false} earliestAvailableRef="old" loadEarlier={vi.fn()} />); });
+        expect(renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.disabled).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('cancels pagination when the host hides the modal before its dismiss animation completes', async () => {
+        let finish!: (value: any) => void;
+        let signal!: AbortSignal;
+        const loadEarlier = vi.fn((_sources, requestSignal) => { signal = requestSignal; return new Promise<any>(resolve => { finish = resolve; }); });
+        const props = { sources: [{ uri: 'new', attachmentRef: 'new' }], initialIndex: 0, onClose: () => {}, hasEarlier: true, loadEarlier };
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ImageViewer {...props} />); });
+        act(() => renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.onPress());
+        act(() => renderer.update(<ImageViewer {...props} active={false} />));
+        expect(signal.aborted).toBe(true);
+        await act(async () => finish([{ uri: 'old', attachmentRef: 'old' }, ...props.sources]));
+        expect(renderer.root.findByProps({ testID: 'image-viewer-image' }).props.source.uri).toBe('new');
+        act(() => renderer.unmount());
+    });
+
     it('downloads the original for a historical image with no thumbnail URI and releases it after the browser consumes it', async () => {
         vi.useFakeTimers();
         const release = vi.fn();

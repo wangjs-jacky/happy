@@ -41,6 +41,9 @@ vi.mock('@/text', () => ({
     }[key] ?? key),
 }));
 vi.mock('./BrowserStepsPanel', () => ({ BrowserStepsPanel: 'BrowserStepsPanel' }));
+vi.mock('../SessionImageViewer', () => ({ SessionImageViewer: 'SessionImageViewer' }));
+vi.mock('react-native-gesture-handler', () => ({ GestureHandlerRootView: 'GestureHandlerRootView' }));
+vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ sessionMessages: {} }) } }));
 
 const step = {
     createdAt: 1,
@@ -57,6 +60,7 @@ describe('BrowserStepsPopover', () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
+        vi.stubGlobal('requestAnimationFrame', (callback: () => void) => setTimeout(callback, 0));
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -109,6 +113,21 @@ describe('BrowserStepsPopover', () => {
         act(() => renderer.root.findByProps({ testID: 'browser-steps-popover-close' }).props.onPress());
         expect(onClose).toHaveBeenCalledTimes(2);
 
+    });
+
+    it('opens the full image inside the existing modal and returns to the timeline without a second modal', () => {
+        const onClose = vi.fn();
+        act(() => { renderer = TestRenderer.create(<BrowserStepsPopover open onClose={onClose} sessionId="s1" steps={[step]} />); });
+        const timeline = renderer.root.findByType('BrowserStepsPanel');
+        act(() => renderer.root.findByType('BrowserStepsPanel').props.onOpenImage({ uri: 'blob:step', sessionId: 's1', attachmentRef: step.ref }));
+        expect(renderer.root.findAllByType('Modal')).toHaveLength(1);
+        expect(renderer.root.findByType('BrowserStepsPanel')).toBe(timeline);
+        const viewer = renderer.root.findByType('SessionImageViewer');
+        expect(viewer.props.sources[0].attachmentRef).toBe(step.ref);
+        act(() => viewer.props.onClose());
+        expect(renderer.root.findAllByType('SessionImageViewer')).toHaveLength(0);
+        expect(renderer.root.findByType('BrowserStepsPanel').props.steps).toEqual([step]);
+        expect(onClose).not.toHaveBeenCalled();
     });
 
     it('keeps live step updates in the same dialog without stealing focus', () => {
