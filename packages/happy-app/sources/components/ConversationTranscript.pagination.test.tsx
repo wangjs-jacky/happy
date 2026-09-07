@@ -150,6 +150,26 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('disables recycling only for inverted Web transcripts so dynamic rows cannot create a scroll feedback loop', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('web')]} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(true);
+
+        await act(async () => {
+            renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('public')]} inverted={false} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+
+        (Platform as any).OS = 'ios';
+        await act(async () => {
+            renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('native')]} />);
+        });
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+        act(() => renderer.unmount());
+    });
+
     it('keeps orphan evidence visible until its invocation loads, then removes only linked frames', async () => {
         const invoke: Message = { kind: 'tool-call', id: 'skill', localId: null, createdAt: 1, children: [],
             tool: { name: 'Skill', input: { skill: 'ego-browser' }, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null } };

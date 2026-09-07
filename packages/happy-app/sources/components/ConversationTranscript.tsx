@@ -435,6 +435,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 data={listItems}
                 inverted={inverted}
                 keyExtractor={(item) => item.renderKey}
+                disableVirtualization={Platform.OS === 'web' && inverted}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}
