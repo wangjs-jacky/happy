@@ -197,6 +197,28 @@ describe('real session writer composition', () => {
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     });
 
+    it('runs native deletion reconciliation at the deferred interactive opportunity', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        mocks.fetchActive.mockResolvedValue([]);
+        mocks.fetchPage.mockResolvedValue({ sessions: [], nextCursor: null, hasNext: false });
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{
+            sessionId: 'writer-session', revision: '2', deleted: true,
+            lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0,
+        }], nextCursor: 'deleted', hasMore: false });
+        let idle!: () => void;
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle = callback; return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await sync.bootstrapSessions();
+        const scheduled = sync.sessionRouteBecameInteractive();
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        idle();
+        await scheduled;
+        await subject.changesInFlight;
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(subject.nativeHistoryCursor).toBe('deleted');
+    });
+
     it('keeps native history absent from a page, and only removes it after a point lookup confirms 404', async () => {
         Object.assign(Platform, { OS: 'android' });
         await sync.ensureSessionHydrated('writer-session');
