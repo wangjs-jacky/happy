@@ -61,22 +61,34 @@ it('replays durable pending snapshot invalidations after interruption without bo
     expect((await history.readSnapshot('s'))?.metadataVersion).toBe(2);
 });
 
-it.each([false, true])('discovers unseen session snapshots including after a committed-cursor restart (%s)', async restarted => {
-    let history = (await openLocalHistory('discovery'))!;
-    const changes = [{ sessionId: 'new', revision: '4', deleted: false, lastMessageSeq: 7, metadataVersion: 1, agentStateVersion: 0 }];
-    if (restarted) {
-        await history.commitReconciliation({ changes, nextCursor: '4' });
-        history.close();
-        history = (await openLocalHistory('discovery'))!;
-    }
+it('advances hundreds of unseen changes without snapshot requests while refreshing known stale snapshots and deleting known tombstones', async () => {
+    const history = (await openLocalHistory('discovery'))!;
+    await history.writeSnapshots([snapshot, { ...snapshot, id: 'gone' }]);
+    await history.commitReconciliation({ changes: [{ sessionId: 'gone', revision: '1', deleted: false,
+        lastMessageSeq: 10, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: 'old' });
+    const unseen = Array.from({ length: 174 }, (_, index) => ({
+        sessionId: `unseen-${index}`, revision: '1', deleted: false,
+        lastMessageSeq: index, metadataVersion: 1, agentStateVersion: 0,
+    }));
+    const changes = [
+        ...unseen,
+        { sessionId: 's', revision: '2', deleted: false, lastMessageSeq: 10, metadataVersion: 2, agentStateVersion: 0 },
+        { sessionId: 'gone', revision: '2', deleted: true, lastMessageSeq: 10, metadataVersion: 1, agentStateVersion: 0 },
+    ];
     const applied: string[] = [];
     const fetched: string[] = [];
+    const deleted: string[] = [];
     await reconcileSessionHistory(history, {
-        fetchChanges: async () => ({ kind: 'page', changes: restarted ? [] : changes, nextCursor: '4', hasMore: false }),
-        fetchSnapshot: async id => { fetched.push(id); return { ...snapshot, id }; },
-        applySnapshot: async value => { applied.push(value.id); }, deleteSession: () => {},
+        fetchChanges: async () => ({ kind: 'page', changes, nextCursor: '4', hasMore: false }),
+        fetchSnapshot: async id => { fetched.push(id); return { ...snapshot, id, metadataVersion: 2 }; },
+        applySnapshot: async value => { applied.push(value.id); }, deleteSession: id => { deleted.push(id); },
     });
-    expect(fetched).toEqual(['new']);
-    expect(applied).toEqual(['new']);
-    expect((await history.readSnapshot('new'))?.id).toBe('new');
+    expect(fetched).toEqual(['s']);
+    expect(applied).toEqual(['s']);
+    expect((await history.readReconciliation()).cursor).toBe('4');
+    expect(await history.listSnapshotRefreshIds()).toEqual([]);
+    expect(await history.readSnapshot('unseen-0')).toBeNull();
+    expect(await history.readChange('unseen-0')).toBeNull();
+    expect(await history.readSnapshot('gone')).toBeNull();
+    expect(deleted).toEqual(['gone']);
 });

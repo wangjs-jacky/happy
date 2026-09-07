@@ -163,10 +163,9 @@ export class LocalHistory {
                 if (record.deleted || record.change?.deleted) return [];
                 const snapshot = ApiSessionSnapshotSchema.safeParse(record.snapshot);
                 const change = record.change;
-                const pending = change ? !snapshot.success
+                const pending = snapshot.success && (!change
                     || change.metadataVersion > snapshot.data.metadataVersion
-                    || change.agentStateVersion > snapshot.data.agentStateVersion
-                    : record.snapshot !== undefined;
+                    || change.agentStateVersion > snapshot.data.agentStateVersion);
                 return pending ? [record.id] : [];
             });
         });
@@ -311,7 +310,13 @@ export class LocalHistory {
     commitReconciliation(page: { changes: SessionChange[]; nextCursor: string }): Promise<boolean> {
         return this.transaction('readwrite', false, async (tx, account) => {
             for (const change of page.changes) {
-                const record = await this.session(tx, change.sessionId);
+                const stored = await request<SessionRecord | undefined>(tx.objectStore('sessions').get([this.scope, change.sessionId]));
+                // Change feeds can contain sessions that have never been cached
+                // locally. Advancing the account cursor is enough for those;
+                // storing a placeholder would later schedule a point lookup for
+                // every unseen identity.
+                if (!change.deleted && !stored) continue;
+                const record = stored ?? { scope: this.scope, id: change.sessionId, intervals: [] };
                 if (record.change && BigInt(record.change.revision) >= BigInt(change.revision)) continue;
                 record.change = change;
                 if (change.deleted) {

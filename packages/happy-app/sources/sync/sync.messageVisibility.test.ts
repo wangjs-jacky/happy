@@ -712,7 +712,7 @@ describe('message visibility synchronization', () => {
         syncForTest.localHistory = history;
         mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(40)], hasMore: false }));
         await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
-        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual(['/v3/sessions/archive/messages?before_seq=2147483647&limit=100']);
+        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual(['/v3/sessions/archive/messages?before_seq=2147483647&limit=25']);
         expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
     });
 
@@ -1317,6 +1317,23 @@ describe('message visibility synchronization', () => {
             'web.messages.latest_completed',
             'web.session.store_committed',
         ]);
+    });
+
+    it('bounds the initial latest page while preserving 100-message explicit older pagination', async () => {
+        installSession('bounded-initial');
+        mocks.state.currentViewingSessionId = 'bounded-initial';
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(101), apiMessage(102)], hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(1)], hasMore: false }));
+
+        await expect(syncForTest.openSession('bounded-initial')).resolves.toBe('ready');
+        await syncForTest.loadOlderMessages('bounded-initial');
+
+        expect(mocks.apiRequest).toHaveBeenNthCalledWith(1,
+            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25');
+        expect(mocks.apiRequest).toHaveBeenNthCalledWith(2,
+            '/v3/sessions/bounded-initial/messages?before_seq=101&limit=100');
+        expect(syncForTest.sessionMessageFrontiers.get('bounded-initial')?.olderBeforeSeq).toBe(1);
     });
 
     it('revalidates an already loaded route incrementally instead of downloading the latest page again', async () => {
