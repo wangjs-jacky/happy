@@ -63,6 +63,18 @@ export function findAnchorIndex(items: DisplayItem[], wire: string, wireId: Tran
         && (block === undefined || blockKey?.(message.id) === block)));
 }
 
+export function handleTranscriptWebWheel(
+    event: { shiftKey: boolean; deltaX: number; deltaY: number; preventDefault: () => void },
+    node: { scrollTop: number },
+    claimUserScroll: () => void,
+) {
+    claimUserScroll();
+    if (event.shiftKey && Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1) {
+        node.scrollTop += event.deltaX;
+        event.preventDefault();
+    }
+}
+
 type Measurable = { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void };
 type Markers = { register: (id: string, node: Measurable, depth: number) => () => void; layout: () => void };
 export const TranscriptReadingContext = React.createContext<Markers | null>(null);
