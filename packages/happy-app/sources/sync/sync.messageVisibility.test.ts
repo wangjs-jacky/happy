@@ -17,10 +17,6 @@ import { act } from 'react';
 // @ts-expect-error react-test-renderer has no local declarations.
 import TestRenderer from 'react-test-renderer';
 import { randomUUID } from 'expo-crypto';
-import * as React from 'react';
-import { act } from 'react';
-// @ts-expect-error react-test-renderer does not publish declarations.
-import TestRenderer from 'react-test-renderer';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 
 vi.hoisted(() => {
@@ -781,6 +777,42 @@ describe('message visibility synchronization', () => {
             upload.mockRestore();
             http.resolve(response({ messages: [], hasMore: false }));
             await loading;
+        }
+    });
+
+    it('keeps an accepted text and attachment receipt across an empty latest history replacement', async () => {
+        // Catches a live/latest archive rebuild replacing the reducer with only
+        // pre-ACK rows, which must not erase the already accepted local receipt.
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        const storage = await seedLocalProjectionSession();
+        const history = (await openLocalHistory('server|account'))!;
+        syncForTest.localHistory = history;
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0,
+        });
+        vi.mocked(randomUUID).mockReturnValueOnce('00000000-0000-4000-8000-000000000001').mockReturnValueOnce('local-file').mockReturnValueOnce('local-text');
+        try {
+            const receipt = await sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any,
+            });
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+            const lease = syncForTest.sessionMessageLoadGate.enter(receipt.sessionId);
+            await syncForTest.applyHistoryWindow(receipt.sessionId, {
+                messages: [], oldestSeq: null, newestSeq: null,
+                hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true,
+            }, syncForTest.sessionMessageLoadGate.begin(lease));
+
+            const cache = storage.getState().sessionMessages[receipt.sessionId];
+            expect(cache.messages).toHaveLength(2);
+            expect(cache.messagesMap[cache.reducerState.localIds.get('local-text')!]).toMatchObject({
+                kind: 'user-text', localId: 'local-text', text: 'hello',
+            });
+            expect(cache.messagesMap[cache.reducerState.toolIdToMessageId.get('00000000-0000-4000-8000-000000000001')!]).toMatchObject({
+                kind: 'tool-call', tool: { name: 'file' },
+            });
+            await expect(sync.awaitLocalMessageProjection(receipt.sessionId, receipt.localIds, receipt)).resolves.toBe(true);
+        } finally {
+            upload.mockRestore();
         }
     });
 

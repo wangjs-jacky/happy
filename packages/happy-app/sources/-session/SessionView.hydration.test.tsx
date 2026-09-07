@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
     session: null as any,
     messages: [] as any[],
     messagesLoaded: false,
+    messagesAtLatest: true,
+    latestVerifiedOwnerEpoch: undefined as number | null | undefined,
     focusContext: null as unknown as React.Context<boolean>,
     currentViewingSessionId: null as string | null,
 }));
@@ -91,7 +93,12 @@ vi.mock('@/sync/storage', () => ({
     useLocalSettingMutable: () => [false, vi.fn()],
     useMachine: () => null,
     useSession: () => mocks.session,
-    useSessionMessages: () => ({ messages: mocks.messages, isLoaded: mocks.messagesLoaded }),
+    useSessionMessages: () => ({
+        messages: mocks.messages,
+        isLoaded: mocks.messagesLoaded,
+        isAtLatest: mocks.messagesAtLatest,
+        ...(mocks.latestVerifiedOwnerEpoch === undefined ? {} : { latestVerifiedOwnerEpoch: mocks.latestVerifiedOwnerEpoch }),
+    }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useSettingUpdater: () => vi.fn(),
@@ -269,6 +276,8 @@ describe('SessionView deep-link hydration', () => {
         mocks.session = null;
         mocks.messages = [];
         mocks.messagesLoaded = false;
+        mocks.messagesAtLatest = true;
+        mocks.latestVerifiedOwnerEpoch = undefined;
         mocks.currentViewingSessionId = null;
         mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
@@ -656,6 +665,33 @@ describe('SessionView deep-link hydration', () => {
         } finally {
             act(() => renderer?.unmount());
             restore();
+        }
+    });
+
+    it('keeps a historical cached window visible without certifying latest paint', async () => {
+        // Catches a completed local/history render being mistaken for the
+        // current owner's verified latest commit at the real Deferred boundary.
+        const paint = installLatestPaintHarness();
+        mocks.openSession.mockResolvedValue('ready');
+        mocks.messagesLoaded = true;
+        mocks.messagesAtLatest = false;
+        mocks.latestVerifiedOwnerEpoch = null;
+        mocks.messages = [{ id: 'historical-message' }];
+        mocks.session = {
+            id: 'historical-window', seq: 400, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="historical-window" />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+            expect(renderer.root.findAllByType('ChatList')).toHaveLength(1);
+            paint.runAllFrames();
+            expect(paint.markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            paint.restore();
         }
     });
 

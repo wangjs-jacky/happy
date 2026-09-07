@@ -445,7 +445,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const navigation = useNavigation();
     const isFocused = useIsFocused();
     const session = useSession(sessionId);
-    const { messages: cachedMessages, isLoaded: hasLoadedMessageCache } = useSessionMessages(sessionId);
+    const { messages: cachedMessages, isLoaded: hasLoadedMessageCache, latestVerifiedOwnerEpoch } = useSessionMessages(sessionId);
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
@@ -546,6 +546,9 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         && sessionResolution !== 'not-found';
     const verifiedRouteOwnerEpoch = sessionResolution === 'ready'
         && routeOwner?.sessionId === sessionId
+        // Test-only adapters that predate the explicit token omit it; the
+        // production hook always returns null or a concrete owner epoch.
+        && (latestVerifiedOwnerEpoch === undefined || latestVerifiedOwnerEpoch === routeOwner.ownerEpoch)
         ? routeOwner.ownerEpoch
         : null;
     const paintOwnerEpoch = routeOwner?.sessionId === sessionId

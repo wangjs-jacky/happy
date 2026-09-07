@@ -259,6 +259,7 @@ export type LocalMessageQueueReceipt = {
 
 type SessionMessageCacheGeneration = {
     localMessageIds?: Map<string, string>;
+    acceptedLocalMessages?: Map<string, NormalizedMessage>;
 };
 
 function stripNewSessionDiscriminator(
@@ -615,6 +616,17 @@ class Sync {
             const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
             return value ? [value] : [];
         });
+        // A latest-window replacement contains acknowledged wire rows only.
+        // Keep accepted local projections in that live view until their exact
+        // local identity is represented by an echo; historical windows stay
+        // bounded and never receive this optimistic overlay.
+        const generation = this.sessionMessageCacheGenerations.get(id);
+        const accepted = window.isAtLatest ? [...(generation?.acceptedLocalMessages?.values() ?? [])] : [];
+        for (const message of accepted) {
+            const represented = normalized.some(candidate => candidate.id === message.id
+                || (message.localId !== null && candidate.localId === message.localId));
+            if (!represented) normalized.push(message);
+        }
         // Reproject only the bounded window; historical replay must not change
         // live session thinking/usage/permission mode or retain evicted reducer rows.
         const state = createReducer();
@@ -628,6 +640,7 @@ class Sync {
             messages, messagesMap: Object.fromEntries(messages.map(message => [message.id, message])), reducerState: state,
             isLoaded: true, hasMoreOlder: window.hasMoreOlder, isLoadingOlder: false,
             hasMoreNewer: window.hasMoreNewer, isLoadingNewer: false, isAtLatest: window.isAtLatest,
+            latestVerifiedOwnerEpoch: null,
         } } }));
         this.recordRoutePageCommit(operation, window.newestSeq ?? 0);
         return true;
@@ -639,6 +652,7 @@ class Sync {
         const history = this.localHistory;
         if (!history) return Promise.resolve();
         const pending = (async () => {
+            let verifiedLatestFromNetwork = false;
             const current = this.historyWindows.get(id);
             if (!current && direction !== 'latest') return;
             const lease = this.sessionMessageLoadGate.currentLease(id) ?? this.sessionMessageLoadGate.enter(id);
@@ -671,6 +685,7 @@ class Sync {
                     if (!response.ok) throw new Error(`Latest history failed: ${response.status}`);
                     const data = await response.json() as V3GetSessionMessagesResponse;
                     if (!owner.isCurrent()) return;
+                    verifiedLatestFromNetwork = true;
                     let committed = await history.commitPage(id, { ...data, direction: 'newer', boundary: afterSeq });
                     if (!owner.isCurrent()) return;
                     let fallback = memoryHistoryPage(latest, data, 'newer');
@@ -718,7 +733,12 @@ class Sync {
                         latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: 300 }) ?? latest;
                     }
                 }
-                if (latest && owner.isCurrent()) await this.applyHistoryWindow(id, latest, operation);
+                if (latest && owner.isCurrent()) {
+                    const applied = await this.applyHistoryWindow(id, latest, operation);
+                    if (applied && direction === 'latest' && verifiedLatestFromNetwork) {
+                        this.markLatestVerified(id, operation);
+                    }
+                }
             } catch (error) {
                 if (owner.isCurrent()) patch({ [direction === 'older' ? 'olderError' : 'newerError']: error instanceof Error ? error.message : 'History unavailable' });
             } finally {
@@ -1063,15 +1083,26 @@ class Sync {
             if (!accepted || receipt.sessionId !== sessionId
                 || localIds.length !== receipt.localIds.length
                 || receipt.localIds.some(id => !localIds.includes(id))) return false;
-            if (!generation || localIds.some(id => !generation?.localMessageIds?.has(id))) {
+            const cache = storage.getState().sessionMessages[sessionId];
+            const isProjected = !!cache && localIds.every(id => {
+                const messageId = cache.reducerState.localIds.get(id);
+                if (messageId !== undefined) return cache.messagesMap[messageId]?.kind === 'user-text';
+                const normalizedId = generation?.localMessageIds?.get(id);
+                const fileId = normalizedId ? cache.reducerState.toolIdToMessageId.get(normalizedId) : undefined;
+                return fileId !== undefined && cache.reducerState.messages.get(fileId)?.realID === normalizedId;
+            });
+            if (!generation || localIds.some(id => !generation?.localMessageIds?.has(id)) || !isProjected) {
                 // A background gap/retention eviction discards the display
                 // generation, not the accepted encrypted send. Restore from the
                 // original receipt's exact normalized entries, even after ACK
                 // removed the outbox. No ID/order inference or network work.
                 generation ??= {};
                 generation.localMessageIds ??= new Map();
+                generation.acceptedLocalMessages ??= new Map();
                 for (const message of accepted) {
-                    if (message.localId !== null) generation.localMessageIds.set(message.localId, message.id);
+                    const identity = message.localId ?? message.id;
+                    generation.localMessageIds.set(identity, message.id);
+                    generation.acceptedLocalMessages.set(identity, message);
                 }
                 this.sessionMessageCacheGenerations.set(sessionId, generation);
                 this.applyMessages(sessionId, [...accepted]);
@@ -1493,8 +1524,11 @@ class Sync {
         this.pendingOutbox.set(sessionId, pending);
         const generation: SessionMessageCacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
         generation.localMessageIds ??= new Map();
+        generation.acceptedLocalMessages ??= new Map();
         for (const message of stagedMessages) {
-            if (message.localId !== null) generation.localMessageIds.set(message.localId, message.id);
+            const identity = message.localId ?? message.id;
+            generation.localMessageIds.set(identity, message.id);
+            generation.acceptedLocalMessages.set(identity, message);
         }
         this.sessionMessageCacheGenerations.set(sessionId, generation);
         const receipt: LocalMessageQueueReceipt = Object.freeze({ type: 'queued', sessionId, localIds: Object.freeze(stagedOutbox.map(item => item.localId)) });
@@ -2102,6 +2136,10 @@ class Sync {
             return Promise.reject(new SessionRouteAbandonedError());
         }
         this.retainSessionMessageCache(sessionId);
+        storage.setState(state => state.sessionMessages[sessionId] ? ({ sessionMessages: {
+            ...state.sessionMessages,
+            [sessionId]: { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: null },
+        } }) : state);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
         const hasLoadedMessageCache = storage.getState().sessionMessages[sessionId]?.isLoaded === true
             && this.getSessionLastMessageSeq(sessionId) !== null;
@@ -2139,7 +2177,10 @@ class Sync {
             if (!found) return 'not-found';
 
             if (hasLoadedMessageCache) {
-                if (!this.localHistory) await this.getMessagesSync(sessionId).invalidateAndAwait();
+                if (!this.localHistory) {
+                    await this.getMessagesSync(sessionId).invalidateAndAwait();
+                    this.markLatestVerified(sessionId, operation.messageLoad);
+                }
                 this.assertSessionRouteCurrent(operation);
                 markSessionCriticalPathAppStage('web.messages.latest_completed');
                 markSessionCriticalPathAppStage('web.session.store_committed');
@@ -2150,8 +2191,13 @@ class Sync {
             this.assertSessionRouteCurrent(operation);
             if (latestPage.localWindow) {
                 try {
-                    await this.applyHistoryWindow(sessionId, latestPage.localWindow, operation.messageLoad);
+                    const applied = await this.applyHistoryWindow(sessionId, latestPage.localWindow, operation.messageLoad);
                     this.assertSessionRouteCurrent(operation);
+                    if (!applied) {
+                        await this.messagesSync.get(sessionId)?.awaitQueue();
+                        this.assertSessionRouteCurrent(operation);
+                        if (!this.historyWindows.has(sessionId)) throw new SessionRouteCoordinationError();
+                    }
                     markSessionCriticalPathAppStage('web.messages.latest_completed');
                     markSessionCriticalPathAppStage('web.session.store_committed');
                     if (latestPage.revalidateTail) setTimeout(() => {
@@ -2201,6 +2247,7 @@ class Sync {
             }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
+            this.markLatestVerified(sessionId, operation.messageLoad);
             markSessionCriticalPathAppStage('web.session.store_committed');
             return 'ready';
         })().catch((error: unknown) => {
@@ -2226,6 +2273,16 @@ class Sync {
             || !this.sessionMessageLoadGate.isLeaseCurrent(operation.messageLease)) {
             throw new SessionRouteAbandonedError();
         }
+    }
+
+    private markLatestVerified(sessionId: string, operation: SessionMessageLoadOperation): void {
+        const route = this.activeOpenSession;
+        if (route?.sessionId !== sessionId || !this.sessionRouteOwnership.owns(route.owner)
+            || !this.sessionMessageLoadGate.isCurrent(operation)) return;
+        storage.setState(state => state.sessionMessages[sessionId] ? ({ sessionMessages: {
+            ...state.sessionMessages,
+            [sessionId]: { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: route.owner.ownerEpoch },
+        } }) : state);
     }
 
     // Kept as a compatibility alias while call sites migrate to the more

@@ -90,6 +90,9 @@ interface SessionMessages {
     hasMoreNewer?: boolean;
     isLoadingNewer?: boolean;
     isAtLatest?: boolean;
+    // Only a current route operation that has committed a verified latest page
+    // may authorize the critical-path latest-paint marker.
+    latestVerifiedOwnerEpoch?: number | null;
     olderError?: string | null;
     newerError?: string | null;
 }
@@ -1522,6 +1525,7 @@ export function useSessionMessages(sessionId: string): {
     hasMoreNewer: boolean,
     isLoadingNewer: boolean,
     isAtLatest: boolean,
+    latestVerifiedOwnerEpoch: number | null,
     olderError: string | null,
     newerError: string | null
 } {
@@ -1535,6 +1539,7 @@ export function useSessionMessages(sessionId: string): {
             hasMoreNewer: session?.hasMoreNewer ?? false,
             isLoadingNewer: session?.isLoadingNewer ?? false,
             isAtLatest: session?.isAtLatest ?? true,
+            latestVerifiedOwnerEpoch: session?.latestVerifiedOwnerEpoch ?? null,
             olderError: session?.olderError ?? null,
             newerError: session?.newerError ?? null
         };
