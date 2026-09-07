@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 export const RUNTIME_CONFIG_START = '<!-- paws-web-runtime-server-config:start -->';
 export const RUNTIME_CONFIG_END = '<!-- paws-web-runtime-server-config:end -->';
 
-const managed = `${RUNTIME_CONFIG_START}<script>(function(){var l=globalThis.location;if(!l||l.protocol!=="https:"||!["paws.rodeo","47.115.228.20"].includes(l.hostname))return;globalThis.__HAPPY_CONFIG__=Object.assign({},globalThis.__HAPPY_CONFIG__,{serverUrl:l.origin});})();</script>${RUNTIME_CONFIG_END}`;
+const managed = `${RUNTIME_CONFIG_START}<script>(function(){var l=globalThis.location;if(!l||l.protocol!=="https:"||!["app.paws.rodeo","paws.rodeo","47.115.228.20"].includes(l.hostname))return;globalThis.__HAPPY_CONFIG__=Object.assign({},globalThis.__HAPPY_CONFIG__,{serverUrl:l.origin});})();</script>${RUNTIME_CONFIG_END}`;
 
 export function injectWebRuntimeServerConfig(html) {
     const startCount = html.split(RUNTIME_CONFIG_START).length - 1;

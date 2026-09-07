@@ -29,6 +29,33 @@ test('accepts Cloudflare delegation, a Tunnel CNAME, and trusted HTTPS', async (
     assert.equal(result.certificateReady, true);
 });
 
+test('checks zone delegation separately from the application subdomain records and TLS', async () => {
+    const options = fixture();
+    const resolve = options.resolve;
+    const queries = [];
+    options.origin = 'https://app.pilot.example';
+    options.resolve = (name, type) => {
+        queries.push([name, type]);
+        assert.equal(name, type === 'NS' ? 'pilot.example' : 'app.pilot.example');
+        return resolve('pilot.example', type);
+    };
+    const probeHttps = options.probeHttps;
+    options.probeHttps = (origin) => {
+        assert.equal(origin, 'https://app.pilot.example');
+        return probeHttps();
+    };
+    const result = await checkProductionTunnelDns(options);
+    assert.equal(result.hostname, 'app.pilot.example');
+    assert.deepEqual(queries.map(([, type]) => type), ['NS', 'CNAME', 'A', 'AAAA']);
+});
+
+test('rejects origins outside the zone or with insecure or non-origin URLs', async () => {
+    for (const origin of ['https://evilpilot.example', 'https://pilot.example.evil',
+        'http://app.pilot.example', 'https://app.pilot.example/path', 'https://user@app.pilot.example']) {
+        await assert.rejects(checkProductionTunnelDns({ ...fixture(), origin }), /expected zone/);
+    }
+});
+
 test('rejects stale or mixed nameservers', async () => {
     for (const NS of [['ns1.dnsowl.com', 'ns2.dnsowl.com'], ['alice.ns.cloudflare.com', 'ns1.dnsowl.com'], []]) {
         await assert.rejects(checkProductionTunnelDns(fixture({ NS })), /nameserver/i);
