@@ -1682,10 +1682,12 @@ function SessionViewLoaded({
         gitStatusSync.getSync(sessionId);
 
         return () => {
-            // Clear viewing session on unmount
-            const left = sync.leaveSessionRoute(routeOwner);
+            // The parent SessionView owns the route lifetime. This loaded child
+            // can remount during cold hydration (and StrictMode effect replay);
+            // releasing the parent's owner here prevents it from being promoted
+            // again and silently cancels history prefetch for a visible chat.
             const current = storage.getState().currentViewingSessionId;
-            if (left && current === sessionId) {
+            if (sync.isSessionRouteOwner(routeOwner) && current === sessionId) {
                 storage.getState().setCurrentViewingSession(null);
             }
         };

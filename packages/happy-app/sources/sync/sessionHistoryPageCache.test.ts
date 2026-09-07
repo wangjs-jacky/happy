@@ -8,6 +8,21 @@ const message = (seq: number): ApiMessage => ({ id: `m-${seq}`, seq, localId: nu
 const page = (seqs: number[], hasMore = true) => ({ messages: seqs.map(message), hasMore });
 
 describe('durable encrypted history pages', () => {
+    it('invalidates a captured session fence only for its own deletion or a full clear', () => {
+        const cache = new SessionHistoryPageCache(new MMKV());
+        const own = cache.captureFence('a', 's');
+        const other = cache.captureFence('a', 'other');
+        cache.remove('a', 'other');
+        expect(own()).toBe(true);
+        expect(other()).toBe(false);
+        cache.remove('a', 's');
+        expect(own()).toBe(false);
+        const reopened = cache.captureFence('a', 's');
+        expect(reopened()).toBe(true);
+        cache.clear();
+        expect(reopened()).toBe(false);
+    });
+
     it('reads saved pages after reopening with no in-memory cache, including a shifted boundary', () => {
         const disk = new MMKV();
         const first = new SessionHistoryPageCache(disk);
