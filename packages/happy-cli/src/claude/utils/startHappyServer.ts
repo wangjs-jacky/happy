@@ -315,6 +315,14 @@ export async function startHappyServer(
     const cloudflarePreviews = new Map<string, CloudflarePreview>();
     const previewPublications = new Set<string>();
     const previewAbort = new AbortController();
+    let previewCloseRegistered = false;
+    const stopCloudflarePreviews = (): void => {
+        previewAbort.abort();
+        for (const preview of cloudflarePreviews.values()) preview.stop();
+        cloudflarePreviews.clear();
+        if (previewCloseRegistered) client.removeListener('before-close', stopCloudflarePreviews);
+        previewCloseRegistered = false;
+    };
 
     const handlers: HappyMcpHandlers = {
         changeTitle: async (title: string) => {
@@ -413,6 +421,10 @@ export async function startHappyServer(
                         client.reportInteractivePreview(expired);
                     }, previewAbort.signal);
                     cloudflarePreviews.set(previewId, running);
+                    if (!previewCloseRegistered) {
+                        client.once('before-close', stopCloudflarePreviews);
+                        previewCloseRegistered = true;
+                    }
                     client.reportInteractivePreview(running.preview);
                     await previewWorkspaces.remove(client.sessionId, previewId);
                     return { success: true, url: running.preview.url, expiresAt: running.preview.expiresAt, provider, lifetime: 'session (at most 24 hours)' };
@@ -472,9 +484,7 @@ export async function startHappyServer(
         ],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
-            previewAbort.abort();
-            for (const preview of cloudflarePreviews.values()) preview.stop();
-            cloudflarePreviews.clear();
+            stopCloudflarePreviews();
             server.close();
         }
     }

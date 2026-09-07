@@ -1137,6 +1137,14 @@ export class ApiSessionClient extends EventEmitter {
 
     async close() {
         logger.debug('[API] socket.close() called');
+        if (this.listenerCount('before-close') > 0) {
+            try {
+                this.emit('before-close');
+                await this.flush();
+            } catch (error) {
+                logger.debug('[API] Could not flush session cleanup notifications', error);
+            }
+        }
         this.sendSync.stop();
         this.receiveSync.stop();
         if (this.reconnectInterval) {
