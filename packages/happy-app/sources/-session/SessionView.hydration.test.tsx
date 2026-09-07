@@ -387,6 +387,27 @@ describe('SessionView deep-link hydration', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps the failed route owner reserved until the delayed retry acquires its replacement', async () => {
+        const retry = deferred<'ready'>();
+        mocks.openSession
+            .mockRejectedValueOnce(new Error('transient-network-failure'))
+            .mockReturnValueOnce(retry.promise);
+        let renderer: any;
+
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="reserved-retry-session" />); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.leaveSessionRoute).not.toHaveBeenCalled();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(99); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.leaveSessionRoute).not.toHaveBeenCalled();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.openSession.mock.calls[1][2]).toEqual({ retry: true });
+        act(() => renderer.unmount());
+    });
+
     it('hydrates a missing deep link immediately while showing session-scoped loading', async () => {
         const hydration = deferred<boolean>();
         mocks.ensureSessionHydrated.mockReturnValue(hydration.promise);
@@ -406,13 +427,15 @@ describe('SessionView deep-link hydration', () => {
         act(() => renderer.unmount());
     });
 
-    it('does not retry terminal route abandonment as a transient network failure', async () => {
+    it('reacquires route ownership before deciding that an abandoned target is missing', async () => {
         vi.useFakeTimers();
-        mocks.openSession.mockRejectedValue(new SessionRouteAbandonedError());
+        mocks.openSession
+            .mockRejectedValueOnce(new SessionRouteAbandonedError())
+            .mockResolvedValueOnce('not-found');
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<SessionView id="deleted-session" />); });
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
         expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
         expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
         act(() => renderer.unmount());
@@ -441,7 +464,7 @@ describe('SessionView deep-link hydration', () => {
         act(() => renderer.unmount());
     });
 
-    it.each(['cached', 'hydrated'] as const)('keeps an abandoned %s session terminal without mounting the chat', async (source) => {
+    it.each(['cached', 'hydrated'] as const)('recovers an abandoned %s session under a fresh route owner', async (source) => {
         vi.useFakeTimers();
         const session = {
             id: 'abandoned-session', seq: 3, active: true, activeAt: 10,
@@ -450,7 +473,7 @@ describe('SessionView deep-link hydration', () => {
             thinking: false, thinkingAt: 0,
         };
         const opening = deferred<'ready'>();
-        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.openSession.mockReturnValueOnce(opening.promise).mockResolvedValueOnce('ready');
         if (source === 'cached') mocks.session = session;
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<SessionView id="abandoned-session" />); });
@@ -458,11 +481,11 @@ describe('SessionView deep-link hydration', () => {
         if (source === 'hydrated') mocks.session = session;
         await act(async () => { opening.reject(new SessionRouteAbandonedError()); });
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
-        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
-        expect(mocks.openSession).toHaveBeenCalledTimes(1);
-        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
-        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(1);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
+        expect(mocks.promoteSessionRoute).toHaveBeenCalledTimes(1);
+        expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('abandoned-session');
         act(() => renderer.unmount());
     });
 

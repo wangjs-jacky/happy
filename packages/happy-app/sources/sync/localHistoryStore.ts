@@ -163,9 +163,13 @@ export class LocalHistory {
                 if (record.deleted || record.change?.deleted) return [];
                 const snapshot = ApiSessionSnapshotSchema.safeParse(record.snapshot);
                 const change = record.change;
-                const pending = change ? !snapshot.success
-                    || change.metadataVersion > snapshot.data.metadataVersion
-                    || change.agentStateVersion > snapshot.data.agentStateVersion
+                // A change row is also the durable history index. On a cold
+                // account it must not materialize every historical snapshot;
+                // active pages, explicit history pages and deep links hydrate
+                // those rows on demand. Only refresh snapshots we already own.
+                const pending = change ? snapshot.success && (
+                    change.metadataVersion > snapshot.data.metadataVersion
+                    || change.agentStateVersion > snapshot.data.agentStateVersion)
                     : record.snapshot !== undefined;
                 return pending ? [record.id] : [];
             });

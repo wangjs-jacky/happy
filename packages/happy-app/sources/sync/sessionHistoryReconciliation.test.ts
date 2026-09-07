@@ -61,7 +61,7 @@ it('replays durable pending snapshot invalidations after interruption without bo
     expect((await history.readSnapshot('s'))?.metadataVersion).toBe(2);
 });
 
-it.each([false, true])('discovers unseen session snapshots including after a committed-cursor restart (%s)', async restarted => {
+it.each([false, true])('indexes unseen sessions without materializing every snapshot including after restart (%s)', async restarted => {
     let history = (await openLocalHistory('discovery'))!;
     const changes = [{ sessionId: 'new', revision: '4', deleted: false, lastMessageSeq: 7, metadataVersion: 1, agentStateVersion: 0 }];
     if (restarted) {
@@ -76,7 +76,8 @@ it.each([false, true])('discovers unseen session snapshots including after a com
         fetchSnapshot: async id => { fetched.push(id); return { ...snapshot, id }; },
         applySnapshot: async value => { applied.push(value.id); }, deleteSession: () => {},
     });
-    expect(fetched).toEqual(['new']);
-    expect(applied).toEqual(['new']);
-    expect((await history.readSnapshot('new'))?.id).toBe('new');
+    expect(fetched).toEqual([]);
+    expect(applied).toEqual([]);
+    expect(await history.readSnapshot('new')).toBeNull();
+    expect((await history.readChange('new'))?.revision).toBe('4');
 });

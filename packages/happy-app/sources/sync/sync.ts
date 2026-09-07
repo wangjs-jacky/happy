@@ -399,6 +399,9 @@ class Sync {
     private sessionDeletionMutationGenerations = new Map<string, number>();
     private inFlightSessionRefreshes = new Set<{ mutationGeneration: number }>();
     private sessionHydrations = new Map<string, Promise<boolean>>();
+    private initialSessionBootstrapDeferred = false;
+    private boundedSessionBootstrapDeferred = false;
+    private historyReconciliationDeferred = false;
     private sessionEventCursors = new Map<string, number>();
     private sessionDataKeys = new Map<string, Uint8Array>(); // Store session data encryption keys internally
     private machineDataKeys = new Map<string, Uint8Array>(); // Store machine data encryption keys internally
@@ -470,7 +473,7 @@ class Sync {
             apiSocket.sendAppState(getCurrentAppState());
 
             if (nextAppState === 'active') {
-                void this.reconcileHistory().catch(() => undefined);
+                this.requestHistoryReconciliation();
                 const shouldFailAfterResume = this.backgroundSendStartedAt !== null
                     && this.hasPendingOutboxMessages()
                     && (Date.now() - this.backgroundSendStartedAt) >= Sync.BACKGROUND_SEND_TIMEOUT_MS;
@@ -482,13 +485,13 @@ class Sync {
                 }
                 log.log('📱 App became active');
                 log.log('📱 App became active: Invalidating artifacts sync');
+                this.requestBoundedSessionBootstrap();
                 resyncOnForeground({
                     globalSyncs: [
                         this.purchasesSync,
                         this.profileSync,
                         this.machinesSync,
                         this.pushTokenSync,
-                        this.sessionBootstrapSync,
                         this.nativeUpdateSync,
                         this.artifactsSync,
                         this.feedSync,
@@ -577,6 +580,64 @@ class Sync {
             }
             if (snapshots.length) storage.getState().applyReady();
         }).catch(() => undefined);
+    };
+
+    private shouldPrioritizeInitialSessionRoute = (): boolean => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+        if (!window.location.pathname.match(/^\/session\/[^/]+\/?$/)) return false;
+        const owner = this.sessionRouteOwnership.current();
+        return owner === null || owner.phase === 'opening';
+    };
+
+    /** Route-aware gate shared by foreground, reconnect, and startup refreshes. */
+    private requestBoundedSessionBootstrap = (): void => {
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.boundedSessionBootstrapDeferred = true;
+            return;
+        }
+        this.boundedSessionBootstrapDeferred = false;
+        this.sessionBootstrapSync.invalidate();
+    };
+
+    private requestHistoryReconciliation = (): void => {
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.historyReconciliationDeferred = true;
+            return;
+        }
+        this.historyReconciliationDeferred = false;
+        void this.reconcileHistory().catch(() => undefined);
+    };
+
+    private releaseDeferredSessionWork = (
+        owner?: SessionRouteOwner,
+        credentials: AuthCredentials = this.credentials,
+        options: { terminal?: boolean } = {},
+    ): void => {
+        if (this.credentials !== credentials) return;
+        const current = this.sessionRouteOwnership.current();
+        // A replacement opening route inherits the network lane. An old
+        // route's late completion must never release work ahead of it.
+        if (owner && current && current.ownerEpoch !== owner.ownerEpoch) return;
+
+        const reconcileAfterBootstrap = options.terminal && this.historyReconciliationDeferred;
+        if (options.terminal) this.historyReconciliationDeferred = false;
+        let bootstrap: Promise<void>;
+        if (this.initialSessionBootstrapDeferred) {
+            bootstrap = this.bootstrapSessions({ routeReady: true });
+        } else {
+            if (this.boundedSessionBootstrapDeferred) {
+                this.boundedSessionBootstrapDeferred = false;
+                this.sessionBootstrapSync.invalidate();
+            }
+            bootstrap = this.sessionBootstrapSync.awaitQueue();
+        }
+        if (reconcileAfterBootstrap && this.localHistory) {
+            void bootstrap.then(() => {
+                if (this.credentials === credentials && this.localHistory) {
+                    return this.reconcileHistory();
+                }
+            }).catch(() => undefined);
+        }
     };
 
     public resetLocalHistory = async (): Promise<void> => {
@@ -959,6 +1020,12 @@ class Sync {
     async #init() {
         this.sessionEventCursors.clear();
         this.sessionHydrations.clear();
+        // Scheduler intent belongs to one authenticated account only. Late
+        // completions from the previous account are fenced by credential
+        // identity and must leave no work for the next account to consume.
+        this.initialSessionBootstrapDeferred = false;
+        this.boundedSessionBootstrapDeferred = false;
+        this.historyReconciliationDeferred = false;
 
         // Subscribe to updates
         this.subscribeToUpdates();
@@ -1992,12 +2059,21 @@ class Sync {
         await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, 150));
     }
 
-    public bootstrapSessions = async (): Promise<void> => {
-        void this.reconcileHistory().catch(() => undefined);
+    public bootstrapSessions = async (options: { routeReady?: boolean } = {}): Promise<void> => {
+        if (!options.routeReady && this.shouldPrioritizeInitialSessionRoute()) {
+            this.initialSessionBootstrapDeferred = true;
+            return;
+        }
+        this.initialSessionBootstrapDeferred = false;
+        this.boundedSessionBootstrapDeferred = false;
         this.nextSessionHistoryCursor = undefined;
         this.initialSessionHistoryScheduled = false;
         await this.sessionBootstrapSync.invalidateAndAwait();
         storage.getState().applyReady();
+        // Native deletion reconciliation is lightweight and has no route-level
+        // persistent history owner. Keep it behind the bounded active snapshot
+        // so it cannot delay first paint or fall back to the legacy full list.
+        if (Platform.OS !== 'web') void this.reconcileHistory().catch(() => undefined);
     }
 
     public hydrateHistoricalSessionPage = async (
@@ -2016,10 +2092,27 @@ class Sync {
     }
 
     public sessionRouteBecameInteractive = async (): Promise<void> => {
-        if (this.initialSessionHistoryScheduled) return;
+        this.releaseDeferredSessionWork(this.sessionRouteOwnership.current() ?? undefined);
+        // Background history is strictly sequenced behind the bounded active
+        // summary request; neither may compete with an opening deep link.
+        await this.sessionBootstrapSync.awaitQueue();
+        if (this.initialSessionHistoryScheduled) {
+            if (this.historyReconciliationDeferred && this.localHistory) {
+                this.historyReconciliationDeferred = false;
+                void this.reconcileHistory().catch(() => undefined);
+            }
+            return;
+        }
         this.initialSessionHistoryScheduled = true;
         const loaded = await this.requestNextSessionHistoryPage();
-        if (!loaded) this.initialSessionHistoryScheduled = false;
+        if (!loaded) {
+            this.initialSessionHistoryScheduled = false;
+            return;
+        }
+        if (this.localHistory) {
+            this.historyReconciliationDeferred = false;
+            void this.reconcileHistory().catch(() => undefined);
+        }
     }
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
@@ -2252,6 +2345,14 @@ class Sync {
             this.messagesSync.get(owner.sessionId)?.stop();
             this.activeOpenSession = null;
         }
+        const credentials = this.credentials;
+        // beginSessionRoute() may synchronously install a replacement owner.
+        // Give it that chance before treating this as a real navigation away.
+        queueMicrotask(() => {
+            if (!this.sessionRouteOwnership.current()) {
+                this.releaseDeferredSessionWork(undefined, credentials, { terminal: true });
+            }
+        });
         return true;
     }
 
@@ -2295,9 +2396,12 @@ class Sync {
         // message request finishes. Attach a rejection observer immediately so
         // that discarded 404/network results never become unhandled promises.
         void latestPagePromise.catch(() => undefined);
+        const snapshotPromise = this.hydrateSessionSnapshot(sessionId, operation);
+        const targetTransfersSettled = Promise.allSettled([snapshotPromise, latestPagePromise]);
+        const routeCredentials = this.credentials;
 
         const opening = (async (): SessionOpenPromise => {
-            const found = await this.hydrateSessionSnapshot(sessionId, operation);
+            const found = await snapshotPromise;
             this.assertSessionRouteCurrent(operation);
             if (!found) return 'not-found';
 
@@ -2388,6 +2492,29 @@ class Sync {
                 return 'not-found' as const;
             }
             throw error;
+        });
+        // A missing snapshot may resolve the UI immediately while the already
+        // started latest-message request is still transferring. Ready routes
+        // already await their message work as part of `opening`.
+        void opening.then(async result => {
+            if (result === 'not-found') {
+                await targetTransfersSettled;
+                // The not-found screen remains mounted, so component cleanup
+                // cannot end its opening phase. Keep the epoch for stale-cleanup
+                // fencing, but terminalize it so later foreground/reconnect work
+                // is no longer held behind a route that can never paint.
+                if (this.credentials !== routeCredentials || this.activeOpenSession !== operation
+                    || !this.sessionRouteOwnership.terminalize(owner)) return;
+                operation.cancelled = true;
+                this.sessionMessageLoadGate.leave(operation.messageLease);
+                this.messagesSync.get(owner.sessionId)?.stop();
+                this.activeOpenSession = null;
+            }
+            this.releaseDeferredSessionWork(owner, routeCredentials, { terminal: result === 'not-found' });
+        }, () => {
+            // SessionView keeps ownership across a bounded transient retry and
+            // explicitly leaves on terminal error/unmount. Releasing here would
+            // create an owner-less lane during the retry delay.
         });
         this.sessionRouteOperations.set(opening, operation);
         return opening;
@@ -3732,7 +3859,11 @@ class Sync {
             // covers the very first connect; this covers reconnects).
             apiSocket.sendAppState(getCurrentAppState());
 
-            this.sessionsSync.invalidate();
+            // Active summaries discover current sessions; changes reconcile
+            // deletion/version state for identities already held locally.
+            // Both are bounded and share the route-aware opening gate.
+            this.requestBoundedSessionBootstrap();
+            this.requestHistoryReconciliation();
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');
             this.artifactsSync.invalidate();
@@ -3740,7 +3871,7 @@ class Sync {
             this.pluginCatalogSync.invalidate();
             // Messages are fetched lazily per-session via onSessionVisible (called by SessionView
             // when realtimeStatus changes). Session metadata + agentState (including permission
-            // requests) are already refreshed by sessionsSync.invalidate() above.
+            // requests) are refreshed through changes or bounded active summaries above.
             for (const sync of this.sendSync.values()) {
                 sync.invalidate();
             }
