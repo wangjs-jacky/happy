@@ -366,6 +366,7 @@ class Sync {
     public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
     private sessionBootstrapSync: InvalidateSync;
+    private sessionReconnectSync: InvalidateSync;
     private sessionHistoryInFlight: Promise<boolean> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
     private initialSessionHistoryScheduled = false;
@@ -449,6 +450,7 @@ class Sync {
         });
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
         this.sessionBootstrapSync = new InvalidateSync(this.fetchActiveSessions);
+        this.sessionReconnectSync = new InvalidateSync(this.refreshSessionsAfterReconnect);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
         this.purchasesSync = new InvalidateSync(this.syncPurchases);
@@ -984,6 +986,25 @@ class Sync {
         if (current() && failure?.status === 'rejected') throw failure.reason;
         // Failed page/metadata reads leave the old cursor for the next retry.
         if (current() && supported) this.nativeHistoryCursor = cursor;
+    };
+
+    private refreshSessionsAfterReconnect = async (): Promise<void> => {
+        const history = this.localHistory;
+        const credentials = this.credentials;
+        this.requestBoundedSessionBootstrap();
+        if (this.shouldPrioritizeInitialSessionRoute()) {
+            this.historyReconciliationDeferred = true;
+            return;
+        }
+        this.historyReconciliationDeferred = false;
+        const canReconcile = Boolean(history) || (Platform.OS !== 'web' && Boolean(credentials));
+        if (!canReconcile) return;
+        const earlierReconciliation = this.changesInFlight;
+        if (earlierReconciliation) {
+            await earlierReconciliation;
+            if (this.localHistory !== history || this.credentials !== credentials) return;
+        }
+        await this.reconcileHistory();
     };
 
     private restoreSessionWarmCache = async (): Promise<void> => {
@@ -3897,11 +3918,11 @@ class Sync {
             // covers the very first connect; this covers reconnects).
             apiSocket.sendAppState(getCurrentAppState());
 
-            // Active summaries discover current sessions; changes reconcile
-            // deletion/version state for identities already held locally.
-            // Both are bounded and share the route-aware opening gate.
-            this.requestBoundedSessionBootstrap();
-            this.requestHistoryReconciliation();
+            // Active summaries discover current sessions while the retrying
+            // reconnect invalidator reconciles change cursors. Both respect the
+            // route-aware opening gate; repeated signals retain a trailing pass.
+            // No reconnect path uses the legacy account-wide session response.
+            this.sessionReconnectSync.invalidate();
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');
             this.artifactsSync.invalidate();

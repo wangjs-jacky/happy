@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Platform } from 'react-native';
 import type { ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 
@@ -9,7 +10,7 @@ vi.hoisted(() => {
     };
 });
 
-const { apiSocket, fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } = vi.hoisted(() => {
+const { apiSocket, fetchSessionSnapshot, hydrateSessionSnapshots, reconcileSessionHistory, storage, storageState } = vi.hoisted(() => {
     const storageState = {
         sessions: {} as Record<string, HydratedSession>,
         sessionMessages: {} as Record<string, unknown>,
@@ -34,6 +35,7 @@ const { apiSocket, fetchSessionSnapshot, hydrateSessionSnapshots, storage, stora
         },
         fetchSessionSnapshot: vi.fn(),
         hydrateSessionSnapshots: vi.fn(),
+        reconcileSessionHistory: vi.fn(),
         storage: {
             getState: () => storageState,
             setState: (update: any) => {
@@ -52,6 +54,7 @@ vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots,
     },
 }));
 vi.mock('./apiSessions', () => ({ fetchSessionSnapshot }));
+vi.mock('./sessionHistoryReconciliation', () => ({ reconcileSessionHistory }));
 vi.mock('./storage', () => ({ storage }));
 vi.mock('./apiSocket', () => ({
     apiSocket,
@@ -133,22 +136,67 @@ const hydratedSession: HydratedSession = {
     thinkingAt: 0,
 };
 
+function deferred<T = void>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+}
+
 describe('new-session updates', () => {
     const syncForTest = sync as any;
     let applySessions: ReturnType<typeof vi.spyOn>;
     let sessionsSyncInvalidate: ReturnType<typeof vi.fn>;
+
+    const installReconnectHarness = (localHistory: object | null) => {
+        const original = {
+            localHistory: syncForTest.localHistory,
+            changesSupported: syncForTest.changesSupported,
+            sessionBootstrapSync: syncForTest.sessionBootstrapSync,
+            machinesSync: syncForTest.machinesSync,
+            artifactsSync: syncForTest.artifactsSync,
+            feedSync: syncForTest.feedSync,
+            pluginCatalogSync: syncForTest.pluginCatalogSync,
+            sendSync: syncForTest.sendSync,
+        };
+        const activeInvalidate = vi.fn();
+        syncForTest.localHistory = localHistory;
+        syncForTest.changesSupported = null;
+        syncForTest.sessionBootstrapSync = { invalidate: activeInvalidate };
+        syncForTest.machinesSync = { invalidate: vi.fn() };
+        syncForTest.artifactsSync = { invalidate: vi.fn() };
+        syncForTest.feedSync = { invalidate: vi.fn() };
+        syncForTest.pluginCatalogSync = { invalidate: vi.fn() };
+        syncForTest.sendSync = new Map();
+        syncForTest.subscribeToUpdates();
+        const reconnected = apiSocket.onReconnected.mock.calls.at(-1)?.[0];
+        expect(reconnected).toBeTypeOf('function');
+        return {
+            activeInvalidate,
+            reconnected: reconnected!,
+            restore: () => Object.assign(syncForTest, original),
+        };
+    };
 
     beforeEach(() => {
         syncForTest.sessionEventCursors.clear();
         syncForTest.sessionHydrations.clear();
         syncForTest.inFlightSessionRefreshes.clear();
         syncForTest.sessionDeletionMutationGenerations.clear();
+        apiSocket.onMessage.mockReset();
+        apiSocket.onReconnected.mockReset();
+        apiSocket.sendAppState.mockReset();
         fetchSessionSnapshot.mockReset();
         apiSocket.onMessage.mockReset();
         apiSocket.onReconnected.mockReset();
         apiSocket.sendAppState.mockReset();
         hydrateSessionSnapshots.mockReset();
         hydrateSessionSnapshots.mockResolvedValue([hydratedSession]);
+        reconcileSessionHistory.mockReset();
+        reconcileSessionHistory.mockResolvedValue('supported');
         storageState.sessions = {};
         storageState.sessionMessages = {};
         applySessions = vi.spyOn(syncForTest, 'applySessions');
@@ -181,43 +229,133 @@ describe('new-session updates', () => {
         expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
     });
 
-    it('refreshes bounded active summaries and incremental history on Native reconnect without the legacy full list', async () => {
-        const { Platform } = await import('react-native');
-        const originalPlatform = Platform.OS;
-        const activeInvalidate = vi.fn();
-        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
-        const original = {
-            sessionBootstrapSync: syncForTest.sessionBootstrapSync,
-            machinesSync: syncForTest.machinesSync,
-            artifactsSync: syncForTest.artifactsSync,
-            feedSync: syncForTest.feedSync,
-            pluginCatalogSync: syncForTest.pluginCatalogSync,
-            localHistory: syncForTest.localHistory,
-            sendSync: syncForTest.sendSync,
-            boundedSessionBootstrapDeferred: syncForTest.boundedSessionBootstrapDeferred,
-        };
-        syncForTest.localHistory = null;
-        syncForTest.sessionBootstrapSync = { invalidate: activeInvalidate };
-        syncForTest.machinesSync = { invalidate: vi.fn() };
-        syncForTest.artifactsSync = { invalidate: vi.fn() };
-        syncForTest.feedSync = { invalidate: vi.fn() };
-        syncForTest.pluginCatalogSync = { invalidate: vi.fn() };
-        syncForTest.sendSync = new Map();
+    it('reconciles durable history on reconnect without invalidating the legacy full session list', async () => {
+        const harness = installReconnectHarness({});
 
         try {
-            (Platform as { OS: string }).OS = 'android';
-            syncForTest.subscribeToUpdates();
-            const reconnected = apiSocket.onReconnected.mock.calls.at(-1)?.[0];
-            expect(reconnected).toBeTypeOf('function');
-            reconnected();
+            harness.reconnected();
 
-            expect(activeInvalidate).toHaveBeenCalledTimes(1);
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(1));
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(harness.activeInvalidate).toHaveBeenCalledTimes(1);
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            harness.restore();
+        }
+    });
+
+    it('refreshes bounded active summaries on reconnect when durable history is unavailable', async () => {
+        const harness = installReconnectHarness(null);
+
+        try {
+            harness.reconnected();
+
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(harness.activeInvalidate).toHaveBeenCalledTimes(1);
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            harness.restore();
+        }
+    });
+
+    it('reconciles the native change cursor on reconnect without durable local history', async () => {
+        const previousPlatform = Platform.OS;
+        (Platform as { OS: string }).OS = 'android';
+        const harness = installReconnectHarness(null);
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockResolvedValue(undefined);
+
+        try {
+            harness.reconnected();
+
+            await syncForTest.sessionReconnectSync.awaitQueue();
             expect(reconcile).toHaveBeenCalledTimes(1);
+            expect(harness.activeInvalidate).toHaveBeenCalledTimes(1);
             expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
         } finally {
             reconcile.mockRestore();
-            (Platform as { OS: string }).OS = originalPlatform;
-            Object.assign(syncForTest, original);
+            harness.restore();
+            (Platform as { OS: string }).OS = previousPlatform;
+        }
+    });
+
+    it('retries a failed reconnect reconciliation without falling back to the legacy full list', async () => {
+        const harness = installReconnectHarness({});
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+        reconcileSessionHistory
+            .mockRejectedValueOnce(new Error('temporary changes failure'))
+            .mockResolvedValueOnce('supported');
+        try {
+            harness.reconnected();
+
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(2));
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            harness.restore();
+            random.mockRestore();
+            warning.mockRestore();
+        }
+    });
+
+    it('runs a trailing reconciliation when reconnect fires during an in-flight pass', async () => {
+        const harness = installReconnectHarness({});
+        const firstPass = deferred<'supported'>();
+        reconcileSessionHistory
+            .mockReturnValueOnce(firstPass.promise)
+            .mockResolvedValueOnce('supported');
+        try {
+            harness.reconnected();
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(1));
+
+            harness.reconnected();
+            firstPass.resolve('supported');
+
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(2));
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            firstPass.resolve('supported');
+            harness.restore();
+        }
+    });
+
+    it('runs a fresh cursor pass when reconnect overlaps reconciliation started elsewhere', async () => {
+        const harness = installReconnectHarness({});
+        const earlierPass = deferred<'supported'>();
+        reconcileSessionHistory
+            .mockReturnValueOnce(earlierPass.promise)
+            .mockResolvedValueOnce('supported');
+
+        try {
+            const earlierReconciliation = syncForTest.reconcileHistory();
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(1));
+
+            harness.reconnected();
+            earlierPass.resolve('supported');
+            await earlierReconciliation;
+
+            await vi.waitFor(() => expect(reconcileSessionHistory).toHaveBeenCalledTimes(2));
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            earlierPass.resolve('supported');
+            harness.restore();
+        }
+    });
+
+    it('falls back to bounded active summaries when the server does not support change cursors', async () => {
+        const harness = installReconnectHarness({});
+        reconcileSessionHistory.mockResolvedValue('unsupported');
+
+        try {
+            harness.reconnected();
+
+            await vi.waitFor(() => expect(harness.activeInvalidate).toHaveBeenCalledTimes(1));
+            await syncForTest.sessionReconnectSync.awaitQueue();
+            expect(sessionsSyncInvalidate).not.toHaveBeenCalled();
+        } finally {
+            harness.restore();
         }
     });
 
