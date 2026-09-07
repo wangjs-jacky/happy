@@ -357,6 +357,7 @@ vi.mock('@/sync/ops.screenshot', () => ({ requestScreenshot: mocks.requestScreen
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: mocks.imageViewerOpen } }));
 vi.mock('@/sync/sync', () => ({ sync: {
     beginSessionRoute: (sessionId: string) => ({ sessionId, ownerEpoch: 1, phase: 'opening' as const }),
+    isSessionRouteOwner: () => true,
     promoteSessionRoute: (owner: object) => ({ ...owner, phase: 'interactive' as const }),
     leaveSessionRoute: () => true,
     abandonSessionRoute: mocks.abandonSessionRoute,

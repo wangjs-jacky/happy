@@ -154,6 +154,7 @@ type SessionRouteOperation = {
     latestPage: Promise<V3GetSessionMessagesResponse>;
     foregroundTarget: number;
     committedPageSeq: number | null;
+    committedPageOperation: SessionMessageLoadOperation | null;
 };
 
 class CoalescingMessageSync {
@@ -257,6 +258,16 @@ export type LocalMessageQueueReceipt = {
     localIds: readonly string[];
 };
 
+type SessionMessageCacheGeneration = {
+    localMessageIds?: Map<string, string>;
+    // Receipt provenance outlives the optimistic display overlay so a
+    // same-generation projection retry can recover exactly what was accepted.
+    acceptedLocalMessages?: Map<string, NormalizedMessage>;
+    // Only rows not yet observed from the server belong in a replacement's
+    // optimistic overlay. Exact echoes retire this map, never the receipt.
+    pendingLocalMessages?: Map<string, NormalizedMessage>;
+};
+
 function stripNewSessionDiscriminator(
     update: Extract<ApiUpdate, { t: 'new-session' }>,
 ): ApiSessionSnapshot {
@@ -355,7 +366,13 @@ class Sync {
     // range has been fetched. Normalized messages do not retain API sequences.
     private sessionCachedMessageSeqs = new Map<string, Set<number>>();
     private sessionMessageLoadGate = new SessionMessageLoadGate();
-    private sessionMessageCacheGenerations = new Map<string, object>();
+    private sessionMessageCacheGenerations = new Map<string, SessionMessageCacheGeneration>();
+    // The caller owns receipt lifetime. Keep recovery provenance weakly, outside
+    // evictable display caches; deleting a session revokes all its receipts.
+    private acceptedLocalMessageReceipts = new Map<string, WeakMap<LocalMessageQueueReceipt, readonly NormalizedMessage[]>>();
+    // Observation bounds overlay/retry lifetime within one display cache.
+    // Full cache release keeps receipt provenance but resets observation.
+    private observedLocalMessageIds = new Map<string, Set<string>>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
@@ -597,6 +614,21 @@ class Sync {
         return state?.messages.find(message => state.reducerState.messages.get(message.id)?.realID === wireId)?.id ?? null;
     };
 
+    private retireObservedLocalMessages(sessionId: string, messages: readonly NormalizedMessage[]): void {
+        const pending = this.sessionMessageCacheGenerations.get(sessionId)?.pendingLocalMessages;
+        if (!pending) return;
+        let observed = this.observedLocalMessageIds.get(sessionId);
+        for (const message of messages) {
+            const identities = [message.localId, message.id].filter((value): value is string => value !== null);
+            for (const identity of identities) {
+                if (!pending.delete(identity)) continue;
+                observed ??= new Set();
+                observed.add(identity);
+            }
+        }
+        if (observed) this.observedLocalMessageIds.set(sessionId, observed);
+    }
+
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
@@ -608,6 +640,18 @@ class Sync {
             const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
             return value ? [value] : [];
         });
+        this.retireObservedLocalMessages(id, normalized);
+        // A latest-window replacement contains acknowledged wire rows only.
+        // Keep only unobserved local projections in the live view. Receipt
+        // provenance stays separate so acknowledged rows cannot resurrect
+        // after ordinary bounded retention evicts their remote echo.
+        const generation = this.sessionMessageCacheGenerations.get(id);
+        const accepted = window.isAtLatest ? [...(generation?.pendingLocalMessages?.values() ?? [])] : [];
+        for (const message of accepted) {
+            const represented = normalized.some(candidate => candidate.id === message.id
+                || (message.localId !== null && candidate.localId === message.localId));
+            if (!represented) normalized.push(message);
+        }
         // Reproject only the bounded window; historical replay must not change
         // live session thinking/usage/permission mode or retain evicted reducer rows.
         const state = createReducer();
@@ -621,6 +665,7 @@ class Sync {
             messages, messagesMap: Object.fromEntries(messages.map(message => [message.id, message])), reducerState: state,
             isLoaded: true, hasMoreOlder: window.hasMoreOlder, isLoadingOlder: false,
             hasMoreNewer: window.hasMoreNewer, isLoadingNewer: false, isAtLatest: window.isAtLatest,
+            latestVerifiedOwnerEpoch: null,
         } } }));
         this.recordRoutePageCommit(operation, window.newestSeq ?? 0);
         return true;
@@ -632,6 +677,7 @@ class Sync {
         const history = this.localHistory;
         if (!history) return Promise.resolve();
         const pending = (async () => {
+            let verifiedLatestFromNetwork = false;
             const current = this.historyWindows.get(id);
             if (!current && direction !== 'latest') return;
             const lease = this.sessionMessageLoadGate.currentLease(id) ?? this.sessionMessageLoadGate.enter(id);
@@ -664,6 +710,7 @@ class Sync {
                     if (!response.ok) throw new Error(`Latest history failed: ${response.status}`);
                     const data = await response.json() as V3GetSessionMessagesResponse;
                     if (!owner.isCurrent()) return;
+                    verifiedLatestFromNetwork = true;
                     let committed = await history.commitPage(id, { ...data, direction: 'newer', boundary: afterSeq });
                     if (!owner.isCurrent()) return;
                     let fallback = memoryHistoryPage(latest, data, 'newer');
@@ -711,7 +758,12 @@ class Sync {
                         latest = await history.readWindow(id, { anchorSeq: reading.anchorSeq, limit: 300 }) ?? latest;
                     }
                 }
-                if (latest && owner.isCurrent()) await this.applyHistoryWindow(id, latest, operation);
+                if (latest && owner.isCurrent()) {
+                    const applied = await this.applyHistoryWindow(id, latest, operation);
+                    if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
+                        this.markLatestVerified(id, operation);
+                    }
+                }
             } catch (error) {
                 if (owner.isCurrent()) patch({ [direction === 'older' ? 'olderError' : 'newerError']: error instanceof Error ? error.message : 'History unavailable' });
             } finally {
@@ -984,6 +1036,7 @@ class Sync {
         this.messagesSync.delete(sessionId);
         this.sessionMessageLoadGate.invalidate(sessionId);
         this.sessionMessageCacheGenerations.delete(sessionId);
+        this.observedLocalMessageIds.delete(sessionId);
         this.sessionOlderLoadingTokens.delete(sessionId);
         this.sessionMessageFrontiers.delete(sessionId);
         this.sessionCachedMessageSeqs.delete(sessionId);
@@ -1042,6 +1095,100 @@ class Sync {
         }
         return lock;
     }
+
+    public awaitLocalMessageProjection = async (
+        sessionId: string,
+        localIds: readonly string[],
+        receipt?: LocalMessageQueueReceipt,
+    ): Promise<boolean> => {
+        if (localIds.length === 0 || localIds.some(id => typeof id !== 'string' || !id.trim())) return false;
+        if (!storage.getState().sessions[sessionId]) return false;
+        let generation = this.sessionMessageCacheGenerations.get(sessionId);
+        if (receipt) {
+            const accepted = this.acceptedLocalMessageReceipts.get(sessionId)?.get(receipt);
+            if (!accepted || receipt.sessionId !== sessionId
+                || localIds.length !== receipt.localIds.length
+                || receipt.localIds.some(id => !localIds.includes(id))) return false;
+            const cache = storage.getState().sessionMessages[sessionId];
+            const isProjected = !!cache && localIds.every(id => {
+                const messageId = cache.reducerState.localIds.get(id);
+                if (messageId !== undefined) return cache.messagesMap[messageId]?.kind === 'user-text';
+                const normalizedId = generation?.localMessageIds?.get(id);
+                const fileId = normalizedId ? cache.reducerState.toolIdToMessageId.get(normalizedId) : undefined;
+                return fileId !== undefined && cache.reducerState.messages.get(fileId)?.realID === normalizedId;
+            });
+            if (!generation || localIds.some(id => !generation?.localMessageIds?.has(id)) || !isProjected) {
+                // A retained generation knows whether its local display was
+                // already observed remotely. Receipt retries may rebuild a
+                // pending projection, but must never revive an echoed row
+                // merely because bounded latest retention later evicted it.
+                const observed = this.observedLocalMessageIds.get(sessionId);
+                if (observed && accepted.some(message => observed.has(message.localId ?? message.id))) {
+                    return false;
+                }
+                // A background gap/retention eviction discards the display
+                // generation, not the accepted encrypted send. Restore from the
+                // original receipt's exact normalized entries, even after ACK
+                // removed the outbox. No ID/order inference or network work.
+                generation ??= {};
+                generation.localMessageIds ??= new Map();
+                generation.acceptedLocalMessages ??= new Map();
+                generation.pendingLocalMessages ??= new Map();
+                for (const message of accepted) {
+                    const identity = message.localId ?? message.id;
+                    generation.localMessageIds.set(identity, message.id);
+                    generation.acceptedLocalMessages.set(identity, message);
+                    generation.pendingLocalMessages.set(identity, message);
+                }
+                this.sessionMessageCacheGenerations.set(sessionId, generation);
+                this.applyMessages(sessionId, [...accepted]);
+            }
+        }
+        if (!generation) return false;
+        const acceptedIds = generation.localMessageIds;
+        if (!acceptedIds || localIds.some(id => !acceptedIds.has(id))) return false;
+
+        // The shared message lock can be held across HTTP. Drain only the
+        // receipt's normalized local entries synchronously, preserving their
+        // queue order and leaving realtime entries for the normal lock owner.
+        // Reducer commits are synchronous, so no network writer can interleave.
+        const ids = new Set(localIds);
+        const queue = this.sessionMessageQueue.get(sessionId);
+        if (queue) {
+            const local = queue.filter(message => message.localId !== null
+                && ids.has(message.localId) && acceptedIds.get(message.localId) === message.id);
+            if (local.length > 0) {
+                const projected = new Set(local);
+                this.sessionMessageQueue.set(sessionId, queue.filter(message => !projected.has(message)));
+                this.applyMessages(sessionId, local);
+            }
+        }
+
+        // Let the accepted store commit settle and reject deletion/eviction
+        // occurring before the caller transfers its draft to the route.
+        await Promise.resolve();
+        const state = storage.getState();
+        const cache = state.sessionMessages[sessionId];
+        return !!state.sessions[sessionId]
+            && this.sessionMessageCacheGenerations.get(sessionId) === generation
+            && !!cache
+            && localIds.every(id => {
+                // The reducer assigns display IDs; resolve each literal receipt
+                // ID through its deduplication index, never by array position.
+                const messageId = cache.reducerState.localIds.get(id);
+                if (messageId !== undefined) {
+                    const message = cache.messagesMap[messageId];
+                    return message?.kind === 'user-text' && message.localId === id;
+                }
+                // File envelopes normalize into tool calls with a distinct
+                // envelope ID and intentionally have no display localId.
+                const normalizedId = acceptedIds.get(id)!;
+                const fileId = cache.reducerState.toolIdToMessageId.get(normalizedId);
+                if (fileId === undefined || cache.reducerState.messages.get(fileId)?.realID !== normalizedId) return false;
+                const file = cache.messagesMap[fileId];
+                return file?.kind === 'tool-call' && file.tool.name === 'file';
+            });
+    };
 
     private scheduleQueuedMessagesProcessing(sessionId: string) {
         if (this.sessionQueueProcessing.has(sessionId)) {
@@ -1411,7 +1558,24 @@ class Sync {
         const pending = this.pendingOutbox.get(sessionId) ?? [];
         pending.push(...stagedOutbox);
         this.pendingOutbox.set(sessionId, pending);
-        const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId, localIds: stagedOutbox.map(item => item.localId) };
+        const generation: SessionMessageCacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
+        generation.localMessageIds ??= new Map();
+        generation.acceptedLocalMessages ??= new Map();
+        generation.pendingLocalMessages ??= new Map();
+        for (const message of stagedMessages) {
+            const identity = message.localId ?? message.id;
+            generation.localMessageIds.set(identity, message.id);
+            generation.acceptedLocalMessages.set(identity, message);
+            generation.pendingLocalMessages.set(identity, message);
+        }
+        this.sessionMessageCacheGenerations.set(sessionId, generation);
+        const receipt: LocalMessageQueueReceipt = Object.freeze({ type: 'queued', sessionId, localIds: Object.freeze(stagedOutbox.map(item => item.localId)) });
+        let receipts = this.acceptedLocalMessageReceipts.get(sessionId);
+        if (!receipts) {
+            receipts = new WeakMap();
+            this.acceptedLocalMessageReceipts.set(sessionId, receipts);
+        }
+        receipts.set(receipt, stagedMessages);
         // After commit, ancillary failures must not turn an accepted message into
         // a retry that duplicates it. Reconnect also retries the encrypted outbox.
         try {
@@ -1989,6 +2153,10 @@ class Sync {
         return this.sessionRouteOwnership.promote(owner);
     }
 
+    public isSessionRouteOwner = (owner: SessionRouteOwner): boolean => {
+        return this.sessionRouteOwnership.owns(owner);
+    }
+
     public leaveSessionRoute = (owner: SessionRouteOwner): boolean => {
         if (!this.sessionRouteOwnership.leave(owner)) return false;
         const operation = this.activeOpenSession;
@@ -2006,6 +2174,10 @@ class Sync {
             return Promise.reject(new SessionRouteAbandonedError());
         }
         this.retainSessionMessageCache(sessionId);
+        storage.setState(state => state.sessionMessages[sessionId] ? ({ sessionMessages: {
+            ...state.sessionMessages,
+            [sessionId]: { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: null },
+        } }) : state);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
         const hasLoadedMessageCache = storage.getState().sessionMessages[sessionId]?.isLoaded === true
             && this.getSessionLastMessageSeq(sessionId) !== null;
@@ -2030,6 +2202,7 @@ class Sync {
             latestPage: latestPagePromise,
             foregroundTarget: 0,
             committedPageSeq: null,
+            committedPageOperation: null,
         };
         this.activeOpenSession = operation;
         // A missing target can be resolved before its concurrently-started
@@ -2043,7 +2216,10 @@ class Sync {
             if (!found) return 'not-found';
 
             if (hasLoadedMessageCache) {
-                if (!this.localHistory) await this.getMessagesSync(sessionId).invalidateAndAwait();
+                if (!this.localHistory) {
+                    await this.getMessagesSync(sessionId).invalidateAndAwait();
+                    this.markLatestVerified(sessionId, operation.committedPageOperation);
+                }
                 this.assertSessionRouteCurrent(operation);
                 markSessionCriticalPathAppStage('web.messages.latest_completed');
                 markSessionCriticalPathAppStage('web.session.store_committed');
@@ -2054,12 +2230,21 @@ class Sync {
             this.assertSessionRouteCurrent(operation);
             if (latestPage.localWindow) {
                 try {
-                    await this.applyHistoryWindow(sessionId, latestPage.localWindow, operation.messageLoad);
+                    const applied = await this.applyHistoryWindow(sessionId, latestPage.localWindow, operation.messageLoad);
                     this.assertSessionRouteCurrent(operation);
+                    if (!applied) {
+                        await this.messagesSync.get(sessionId)?.awaitQueue();
+                        this.assertSessionRouteCurrent(operation);
+                        if (!this.historyWindows.has(sessionId)) throw new SessionRouteCoordinationError();
+                    }
                     markSessionCriticalPathAppStage('web.messages.latest_completed');
                     markSessionCriticalPathAppStage('web.session.store_committed');
                     if (latestPage.revalidateTail) setTimeout(() => {
-                        if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)) {
+                        // A superseding load may already have verified latest.
+                        // Replaying that winner as local history would clear its
+                        // verification before Deferred can paint it.
+                        if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)
+                            && this.historyWindows.get(sessionId)?.isAtLatest !== true) {
                             void this.jumpToLatestMessages(sessionId);
                         }
                     }, 0);
@@ -2105,6 +2290,7 @@ class Sync {
             }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
+            this.markLatestVerified(sessionId, operation.committedPageOperation);
             markSessionCriticalPathAppStage('web.session.store_committed');
             return 'ready';
         })().catch((error: unknown) => {
@@ -2130,6 +2316,19 @@ class Sync {
             || !this.sessionMessageLoadGate.isLeaseCurrent(operation.messageLease)) {
             throw new SessionRouteAbandonedError();
         }
+    }
+
+    private markLatestVerified(sessionId: string, operation: SessionMessageLoadOperation | null): void {
+        const route = this.activeOpenSession;
+        if (route?.sessionId !== sessionId || !this.sessionRouteOwnership.owns(route.owner)
+            || !operation || !this.sessionMessageLoadGate.isCurrent(operation)
+            || storage.getState().sessionMessages[sessionId]?.isAtLatest === false) return;
+        storage.setState(state => state.sessionMessages[sessionId] ? ({ sessionMessages: {
+            ...state.sessionMessages,
+            [sessionId]: state.sessionMessages[sessionId].latestVerifiedOwnerEpoch === route.owner.ownerEpoch
+                ? state.sessionMessages[sessionId]
+                : { ...state.sessionMessages[sessionId], latestVerifiedOwnerEpoch: route.owner.ownerEpoch },
+        } }) : state);
     }
 
     // Kept as a compatibility alias while call sites migrate to the more
@@ -3151,6 +3350,7 @@ class Sync {
             if (normalized) normalizedMessages.push(normalized);
         }
         if (normalizedMessages.length > 0) {
+            this.retireObservedLocalMessages(sessionId, normalizedMessages);
             this.applyMessages(sessionId, normalizedMessages);
         }
 
@@ -3183,6 +3383,7 @@ class Sync {
             && route.messageLease.leaseEpoch === operation.leaseEpoch
             && this.sessionMessageLoadGate.isCurrent(operation)) {
             route.committedPageSeq = Math.max(route.committedPageSeq ?? 0, seq);
+            route.committedPageOperation = operation;
         }
     }
 
@@ -3297,6 +3498,7 @@ class Sync {
             }
         }
         if (normalizedMessages.length > 0) {
+            this.retireObservedLocalMessages(sessionId, normalizedMessages);
             this.applyMessages(sessionId, normalizedMessages);
         }
         this.recordFetchedMessageRange(sessionId, messages);
@@ -3497,6 +3699,7 @@ class Sync {
                 assertCurrent();
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
+                    if (lastMessage) this.retireObservedLocalMessages(updateData.body.sid, [lastMessage]);
 
                     // Startup-ready measures validated realtime receipt, before
                     // sequence, visibility, cache locks or route hydration can
@@ -4192,6 +4395,8 @@ class Sync {
             storage.getState().setCurrentViewingSession(null);
         }
         this.releaseSessionMessageCache(sessionId);
+        this.acceptedLocalMessageReceipts.delete(sessionId);
+        this.observedLocalMessageIds.delete(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);
         this.sendSync.delete(sessionId);

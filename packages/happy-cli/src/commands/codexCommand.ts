@@ -1,13 +1,39 @@
-import { authAndSetupMachineIfNeeded } from '@/ui/auth'
-import { runCodex } from '@/codex/runCodex'
 import { extractCodexResumeFlag } from '@/codex/cliArgs'
 import { extractNoSandboxFlag } from '@/utils/sandboxFlags'
-import { ensureDaemonRunning } from '@/daemon/ensureDaemonRunning'
 import type { PermissionMode } from '@/api/types'
 import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
-import { collectCodexUsageSnapshot } from '@/codex/codexUsage'
-import { promptInstallSlashCommandIfNeeded } from './pawsInstallPrompt'
-import { traceWorkerAuthentication } from '@/api/sessionStartupTrace'
+import type { collectCodexUsageSnapshot } from '@/codex/codexUsage'
+import { createWorkerSessionStartupLifecycleFromEnvironment, traceWorkerAuthentication, type WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace'
+
+type CodexCommandDependencies = {
+  authAndSetupMachineIfNeeded: typeof import('@/ui/auth').authAndSetupMachineIfNeeded
+  runCodex: typeof import('@/codex/runCodex').runCodex
+  ensureDaemonRunning: typeof import('@/daemon/ensureDaemonRunning').ensureDaemonRunning
+  promptInstallSlashCommandIfNeeded: typeof import('./pawsInstallPrompt').promptInstallSlashCommandIfNeeded
+  collectCodexUsageSnapshot: typeof collectCodexUsageSnapshot
+}
+
+async function loadCommandDependencies(): Promise<CodexCommandDependencies> {
+  const [auth, codex, daemon, installPrompt, usage] = await Promise.all([
+    import('@/ui/auth'),
+    import('@/codex/runCodex'),
+    import('@/daemon/ensureDaemonRunning'),
+    import('./pawsInstallPrompt'),
+    import('@/codex/codexUsage'),
+  ])
+  return {
+    authAndSetupMachineIfNeeded: auth.authAndSetupMachineIfNeeded,
+    runCodex: codex.runCodex,
+    ensureDaemonRunning: daemon.ensureDaemonRunning,
+    promptInstallSlashCommandIfNeeded: installPrompt.promptInstallSlashCommandIfNeeded,
+    collectCodexUsageSnapshot: usage.collectCodexUsageSnapshot,
+  }
+}
+
+type CodexWorkerCommandOptions = {
+  startupLifecycle?: WorkerSessionStartupLifecycle
+  loadCommandDependencies?: typeof loadCommandDependencies
+}
 
 function formatTokens(value: number | undefined | null): string {
   return typeof value === 'number' ? value.toLocaleString() : '0'
@@ -25,6 +51,18 @@ function printUsageDay(label: string, day: Awaited<ReturnType<typeof collectCode
 }
 
 export async function handleCodexCommand(args: string[]): Promise<void> {
+  await runCodexWorkerCommand(args)
+}
+
+export async function runCodexWorkerCommand(args: string[], options: CodexWorkerCommandOptions = {}): Promise<void> {
+  // The daemon preserves the full CLI arguments when choosing its internal entry.
+  if (args[0] === 'codex') args = args.slice(1)
+  const startupLifecycle = options.startupLifecycle ?? createWorkerSessionStartupLifecycleFromEnvironment()
+  const {
+    authAndSetupMachineIfNeeded, runCodex, ensureDaemonRunning,
+    promptInstallSlashCommandIfNeeded, collectCodexUsageSnapshot,
+  } = await (options.loadCommandDependencies ?? loadCommandDependencies)()
+
   if (args[0] === 'usage') {
     const snapshot = await collectCodexUsageSnapshot()
     console.log(`Codex usage source: ${snapshot.sessionsDir}`)
@@ -67,7 +105,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     await promptInstallSlashCommandIfNeeded({ startedBy });
   }
 
-  const { credentials, startupLifecycle } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded)
+  const { credentials } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded, startupLifecycle)
   await ensureDaemonRunning({ startedBy })
 
   await runCodex({

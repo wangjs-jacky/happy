@@ -33,7 +33,8 @@ vi.mock('@/daemon/ensureDaemonRunning', () => ({
   ensureDaemonRunning: mocks.mockEnsureDaemonRunning,
 }))
 
-import { handleCodexCommand } from './codexCommand'
+import { handleCodexCommand, runCodexWorkerCommand } from './codexCommand'
+import { createWorkerSessionStartupLifecycleFromEnvironment } from '@/api/sessionStartupTrace'
 
 describe('handleCodexCommand', () => {
   beforeEach(() => {
@@ -82,6 +83,46 @@ describe('handleCodexCommand', () => {
     ])
     expect(authLifecycle).toBeDefined()
     expect(mocks.mockRunCodex.mock.calls[0][0].startupLifecycle).toBe(authLifecycle)
+  })
+
+  it('records entry before loading heavy dependencies and retains it through actual command orchestration', async () => {
+    const startupLifecycle = createWorkerSessionStartupLifecycleFromEnvironment({
+      HAPPY_SESSION_STARTUP_TRACE_ID: '00000000-0000-4000-8000-000000000001',
+    })!
+    const order: string[] = []
+    let launchedOptions: any
+    await runCodexWorkerCommand(['codex', '--started-by', 'daemon', '--model', 'test-model'], {
+      startupLifecycle,
+      loadCommandDependencies: async () => {
+        order.push(...mocks.mockLoggerDebug.mock.calls
+          .filter(([label]) => label === '[SESSION STARTUP]')
+          .map(([, event]) => event.stage), 'dependencies.loaded')
+        return {
+          promptInstallSlashCommandIfNeeded: async () => { order.push('install.checked'); return 'skipped' },
+          authAndSetupMachineIfNeeded: async (lifecycle) => {
+            expect(lifecycle).toBe(startupLifecycle)
+            order.push('auth.started')
+            lifecycle!.authReady()
+            lifecycle!.machineReady('machine-1')
+            return { credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } }, machineId: 'machine-1' }
+          },
+          ensureDaemonRunning: async () => { order.push('daemon.checked') },
+          runCodex: async (options: any) => { launchedOptions = options; order.push('codex.started') },
+          collectCodexUsageSnapshot: async () => { throw new Error('Session startup must not collect usage') },
+        }
+      },
+    })
+
+    expect(order).toEqual([
+      'worker.entry.started', 'dependencies.loaded', 'install.checked',
+      'auth.started', 'daemon.checked', 'codex.started',
+    ])
+    expect(launchedOptions).toMatchObject({ startedBy: 'daemon', model: 'test-model', startupLifecycle })
+    expect(mocks.mockLoggerDebug.mock.calls
+      .filter(([label]) => label === '[SESSION STARTUP]')
+      .map(([, event]) => event.stage)).toEqual([
+        'worker.entry.started', 'worker.auth.ready', 'worker.machine.ready',
+      ])
   })
 
   it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {
