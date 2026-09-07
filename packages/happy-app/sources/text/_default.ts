@@ -2134,6 +2134,10 @@ export const en = {
         failedToConnectTerminal: 'Failed to connect terminal',
         cameraPermissionsRequiredToConnectTerminal: 'Camera permissions are required to connect terminal',
         failedToLinkDevice: 'Failed to link device',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `This link request was not found on ${server}. Make sure both devices use the same server, reopen the QR code on the new device, and try again.`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `Your login for ${server} has expired. Sign in again, then retry linking the device.`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `Could not reach ${server}. Check the network connection and server address, then try again.`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `The server ${server} rejected the link request (HTTP ${status || 'unknown'}). Reopen the QR code and try again.`,
         cameraPermissionsRequiredToScanQr: 'Camera permissions are required to scan QR codes'
     },
 

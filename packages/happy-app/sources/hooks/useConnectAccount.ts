@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { decodeBase64 } from '@/encryption/base64';
 import { encryptBox } from '@/encryption/libsodium';
-import { authAccountApprove } from '@/auth/authAccountApprove';
+import { AccountLinkApprovalError, authAccountApprove } from '@/auth/authAccountApprove';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 
@@ -36,8 +36,25 @@ export function useConnectAccount(options?: UseConnectAccountOptions) {
             ]);
             return true;
         } catch (e) {
-            console.error(e);
-            Modal.alert(t('common.error'), t('modals.failedToLinkDevice'), [{ text: t('common.ok') }]);
+            if (e instanceof AccountLinkApprovalError) {
+                console.error('Account link approval failed', {
+                    code: e.code,
+                    publicKeyId: e.publicKeyId,
+                    server: e.server,
+                    status: e.status,
+                });
+                const message = e.code === 'request-not-found'
+                    ? t('modals.accountLinkRequestNotFound', { server: e.server })
+                    : e.code === 'unauthorized'
+                        ? t('modals.accountLinkUnauthorized', { server: e.server })
+                        : e.code === 'network'
+                            ? t('modals.accountLinkNetworkError', { server: e.server })
+                            : t('modals.accountLinkServerError', { server: e.server, status: e.status ?? 0 });
+                Modal.alert(t('common.error'), message, [{ text: t('common.ok') }]);
+            } else {
+                console.error('Account link failed before server approval', { code: 'client-error' });
+                Modal.alert(t('common.error'), t('modals.failedToLinkDevice'), [{ text: t('common.ok') }]);
+            }
             options?.onError?.(e);
             return false;
         } finally {

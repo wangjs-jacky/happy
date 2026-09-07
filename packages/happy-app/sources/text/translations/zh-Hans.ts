@@ -2038,6 +2038,10 @@ export const zhHans: TranslationStructure = {
         failedToConnectTerminal: '连接终端失败',
         cameraPermissionsRequiredToConnectTerminal: '连接终端需要相机权限',
         failedToLinkDevice: '链接设备失败',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `在 ${server} 上找不到这次绑定请求。请确认两台设备使用同一服务器，在新设备上重新打开二维码后再试。`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `当前设备在 ${server} 的登录已过期。请重新登录后再绑定设备。`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `无法连接 ${server}。请检查网络和服务器地址后重试。`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} 拒绝了绑定请求（HTTP ${status || '未知'}）。请重新打开二维码后再试。`,
         cameraPermissionsRequiredToScanQr: '扫描二维码需要相机权限'
     },
 

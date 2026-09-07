@@ -1439,6 +1439,10 @@ export const ru: TranslationStructure = {
         failedToConnectTerminal: 'Не удалось подключить терминал',
         cameraPermissionsRequiredToConnectTerminal: 'Для подключения терминала требуется доступ к камере',
         failedToLinkDevice: 'Не удалось связать устройство',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `Запрос не найден на ${server}. Убедитесь, что оба устройства используют один сервер, заново откройте QR-код и повторите попытку.`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `Сеанс на ${server} истёк. Войдите снова и повторите привязку.`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `Не удалось подключиться к ${server}. Проверьте сеть и адрес сервера.`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} отклонил запрос (HTTP ${status || 'unknown'}). Заново откройте QR-код и повторите попытку.`,
         cameraPermissionsRequiredToScanQr: 'Для сканирования QR-кодов требуется доступ к камере'
     },
 

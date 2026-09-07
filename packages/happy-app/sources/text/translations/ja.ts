@@ -1436,6 +1436,10 @@ export const ja: TranslationStructure = {
         failedToConnectTerminal: 'ターミナルの接続に失敗しました',
         cameraPermissionsRequiredToConnectTerminal: 'ターミナルの接続にはカメラの権限が必要です',
         failedToLinkDevice: 'デバイスのリンクに失敗しました',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `${server} にリンク要求がありません。両方のデバイスが同じサーバーを使用していることを確認し、新しいデバイスでQRコードを開き直してください。`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `${server} のログイン期限が切れています。再度ログインしてからリンクしてください。`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `${server} に接続できません。ネットワークとサーバーアドレスを確認してください。`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} がリンク要求を拒否しました（HTTP ${status || 'unknown'}）。QRコードを開き直して再試行してください。`,
         cameraPermissionsRequiredToScanQr: 'QRコードのスキャンにはカメラの権限が必要です'
     },
 

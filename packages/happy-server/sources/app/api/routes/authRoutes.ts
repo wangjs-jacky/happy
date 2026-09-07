@@ -224,12 +224,17 @@ export function authRoutes(app: Fastify) {
         const publicKey = privacyKit.decodeBase64(request.body.publicKey);
         const isValid = tweetnacl.box.publicKeyLength === publicKey.length;
         if (!isValid) {
+            log({ module: 'account-auth-response', userId: request.userId }, 'Rejected account link approval: invalid public key');
             return reply.code(401).send({ error: 'Invalid public key' });
         }
+        const publicKeyHex = privacyKit.encodeHex(publicKey);
+        const publicKeyId = request.body.publicKey.slice(0, 16);
+        log({ module: 'account-auth-response', userId: request.userId, publicKeyId }, 'Account link approval received');
         const authRequest = await db.accountAuthRequest.findUnique({
-            where: { publicKey: privacyKit.encodeHex(publicKey) }
+            where: { publicKey: publicKeyHex }
         });
         if (!authRequest) {
+            log({ module: 'account-auth-response', userId: request.userId, publicKeyId }, 'Rejected account link approval: request not found');
             return reply.code(404).send({ error: 'Request not found' });
         }
         if (!authRequest.response) {
@@ -237,6 +242,14 @@ export function authRoutes(app: Fastify) {
                 where: { id: authRequest.id },
                 data: { response: request.body.response, responseAccountId: request.userId }
             });
+            log({ module: 'account-auth-response', userId: request.userId, publicKeyId }, 'Account link approval completed');
+        } else {
+            log({
+                module: 'account-auth-response',
+                userId: request.userId,
+                publicKeyId,
+                sameAccount: authRequest.responseAccountId === request.userId,
+            }, 'Account link approval already completed');
         }
         return reply.send({ success: true });
     });
