@@ -81,6 +81,11 @@ import { storage } from './storage';
 import { Encryption } from './encryption/encryption';
 import { EncryptionCache } from './encryption/encryptionCache';
 import * as sessionFallbackTitle from './sessionFallbackTitle';
+import { Platform } from 'react-native';
+import { fetchSessionChanges } from './apiSessionChanges';
+import { loadSessionWarmCache, saveSessionWarmSnapshots } from './sessionWarmCache';
+
+vi.mock('./apiSessionChanges', () => ({ fetchSessionChanges: vi.fn() }));
 
 const subject = sync as any;
 function deferred<T>() {
@@ -110,6 +115,7 @@ function encryption() {
 }
 beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(Platform, { OS: 'web' });
     subject.credentials = { token: 'synthetic-auth' };
     subject.encryption = encryption();
     storage.setState({ sessions: {}, sessionMessages: {}, currentViewingSessionId: null });
@@ -127,6 +133,10 @@ beforeEach(() => {
     subject.historyWindows.clear();
     subject.historyWindowLoads.clear();
     subject.localHistory = null;
+    subject.nativeHistoryCursor = undefined;
+    subject.changesInFlight = null;
+    subject.sessionWarmCacheAccountKey = null;
+    vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'unsupported' });
     subject.sessionsSync = { awaitQueue: async () => undefined };
     mocks.fetchSnapshot.mockResolvedValue(snapshot());
     mocks.apiRequest.mockResolvedValue({ ok: true, json: async () => ({ messages: [], hasMore: false }) });
@@ -134,6 +144,139 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real session writer composition', () => {
+    it('resolves a cached deleted session as not-found and evicts its warm snapshot', async () => {
+        subject.sessionWarmCacheAccountKey = 'https://test|deleted-route';
+        await sync.ensureSessionHydrated('writer-session');
+        saveSessionWarmSnapshots(subject.sessionWarmCacheAccountKey, [snapshot()]);
+        mocks.apiRequest.mockResolvedValue({ ok: false, status: 404 });
+
+        expect(await sync.openSession('writer-session')).toBe('not-found');
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(subject.encryption.getSessionEncryption('writer-session')).toBeNull();
+        expect(loadSessionWarmCache(subject.sessionWarmCacheAccountKey).snapshots).toEqual([]);
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([401, 500])('retains a cached session after a transient or authentication error (%s)', async status => {
+        await sync.ensureSessionHydrated('writer-session');
+        mocks.apiRequest.mockResolvedValue({ ok: false, status });
+        await expect(sync.openSession('writer-session')).rejects.toThrow(String(status));
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+    });
+
+    it('does not let an abandoned route 404 delete a newer route', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const response = deferred<any>();
+        mocks.apiRequest.mockReturnValueOnce(response.promise);
+        const old = sync.openSession('writer-session');
+        const abandoned = expect(old).rejects.toThrow('Session route abandoned');
+        expect(await sync.openSession('writer-session')).toBe('ready');
+        response.resolve({ ok: false, status: 404 });
+        await abandoned;
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+    });
+
+    it('reconciles missed native deletes across pages even when the ordinary list omits old sessions', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        subject.sessionWarmCacheAccountKey = 'https://test|native-delete';
+        await sync.ensureSessionHydrated('writer-session');
+        saveSessionWarmSnapshots(subject.sessionWarmCacheAccountKey, [snapshot()]);
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ sessions: [] }) })));
+        vi.mocked(fetchSessionChanges)
+            .mockResolvedValueOnce({ kind: 'page', changes: [], nextCursor: 'page-1', hasMore: true })
+            .mockResolvedValueOnce({ kind: 'page', changes: [{ sessionId: 'writer-session', revision: '2', deleted: true,
+                lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: 'page-2', hasMore: false });
+
+        await subject.fetchSessions();
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+        expect(loadSessionWarmCache(subject.sessionWarmCacheAccountKey).snapshots).toEqual([]);
+        vi.mocked(fetchSessionChanges).mockResolvedValueOnce({ kind: 'page', changes: [], nextCursor: 'page-2', hasMore: false });
+        await subject.reconcileHistory();
+        expect(vi.mocked(fetchSessionChanges).mock.calls.map(call => call[1])).toEqual([undefined, 'page-1', 'page-2']);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps native history absent from a page, and only removes it after a point lookup confirms 404', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [], nextCursor: 'empty', hasMore: false });
+        await subject.reconcileHistory();
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        subject.nativeHistoryCursor = undefined;
+        mocks.fetchSnapshot.mockResolvedValue(null);
+        await subject.reconcileHistory();
+        expect(storage.getState().sessions['writer-session']).toBeUndefined();
+    });
+
+    it('does not apply an old native reconciliation after switching accounts', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        const page = deferred<any>();
+        vi.mocked(fetchSessionChanges).mockReturnValue(page.promise);
+        const pending = subject.reconcileHistory();
+        subject.encryption = encryption();
+        await sync.ensureSessionHydrated('writer-session');
+        page.resolve({ kind: 'page', changes: [{ sessionId: 'writer-session', revision: '2', deleted: true,
+            lastMessageSeq: 2, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: 'foreign', hasMore: false });
+        await pending;
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        expect(subject.nativeHistoryCursor).toBeUndefined();
+    });
+
+    it('refreshes an archived native session outside the recent list without removing its history', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        const current = subject.encryption.getSessionEncryption('writer-session') as any;
+        current.encryptor.decrypt = async () => [{ path: 'synthetic-directory', host: 'synthetic-host', lifecycleState: 'archived' }];
+        mocks.fetchSnapshot.mockResolvedValue(snapshot({ metadataVersion: 2 }));
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{ sessionId: 'writer-session', revision: '2', deleted: false,
+            lastMessageSeq: 2, metadataVersion: 2, agentStateVersion: 0 }], nextCursor: 'archived', hasMore: false });
+        await subject.reconcileHistory();
+        expect(storage.getState().sessions['writer-session'].metadata?.lifecycleState).toBe('archived');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
+
+    it('does not advance a native cursor past a failed refresh and replays it on retry', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        subject.nativeHistoryCursor = 'previous';
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{ sessionId: 'writer-session', revision: '2', deleted: false,
+            lastMessageSeq: 2, metadataVersion: 2, agentStateVersion: 0 }], nextCursor: 'next', hasMore: false });
+        mocks.fetchSnapshot.mockRejectedValueOnce(new Error('offline'));
+        await expect(subject.reconcileHistory()).rejects.toThrow('offline');
+        expect(subject.nativeHistoryCursor).toBe('previous');
+        mocks.fetchSnapshot.mockResolvedValue(snapshot({ metadataVersion: 2 }));
+        await subject.reconcileHistory();
+        expect(storage.getState().sessions['writer-session'].metadataVersion).toBe(2);
+        expect(subject.nativeHistoryCursor).toBe('next');
+    });
+
+    it('replays a reset native cursor without treating absent IDs as deletion', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        subject.nativeHistoryCursor = 'expired';
+        vi.mocked(fetchSessionChanges)
+            .mockResolvedValueOnce({ kind: 'reset' })
+            .mockResolvedValueOnce({ kind: 'page', changes: [], nextCursor: 'reset', hasMore: false });
+        await subject.reconcileHistory();
+        expect(storage.getState().sessions['writer-session']).toBeDefined();
+        expect(vi.mocked(fetchSessionChanges).mock.calls.map(call => call[1])).toEqual(['expired', undefined]);
+        expect(subject.nativeHistoryCursor).toBe('reset');
+    });
+
+    it('retains the native cursor when a changed snapshot cannot be decrypted', async () => {
+        Object.assign(Platform, { OS: 'android' });
+        await sync.ensureSessionHydrated('writer-session');
+        subject.nativeHistoryCursor = 'previous';
+        vi.mocked(fetchSessionChanges).mockResolvedValue({ kind: 'page', changes: [{ sessionId: 'writer-session', revision: '2', deleted: false,
+            lastMessageSeq: 2, metadataVersion: 2, agentStateVersion: 0 }], nextCursor: 'next', hasMore: false });
+        vi.spyOn(subject.encryption, 'decryptEncryptionKey').mockResolvedValue(null);
+        mocks.fetchSnapshot.mockResolvedValue(snapshot({ metadataVersion: 2, dataEncryptionKey: 'unreadable' }));
+        await expect(subject.reconcileHistory()).rejects.toThrow('snapshot');
+        expect(subject.nativeHistoryCursor).toBe('previous');
+        expect(storage.getState().sessions['writer-session'].metadataVersion).toBe(1);
+    });
+
     it('does not publish unchanged foreground snapshots to sidebar subscribers', async () => {
         await sync.ensureSessionHydrated('writer-session');
         const existing = storage.getState().sessions['writer-session'];

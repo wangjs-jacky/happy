@@ -526,6 +526,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, retryGeneration, isFocused]);
 
+    const hadSession = React.useRef(!!session);
+    React.useEffect(() => {
+        if (session) hadSession.current = true;
+        // This content is keyed by sessionId. Once hydrated, losing its store
+        // entry is a terminal removal, not another initial load. The opening
+        // promise may already have resolved before a background tombstone lands.
+        else if (hadSession.current) setSessionResolution('not-found');
+    }, [session]);
+
     React.useEffect(() => {
         markSessionCriticalPathAppStage('web.route.mounted');
     }, [sessionId]);
