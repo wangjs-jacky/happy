@@ -5,7 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { type SessionState, getSessionStateLabel } from '@/utils/sessionUtils';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
-import { storage, type SessionRowData, useAllMachines, useSetting } from '@/sync/storage';
+import { storage, type SessionRowData, useAllMachines, useLocalSettingMutable, useLocalSettingUpdater, useSetting } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -25,6 +25,7 @@ import { sync } from '@/sync/sync';
 import { loadPendingPermissionMessageId } from '@/utils/pendingPermission';
 import { ProjectSectionHeader } from './ProjectSectionHeader';
 import { partitionSessionsByPinnedOrder } from '@/utils/sessionPinning';
+import { isSidebarGroupExpanded, setSidebarGroupExpanded } from '@/utils/sidebarGroupExpansion';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean }> = {
     idle: { color: '#6B7280', dotColor: '#9CA3AF', isPulsing: false },
@@ -100,7 +101,8 @@ export function ActiveSessionsGroupCompact({
         () => buildSessionNavigationTimeGroups(partitionedSessions.regular),
         [localDayIndex, partitionedSessions.regular],
     );
-    const [collapsedProjects, setCollapsedProjects] = React.useState<Set<string>>(() => new Set());
+    const [sidebarGroupExpansion] = useLocalSettingMutable('sidebarGroupExpansion');
+    const updateSidebarGroupExpansion = useLocalSettingUpdater('sidebarGroupExpansion');
 
     const selectedProjectKey = React.useMemo(() => {
         if (!selectedSessionId) return null;
@@ -119,25 +121,21 @@ export function ActiveSessionsGroupCompact({
     // accent marker preserves the active context while collapsed.
     React.useEffect(() => {
         if (!selectedProjectKey) return;
-        setCollapsedProjects((current) => {
-            if (!current.has(selectedProjectKey)) return current;
-            const next = new Set(current);
-            next.delete(selectedProjectKey);
-            return next;
-        });
-    }, [selectedProjectKey]);
+        updateSidebarGroupExpansion((current) => setSidebarGroupExpanded(
+            current,
+            'projects',
+            selectedProjectKey,
+            true,
+            true,
+        ));
+    }, [selectedProjectKey, updateSidebarGroupExpansion]);
 
     const toggleProject = React.useCallback((projectKey: string) => {
-        setCollapsedProjects((current) => {
-            const next = new Set(current);
-            if (next.has(projectKey)) {
-                next.delete(projectKey);
-            } else {
-                next.add(projectKey);
-            }
-            return next;
+        updateSidebarGroupExpansion((current) => {
+            const expanded = isSidebarGroupExpanded(current, 'projects', projectKey, true);
+            return setSidebarGroupExpanded(current, 'projects', projectKey, !expanded, true);
         });
-    }, []);
+    }, [updateSidebarGroupExpansion]);
 
     const getTimeGroupLabel = React.useCallback((dayOffset: number) => {
         if (dayOffset === 0) return t('sessionHistory.today');
@@ -176,7 +174,12 @@ export function ActiveSessionsGroupCompact({
                         {machineGroup.projects.map((projectGroup, projectIndex) => {
                             const firstSession = projectGroup.sessions[0];
                             if (!firstSession) return null;
-                            const expanded = !collapsedProjects.has(projectGroup.key);
+                            const expanded = isSidebarGroupExpanded(
+                                sidebarGroupExpansion,
+                                'projects',
+                                projectGroup.key,
+                                true,
+                            );
                             const current = projectGroup.key === selectedProjectKey;
                             const selectedSession = selectedSessionId
                                 ? projectGroup.sessions.find((candidate) => candidate.id === selectedSessionId)

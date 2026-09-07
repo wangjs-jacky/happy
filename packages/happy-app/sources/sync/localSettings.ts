@@ -61,6 +61,7 @@ export const LocalSettingsSchema = z.object({
     desktopSidebarMode: z.enum(['projects', 'lists', 'timeline', 'archive']).describe('Desktop session sidebar primary mode'),
     desktopSidebarListMode: z.enum(['projects', 'lists', 'timeline']).describe('Last desktop session-list view'),
     sidebarUnassignedExpanded: z.boolean().describe('Whether the device-local Unassigned session list is expanded'),
+    sidebarGroupExpansion: z.record(z.string(), z.boolean()).describe('Device-local expansion overrides for sidebar groups'),
     sidebarOrganization: SidebarOrganizationSchema.describe('Legacy device-local session Lists and Tags, retained for account-sync migration'),
     // 「Agent 空间模式」：进入某个「我的 Agent」后，左侧侧栏收敛为该 Agent 的专属工作台
     // （仅本空间会话 + 预设快捷指令 + 退出空间）。存 agent id；null 为全局视图。刻意放设备本地、
@@ -122,6 +123,7 @@ export const localSettingsDefaults: LocalSettings = {
     desktopSidebarMode: 'projects',
     desktopSidebarListMode: 'projects',
     sidebarUnassignedExpanded: false,
+    sidebarGroupExpansion: {},
     sidebarOrganization: {
         lists: [],
         tags: [],
@@ -257,6 +259,10 @@ export function localSettingsParse(settings: unknown): LocalSettings {
                 : parsed.data.sessionListLayout === 'time'
                     ? 'timeline'
                     : localSettingsDefaults.desktopSidebarListMode),
+        sidebarGroupExpansion: parsed.data.sidebarGroupExpansion
+            ?? (parsed.data.sidebarUnassignedExpanded
+                ? { 'lists:unassigned': true }
+                : localSettingsDefaults.sidebarGroupExpansion),
         relationshipAdvisorConversations: limitRelationshipAdvisorConversations(
             parsed.data.relationshipAdvisorConversations ?? localSettingsDefaults.relationshipAdvisorConversations,
         ),
