@@ -163,8 +163,8 @@ export class LocalHistory {
                 if (record.deleted || record.change?.deleted) return [];
                 const snapshot = ApiSessionSnapshotSchema.safeParse(record.snapshot);
                 const change = record.change;
-                const pending = snapshot.success && (!change
-                    || change.metadataVersion > snapshot.data.metadataVersion
+                const pending = snapshot.success && !!change
+                    && (change.metadataVersion > snapshot.data.metadataVersion
                     || change.agentStateVersion > snapshot.data.agentStateVersion);
                 return pending ? [record.id] : [];
             });

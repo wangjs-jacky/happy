@@ -73,6 +73,12 @@ describe('local encrypted history archive', () => {
         expect(await b.readChange('unseen')).toBeNull();
         expect((await b.readChange('gone'))?.deleted).toBe(true);
     });
+    it('does not schedule valid cached snapshots without a newer recorded change', async () => {
+        const a = (await openLocalHistory('unchanged'))!;
+        await a.writeSnapshots(Array.from({ length: 174 }, (_, index) => snapshot(`cached-${index}`)));
+
+        expect(await a.listSnapshotRefreshIds()).toEqual([]);
+    });
     it('does not publish partial coverage or cursor when a transaction cannot clone a record', async () => {
         const a = await openLocalHistory('server|a');
         const invalid = { ...message(1), extra: () => {} };
