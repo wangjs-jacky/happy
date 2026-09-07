@@ -1435,6 +1435,10 @@ export const ca: TranslationStructure = {
         failedToConnectTerminal: 'Ha fallat connectar el terminal',
         cameraPermissionsRequiredToConnectTerminal: 'Es requereixen permisos de càmera per connectar el terminal',
         failedToLinkDevice: 'Ha fallat enllaçar el dispositiu',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `No s'ha trobat la sol·licitud a ${server}. Confirma que tots dos dispositius utilitzen el mateix servidor, torna a obrir el codi QR i prova-ho de nou.`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `La sessió a ${server} ha caducat. Torna a iniciar sessió i prova-ho de nou.`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `No s'ha pogut connectar amb ${server}. Comprova la xarxa i l'adreça del servidor.`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} ha rebutjat la sol·licitud (HTTP ${status || 'unknown'}). Torna a obrir el codi QR i prova-ho de nou.`,
         cameraPermissionsRequiredToScanQr: 'Es requereixen permisos de càmera per escanejar codis QR'
     },
 

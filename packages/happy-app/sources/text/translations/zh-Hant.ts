@@ -1544,6 +1544,10 @@ export const zhHant: TranslationStructure = {
         failedToConnectTerminal: '連線終端失敗',
         cameraPermissionsRequiredToConnectTerminal: '連線終端需要相機權限',
         failedToLinkDevice: '連結裝置失敗',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `在 ${server} 找不到這次連結請求。請確認兩台裝置使用相同伺服器，在新裝置重新開啟 QR Code 後再試。`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `目前裝置在 ${server} 的登入已過期。請重新登入後再連結裝置。`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `無法連線 ${server}。請檢查網路和伺服器位址後重試。`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} 拒絕了連結請求（HTTP ${status || '未知'}）。請重新開啟 QR Code 後再試。`,
         cameraPermissionsRequiredToScanQr: '掃描 QR Code 需要相機權限'
     },
 

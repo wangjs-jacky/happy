@@ -1433,6 +1433,10 @@ export const it: TranslationStructure = {
         failedToConnectTerminal: 'Impossibile connettere il terminale',
         cameraPermissionsRequiredToConnectTerminal: 'Sono necessarie le autorizzazioni della fotocamera per connettere il terminale',
         failedToLinkDevice: 'Impossibile collegare il dispositivo',
+        accountLinkRequestNotFound: ({ server }: { server: string }) => `La richiesta non è stata trovata su ${server}. Verifica che entrambi i dispositivi usino lo stesso server, riapri il codice QR e riprova.`,
+        accountLinkUnauthorized: ({ server }: { server: string }) => `L'accesso a ${server} è scaduto. Accedi di nuovo e riprova.`,
+        accountLinkNetworkError: ({ server }: { server: string }) => `Impossibile raggiungere ${server}. Controlla la rete e l'indirizzo del server.`,
+        accountLinkServerError: ({ server, status }: { server: string; status: number }) => `${server} ha rifiutato la richiesta (HTTP ${status || 'unknown'}). Riapri il codice QR e riprova.`,
         cameraPermissionsRequiredToScanQr: 'Sono necessarie le autorizzazioni della fotocamera per scansionare i codici QR'
     },
 
