@@ -13,7 +13,8 @@ vi.hoisted(() => {
 });
 
 const mocks = vi.hoisted(() => ({ apiRequest: vi.fn(), fetchActive: vi.fn(), fetchPage: vi.fn(), fetchSnapshot: vi.fn() }));
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
@@ -275,6 +276,26 @@ describe('real session writer composition', () => {
         await expect(subject.reconcileHistory()).rejects.toThrow('snapshot');
         expect(subject.nativeHistoryCursor).toBe('previous');
         expect(storage.getState().sessions['writer-session'].metadataVersion).toBe(1);
+    });
+
+    it('publishes a decrypted page in three bounded store updates and skips the unchanged replay', async () => {
+        const rows = Array.from({ length: 25 }, (_, index) => snapshot({ id: `store-batch-${index}` }));
+        const publications: number[] = [];
+        const unsubscribe = storage.subscribe((state, previous) => {
+            if (state.sessionsData === previous.sessionsData) return;
+            publications.push(Object.keys(state.sessions).length);
+            for (const id of Object.keys(state.sessions)) expect(subject.encryption.getSessionEncryption(id)).not.toBeNull();
+        });
+        let between = 0;
+        const timer = setTimeout(() => { between = Object.keys(storage.getState().sessions).length; }, 0);
+        try {
+            await subject.writeSessionSnapshots(async () => rows, { replace: false }, undefined, false);
+            expect(publications).toEqual([10, 20, 25]);
+            expect(between).toBe(10);
+            expect(Object.keys(storage.getState().sessions)).toHaveLength(25);
+            await subject.writeSessionSnapshots(async () => rows, { replace: false }, undefined, false);
+            expect(publications).toEqual([10, 20, 25]);
+        } finally { clearTimeout(timer); unsubscribe(); }
     });
 
     it('does not publish unchanged foreground snapshots to sidebar subscribers', async () => {

@@ -119,7 +119,8 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,

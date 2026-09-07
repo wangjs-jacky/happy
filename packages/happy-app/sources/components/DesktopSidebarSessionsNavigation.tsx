@@ -59,6 +59,7 @@ import { CompactSessionRow } from './ActiveSessionsGroupCompact';
 import { useSessionManagementPreferences } from '@/hooks/useSessionManagementPreferences';
 import { partitionSessionsByPinnedOrder } from '@/utils/sessionPinning';
 import { SessionHistoryList } from './SessionHistoryList';
+import { SessionListRecovery } from './SessionListRecovery';
 
 const AGENT_TYPES = ['codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
 const AGENT_LABEL_KEYS = {
@@ -398,6 +399,7 @@ function SidebarSessionsNavigationContent() {
                     );
                 })}
             </View>
+            <SessionListRecovery />
             {mode === 'history'
                 ? <SessionHistoryList variant="sidebar" />
                 : mode === 'lists'

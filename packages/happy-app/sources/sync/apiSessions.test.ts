@@ -44,7 +44,35 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe('session snapshot API readers', () => {
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it.each([
+        ['headers', 'active'], ['body', 'active'], ['body', 'page'],
+    ])('settles a stalled %s %s request, aborts resources, and permits retry', async (stage, reader) => {
+        vi.useFakeTimers();
+        let signal: AbortSignal | undefined;
+        vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+            signal = options.signal;
+            if (stage === 'headers') return new Promise(() => {});
+            return { ok: true, json: () => new Promise(() => {}) };
+        }));
+        let outcome = 'pending';
+        const read = () => reader === 'page' ? fetchSessionSnapshotPage(credentials, { limit: 25 })
+            : fetchActiveSessionSnapshots(credentials, 25);
+        const request = read().then(
+            () => { outcome = 'success'; }, () => { outcome = 'failed'; },
+        );
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(outcome).toBe('failed');
+        await request;
+        expect(signal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+        const body = { sessions: [sessionSnapshot('retried')], nextCursor: null, hasNext: false };
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(body)));
+        await expect(read()).resolves.toEqual(reader === 'page' ? body : body.sessions);
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     it('fetches and validates one encoded session id', async () => {
@@ -58,6 +86,7 @@ describe('session snapshot API readers', () => {
         expect(fetchMock).toHaveBeenCalledWith(
             'https://api.test/v2/sessions/session%2Fwith%20spaces',
             {
+                signal: expect.any(AbortSignal),
                 headers: {
                     Authorization: 'Bearer test-token',
                     'Content-Type': 'application/json',
@@ -86,7 +115,7 @@ describe('session snapshot API readers', () => {
         ]);
         expect(fetchMock).toHaveBeenCalledWith(
             'https://api.test/v2/sessions/active?limit=25',
-            { headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) },
+            { headers: expect.objectContaining({ Authorization: 'Bearer test-token' }), signal: expect.any(AbortSignal) },
         );
     });
 
@@ -109,7 +138,7 @@ describe('session snapshot API readers', () => {
         });
         expect(fetchMock).toHaveBeenCalledWith(
             'https://api.test/v2/sessions?cursor=cursor_v1_current&limit=50&changedSince=1700000000000',
-            { headers: expect.objectContaining({ 'X-Happy-Client': 'test-client' }) },
+            { headers: expect.objectContaining({ 'X-Happy-Client': 'test-client' }), signal: expect.any(AbortSignal) },
         );
     });
 

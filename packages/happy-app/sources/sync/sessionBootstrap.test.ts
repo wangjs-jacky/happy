@@ -80,7 +80,8 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('./apiSessions', () => ({
+vi.mock('./apiSessions', async importOriginal => ({
+    ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
@@ -145,6 +146,7 @@ vi.mock('expo-secure-store', () => ({
 }));
 
 import { sync } from './sync';
+import { useSessionListSyncState } from './sessionListSyncState';
 
 const syncForTest = sync as any;
 const originalSessionsSync = syncForTest.sessionsSync;
@@ -268,6 +270,149 @@ describe('active-first session bootstrap', () => {
         expect(mocks.state.sessions['active-session']).toMatchObject({ id: 'active-session' });
         expect(mocks.state.sessions['cached-session']).toMatchObject({ id: 'cached-session' });
         expect(history.settled).toBe(false);
+    });
+
+    it('publishes a complete page in bounded batches and lets another task run between them', async () => {
+        const notifications: number[] = [];
+        const apply = mocks.state.applySessions;
+        const observer = vi.spyOn(mocks.state, 'applySessions').mockImplementation((...args) => {
+            apply(...args);
+            notifications.push(Object.keys(mocks.state.sessions).length);
+        });
+        let visibleBetweenChunks = 0;
+        const timer = setTimeout(() => { visibleBetweenChunks = Object.keys(mocks.state.sessions).length; }, 0);
+        mocks.fetchActive.mockResolvedValue(Array.from({ length: 25 }, (_, index) => snapshot(`batch-${index}`)));
+        try {
+            await syncForTest.bootstrapSessions();
+            expect(Object.keys(mocks.state.sessions)).toHaveLength(25);
+            expect(notifications.length).toBeLessThan(25);
+            expect(Math.max(...notifications.map((count, index) => count - (notifications[index - 1] ?? 0)))).toBeLessThanOrEqual(10);
+            expect(visibleBetweenChunks).toBeGreaterThan(0);
+            expect(visibleBetweenChunks).toBeLessThan(25);
+            const beforeRepeat = notifications.length;
+            // Production storage derives presence even though API snapshots omit it.
+            Object.values(mocks.state.sessions).forEach(session => { session.presence = 'online'; });
+            await syncForTest.bootstrapSessions();
+            expect(notifications).toHaveLength(beforeRepeat);
+        } finally { clearTimeout(timer); observer.mockRestore(); }
+    });
+
+    it('settles failed bootstrap callers and releases one shared attempt for explicit retry', async () => {
+        vi.useFakeTimers();
+        mocks.state.sessions.cached = hydrated(snapshot('cached'));
+        mocks.fetchActive.mockRejectedValueOnce(new Error('offline'));
+        let settled = 0;
+        const requests = [syncForTest.bootstrapSessions(), syncForTest.bootstrapSessions()];
+        requests.forEach(request => request.then(() => { settled++; }));
+        try {
+            await vi.advanceTimersByTimeAsync(0);
+            expect(settled).toBe(2);
+            expect(useSessionListSyncState.getState().bootstrap).toBe('error');
+            expect(mocks.fetchActive).toHaveBeenCalledTimes(1);
+            expect(mocks.state.sessions.cached).toBeDefined();
+            mocks.fetchActive.mockResolvedValue([snapshot('retried')]);
+            await syncForTest.bootstrapSessions();
+            expect(mocks.state.sessions.retried).toBeDefined();
+            expect(useSessionListSyncState.getState().bootstrap).toBe('ready');
+            expect(mocks.state.sessions.cached).toBeDefined();
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('defers automatic history until idle and lets manual pagination consume its scheduled page', async () => {
+        const idle: Array<() => void> = [];
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle.push(callback); return 1; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await syncForTest.bootstrapSessions();
+        const automatic = syncForTest.sessionRouteBecameInteractive();
+        expect(mocks.fetchPage).not.toHaveBeenCalled();
+        await syncForTest.loadNextSessionHistoryPage();
+        idle.forEach(callback => callback());
+        await automatic;
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['deletion', 'account', 'newer snapshot'])('fences a %s arriving while a batch yields', async (change) => {
+        const rows = Array.from({ length: 12 }, (_, index) => snapshot(`race-${index}`));
+        mocks.fetchActive.mockResolvedValue(rows);
+        const timer = setTimeout(() => {
+            if (change === 'deletion') {
+                syncForTest.sessionDeletionMutationGenerations.set('race-11', ++syncForTest.sessionMutationGeneration);
+            } else if (change === 'account') {
+                syncForTest.encryption = { ...syncForTest.encryption };
+                mocks.state.sessions = {};
+            } else {
+                syncForTest.applySessions([hydrated(snapshot('race-11', { seq: 99, metadataVersion: 99, metadata: 'winner', updatedAt: 99 }))]);
+            }
+        }, 0);
+        try {
+            await syncForTest.bootstrapSessions();
+            if (change === 'newer snapshot') {
+                expect(mocks.state.sessions['race-11']).toMatchObject({ seq: 99, metadataVersion: 99, metadata: { name: 'winner' } });
+            } else {
+                expect(mocks.state.sessions['race-11']).toBeUndefined();
+                if (change === 'account') expect(Object.keys(mocks.state.sessions)).toHaveLength(0);
+            }
+        } finally { clearTimeout(timer); }
+    });
+
+    it('does not let a stale scheduled history task fetch for a different account', async () => {
+        const idle: Array<() => void> = [];
+        vi.stubGlobal('requestIdleCallback', (callback: () => void) => { idle.push(callback); return idle.length; });
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await syncForTest.bootstrapSessions();
+        const old = syncForTest.sessionRouteBecameInteractive();
+        syncForTest.encryption = { ...syncForTest.encryption };
+        await syncForTest.bootstrapSessions();
+        idle.forEach(callback => callback());
+        await old;
+        expect(mocks.fetchPage).not.toHaveBeenCalled();
+        expect(useSessionListSyncState.getState().history).toBe('idle');
+    });
+
+    it('keeps deferred deletion reconciliation when manual history consumes the scheduled work', async () => {
+        vi.stubGlobal('requestIdleCallback', () => 1);
+        vi.stubGlobal('cancelIdleCallback', vi.fn());
+        await syncForTest.bootstrapSessions();
+        const history = { captureSessionFence: () => ({}), isFenceCurrent: () => true };
+        syncForTest.localHistory = history;
+        let reconciled = false;
+        const reconcile = vi.spyOn(syncForTest, 'reconcileHistory').mockImplementation(async () => { reconciled = true; });
+        const scheduled = syncForTest.sessionRouteBecameInteractive();
+        try {
+            await syncForTest.loadNextSessionHistoryPage();
+            await scheduled;
+            expect(reconciled).toBe(true);
+        } finally { syncForTest.localHistory = null; reconcile.mockRestore(); }
+    });
+
+    it('does not persist a first-batch row deleted during the next yield', async () => {
+        mocks.fetchActive.mockResolvedValue(Array.from({ length: 12 }, (_, index) => snapshot(`deleted-${index}`)));
+        const timer = setTimeout(() => {
+            delete mocks.state.sessions['deleted-0'];
+            syncForTest.sessionDeletionMutationGenerations.set('deleted-0', ++syncForTest.sessionMutationGeneration);
+        }, 0);
+        try {
+            await syncForTest.bootstrapSessions();
+            expect(loadSessionWarmCache('warm-account').snapshots.map(item => item.id)).not.toContain('deleted-0');
+        } finally { clearTimeout(timer); }
+    });
+
+    it('retains live thinking updates even if the snapshot versions did not change', () => {
+        mocks.state.sessions.thinking = hydrated(snapshot('thinking'));
+        syncForTest.applySessions([{ ...mocks.state.sessions.thinking, thinking: true }]);
+        expect(mocks.state.sessions.thinking.thinking).toBe(true);
+    });
+
+    it('bounds legacy list fallback body consumption as well', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: () => new Promise(() => {}) })));
+        let outcome = 'pending';
+        const request = syncForTest.fetchSessions().then(() => { outcome = 'ready'; }, () => { outcome = 'failed'; });
+        try {
+            await vi.advanceTimersByTimeAsync(20_000);
+            expect(outcome).toBe('failed');
+            await request;
+        } finally { vi.useRealTimers(); }
     });
 
     it('restores encrypted session and message wire cache before network bootstrap', async () => {

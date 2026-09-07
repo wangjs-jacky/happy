@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
+import { useSessionListSyncState } from '@/sync/sessionListSyncState';
 
 const mocks = vi.hoisted(() => ({
+    bootstrap: vi.fn(),
+    history: vi.fn(),
     confirm: vi.fn(),
     navigate: vi.fn(),
     navigateToSession: vi.fn(),
@@ -19,6 +22,8 @@ const mocks = vi.hoisted(() => ({
     organization: null as any,
     desktopSidebarMode: 'projects',
 }));
+
+vi.mock('@/sync/sync', () => ({ sync: { bootstrapSessions: mocks.bootstrap, loadNextSessionHistoryPage: mocks.history } }));
 
 vi.mock('react-native', async () => {
     const ReactModule = await import('react');
@@ -114,6 +119,8 @@ vi.mock('@/utils/sessionUtils', () => ({ formatPathRelativeToHome: (path: string
 
 describe('DesktopSidebarSessionsNavigation', () => {
     beforeEach(() => {
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        useSessionListSyncState.setState({ bootstrap: 'idle', history: 'idle' });
         vi.clearAllMocks();
         mocks.organization = {
             lists: [
@@ -125,6 +132,23 @@ describe('DesktopSidebarSessionsNavigation', () => {
         };
         mocks.pinnedOrder = [];
         mocks.desktopSidebarMode = 'projects';
+    });
+
+    it.each(['projects', 'lists', 'timeline', 'history'])('exposes recoverable list failure in %s without hiding the current view', (mode) => {
+        mocks.desktopSidebarMode = mode;
+        mocks.bootstrap.mockImplementation(() => {
+            useSessionListSyncState.setState({ bootstrap: 'loading' });
+            return Promise.resolve();
+        });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => { useSessionListSyncState.setState({ bootstrap: 'error' }); });
+        const retry = renderer.root.findAllByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
+        expect(retry.length).toBeGreaterThan(0);
+        expect(renderer.root.findAllByProps({ testID: 'desktop-sidebar-tab-timeline' }).length).toBeGreaterThan(0);
+        act(() => retry[0].props.onPress());
+        expect(useSessionListSyncState.getState().bootstrap).toBe('loading');
+        act(() => renderer.unmount());
     });
 
     it('keeps Projects as default and does not navigate for sidebar-only organization actions', () => {
