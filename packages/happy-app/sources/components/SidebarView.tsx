@@ -684,7 +684,6 @@ export const SidebarView = React.memo(({
     const desktopNavigationRail = (
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
             <DesktopRailItem
-                showLabel={mobileNavigation}
                 icon="add"
                 iconColor={stylesheet.newSessionIcon.color}
                 label={t('sidebar.newSession')}
@@ -692,14 +691,12 @@ export const SidebarView = React.memo(({
                 testID="sidebar-new-session-button"
             />
             <DesktopRailItem
-                showLabel={mobileNavigation}
                 icon="chatbubble-ellipses-outline"
                 label={t('tabs.inbox')}
                 onPress={() => { closeDrawer(); openActivity(); }}
                 testID="sidebar-inbox-button"
             />
             <DesktopRailItem
-                showLabel={mobileNavigation}
                 icon="search-outline"
                 label={t('sidebar.searchSessions')}
                 onPress={openSessionSearch}
@@ -707,13 +704,12 @@ export const SidebarView = React.memo(({
             />
             <View style={styles.desktopRailDivider} />
             <DesktopRailItem
-                showLabel={mobileNavigation}
                 icon="extension-puzzle-outline"
                 label={t('relationshipAdvisorPlugin.marketTitle')}
                 onPress={openPluginMarketplace}
                 testID="sidebar-plugins-button"
             />
-            <DesktopPluginRailItems showLabels={mobileNavigation} selectedPath={mobileNavigation ? (advisorSidebarActive ? '/relationship-advisor' : null) : undefined} onNavigate={(path) => {
+            <DesktopPluginRailItems selectedPath={mobileNavigation ? (advisorSidebarActive ? '/relationship-advisor' : null) : undefined} onNavigate={(path) => {
                 if (mobileNavigation && path === '/relationship-advisor') {
                     setMobilePanel('advisor');
                     return;
@@ -721,7 +717,6 @@ export const SidebarView = React.memo(({
                 go(path);
             }} />
             <DesktopRailItem
-                showLabel={mobileNavigation}
                 icon="people-outline"
                 label={t('agents.cardTitle')}
                 onPress={() => setSheetOpen(true)}
@@ -729,7 +724,6 @@ export const SidebarView = React.memo(({
             />
             {mobileNavigation ? (
                 <DesktopRailItem
-                    showLabel
                     icon="time-outline"
                     label={t('sessionHistory.title')}
                     onPress={openDesktopHistory}

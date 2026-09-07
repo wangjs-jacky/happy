@@ -1,64 +1,13 @@
 import * as React from 'react';
-import { SessionListViewItem, useSessionListViewData, useSetting } from '@/sync/storage';
+import { SessionListViewItem, useSessionListViewData } from '@/sync/storage';
 
 export function useVisibleSessionListViewData(): SessionListViewItem[] | null {
     const data = useSessionListViewData();
-    const hideInactiveSessions = useSetting('hideInactiveSessions');
 
     return React.useMemo(() => {
-        if (!data) {
-            return data;
-        }
-
-        const result: SessionListViewItem[] = [];
-        let hasArchived = false;
-
-        // First pass: add regular sessions and check for explicit lifecycle archives.
-        for (const item of data) {
-            if (item.type === 'active-sessions') {
-                result.push(item);
-            } else if (item.type === 'session' && item.session.archived) {
-                hasArchived = true;
-            }
-        }
-
-        if (hasArchived) {
-            result.push({ type: 'archive-toggle', hidden: hideInactiveSessions });
-        }
-
-        // If not hiding, add all remaining items (headers, project groups, inactive sessions)
-        if (!hideInactiveSessions) {
-            let pendingProjectGroup: SessionListViewItem | null = null;
-
-            for (const item of data) {
-                if (item.type === 'active-sessions') {
-                    continue; // already added
-                }
-
-                if (item.type === 'project-group') {
-                    pendingProjectGroup = item;
-                    continue;
-                }
-
-                if (item.type === 'session') {
-                    if (item.session.archived) {
-                        if (pendingProjectGroup) {
-                            result.push(pendingProjectGroup);
-                            pendingProjectGroup = null;
-                        }
-                        result.push(item);
-                    }
-                    continue;
-                }
-
-                pendingProjectGroup = null;
-
-                if (item.type === 'header') {
-                    result.push(item);
-                }
-            }
-        }
-
-        return result;
-    }, [data, hideInactiveSessions]);
+        // Projects, Lists, and Timeline are all driven from this shared source.
+        // Lifecycle archives belong exclusively to SessionHistoryList, so do not
+        // expose archive rows, their date headers, or their visibility toggle here.
+        return data?.filter((item) => item.type === 'active-sessions') ?? data;
+    }, [data]);
 }

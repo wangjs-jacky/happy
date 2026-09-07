@@ -286,7 +286,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('uses a labeled mobile rail while keeping session views and all entry points', () => {
+    it('uses the compact icon-only rail for mobile session navigation', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -311,8 +311,8 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
         for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'my-agents', 'history', 'plugin-relationship-advisor']) {
             const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === `sidebar-${entry}-button`);
-            expect(button.findAllByType('Text')).toHaveLength(1);
-            expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ minHeight: 56, width: 48 }));
+            expect(button.findAllByType('Text')).toHaveLength(0);
+            expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ height: 44, width: 44 }));
         }
         const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
         const mobileNewSessionGlyph = mobileNewSession.findByProps({ testID: 'sidebar-new-session-glyph' });

@@ -101,24 +101,33 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         [props.messages, browserProgress.runs]);
     const displayItems = useGroupedMessages(transcriptMessages, props.groupToolCalls ?? true, groupingOptions);
     const inverted = props.inverted ?? true;
+    const invertedRef = React.useRef(inverted);
+    invertedRef.current = inverted;
     const isAtLatest = props.isAtLatest ?? true;
     const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
     const attempted = React.useRef(new Set<string>());
     const jumpPending = React.useRef(false);
+    const boundaryAttemptKey = React.useCallback((direction: 'older' | 'newer') => {
+        const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
+        const boundary = renderedBoundary ? props.reading?.wireId(renderedBoundary) ?? renderedBoundary : undefined;
+        return JSON.stringify([props.sessionId, direction, boundary]);
+    }, [props.sessionId, props.messages, props.reading]);
+    const currentBoundaryAttemptKeys = React.useRef<string[]>([]);
+    currentBoundaryAttemptKeys.current = [boundaryAttemptKey('older'), boundaryAttemptKey('newer')];
     const loadBoundary = React.useCallback((direction: 'older' | 'newer', retry = false) => {
         const loading = direction === 'older' ? props.isLoadingOlder : props.isLoadingNewer;
         const more = direction === 'older' ? props.hasMoreOlder : props.hasMoreNewer;
         const error = direction === 'older' ? props.olderError : props.newerError;
         const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
-        const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
-        const boundary = renderedBoundary ? props.reading?.wireId(renderedBoundary) ?? renderedBoundary : undefined;
-        const key = JSON.stringify([props.sessionId, direction, boundary]);
+        const key = boundaryAttemptKey(direction);
         if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
         attempted.current.add(key);
         if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
         load();
-    }, [props.sessionId, props.messages, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
-        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError, props.reading]);
+    }, [boundaryAttemptKey, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
+        props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
+    const loadBoundaryRef = React.useRef(loadBoundary);
+    loadBoundaryRef.current = loadBoundary;
     const listItems = React.useMemo(
         () => (inverted ? displayItems : [...displayItems].reverse()).map(item => ({
             ...item, renderKey: transcriptRenderKey(item, props.reading),
@@ -419,7 +428,16 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
         const handler = (event: WheelEvent) => {
-            handleTranscriptWebWheel(event, node, () => cancelReadingRestoreRef.current());
+            handleTranscriptWebWheel(event, node, () => {
+                for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
+                cancelReadingRestoreRef.current();
+                const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
+                const currentInverted = invertedRef.current;
+                const atOlderBoundary = currentInverted ? maxOffset - node.scrollTop <= 24 : node.scrollTop <= 24;
+                const atNewerBoundary = currentInverted ? node.scrollTop <= 24 : maxOffset - node.scrollTop <= 24;
+                if (event.deltaY < 0 && atOlderBoundary) loadBoundaryRef.current('older');
+                else if (event.deltaY > 0 && atNewerBoundary) loadBoundaryRef.current('newer');
+            });
         };
         node.addEventListener('wheel', handler, { passive: false });
         return () => node.removeEventListener('wheel', handler);

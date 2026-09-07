@@ -1,27 +1,24 @@
 import * as React from 'react';
 import { useSidebarScrollState } from './SidebarScrollState';
-import { FlatList, Platform, Pressable, View } from 'react-native';
+import { FlatList, Platform, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
-import { Avatar } from '@/components/Avatar';
 import { EmptySessionsTablet, shouldShowSessionEmptyState } from '@/components/EmptySessionsTablet';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { storage, useAllSessions, useIsDataReady } from '@/sync/storage';
+import { buildSessionRowData, storage, type SessionRowData, useAllSessions, useIsDataReady } from '@/sync/storage';
 import { sync } from '@/sync/sync';
-import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { isSessionArchived } from '@/utils/sessionLifecycle';
-import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { SessionHistoryScrollIntent } from './sessionHistoryScrollIntent';
+import { CompactSessionRow } from './ActiveSessionsGroupCompact';
 
 type SessionHistoryListVariant = 'page' | 'sidebar';
 
 type SessionHistoryItem =
     | { key: string; type: 'date-header'; date: string }
-    | { key: string; type: 'session'; session: Session };
+    | { key: string; type: 'session'; session: SessionRowData };
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: { flex: 1, minHeight: 0, backgroundColor: theme.colors.groupped.background },
@@ -91,11 +88,11 @@ function formatDateHeader(date: Date): string {
     return t('sessionHistory.daysAgo', { count: diffDays });
 }
 
-function groupSessionsByDate(sessions: Session[]): SessionHistoryItem[] {
+function groupSessionsByDate(sessions: SessionRowData[]): SessionHistoryItem[] {
     const items: SessionHistoryItem[] = [];
     let previousDateKey: string | null = null;
-    for (const session of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)) {
-        const date = new Date(session.updatedAt);
+    for (const session of [...sessions].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))) {
+        const date = new Date(session.updatedAt ?? 0);
         const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
         if (dateKey !== previousDateKey) {
             items.push({ key: `date-${dateKey}`, type: 'date-header', date: formatDateHeader(date) });
@@ -116,11 +113,12 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const safeArea = useSafeAreaInsets();
     const allSessions = useAllSessions();
     const isDataReady = useIsDataReady();
-    const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
     const groupedItems = React.useMemo(
-        () => groupSessionsByDate((allSessions ?? []).filter(isSessionArchived)),
+        () => groupSessionsByDate((allSessions ?? [])
+            .filter(isSessionArchived)
+            .map((session) => buildSessionRowData(session))),
         [allSessions],
     );
     const showEmptyState = shouldShowSessionEmptyState(groupedItems.length);
@@ -149,7 +147,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         void sync.loadNextSessionHistoryPage();
     }, [scrollIntent]);
 
-    const renderItem = React.useCallback(({ item, index }: { item: SessionHistoryItem; index: number }) => {
+    const renderItem = React.useCallback(({ item }: { item: SessionHistoryItem }) => {
         if (item.type === 'date-header') {
             return (
                 <View style={[styles.dateHeader, sidebar && styles.dateHeaderSidebar]}>
@@ -160,43 +158,13 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
 
         const { session } = item;
         const selected = pathname === `/session/${session.id}`;
-        const previousItem = index > 0 ? groupedItems[index - 1] : null;
-        const nextItem = index < groupedItems.length - 1 ? groupedItems[index + 1] : null;
-        const first = previousItem?.type === 'date-header';
-        const last = nextItem?.type === 'date-header' || nextItem == null;
 
         return (
-            <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => navigateToSession(session.id)}
-                style={({ pressed }) => [
-                    styles.sessionCard,
-                    sidebar && styles.sessionCardSidebar,
-                    !sidebar && first && last
-                        ? styles.sessionCardSingle
-                        : !sidebar && first
-                            ? styles.sessionCardFirst
-                            : !sidebar && last
-                                ? styles.sessionCardLast
-                                : null,
-                    selected && styles.sessionCardSelected,
-                    pressed && styles.sessionCardPressed,
-                ]}
-                testID={`session-history-row-${session.id}`}
-            >
-                <Avatar id={getSessionAvatarId(session)} size={sidebar ? 30 : 48} />
-                <View style={[styles.sessionContent, sidebar && styles.sessionContentSidebar]}>
-                    <Text numberOfLines={1} style={[styles.sessionTitle, sidebar && styles.sessionTitleSidebar]}>
-                        {getSessionName(session)}
-                    </Text>
-                    <Text numberOfLines={1} style={[styles.sessionSubtitle, sidebar && styles.sessionSubtitleSidebar]}>
-                        {getSessionSubtitle(session)}
-                    </Text>
-                </View>
-            </Pressable>
+            <View testID={`session-history-row-${session.id}`}>
+                <CompactSessionRow selected={selected} session={session} showLocation />
+            </View>
         );
-    }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
+    }, [pathname, styles]);
 
     const content = showEmptyState
         ? (
