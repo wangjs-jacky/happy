@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
     session: null as any,
+    sessionListeners: new Set<() => void>(),
     messages: [] as any[],
     messagesLoaded: false,
     messagesAtLatest: true,
@@ -94,7 +95,10 @@ vi.mock('@/sync/storage', () => ({
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
     useMachine: () => null,
-    useSession: () => mocks.session,
+    useSession: () => React.useSyncExternalStore(
+        listener => { mocks.sessionListeners.add(listener); return () => { mocks.sessionListeners.delete(listener); }; },
+        () => mocks.session,
+    ),
     useSessionMessages: () => ({
         messages: mocks.messages,
         isLoaded: mocks.messagesLoaded,
@@ -411,6 +415,29 @@ describe('SessionView deep-link hydration', () => {
         expect(mocks.openSession).toHaveBeenCalledTimes(1);
         expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
         expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('shows deleted when background reconciliation removes an already readable session', async () => {
+        mocks.session = {
+            id: 'deleted-while-reading', seq: 3, active: false, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        mocks.messagesLoaded = true;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="deleted-while-reading" />); });
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        await act(async () => {
+            mocks.session = null;
+            mocks.messagesLoaded = false;
+            mocks.sessionListeners.forEach(notify => notify());
+        });
+        expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
 

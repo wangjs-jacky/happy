@@ -338,6 +338,10 @@ class SessionWriteCancelled extends Error {
     constructor() { super('session-write-cancelled'); }
 }
 
+class SessionNotFoundError extends Error {
+    constructor() { super('Session not found'); }
+}
+
 class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
@@ -349,6 +353,10 @@ class Sync {
     private historyBoundaryLoadingTokens = new Map<string, { isCurrent: () => boolean }>();
     private changesInFlight: Promise<void> | null = null;
     private changesSupported: boolean | null = null;
+    // Native warm snapshots are bounded, not an atomic history database. Replay
+    // the lightweight identity feed on cold start instead of persisting a cursor
+    // that could outlive a failed cache write and permanently hide a deletion.
+    private nativeHistoryCursor: string | undefined;
     private pendingHistoryTargets = new Map<string, number>();
     anonID!: string;
     private credentials!: AuthCredentials;
@@ -462,7 +470,7 @@ class Sync {
             apiSocket.sendAppState(getCurrentAppState());
 
             if (nextAppState === 'active') {
-                if (this.localHistory) void this.reconcileHistory().catch(() => undefined);
+                void this.reconcileHistory().catch(() => undefined);
                 const shouldFailAfterResume = this.backgroundSendStartedAt !== null
                     && this.hasPendingOutboxMessages()
                     && (Date.now() - this.backgroundSendStartedAt) >= Sync.BACKGROUND_SEND_TIMEOUT_MS;
@@ -543,6 +551,8 @@ class Sync {
 
     private initializeLocalHistory = async (): Promise<void> => {
         const previous = this.localHistory;
+        this.nativeHistoryCursor = undefined;
+        this.changesInFlight = null;
         this.localHistory = null;
         previous?.close();
         this.localHistory = Platform.OS === 'web' && this.sessionWarmCacheAccountKey
@@ -791,7 +801,15 @@ class Sync {
         if (this.changesInFlight) return this.changesInFlight;
         const history = this.localHistory;
         const credentials = this.credentials;
-        if (!history || !credentials) return Promise.resolve();
+        if (!credentials) return Promise.resolve();
+        if (!history) {
+            if (Platform.OS === 'web') return Promise.resolve();
+            const request = this.reconcileNativeHistory(credentials).finally(() => {
+                if (this.changesInFlight === request) this.changesInFlight = null;
+            });
+            this.changesInFlight = request;
+            return request;
+        }
         const request = (async () => {
             const capability = await reconcileSessionHistory(history, {
                 fetchChanges: cursor => fetchSessionChanges(credentials, cursor),
@@ -835,6 +853,73 @@ class Sync {
             }
         })().finally(() => { if (this.changesInFlight === request) this.changesInFlight = null; });
         this.changesInFlight = request; return request;
+    };
+
+    private reconcileNativeHistory = async (credentials: AuthCredentials): Promise<void> => {
+        const owner = this.captureHistoryOwner('');
+        const current = () => owner.isCurrent() && this.credentials === credentials;
+        let cursor = this.nativeHistoryCursor;
+        let reset = false;
+        let supported = true;
+        const changes = new Map<string, import('./apiSessionChanges').SessionChange>();
+        while (current()) {
+            const page = await fetchSessionChanges(credentials, cursor);
+            if (!current()) return;
+            if (page.kind === 'unsupported') { supported = false; break; }
+            if (page.kind === 'reset') {
+                if (reset) throw new Error('Repeated native history cursor reset');
+                cursor = undefined;
+                reset = true;
+                changes.clear();
+                continue;
+            }
+            for (const change of page.changes) changes.set(change.sessionId, change);
+            if (page.hasMore && page.nextCursor === cursor) throw new Error('Native history pagination stalled');
+            cursor = page.nextCursor;
+            if (!page.hasMore) break;
+        }
+        if (!current()) return;
+        for (const change of changes.values()) {
+            if (change.deleted) this.removeSessionLocally(change.sessionId);
+        }
+        const verifyUnknown = this.nativeHistoryCursor === undefined || reset || !supported;
+        const ids = Object.keys(storage.getState().sessions).filter(id => {
+            const change = changes.get(id);
+            const session = storage.getState().sessions[id];
+            return change
+                ? !change.deleted && (change.metadataVersion > session.metadataVersion || change.agentStateVersion > session.agentStateVersion)
+                : verifyUnknown;
+        });
+        // Only refresh cached identities, not every historical body/snapshot.
+        // Absence from a bounded list or a changes page is never a tombstone.
+        let index = 0;
+        const results = await Promise.allSettled(Array.from({ length: Math.min(4, ids.length) }, async () => {
+            while (index < ids.length && current()) {
+                const id = ids[index++];
+                if (!storage.getState().sessions[id]) continue;
+                let metadataVersion = changes.get(id)?.metadataVersion ?? 0;
+                let agentStateVersion = changes.get(id)?.agentStateVersion ?? 0;
+                await this.writeSessionSnapshots(async () => {
+                    const fresh = await fetchSessionSnapshot(credentials, id);
+                    if (!current()) return [];
+                    if (!fresh) { this.removeSessionLocally(id); return []; }
+                    metadataVersion = Math.max(metadataVersion, fresh.metadataVersion);
+                    agentStateVersion = Math.max(agentStateVersion, fresh.agentStateVersion);
+                    return [fresh];
+                });
+                if (!current()) return;
+                const applied = storage.getState().sessions[id];
+                // A skipped key/decryption or stale HTTP response must not
+                // acknowledge a change whose snapshot is still missing locally.
+                if (applied && (applied.metadataVersion < metadataVersion || applied.agentStateVersion < agentStateVersion)) {
+                    throw new Error('Native history snapshot was not applied');
+                }
+            }
+        }));
+        const failure = results.find(result => result.status === 'rejected');
+        if (current() && failure?.status === 'rejected') throw failure.reason;
+        // Failed page/metadata reads leave the old cursor for the next retry.
+        if (current() && supported) this.nativeHistoryCursor = cursor;
     };
 
     private restoreSessionWarmCache = async (): Promise<void> => {
@@ -1908,7 +1993,7 @@ class Sync {
     }
 
     public bootstrapSessions = async (): Promise<void> => {
-        if (this.localHistory) void this.reconcileHistory().catch(() => undefined);
+        void this.reconcileHistory().catch(() => undefined);
         this.nextSessionHistoryCursor = undefined;
         this.initialSessionHistoryScheduled = false;
         await this.sessionBootstrapSync.invalidateAndAwait();
@@ -1990,6 +2075,7 @@ class Sync {
             const data = await response.json();
             return data.sessions as ApiSessionSnapshot[];
         }, { replace: false });
+        if (!this.localHistory && Platform.OS !== 'web') await this.reconcileHistory();
     }
 
     public refreshMachines = async () => {
@@ -2297,6 +2383,10 @@ class Sync {
             // A cancelled/deleted route stays terminal even if its pending
             // request or decrypt rejects instead of delivering a stale page.
             this.assertSessionRouteCurrent(operation);
+            if (error instanceof SessionNotFoundError) {
+                this.removeSessionLocally(sessionId);
+                return 'not-found' as const;
+            }
             throw error;
         });
         this.sessionRouteOperations.set(opening, operation);
@@ -3269,7 +3359,14 @@ class Sync {
                 // from displaying anything for sessions with thousands of
                 // messages. The user's reported pain point was "opening a long
                 // session feels frozen" — this is the fix.
-                await this.fetchInitialLatestPage(sessionId, encryption, operation);
+                try {
+                    await this.fetchInitialLatestPage(sessionId, encryption, operation);
+                } catch (error) {
+                    if (!owner.isCurrent()) return;
+                    if (!(error instanceof SessionNotFoundError)) throw error;
+                    this.removeSessionLocally(sessionId);
+                    return;
+                }
             } else {
                 // Forward incremental sync. Used after reconnect, invalidate,
                 // or any subsequent visit. Only pulls messages newer than what
@@ -3291,6 +3388,7 @@ class Sync {
             `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`,
         );
         if (!owner.isCurrent()) throw new SessionWriteCancelled();
+        if (response.status === 404) throw new SessionNotFoundError();
         if (!response.ok) {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
         }
