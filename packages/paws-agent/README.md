@@ -6,6 +6,14 @@ Unlike the local runner, `paws-agent` is a remote control plane for listing mach
 
 ## Installation
 
+After the beta version is available on npm (see Release status below):
+
+```bash
+npm install @wangjs-jacky/paws-agent@next
+# Or install the remote-control CLI:
+npm install -g @wangjs-jacky/paws-agent@next
+```
+
 From the monorepo:
 
 ```bash
@@ -199,7 +207,9 @@ or command execution through this SDK method.
 
 ## Release status
 
-The package is currently consumed through workspace linking or an exact verified tarball while npm account recovery is pending. Do not claim registry availability until the first trusted-publishing workflow succeeds.
+Registry availability is established by `npm view @wangjs-jacky/paws-agent@0.1.0-beta.2 version`, not by a source tag or a green preparation run. Before the first successful publication, use workspace linking or an exact verified tarball. Publication runs in GitHub Actions using the repository's `NPM_TOKEN` when available; otherwise npm trusted publishing must already be configured. A local npm login is not required for this workflow.
+
+The beta includes the connection fixes used by paws-agent-chrome v0.0.5: `syncing` is emitted during initial synchronization, followed by a reusable `snapshot` event before `ready`. Consumers can reuse that snapshot instead of downloading machines and sessions again. Individual session reads and realtime session updates require the Paws `/v2/sessions/:id` endpoint and never fall back to fetching the full session list.
 
 Maintainers prepare the version and changelog on a dedicated release PR branch with:
 
@@ -212,10 +222,12 @@ This flow:
 - updates the package manifest and deterministic changelog without committing, tagging, or pushing `main`
 - requires a PR titled `chore(agent): release paws-agent vX.Y.Z` from the matching `release/paws-agent-vX.Y.Z` branch
 - creates the immutable tag only after that release PR merges
-- dispatches the tag-gated workflow, which publishes and verifies the exact tarball through npm trusted publishing
+- dispatches the tag-gated workflow to build, test and upload an exact candidate tarball (this first run does **not** publish)
+- requires downloading that tarball, running `node packages/paws-agent/scripts/verify-pack.mjs --prepare-browser <tarball>`, and opening the emitted `browserFixture` in Ego to verify `window.__PAWS_AGENT_VERIFY__ === 'ready'`
+- publishes only after a maintainer dispatches the same workflow/tag with `ego_verified_sha256` set to the SHA-256 of that verified tarball; the rebuilt artifact must match exactly or publication fails closed
 - rolls `latest` back and deprecates a failed stable version when registry credentials permit
 
-The workflow is idempotent, maps prereleases to the `next` dist-tag and stable versions to `latest`, compares an already-existing registry version to the local tarball byte-for-byte, and repeats clean Node, CJS, Chromium, CLI, and isolated E2E checks before creating release evidence.
+The workflow maps prereleases to `next` and stable versions to `latest`, compares an already-existing registry version to the local tarball byte-for-byte, and repeats clean Node, CJS, CLI and isolated E2E checks. `verify:pack` prepares a browser consumer but reports `pending-ego-verification`; it does not launch a browser or claim browser acceptance. Do not approve a digest from build success alone. GitHub Actions keeps the tarball and checks for 90 days; npm and the immutable Git tag are the permanent release record.
 
 ## License
 

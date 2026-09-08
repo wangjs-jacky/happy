@@ -2,8 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { validateReleaseContract } from '../scripts/release-contract.mjs';
 import { assertMatchingIntegrity } from '../scripts/verify-registry-integrity.mjs';
 import { validateReleasePreparation } from '../scripts/prepare-release.mjs';
+import * as releaseContract from '../scripts/release-contract.mjs';
 
 describe('release contract', () => {
+    it('only authorizes the exact tarball digest verified in Ego', () => {
+        const digest = 'a'.repeat(64);
+        expect(releaseContract.assertEgoVerifiedDigest(digest, digest)).toBe(digest);
+        expect(() => releaseContract.assertEgoVerifiedDigest('', digest)).toThrow();
+        expect(() => releaseContract.assertEgoVerifiedDigest(digest, 'b'.repeat(64))).toThrow();
+        expect(() => releaseContract.assertEgoVerifiedDigest('not-a-hash', 'not-a-hash')).toThrow();
+    });
     it('maps prereleases to next and stable releases to latest', () => {
         expect(validateReleaseContract({ tag: 'paws-agent-v0.1.0-beta.1', version: '0.1.0-beta.1', tagSha: 'abc', headSha: 'abc' }))
             .toEqual({ version: '0.1.0-beta.1', distTag: 'next' });

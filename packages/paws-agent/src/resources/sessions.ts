@@ -1,6 +1,7 @@
 import { PawsAgentError } from '../client/errors';
 import type {
     Machine,
+    PawsCredentials,
     ResumeSessionInput,
     Session,
     SessionsResource,
@@ -38,36 +39,30 @@ export class SessionsResourceImpl implements SessionsResource {
     async list(options: { active?: boolean } = {}): Promise<Session[]> {
         const path = options.active ? '/v2/sessions/active' : '/v1/sessions';
         const snapshot = await this.transport.getWithCredentials<{ sessions: RawSession[] }>(path);
-        const response = snapshot.data;
-        const credentials = snapshot.credentials;
-        const sessions = response.sessions.map(record => {
-            const encryption = resolveRecordEncryption(record, credentials, 'session');
-            this.encryption.setSession(record.id, encryption);
-            const session: Session = {
-                id: record.id,
-                seq: record.seq,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt,
-                active: record.active,
-                activeAt: record.activeAt,
-                metadata: decryptRecordField(record.metadata, encryption),
-                metadataVersion: record.metadataVersion,
-                agentState: decryptRecordField(record.agentState, encryption),
-                agentStateVersion: record.agentStateVersion,
-            };
-            this.cache.set(session.id, session);
-            return session;
-        });
-        return sessions;
+        return snapshot.data.sessions.map(record => this.decodeSession(record, snapshot.credentials));
     }
 
     async get(sessionId: string): Promise<Session> {
         this.requireId(sessionId, 'sessionId');
-        const sessions = await this.list();
-        const session = sessions.find(candidate => candidate.id === sessionId);
-        if (!session) {
-            throw new PawsAgentError('NOT_FOUND', 'Session not found', { details: { sessionId } });
+        const snapshot = await this.transport.getWithCredentials<{ session: RawSession }>(
+            `/v2/sessions/${encodeURIComponent(sessionId)}`,
+        );
+        if (snapshot.data.session?.id !== sessionId) {
+            throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Session response does not match the requested session');
         }
+        return this.decodeSession(snapshot.data.session, snapshot.credentials);
+    }
+
+    private decodeSession(record: RawSession, credentials: PawsCredentials): Session {
+        const encryption = resolveRecordEncryption(record, credentials, 'session');
+        this.encryption.setSession(record.id, encryption);
+        const session: Session = {
+            id: record.id, seq: record.seq, createdAt: record.createdAt, updatedAt: record.updatedAt,
+            active: record.active, activeAt: record.activeAt,
+            metadata: decryptRecordField(record.metadata, encryption), metadataVersion: record.metadataVersion,
+            agentState: decryptRecordField(record.agentState, encryption), agentStateVersion: record.agentStateVersion,
+        };
+        this.cache.set(session.id, session);
         return session;
     }
 
