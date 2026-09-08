@@ -83,6 +83,21 @@ function videoTool(input: { encrypted?: boolean; source?: 'generated' } = {}) {
     } as any;
 }
 
+function audioTool(input: { encrypted?: boolean; source?: 'generated'; ref?: string; name?: string } = {}) {
+    return {
+        name: 'file',
+        state: 'completed',
+        input: {
+            ref: 'sessions/s1/attachments/voice.mp3',
+            name: 'voice.mp3',
+            size: 4096,
+            kind: 'audio',
+            mimeType: 'audio/mpeg',
+            ...input,
+        },
+    } as any;
+}
+
 function pdfTool(input: { size?: number } = {}) {
     return {
         name: 'file',
@@ -176,6 +191,179 @@ describe('FileView media playback', () => {
         });
 
         act(() => renderer.unmount());
+    });
+
+    it('resolves generated audio only after its compact play control is pressed', async () => {
+        mocks.resolveSource.mockResolvedValueOnce({
+            uri: 'https://files.test/voice.mp3',
+            headers: {},
+            release: mocks.release,
+        });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={audioTool({ encrypted: false, source: 'generated' })} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        expect(mocks.resolveSource).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByProps({ testID: 'media-attachment-card-generated' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(0);
+
+        const play = renderer.root.findByProps({ testID: 'media-attachment-play-generated' });
+        await act(async () => { await play.props.onPress(); });
+
+        expect(mocks.resolveSource).toHaveBeenCalledOnce();
+        expect(mocks.resolveSource).toHaveBeenCalledWith(expect.objectContaining({
+            sessionId: 's1',
+            mimeType: 'audio/mpeg',
+            encrypted: false,
+        }));
+        expect(renderer.root.findByProps({ testID: 'media-attachment-inline-generated' })).toBeTruthy();
+        expect(renderer.root.findByType('MediaAttachmentPlayer').props).toMatchObject({
+            uri: 'https://files.test/voice.mp3',
+            title: 'voice.mp3',
+            kind: 'audio',
+            mimeType: 'audio/mpeg',
+            testID: 'media-attachment-player-generated',
+            autoPlay: true,
+        });
+
+        act(() => renderer.unmount());
+        expect(mocks.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows a retryable compact state when audio resolution fails', async () => {
+        mocks.resolveSource
+            .mockRejectedValueOnce(new Error('download failed'))
+            .mockResolvedValueOnce({
+                uri: 'https://files.test/voice-retry.mp3',
+                headers: {},
+                release: mocks.release,
+            });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={audioTool()} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        let play = renderer.root.findByProps({ testID: 'media-attachment-play-user' });
+        await act(async () => { await play.props.onPress(); });
+
+        expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+        expect(renderer.root.findByType('Ionicons').props.name).toBe('refresh-circle');
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'media-attachment-play-user' }).props.disabled).toBe(false);
+
+        play = renderer.root.findByProps({ testID: 'media-attachment-play-user' });
+        await act(async () => { await play.props.onPress(); });
+
+        expect(mocks.resolveSource).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findByType('MediaAttachmentPlayer').props).toMatchObject({
+            uri: 'https://files.test/voice-retry.mp3',
+            autoPlay: true,
+        });
+
+        act(() => renderer.unmount());
+        expect(mocks.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases active audio and returns to idle when attachment identity changes', async () => {
+        mocks.resolveSource.mockResolvedValueOnce({
+            uri: 'https://files.test/voice.mp3',
+            headers: {},
+            release: mocks.release,
+        });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={audioTool()} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'media-attachment-play-user' }).props.onPress();
+        });
+
+        await act(async () => {
+            renderer.update(
+                <FileView
+                    tool={audioTool({ ref: 'sessions/s1/attachments/other.mp3', name: 'other.mp3' })}
+                    sessionId="s1"
+                    metadata={null}
+                    messages={[]}
+                />,
+            );
+        });
+
+        expect(mocks.release).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'media-attachment-play-user' })).toBeTruthy();
+        expect(mocks.resolveSource).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.unmount());
+        expect(mocks.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases a late audio result after attachment identity changes without rendering it', async () => {
+        let resolvePending!: (source: { uri: string; headers: {}; release: typeof mocks.release }) => void;
+        mocks.resolveSource.mockImplementationOnce(() => new Promise((resolve) => {
+            resolvePending = resolve;
+        }));
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={audioTool()} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+        act(() => {
+            void renderer.root.findByProps({ testID: 'media-attachment-play-user' }).props.onPress();
+        });
+
+        await act(async () => {
+            renderer.update(
+                <FileView
+                    tool={audioTool({ ref: 'sessions/s1/attachments/other.mp3', name: 'other.mp3' })}
+                    sessionId="s1"
+                    metadata={null}
+                    messages={[]}
+                />,
+            );
+        });
+        await act(async () => {
+            resolvePending({ uri: 'https://files.test/stale.mp3', headers: {}, release: mocks.release });
+            await Promise.resolve();
+        });
+
+        expect(mocks.release).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'media-attachment-play-user' })).toBeTruthy();
+
+        act(() => renderer.unmount());
+    });
+
+    it('releases a late audio result after unmount without updating the tree', async () => {
+        let resolvePending!: (source: { uri: string; headers: {}; release: typeof mocks.release }) => void;
+        mocks.resolveSource.mockImplementationOnce(() => new Promise((resolve) => {
+            resolvePending = resolve;
+        }));
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={audioTool()} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+        act(() => {
+            void renderer.root.findByProps({ testID: 'media-attachment-play-user' }).props.onPress();
+        });
+        act(() => renderer.unmount());
+
+        await act(async () => {
+            resolvePending({ uri: 'https://files.test/stale.mp3', headers: {}, release: mocks.release });
+            await Promise.resolve();
+        });
+
+        expect(mocks.release).toHaveBeenCalledTimes(1);
     });
 
     it('opens a motion-photo cover as a still image in the fullscreen viewer', async () => {

@@ -25,7 +25,7 @@ vi.mock('@/text', () => ({
 }));
 vi.mock('@/hooks/useElapsedTime', () => ({ useElapsedTime: () => 1 }));
 vi.mock('@/utils/toolDisplay', () => ({
-    getTerminalToolCommand: () => null, isInlineImageFileTool: () => false, isInlineVideoFileTool: () => false, shouldRenderToolCardHeader: () => true,
+    getTerminalToolCommand: () => null, isInlineAudioFileTool: () => false, isInlineImageFileTool: () => false, isInlineVideoFileTool: () => false, shouldRenderToolCardHeader: () => true,
 }));
 vi.mock('./views/_all', () => ({ getToolViewComponent: () => null }));
 vi.mock('./views/MCPToolView', () => ({ formatMCPTitle: () => 'Demo App' }));

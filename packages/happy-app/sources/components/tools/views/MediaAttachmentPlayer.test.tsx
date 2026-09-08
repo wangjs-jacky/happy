@@ -41,4 +41,55 @@ describe('MediaAttachmentPlayer native video document', () => {
 
         await act(async () => renderer.unmount());
     });
+
+    it('loads audio as a compact native control that requires a user action by default', async () => {
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <MediaAttachmentPlayer
+                    uri="file:///cache/voice.mp3"
+                    headers={{}}
+                    title="voice.mp3"
+                    kind="audio"
+                    mimeType="audio/mpeg"
+                    testID="native-audio"
+                />,
+            );
+        });
+
+        const webView = renderer.root.findByType('WebView');
+        expect(webView.props.source.html).toContain('<audio');
+        expect(webView.props.source.html).toContain('controls');
+        expect(webView.props.source.html).not.toContain(' autoplay');
+        expect(webView.props.source.html).toContain('background:transparent');
+        expect(webView.props.style).toMatchObject({ height: 54, backgroundColor: 'transparent' });
+        expect(webView.props.mediaPlaybackRequiresUserAction).toBe(true);
+
+        await act(async () => renderer.unmount());
+    });
+
+    it('allows click-originated audio autoplay in the native WebView', async () => {
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <MediaAttachmentPlayer
+                    uri="file:///cache/voice.mp3"
+                    headers={{}}
+                    title="voice.mp3"
+                    kind="audio"
+                    mimeType="audio/mpeg"
+                    testID="native-audio"
+                    autoPlay
+                />,
+            );
+        });
+
+        const webView = renderer.root.findByType('WebView');
+        expect(webView.props.source.html).toContain('<audio controls autoplay');
+        expect(webView.props.mediaPlaybackRequiresUserAction).toBe(false);
+
+        await act(async () => renderer.unmount());
+    });
 });

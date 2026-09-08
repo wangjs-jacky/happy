@@ -4,6 +4,7 @@ import {
     getTerminalToolCommand,
     getToolSummaryCategory,
     getToolSummaryDetail,
+    isInlineAudioFileTool,
     isInlineImageFileTool,
     isInlineVideoFileTool,
     isTerminalToolName,
@@ -61,6 +62,12 @@ describe('terminal tool display helpers', () => {
         expect(isInlineVideoFileTool(tool('file', { kind: 'video' }))).toBe(true);
         expect(isInlineVideoFileTool(tool('file', { kind: 'audio' }))).toBe(false);
         expect(isInlineVideoFileTool(tool('Read', { kind: 'video' }))).toBe(false);
+    });
+
+    it('identifies audio file events that render as bare inline media', () => {
+        expect(isInlineAudioFileTool(tool('file', { kind: 'audio' }))).toBe(true);
+        expect(isInlineAudioFileTool(tool('file', { kind: 'video' }))).toBe(false);
+        expect(isInlineAudioFileTool(tool('Read', { kind: 'audio' }))).toBe(false);
     });
 
     it('identifies image file events that render without a protocol-level file header', () => {

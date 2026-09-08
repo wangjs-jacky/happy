@@ -1,7 +1,7 @@
 /**
  * View for image and media `file` events.
- * Images keep the eager encrypted thumbnail flow. Video resolves directly to
- * a bare inline player, while audio retains its compact identity card.
+ * Images keep the eager encrypted thumbnail flow. Video resolves directly,
+ * while audio resolves only after a click; neither uses a protocol-level card.
  *
  * Image previews use the same square frame as chat attachment galleries,
  * regardless of source dimensions. The viewer preserves the original aspect.
@@ -77,12 +77,10 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
     }
     if (parsed.data.kind === 'audio') {
         return (
-            <MediaFileCard
+            <CompactAudioFile
                 ref_={parsed.data.ref}
                 sessionId={sessionId}
                 name={parsed.data.name}
-                kind={parsed.data.kind}
-                size={parsed.data.size}
                 mimeType={parsed.data.mimeType}
                 encrypted={parsed.data.encrypted}
                 source={parsed.data.source}
@@ -266,99 +264,118 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
     );
 }
 
-function MediaFileCard({ ref_, sessionId, name, kind, size, mimeType, encrypted, source: attachmentSource }: {
+function CompactAudioFile({ ref_, sessionId, name, mimeType, encrypted, source: attachmentSource }: {
     ref_: string;
     sessionId?: string;
     name: string;
-    kind: 'audio' | 'video';
-    size?: number;
     mimeType?: string;
     encrypted?: boolean;
     source?: 'user' | 'generated' | 'browser_step';
 }) {
     const { theme } = useUnistyles();
-    const sizeLabel = humanSize(size);
     const [source, setSource] = React.useState<MediaPlaybackSource | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState(false);
+    const [state, setState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+    const sourceRef = React.useRef<MediaPlaybackSource | null>(null);
+    const requestVersion = React.useRef(0);
     const sourceType = attachmentSource === 'generated' ? 'generated' : 'user';
-    const playerTestID = `media-attachment-player-${sourceType}`;
-    const resolvedMimeType = mimeType ?? (kind === 'video' ? 'video/mp4' : 'audio/mpeg');
+    const resolvedMimeType = mimeType ?? 'audio/mpeg';
     const directUri = directAttachmentUri(ref_, sessionId);
     const playable = Boolean(sessionId || directUri);
+    const identity = `${sessionId ?? ''}\u0000${ref_}\u0000${resolvedMimeType}\u0000${encrypted === false ? 'plain' : 'encrypted'}`;
+    const identityRef = React.useRef(identity);
+    identityRef.current = identity;
+
+    const releaseActiveSource = React.useCallback(() => {
+        const activeSource = sourceRef.current;
+        sourceRef.current = null;
+        if (activeSource) void activeSource.release?.();
+    }, []);
+
+    React.useEffect(() => {
+        requestVersion.current += 1;
+        releaseActiveSource();
+        setSource(null);
+        setState('idle');
+    }, [identity, releaseActiveSource]);
 
     React.useEffect(() => () => {
-        void source?.release?.();
-    }, [source]);
+        requestVersion.current += 1;
+        releaseActiveSource();
+    }, [releaseActiveSource]);
 
-    const handleToggle = React.useCallback(async () => {
-        if (source) {
-            setSource(null);
-            return;
-        }
-        if (!playable || loading) return;
-        setLoading(true);
-        setError(false);
+    const handlePlay = React.useCallback(async () => {
+        if (!playable || state === 'loading' || source) return;
+        const version = requestVersion.current + 1;
+        requestVersion.current = version;
+        setState('loading');
+        let resolved: MediaPlaybackSource | null = null;
         try {
-            setSource(directUri
+            resolved = directUri
                 ? { uri: directUri, headers: {} }
                 : await resolveMediaAttachmentSource({
                     sessionId: sessionId!,
                     ref: ref_,
                     mimeType: resolvedMimeType,
                     encrypted,
-                }));
+                });
+            if (requestVersion.current !== version || identityRef.current !== identity) {
+                void resolved.release?.();
+                return;
+            }
+            sourceRef.current = resolved;
+            setSource(resolved);
+            setState('idle');
         } catch (cause) {
+            if (requestVersion.current !== version || identityRef.current !== identity) return;
             console.warn(`[media-attachment] failed to open ${name}`, cause);
-            setError(true);
-        } finally {
-            setLoading(false);
+            setState('error');
         }
-    }, [directUri, encrypted, loading, name, playable, ref_, resolvedMimeType, sessionId, source]);
+    }, [directUri, encrypted, identity, name, playable, ref_, resolvedMimeType, sessionId, source, state]);
 
-    const label = source
-        ? t('imageUpload.mediaCollapse', { name })
-        : t('imageUpload.mediaPlay', { name });
+    if (source) {
+        return (
+            <View testID={`media-attachment-inline-${sourceType}`} style={styles.inlineAudioContainer}>
+                <MediaAttachmentPlayer
+                    uri={source.uri}
+                    headers={source.headers}
+                    title={name}
+                    kind="audio"
+                    mimeType={resolvedMimeType}
+                    testID={`media-attachment-player-${sourceType}`}
+                    autoPlay
+                />
+            </View>
+        );
+    }
+
     return (
-        <View style={styles.inlineContainer}>
+        <View style={styles.inlineAudioContainer}>
             <Pressable
-                testID={`media-attachment-card-${sourceType}`}
+                testID={`media-attachment-play-${sourceType}`}
                 accessibilityRole="button"
-                accessibilityLabel={label}
-                accessibilityState={{ expanded: !!source, disabled: !playable || loading }}
-                aria-expanded={!!source}
-                onPress={playable ? handleToggle : undefined}
-                disabled={!playable || loading}
+                accessibilityLabel={t('imageUpload.mediaPlay', { name })}
+                accessibilityState={{ disabled: !playable, busy: state === 'loading' }}
+                disabled={!playable || state === 'loading'}
+                onPress={handlePlay}
                 style={(press) => [
-                    styles.mediaCard,
-                    { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh },
-                    press.pressed && styles.mediaCardPressed,
+                    styles.audioPlayButton,
+                    { backgroundColor: press.pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh },
                 ]}
             >
-                <Ionicons name={kind === 'audio' ? 'musical-notes' : 'videocam'} size={20} color={theme.colors.text} />
-                <View style={styles.mediaMeta}>
-                    <Text style={[styles.filename, { color: theme.colors.text }]} numberOfLines={1}>{name}</Text>
-                    <Text style={[styles.mediaSub, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                        {kind === 'audio' ? t('imageUpload.mediaAudio') : t('imageUpload.mediaVideo')}{sizeLabel ? ` · ${sizeLabel}` : ''}
-                    </Text>
-                </View>
-                {loading
-                    ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                    : <Ionicons name={source ? 'chevron-up' : 'play-circle'} size={26} color={theme.colors.textSecondary} />}
-            </Pressable>
-            {source ? (
-                <View style={styles.playerFrame}>
-                    <MediaAttachmentPlayer
-                        uri={source.uri}
-                        headers={source.headers}
-                        title={name}
-                        kind={kind}
-                        mimeType={resolvedMimeType}
-                        testID={playerTestID}
+                {state === 'loading' ? (
+                    <ActivityIndicator size="small" color={theme.colors.text} />
+                ) : (
+                    <Ionicons
+                        name={state === 'error' ? 'refresh-circle' : 'play-circle'}
+                        size={28}
+                        color={state === 'error' ? theme.colors.textDestructive : theme.colors.text}
                     />
-                </View>
-            ) : null}
-            {error ? (
+                )}
+                <Text style={[styles.audioPlayLabel, { color: theme.colors.text }]}>
+                    {t('imageUpload.mediaAudio')}
+                </Text>
+            </Pressable>
+            {state === 'error' ? (
                 <Text style={[styles.mediaError, { color: theme.colors.textDestructive }]}>
                     {t('imageUpload.mediaLoadFailed')}
                 </Text>
@@ -551,6 +568,25 @@ const styles = StyleSheet.create(() => ({
         maxWidth: 960,
         alignSelf: 'stretch',
     },
+    inlineAudioContainer: {
+        width: 300,
+        maxWidth: '100%',
+        alignSelf: 'flex-start',
+    },
+    audioPlayButton: {
+        width: 300,
+        maxWidth: '100%',
+        height: 54,
+        borderRadius: 27,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 14,
+        gap: 8,
+    },
+    audioPlayLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
     videoLoadingFrame: {
         width: '100%',
         aspectRatio: 16 / 9,
@@ -574,13 +610,6 @@ const styles = StyleSheet.create(() => ({
     },
     mediaCardPressed: {
         opacity: 0.78,
-    },
-    playerFrame: {
-        width: 300,
-        maxWidth: '100%',
-        overflow: 'hidden',
-        borderRadius: BORDER_RADIUS,
-        backgroundColor: '#000',
     },
     mediaMeta: {
         flexShrink: 1,
