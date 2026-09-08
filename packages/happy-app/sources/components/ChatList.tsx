@@ -51,20 +51,24 @@ export const ChatList = React.memo((props: { session: Session }) => {
     }, [hasMoreNewer, isLoadingNewer, props.session.id]);
     const handleJumpToLatest = React.useCallback(() => sync.jumpToLatestMessages(props.session.id), [props.session.id]);
     const history = sync.getLocalHistoryScope();
+    const encryption = sync.encryption;
+    const sessionEncryption = encryption?.getSessionEncryption(props.session.id);
     const reading = React.useMemo<TranscriptReadingAdapter | undefined>(() => {
-        if (!history) return undefined;
+        if (!history && (Platform.OS !== 'web' || !encryption)) return undefined;
         const id = props.session.id;
-        const fence = history.captureSessionFence(id);
-        const current = () => sync.getLocalHistoryScope() === history && history.isFenceCurrent(fence);
+        const fence = history?.captureSessionFence(id);
+        const current = () => sync.getLocalHistoryScope() === history && (history
+            ? !!fence && history.isFenceCurrent(fence)
+            : sync.encryption === encryption && encryption.getSessionEncryption(id) === sessionEncryption);
         return {
-            key: JSON.stringify([history.scope, id]),
-            read: async () => current() ? history.readReadingState(id) : null,
-            save: async state => { if (current()) await history.writeReadingState(id, state); },
+            key: JSON.stringify([history?.scope ?? 'memory', id]),
+            read: async () => current() ? sync.readSessionReadingState(id) : null,
+            save: async state => { if (current()) await sync.saveSessionReadingState(id, state); },
             wireId: renderedId => current() ? sync.getMessageWireId(id, renderedId) : null,
             wireSeq: renderedId => current() ? sync.getMessageWireSeq(id, renderedId) : null,
             blockKey: renderedId => current() ? sync.getMessageWireBlockKey(id, renderedId) : null,
         };
-    }, [history, props.session.id]);
+    }, [history, encryption, sessionEncryption, props.session.id]);
 
     return (
         <ConversationTranscript

@@ -12,6 +12,7 @@ import {
     Text,
     View,
     ViewStyle,
+    useWindowDimensions,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
@@ -80,6 +81,7 @@ export type ConversationTranscriptProps = {
 
 export const ConversationTranscript = React.memo((props: ConversationTranscriptProps) => {
     const { theme } = useUnistyles();
+    const { fontScale } = useWindowDimensions();
     const flatListRef = React.useRef<FlatList>(null);
     const viewportRef = React.useRef<View>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
@@ -106,13 +108,15 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const transcriptMessages = React.useMemo(() => hideLinkedBrowserSteps(props.messages, browserProgress.runs),
         [props.messages, browserProgress.runs]);
     const displayItems = useGroupedMessages(transcriptMessages, props.groupToolCalls ?? true, groupingOptions);
-    const inverted = props.inverted ?? true;
+    const inverted = props.inverted ?? Platform.OS !== 'web';
     const invertedRef = React.useRef(inverted);
     invertedRef.current = inverted;
     const isAtLatest = props.isAtLatest ?? true;
     const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
     const attempted = React.useRef(new Set<string>());
     const jumpPending = React.useRef(false);
+    const userScrollStarted = React.useRef(false);
+    const prepareBoundaryLoad = React.useRef<() => Promise<void> | void>(() => {});
     const boundaryAttemptKey = React.useCallback((direction: 'older' | 'newer') => {
         const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
         const boundary = renderedBoundary ? props.reading?.wireId(renderedBoundary) ?? renderedBoundary : undefined;
@@ -126,10 +130,15 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const error = direction === 'older' ? props.olderError : props.newerError;
         const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
         const key = boundaryAttemptKey(direction);
+        if (Platform.OS === 'web' && !retry && !userScrollStarted.current) return;
         if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
         attempted.current.add(key);
         if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
-        load();
+        if (Platform.OS === 'web') userScrollStarted.current = false;
+        const session = props.sessionId;
+        const prepared = prepareBoundaryLoad.current();
+        if (prepared) void prepared.then(() => { if (sessionRef.current === session) load(); });
+        else load();
     }, [boundaryAttemptKey, props.hasMoreOlder, props.hasMoreNewer, props.isLoadingOlder, props.isLoadingNewer,
         props.onLoadOlder, props.onLoadNewer, props.olderError, props.newerError]);
     const loadBoundaryRef = React.useRef(loadBoundary);
@@ -140,14 +149,30 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         })),
         [displayItems, inverted, props.reading],
     );
-    const webImageInitialNumToRender = React.useMemo(() => {
-        if (Platform.OS !== 'web' || !inverted) return undefined;
-        let lastImageIndex = -1;
-        for (let index = 0; index < listItems.length; index++) {
-            if (listItems[index].type === 'image-group') lastImageIndex = index;
-        }
-        return lastImageIndex < 0 ? undefined : Math.max(10, lastImageIndex + 1);
-    }, [inverted, listItems]);
+    const rowHeights = React.useRef(new Map<string, number>());
+    const rowKeys = React.useRef(new Set<string>());
+    rowKeys.current = new Set(listItems.map(item => item.renderKey));
+    const [webHeaderHeight, setWebHeaderHeight] = React.useState(0);
+    const listWidth = React.useRef<number | null>(null);
+    const [heightRevision, setHeightRevision] = React.useState(0);
+    React.useEffect(() => {
+        const keys = new Set(listItems.map(item => item.renderKey));
+        for (const key of rowHeights.current.keys()) if (!keys.has(key)) rowHeights.current.delete(key);
+    }, [listItems]);
+    React.useEffect(() => {
+        rowHeights.current.clear();
+        setHeightRevision(value => value + 1);
+    }, [fontScale]);
+    const webRowLayouts = React.useMemo(() => {
+        let offset = webHeaderHeight;
+        return listItems.map((item, index) => {
+            const length = rowHeights.current.get(item.renderKey) ?? 160;
+            const frame = { index, offset, length };
+            offset += length;
+            return frame;
+        });
+    }, [listItems, heightRevision, webHeaderHeight]);
+    const getWebItemLayout = React.useCallback((_data: unknown, index: number) => webRowLayouts[index], [webRowLayouts]);
     const latestVisibleUserMessageId = React.useMemo(() => {
         for (const item of displayItems) {
             if (item.type === 'message' && item.message.kind === 'user-text') return item.message.id;
@@ -169,11 +194,20 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const manuallyCollapsedRef = React.useRef<Set<string>>(new Set());
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
+        followLatestOnLayout: Boolean(props.sessionId) || props.inverted !== false,
         listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
+    prepareBoundaryLoad.current = () => {
+        if (Platform.OS !== 'web' || !props.reading || !viewportRef.current) return;
+        return reading.capture().then(() => reading.pin());
+    };
     const contentGeneration = React.useMemo(() => ({}), [collapsedGroups, expandedKeys, props.currentTurnActive,
         props.groupToolCalls, props.messages]);
     const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
     cancelReadingRestoreRef.current = reading.cancelRestore;
+    const claimScroll = React.useCallback(() => {
+        userScrollStarted.current = true;
+        cancelReadingRestoreRef.current();
+    }, []);
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
         displayItems.filter(isCollapsibleDisplayItem).map((item) => item.id),
     ));
@@ -349,11 +383,19 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         props.sessionId,
         props.showMessageActions,
     ]);
-    const renderItem = React.useCallback(({ item }: { item: DisplayItem }) => (
-        <TranscriptReadingMarker messageId={itemMessages(item)[0]?.id ?? item.id}>
+    const renderItem = React.useCallback(({ item }: { item: DisplayItem & { renderKey: string } }) => {
+        const content = <TranscriptReadingMarker messageId={itemMessages(item)[0]?.id ?? item.id}>
             {renderItemContent({ item })}
-        </TranscriptReadingMarker>
-    ), [renderItemContent]);
+        </TranscriptReadingMarker>;
+        if (Platform.OS !== 'web') return content;
+        return <View onLayout={event => {
+            const height = event.nativeEvent.layout.height;
+            if (rowKeys.current.has(item.renderKey) && height > 0 && rowHeights.current.get(item.renderKey) !== height) {
+                rowHeights.current.set(item.renderKey, height);
+                setHeightRevision(value => value + 1);
+            }
+        }}>{content}</View>;
+    }, [renderItemContent]);
 
     const handleScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -365,7 +407,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         setBoundaries(previous => previous.older === (distanceFromTop <= 24) && previous.newer === (distanceFromBottom <= 24)
             ? previous : { older: distanceFromTop <= 24, newer: distanceFromBottom <= 24 });
         if (!isAtLatest && distanceFromBottom <= 2 * layoutMeasurement.height) loadBoundary('newer');
-        if (props.hasMoreOlder && ((!inverted && distanceFromTop <= 2 * layoutMeasurement.height) || distanceFromTop <= 24)) loadBoundary('older');
+        if ((Platform.OS !== 'web' || userScrollStarted.current) && props.hasMoreOlder
+            && ((!inverted && distanceFromTop <= 2 * layoutMeasurement.height) || distanceFromTop <= 24)) loadBoundary('older');
         const next = distanceFromBottom > SCROLL_THRESHOLD;
         if (next !== showScrollButtonRef.current) {
             showScrollButtonRef.current = next;
@@ -463,6 +506,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
         jumpPending.current = false;
         attempted.current.clear();
+        userScrollStarted.current = false;
         setBoundaries({ older: false, newer: false });
     }, [props.sessionId]);
 
@@ -473,7 +517,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const handler = (event: WheelEvent) => {
             handleTranscriptWebWheel(event, node, () => {
                 for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
-                cancelReadingRestoreRef.current();
+                userScrollStarted.current = true;
+                cancelReadingRestoreRef.current(event.deltaY < 0 ? 'older' : event.deltaY > 0 ? 'newer' : undefined);
                 const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
                 const currentInverted = invertedRef.current;
                 const atOlderBoundary = currentInverted ? maxOffset - node.scrollTop <= 24 : node.scrollTop <= 24;
@@ -497,15 +542,16 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 data={listItems}
                 inverted={inverted}
                 keyExtractor={(item) => item.renderKey}
-                disableVirtualization={Platform.OS === 'web' && inverted}
-                // VirtualizedList still grows its render mask in batches when
-                // virtualization is disabled. Cached pages can insert rows in
-                // the middle of a restored window, temporarily pushing an
-                // already-mounted image outside that mask even though its
-                // stable key never leaves data. Keep every current image inside
-                // the synchronous region without eagerly rendering text-only
-                // transcripts in full.
-                initialNumToRender={webImageInitialNumToRender}
+                disableVirtualization={false}
+                // Normal Web orientation avoids inverted dynamic-height feedback.
+                // Stable wire keys keep surviving media mounted through replay.
+                initialNumToRender={Platform.OS === 'web' ? 10 : undefined}
+                windowSize={Platform.OS === 'web' ? 5 : undefined}
+                maxToRenderPerBatch={Platform.OS === 'web' ? 10 : undefined}
+                // RN Web otherwise clips the tail spacer at the last measured
+                // index, making unmeasured anchors/latest impossible to seek.
+                // Estimates mount the target; reading markers correct its offset.
+                getItemLayout={Platform.OS === 'web' ? getWebItemLayout : undefined}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}
@@ -513,14 +559,31 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
                 contentContainerStyle={props.contentContainerStyle}
                 renderItem={renderItem}
-                onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+                onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    setViewportHeight(height);
+                    if (Platform.OS === 'web' && width !== listWidth.current) {
+                        reading.pin();
+                        listWidth.current = width;
+                        rowHeights.current.clear();
+                        setHeightRevision(value => value + 1);
+                    }
+                }}
                 onScroll={handleScroll}
-                onScrollBeginDrag={reading.cancelRestore}
+                onScrollBeginDrag={claimScroll}
                 onContentSizeChange={onContentSizeChange}
                 scrollEventThrottle={16}
-                ListHeaderComponent={(inverted ? props.visualBottom : props.visualTop) ?? undefined}
+                ListHeaderComponent={Platform.OS === 'web' && (inverted ? props.visualBottom : props.visualTop)
+                    ? <View onLayout={event => setWebHeaderHeight(event.nativeEvent.layout.height)}>
+                        {inverted ? props.visualBottom : props.visualTop}
+                    </View>
+                    : (inverted ? props.visualBottom : props.visualTop) ?? undefined}
                 ListFooterComponent={(inverted ? props.visualTop : props.visualBottom) ?? undefined}
                 onEndReached={() => loadBoundary(inverted ? 'older' : 'newer')}
+                onStartReached={!inverted ? () => {
+                    if (Platform.OS !== 'web' || userScrollStarted.current) loadBoundary('older');
+                } : undefined}
+                onStartReachedThreshold={2}
                 // Start the next backward page before the user reaches the
                 // visual top. Existing messages stay interactive while the
                 // request runs, and the loading affordance is normally kept

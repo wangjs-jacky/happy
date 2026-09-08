@@ -71,9 +71,10 @@ vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
 
 const userMessage = (id: string): Message => ({ kind: 'user-text', id, localId: null, createdAt: 1, text: id });
 const scroll = (renderer: any) => act(() => renderer.root.findByType('FlatList').props.onScroll({
-    nativeEvent: { contentOffset: { y: 400 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 } },
+    nativeEvent: { contentOffset: { y: 2000 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 } },
 }));
 const byId = (renderer: any, testID: string) => renderer.root.findByProps({ testID });
+const reachOlder = (list: any) => { list.props.onScrollBeginDrag(); list.props.onStartReached(); };
 const installFrameQueue = () => {
     let nextFrame = 0;
     const frames = new Map<number, FrameRequestCallback>();
@@ -358,12 +359,14 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
-    it('disables recycling only for inverted Web transcripts so dynamic rows cannot create a scroll feedback loop', async () => {
+    it('uses bounded non-inverted virtualization on Web and keeps native inversion', async () => {
         let renderer: any;
         await act(async () => {
             renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('web')]} />);
         });
-        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(true);
+        expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+        expect(byId(renderer, 'conversation-transcript-list').props.inverted).toBe(false);
+        expect(byId(renderer, 'conversation-transcript-list').props.windowSize).toBe(5);
 
         await act(async () => {
             renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('public')]} inverted={false} />);
@@ -375,10 +378,27 @@ describe('ConversationTranscript older history pagination', () => {
             renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('native')]} />);
         });
         expect(byId(renderer, 'conversation-transcript-list').props.disableVirtualization).toBe(false);
+        expect(byId(renderer, 'conversation-transcript-list').props.inverted).toBe(true);
         act(() => renderer.unmount());
     });
 
-    it('keeps a mounted Web image row in the synchronous render region during pagination', async () => {
+    it('exposes unmeasured Web targets and replaces estimates with bounded row measurements', async () => {
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            messages={[userMessage('new'), userMessage('old')]} />); });
+        let list = byId(renderer, 'conversation-transcript-list');
+        expect(list.props.getItemLayout(list.props.data, 1)).toMatchObject({ index: 1, offset: 160, length: 160 });
+        const row = list.props.renderItem({ item: list.props.data[0] });
+        act(() => row.props.onLayout({ nativeEvent: { layout: { height: 321 } } }));
+        list = byId(renderer, 'conversation-transcript-list');
+        expect(list.props.getItemLayout(list.props.data, 1)).toMatchObject({ offset: 321 });
+        act(() => list.props.onLayout({ nativeEvent: { layout: { width: 600, height: 800 } } }));
+        list = byId(renderer, 'conversation-transcript-list');
+        expect(list.props.getItemLayout(list.props.data, 1)).toMatchObject({ offset: 160 });
+        act(() => renderer.unmount());
+    });
+
+    it('preserves an image row key through pagination without expanding the synchronous render region', async () => {
         grouped.items = Array.from({ length: 15 }, (_, index) => ({
             type: 'message',
             id: `before-${index}`,
@@ -395,7 +415,9 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => {
             renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[]} />);
         });
-        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBe(15);
+        const beforeList = byId(renderer, 'conversation-transcript-list');
+        const imageKey = beforeList.props.keyExtractor(beforeList.props.data.find((item: any) => item.id === 'stable-image'));
+        expect(beforeList.props.initialNumToRender).toBe(10);
 
         grouped.items = [
             ...grouped.items.slice(0, 7),
@@ -410,7 +432,9 @@ describe('ConversationTranscript older history pagination', () => {
             renderer.update(<ConversationTranscript metadata={null} messages={[userMessage('pagination')]} />);
         });
 
-        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBe(19);
+        const afterList = byId(renderer, 'conversation-transcript-list');
+        expect(afterList.props.initialNumToRender).toBe(10);
+        expect(afterList.props.keyExtractor(afterList.props.data.find((item: any) => item.id === 'stable-image'))).toBe(imageKey);
         act(() => renderer.unmount());
     });
 
@@ -425,7 +449,7 @@ describe('ConversationTranscript older history pagination', () => {
             renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[]} />);
         });
 
-        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBeUndefined();
+        expect(byId(renderer, 'conversation-transcript-list').props.initialNumToRender).toBe(10);
         act(() => renderer.unmount());
     });
 
@@ -444,9 +468,9 @@ describe('ConversationTranscript older history pagination', () => {
         // while the matching Skill invocation is still loading.
         expect(ids()).toEqual(['reference']);
         act(() => renderer.update(render([frame, reference, invoke])));
-        expect(ids()).toEqual(['reference', 'skill']);
+        expect(ids()).toEqual(['skill', 'reference']);
         act(() => renderer.update(<ConversationTranscript metadata={null} messages={[frame, reference, invoke]} groupToolCalls={false} />));
-        expect(ids()).toEqual(['frame', 'reference', 'skill']);
+        expect(ids()).toEqual(['skill', 'reference', 'frame']);
         act(() => renderer.unmount());
     });
 
@@ -481,7 +505,9 @@ describe('ConversationTranscript older history pagination', () => {
 
         const list = renderer.root.findByType('FlatList');
         expect(list.props.onEndReachedThreshold).toBe(2);
-        act(() => list.props.onEndReached());
+        act(() => list.props.onStartReached());
+        expect(onLoadOlder).not.toHaveBeenCalled();
+        act(() => reachOlder(list));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
@@ -499,11 +525,11 @@ describe('ConversationTranscript older history pagination', () => {
         );
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(render('oldest')); });
-        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        act(() => reachOlder(byId(renderer, 'conversation-transcript-list')));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
         act(() => renderer.update(render('oldest-replayed')));
-        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        act(() => reachOlder(byId(renderer, 'conversation-transcript-list')));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
@@ -512,7 +538,7 @@ describe('ConversationTranscript older history pagination', () => {
         const onLoadOlder = vi.fn();
         const listeners = new Map<string, (event: any) => void>();
         const node = {
-            scrollTop: 1200,
+            scrollTop: 0,
             scrollHeight: 2000,
             clientHeight: 800,
             addEventListener: vi.fn((type: string, listener: (event: any) => void) => listeners.set(type, listener)),
@@ -529,8 +555,8 @@ describe('ConversationTranscript older history pagination', () => {
             );
         });
         const list = byId(renderer, 'conversation-transcript-list');
-        act(() => list.props.onEndReached());
-        act(() => list.props.onEndReached());
+        act(() => reachOlder(list));
+        act(() => reachOlder(list));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
         act(() => listeners.get('wheel')!({ shiftKey: false, deltaX: 0, deltaY: -120, preventDefault: vi.fn() }));
@@ -583,11 +609,11 @@ describe('ConversationTranscript older history pagination', () => {
         );
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(render(adapter('wire-a'))); });
-        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        act(() => reachOlder(byId(renderer, 'conversation-transcript-list')));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
         act(() => renderer.update(render(adapter('wire-b'))));
-        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        act(() => reachOlder(byId(renderer, 'conversation-transcript-list')));
         expect(onLoadOlder).toHaveBeenCalledTimes(2);
         act(() => renderer.unmount());
     });
@@ -698,7 +724,7 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => { vi.advanceTimersByTime(500); });
         expect(renderer.root.findAllByProps({ testID: 'history-older-loading' })).toHaveLength(0);
         act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
-            contentOffset: { y: 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
+            contentOffset: { y: 0 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
         } }));
         expect(renderer.root.findAllByProps({ testID: 'history-older-loading' })).toHaveLength(0);
         await act(async () => { vi.advanceTimersByTime(300); });
@@ -713,7 +739,7 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('old')]}
             inverted={inverted} isAtLatest={false} hasMoreNewer onLoadNewer={newer} onLoadOlder={older} />); });
         const list = byId(renderer, 'conversation-transcript-list');
-        act(() => { for (let i = 0; i < 3; i++) list.props.onScroll({ nativeEvent: {
+        act(() => { list.props.onScrollBeginDrag(); for (let i = 0; i < 3; i++) list.props.onScroll({ nativeEvent: {
             contentOffset: { y: inverted ? 0 : 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
         } }); });
         expect(newer).toHaveBeenCalledOnce();
@@ -725,15 +751,15 @@ describe('ConversationTranscript older history pagination', () => {
     it('selects latest before scrolling from a historical window', async () => {
         let finish!: () => void;
         const jump = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
-        const scrollToOffset = vi.fn(); let renderer: any;
+        const scrollToEnd = vi.fn(); let renderer: any;
         const render = (latest: boolean) => <ConversationTranscript metadata={null} messages={[userMessage(latest ? 'new' : 'old')]}
             isAtLatest={latest} onJumpToLatest={jump} />;
-        await act(async () => { renderer = TestRenderer.create(render(false), { createNodeMock: () => ({ scrollToOffset }) }); });
+        await act(async () => { renderer = TestRenderer.create(render(false), { createNodeMock: () => ({ scrollToEnd }) }); });
         act(() => byId(renderer, 'conversation-scroll-to-bottom').props.onPress());
-        expect(jump).toHaveBeenCalledOnce(); expect(scrollToOffset).not.toHaveBeenCalled();
+        expect(jump).toHaveBeenCalledOnce(); expect(scrollToEnd).not.toHaveBeenCalled();
         await act(async () => { finish(); renderer.update(render(true)); });
         act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(100, 2000));
-        expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: true });
         act(() => renderer.unmount());
     });
 
@@ -753,7 +779,7 @@ describe('ConversationTranscript older history pagination', () => {
             hasMoreOlder olderError="offline" onLoadOlder={retry} />); });
         expect(renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(0);
         act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
-            contentOffset: { y: 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
+            contentOffset: { y: 0 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
         } }));
         expect(retry).not.toHaveBeenCalled();
         act(() => byId(renderer, 'history-older-retry').props.onPress());
@@ -780,7 +806,10 @@ describe('ConversationTranscript older history pagination', () => {
         const adapter = { key: 'owner/session', read: async () => saved, save: (value: any) => { saved = value; }, wireId: (id: string) => id, wireSeq: () => 2 };
         const render = () => <ConversationTranscript metadata={null} sessionId="session" messages={grouped.items![0].messages}
             reading={adapter} isAtLatest={false} />;
-        const row = (renderer: any) => byId(renderer, 'conversation-transcript-list').props.renderItem({ item: grouped.items![0] }).props.children.props;
+        const row = (renderer: any) => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            return list.props.renderItem({ item: list.props.data[0] }).props.children.props.children.props;
+        };
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(render()); });
         expect(row(renderer).expanded).toBe(false);

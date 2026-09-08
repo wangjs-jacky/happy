@@ -11,6 +11,46 @@ const group = (id: string, ids: string[]) => ({ type: 'tool-group', id, messages
 const wire = (id: string) => id.replace(/-replayed$/, '');
 
 describe('durable transcript reading anchors', () => {
+    it('keeps public normal transcripts at the top when automatic latest layout is disabled', async () => {
+        const scrollToEnd = vi.fn();
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({ items: [], inverted: false, isAtLatest: true, followLatestOnLayout: false,
+                listRef: { current: { scrollToEnd } }, viewportRef: { current: null }, expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        await reading!.layout();
+        expect(scrollToEnd).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+    it('follows the latest normal-orientation content until the reader claims scrolling', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const scrollToEnd = vi.fn();
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({ items: [], inverted: false, isAtLatest: true,
+                listRef: { current: { scrollToEnd } }, viewportRef: { current: null }, expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        reading!.scroll(0, 1000); // Initial virtualized layout is not user intent.
+        scrollToEnd.mockClear();
+        await reading!.layout();
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+        scrollToEnd.mockClear();
+        reading!.cancelRestore('older');
+        reading!.scroll(0, 0); // A measurement event at the tail is not downward intent.
+        await reading!.layout();
+        expect(scrollToEnd).not.toHaveBeenCalled();
+        reading!.jumpLatest();
+        await reading!.layout();
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+        act(() => renderer.unmount());
+    });
+
     it('ignores a persisted restore that resolves after a Web wheel claims the viewport', async () => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
         const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
