@@ -114,11 +114,15 @@ export function useDeviceEnvironment(
         const daemonCliVersion = typeof machine?.daemonState?.startedWithCliVersion === 'string'
             ? machine.daemonState.startedWithCliVersion
             : undefined;
-        // The running daemon handles the RPC. Its state updates before machine
-        // metadata after an upgrade, so prefer it and keep metadata as fallback.
-        const cliVersion = daemonCliVersion ?? machine?.metadata?.happyCliVersion;
+        const metadataCliVersion = machine?.metadata?.happyCliVersion;
+        // These encrypted records update independently after a daemon upgrade.
+        // Select v2 as soon as either record proves the running generation can
+        // serve it; requiring both to converge keeps a freshly upgraded daemon
+        // on the legacy, inspect-only endpoint.
+        const preferV2 = isVersionSupported(daemonCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION)
+            || isVersionSupported(metadataCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION);
         return inspectMachineEnvironment(machineId, request, {
-            preferV2: isVersionSupported(cliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION),
+            preferV2,
         });
     });
     const apply = dependencies.apply ?? applyMachineEnvironment;
