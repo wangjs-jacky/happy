@@ -17,12 +17,13 @@ const styles = StyleSheet.create(theme => ({
 export function SessionListRecovery() {
     const { bootstrap, history } = useSessionListSyncState();
     if (bootstrap !== 'error' && history !== 'error') return null;
+    const retryBootstrap = bootstrap === 'error';
     return <View style={styles.container} accessibilityLiveRegion="polite">
-        <Text style={styles.message}>{t('server.failedToConnectToServer')}</Text>
+        <Text style={styles.message}>{t(retryBootstrap ? 'server.failedToConnectToServer' : 'sessionHistory.failedToLoadMore')}</Text>
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('common.retry')}
-            onPress={() => { void (bootstrap === 'error' ? sync.bootstrapSessions() : sync.loadNextSessionHistoryPage()); }}
+            onPress={() => { void (retryBootstrap ? sync.bootstrapSessions() : sync.loadNextSessionHistoryPage()); }}
             style={({ pressed }) => [styles.button, pressed && styles.pressed]}
         >
             <Text style={styles.label}>{t('common.retry')}</Text>

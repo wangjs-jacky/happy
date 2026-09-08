@@ -692,6 +692,7 @@ export const pl: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'Historia sesji',
+        failedToLoadMore: 'Nie udało się wczytać starszej historii sesji',
         empty: 'Nie znaleziono sesji',
         archiveTitle: 'Zarchiwizowane sesje',
         archiveEmpty: 'Brak zarchiwizowanych sesji',

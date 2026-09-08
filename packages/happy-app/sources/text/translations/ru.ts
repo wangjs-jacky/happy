@@ -655,6 +655,7 @@ export const ru: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'История сессий',
+        failedToLoadMore: 'Не удалось загрузить более раннюю историю сессий',
         empty: 'Сессии не найдены',
         archiveTitle: 'Архивные сессии',
         archiveEmpty: 'Нет архивных сессий',

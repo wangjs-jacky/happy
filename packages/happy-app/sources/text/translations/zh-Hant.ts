@@ -675,6 +675,7 @@ export const zhHant: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: '工作階段歷史',
+        failedToLoadMore: '載入更多歷史記錄失敗',
         empty: '未找到工作階段',
         archiveTitle: '已封存的工作階段',
         archiveEmpty: '尚無已封存的工作階段',

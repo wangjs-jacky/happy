@@ -31,6 +31,7 @@ describe('session list recovery', () => {
         useSessionListSyncState.setState({ bootstrap: 'error', history: 'idle' });
         act(() => { renderer = TestRenderer.create(<SessionsListWrapper />); });
         expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+        expect(renderer.root.findByProps({ children: 'server.failedToConnectToServer' })).toBeTruthy();
         const retry = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
         act(() => retry.props.onPress());
         expect(useSessionListSyncState.getState().bootstrap).toBe('loading');
@@ -44,9 +45,22 @@ describe('session list recovery', () => {
         const content = renderer.root.findByType('Text');
         act(() => useSessionListSyncState.setState({ history: 'error' }));
         expect(renderer.root.findAllByType('Text')).toContain(content);
+        expect(renderer.root.findByProps({ children: 'sessionHistory.failedToLoadMore' })).toBeTruthy();
+        expect(renderer.root.findAllByProps({ children: 'server.failedToConnectToServer' })).toHaveLength(0);
         const retry = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
         act(() => retry.props.onPress());
         expect(useSessionListSyncState.getState().history).toBe('loading');
         expect(renderer.root.findByType('Text')).toBe(content);
+    });
+    it('prioritizes bootstrap recovery when bootstrap and history both fail', () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        data.rows = [{}];
+        useSessionListSyncState.setState({ bootstrap: 'error', history: 'error' });
+        act(() => { renderer = TestRenderer.create(<SessionsListWrapper />); });
+        expect(renderer.root.findByProps({ children: 'server.failedToConnectToServer' })).toBeTruthy();
+        expect(renderer.root.findAllByProps({ children: 'sessionHistory.failedToLoadMore' })).toHaveLength(0);
+        const retry = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
+        act(() => retry.props.onPress());
+        expect(useSessionListSyncState.getState()).toEqual({ bootstrap: 'loading', history: 'error' });
     });
 });
