@@ -19,6 +19,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const ja: TranslationStructure = {
     deviceEnvironment: {
+        actionEgoUpgrade: ({ from, version }: { from: string; version: string }) => `Ego Lite と CLI を更新 ${from} → ${version}`,
+        actionEgoOnboard: 'Ego CLI の初期設定を完了', actionWranglerInstall: ({ version }: { version: string }) => `Wrangler ${version} をインストール`, actionWranglerUpgrade: ({ from, version }: { from: string; version: string }) => `Wrangler を更新 ${from} → ${version}`, actionWranglerAuthenticate: 'Wrangler で Cloudflare にログイン', actionCloudflaredInstall: ({ version }: { version: string }) => `cloudflared ${version} をインストール`, actionCloudflaredUpgrade: ({ from, version }: { from: string; version: string }) => `cloudflared を更新 ${from} → ${version}`, actionCloudflaredAuthenticate: 'Cloudflare トンネルのログインを開く', confirmToolTitle: ({ component }: { component: string }) => `${component} を同期しますか？`, confirmToolMessage: ({ actions }: { actions: string }) => `各マシンで実行する操作を確認してください：\n\n${actions}\n\nインストールと更新では確認済みのパッケージ所有元だけを使用します。ログインと初期設定はそのマシンで公式の対話フローを開きます。認証情報をマシン間でコピーすることはありません。`,
         egoPathReady: "Ego CLI は PATH から実行できます",
         egoPathMissing: "ego-browser を名前で実行できるように、~/.local/bin を PATH に追加してください。",
         egoCliMissing: "Ego CLI がありません。このマシンで Ego Lite の初期設定を完了してください。",

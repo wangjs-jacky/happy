@@ -53,7 +53,8 @@ function reasonLabel(componentId: EnvironmentComponentId, reason?: EnvironmentRe
                 : componentId === 'ego-browser' ? 'deviceEnvironment.egoMismatch' : 'deviceEnvironment.componentVersionSourceMismatch');
         case 'version-ahead': return t('deviceEnvironment.versionAhead');
         case 'authentication-missing': return t(componentId === 'cloudflare-wrangler'
-            ? 'deviceEnvironment.cloudflareAuthMissing' : 'deviceEnvironment.authMissing');
+            ? 'deviceEnvironment.cloudflareAuthMissing' : componentId === 'cloudflared'
+                ? 'deviceEnvironment.tunnelCertificateMissing' : 'deviceEnvironment.authMissing');
         case 'operation-in-progress': return t('deviceEnvironment.operationInProgress');
         case 'plan-stale': return t('deviceEnvironment.planExpired');
         case 'install-failed':
@@ -69,8 +70,7 @@ function reasonLabel(componentId: EnvironmentComponentId, reason?: EnvironmentRe
 function isAlignable(component: FleetComponentRow): boolean {
     const observation = component.observation;
     return observation?.capability === 'alignable'
-        && (component.componentId === 'github-cli'
-            || (component.componentId === 'paws-cli' && observation.source.ownership === 'verified'));
+        && observation.source.ownership !== 'unverified';
 }
 
 function failedProbe(observation?: ComponentObservation): boolean {
@@ -91,27 +91,56 @@ function actionLabel(component: FleetComponentRow, target: FleetTarget): string 
     if (component.status === 'offline') return t('deviceEnvironment.daemonOffline');
     if (component.status === 'rpc-timeout' || component.status === 'process-timeout' || component.status === 'rpc-error') return t('deviceEnvironment.stateUnknown');
     if (component.status === 'stale-plan') return t('deviceEnvironment.planExpired');
-    const labels = component.componentId === 'paws-cli'
-        ? { install: 'deviceEnvironment.actionPawsInstall' as const, upgrade: 'deviceEnvironment.actionPawsUpgrade' as const }
-        : { install: 'deviceEnvironment.actionInstall' as const, upgrade: 'deviceEnvironment.actionUpgrade' as const };
+    const installLabel = (version: string) => {
+        switch (component.componentId) {
+            case 'github-cli': return t('deviceEnvironment.actionInstall', { version });
+            case 'paws-cli': return t('deviceEnvironment.actionPawsInstall', { version });
+            case 'ego-browser': return t('deviceEnvironment.actionEgoUpgrade', { from: t('common.unknown'), version });
+            case 'cloudflare-wrangler': return t('deviceEnvironment.actionWranglerInstall', { version });
+            case 'cloudflared': return t('deviceEnvironment.actionCloudflaredInstall', { version });
+        }
+    };
+    const upgradeLabel = (from: string, version: string) => {
+        switch (component.componentId) {
+            case 'github-cli': return t('deviceEnvironment.actionUpgrade', { from, version });
+            case 'paws-cli': return t('deviceEnvironment.actionPawsUpgrade', { from, version });
+            case 'ego-browser': return t('deviceEnvironment.actionEgoUpgrade', { from, version });
+            case 'cloudflare-wrangler': return t('deviceEnvironment.actionWranglerUpgrade', { from, version });
+            case 'cloudflared': return t('deviceEnvironment.actionCloudflaredUpgrade', { from, version });
+        }
+    };
+    const authenticateLabel = () => component.componentId === 'cloudflared'
+        ? t('deviceEnvironment.actionCloudflaredAuthenticate') : t('deviceEnvironment.actionWranglerAuthenticate');
     if (component.status === 'failed' || component.status === 'succeeded') {
         const failed = component.status === 'failed';
         const outcome = t(failed ? 'deviceEnvironment.alignmentFailed' : 'deviceEnvironment.completed');
         if (!component.result) return outcome;
         const { before, after, changed } = component.result;
         const version = (failed && target.kind === 'ready' ? target.targetVersion : after.installedVersion) ?? t('common.unknown');
-        const action = !failed && !changed ? t('deviceEnvironment.actionNone')
-            : before.installed ? t(labels.upgrade, { from: before.installedVersion ?? t('common.unknown'), version })
-                : t(labels.install, { version });
+        const authenticated = component.componentId === 'cloudflare-wrangler'
+            && before.authentication?.status !== 'authenticated' && after.authentication?.status === 'authenticated';
+        const tunnelAuthenticated = component.componentId === 'cloudflared'
+            && before.details.kind === 'cloudflared' && after.details.kind === 'cloudflared'
+            && !before.details.tunnelCertificatePresent && after.details.tunnelCertificatePresent;
+        const onboarded = component.componentId === 'ego-browser'
+            && before.details.kind === 'ego-browser' && after.details.kind === 'ego-browser'
+            && (!before.details.pathReady || !before.details.paired) && after.details.pathReady && after.details.paired
+            && before.installedVersion === after.installedVersion;
+        const action = !failed && (authenticated || tunnelAuthenticated) ? authenticateLabel()
+            : !failed && onboarded ? t('deviceEnvironment.actionEgoOnboard')
+                : !failed && !changed ? t('deviceEnvironment.actionNone')
+                    : before.installed ? upgradeLabel(before.installedVersion ?? t('common.unknown'), version)
+                        : installLabel(version);
         return `${outcome} · ${action}`;
     }
     const plannedAction = component.dispatchedAction ?? component.plan;
     if (plannedAction) {
         switch (plannedAction.action) {
-            case 'install': return t(labels.install, { version: plannedAction.targetVersion ?? t('common.unknown') });
-            case 'upgrade': return t(labels.upgrade, {
-                from: plannedAction.fromVersion ?? t('common.unknown'), version: plannedAction.targetVersion ?? t('common.unknown'),
-            });
+            case 'install': return installLabel(plannedAction.targetVersion ?? t('common.unknown'));
+            case 'upgrade': return upgradeLabel(plannedAction.fromVersion ?? t('common.unknown'),
+                plannedAction.targetVersion ?? t('common.unknown'));
+            case 'authenticate': return authenticateLabel();
+            case 'onboard': return t('deviceEnvironment.actionEgoOnboard');
             case 'none': return t('deviceEnvironment.actionNone');
             case 'manual-repair': return t('deviceEnvironment.actionManualRepair');
         }
@@ -124,11 +153,12 @@ function componentReady(component: FleetComponentRow, target?: FleetTarget): boo
     const observation = component.status === 'succeeded' && component.result?.status === 'succeeded'
         ? component.result.after : component.observation;
     if ((component.status !== 'ready' && component.status !== 'succeeded') || !observation?.installed || observation.support !== 'supported') return false;
-    if (component.componentId === 'ego-browser' && observation.details.kind === 'ego-browser') return observation.details.pathReady && observation.details.paired;
-    if (component.componentId === 'cloudflare-wrangler') return observation.authentication?.status === 'authenticated';
-    if (component.componentId === 'cloudflared' && observation.details.kind === 'cloudflared') return observation.details.tunnelCertificatePresent;
+    const atTarget = target?.kind !== 'ready' || observation.installedVersion === target.targetVersion;
+    if (component.componentId === 'ego-browser' && observation.details.kind === 'ego-browser') return observation.details.pathReady && observation.details.paired && atTarget;
+    if (component.componentId === 'cloudflare-wrangler') return observation.authentication?.status === 'authenticated' && atTarget;
+    if (component.componentId === 'cloudflared' && observation.details.kind === 'cloudflared') return observation.details.tunnelCertificatePresent && atTarget;
     if (component.componentId === 'github-cli' && observation.authentication?.status !== 'authenticated') return false;
-    return target?.kind !== 'ready' || observation.installedVersion === target.targetVersion;
+    return atTarget;
 }
 
 function componentState(component: FleetComponentRow, target?: FleetTarget): 'ready' | 'warning' | 'unknown' {
@@ -148,7 +178,6 @@ function timeoutRecoveryLabel(componentId: EnvironmentComponentId): string {
 }
 
 function componentTarget(controller: DeviceEnvironmentController, componentId: EnvironmentComponentId): FleetTarget | undefined {
-    if (componentId !== 'github-cli' && componentId !== 'paws-cli') return undefined;
     return componentId === controller.selectedComponent ? controller.target : controller.targets[componentId];
 }
 
@@ -166,7 +195,8 @@ const ComponentEnvironmentRow = React.memo(({ machineId, machineLabel, component
     const reasonCode = component.reasonCode ?? component.plan?.reasonCode ?? observation?.reasonCode ?? component.result?.reasonCode;
     const reason = reasonLabel(component.componentId, reasonCode);
     const action = actionLabel(component, target ?? { kind: 'unavailable' });
-    const pendingApply = applying && (component.dispatchedAction?.action === 'install' || component.dispatchedAction?.action === 'upgrade');
+    const pendingApply = applying && component.dispatchedAction?.action !== undefined
+        && component.dispatchedAction.action !== 'none' && component.dispatchedAction.action !== 'manual-repair';
     // Inspection and apply failures share the same static component/reason allowlist.
     const commands = environmentRepairCommands(component.componentId, reasonCode);
     const details = observation?.details;
@@ -323,8 +353,8 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
     const selected = controller.selectedComponent;
     const canPreview = !busyPhase && controller.target.kind === 'ready' && (controller.phase === 'scanned' || controller.phase === 'previewed');
     const actionableRows = controller.rows.filter((row) => row.online && isAlignable(row.components[selected])
-        && (row.components[selected].status === 'ready' || row.components[selected].status === 'install' || row.components[selected].status === 'upgrade')
-        && (row.components[selected].plan?.action === 'none' || row.components[selected].plan?.action === 'install' || row.components[selected].plan?.action === 'upgrade'));
+        && ['ready', 'install', 'upgrade', 'authenticate', 'onboard'].includes(row.components[selected].status)
+        && row.components[selected].plan?.action !== 'manual-repair');
     const canConfirm = !busyPhase && controller.phase === 'previewed' && controller.target.kind === 'ready'
         && actionableRows.length > 0;
     const [working, runAction] = useHappyAction(async (action: 'scan' | 'preview' | 'confirm' | 'select', componentId?: EnvironmentComponentId) => {
@@ -333,9 +363,14 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
         if (action === 'select' && componentId) controller.selectComponent(componentId);
         if (action === 'preview' && canPreview) await controller.preview(selected);
         if (action === 'confirm' && canConfirm) {
+            const title = selected === 'github-cli' ? t('deviceEnvironment.confirmTitle')
+                : selected === 'paws-cli' ? t('deviceEnvironment.confirmPawsTitle')
+                    : t('deviceEnvironment.confirmToolTitle', { component: componentName(selected) });
+            const messageKey = selected === 'github-cli' ? 'deviceEnvironment.confirmMessage'
+                : selected === 'paws-cli' ? 'deviceEnvironment.confirmPawsMessage' : 'deviceEnvironment.confirmToolMessage';
             const approved = await Modal.confirm(
-                selected === 'github-cli' ? t('deviceEnvironment.confirmTitle') : t('deviceEnvironment.confirmPawsTitle'),
-                t(selected === 'github-cli' ? 'deviceEnvironment.confirmMessage' : 'deviceEnvironment.confirmPawsMessage', {
+                title,
+                t(messageKey, {
                     actions: actionableRows.map((row) => `${machineName(row)}: ${actionLabel(row.components[selected], controller.target)}`).join('\n'),
                 }),
                 { confirmText: t('deviceEnvironment.confirmAction'), cancelText: t('common.cancel') },
@@ -349,7 +384,7 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
     const ready = components.filter(({ component, target }) => componentReady(component, target)).length;
     const warning = components.filter(({ component, target }) => componentState(component, target) === 'warning').length;
     const unknown = components.length - ready - warning;
-    const alignable = (['github-cli', 'paws-cli'] as const).filter((componentId) => controller.rows.some((row) => isAlignable(row.components[componentId])));
+    const alignable = FLEET_COMPONENT_IDS.filter((componentId) => controller.rows.some((row) => isAlignable(row.components[componentId])));
     const columns = contentWidth >= 1120 ? 5 : contentWidth >= 640 ? 2 : 1;
     const fullyReady = components.length > 0 && ready === components.length;
     const healthColor = fullyReady ? styles.healthGood : warning > 0 ? styles.healthWarning : styles.healthUnknown;

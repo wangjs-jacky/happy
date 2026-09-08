@@ -26,16 +26,16 @@ describe('environment wire schemas', () => {
   const egoObservation = {
     componentId: 'ego-browser', platform: 'darwin', architecture: 'arm64', support: 'supported',
     installed: true, installedVersion: '1.0.0', resolvedExecutable: '/Users/test/.local/bin/ego-browser',
-    source: { kind: 'app-managed', available: true, latestVersion: null, ownership: 'not-applicable' },
-    capability: 'inspect-only',
+    source: { kind: 'app-managed', available: true, latestVersion: '0.4.7.4', ownership: 'not-applicable' },
+    capability: 'alignable',
     details: { kind: 'ego-browser', appVersion: '1.0.0', chromiumVersion: '136.0.0', nodeVersion: '22.0.0', pathReady: true, paired: true },
     inspectedAt: 1,
   };
   const wranglerObservation = {
     componentId: 'cloudflare-wrangler', platform: 'darwin', architecture: 'arm64', support: 'supported',
     installed: true, installedVersion: '4.0.0', resolvedExecutable: '/usr/local/bin/wrangler',
-    source: { kind: 'npm-global', available: true, latestVersion: '4.1.0', ownership: 'unverified' },
-    capability: 'inspect-only',
+    source: { kind: 'npm-global', available: true, latestVersion: '4.1.0', ownership: 'verified' },
+    capability: 'alignable',
     authentication: { provider: 'cloudflare', status: 'authenticated', accountLabels: ['Example account'] },
     details: { kind: 'cloudflare-wrangler' }, inspectedAt: 1,
   };
@@ -43,7 +43,7 @@ describe('environment wire schemas', () => {
     componentId: 'cloudflared', platform: 'darwin', architecture: 'arm64', support: 'supported',
     installed: true, installedVersion: '2026.1.0', resolvedExecutable: '/opt/homebrew/bin/cloudflared',
     source: { kind: 'homebrew', available: true, latestVersion: '2026.2.0', ownership: 'verified' },
-    capability: 'inspect-only', details: { kind: 'cloudflared', tunnelCertificatePresent: true }, inspectedAt: 1,
+    capability: 'alignable', details: { kind: 'cloudflared', tunnelCertificatePresent: true }, inspectedAt: 1,
   };
 
   it('accepts all component detail variants and a five-component scan', () => {
@@ -129,16 +129,23 @@ describe('environment wire schemas', () => {
     }).observations).toHaveLength(5);
   });
 
-  it('limits alignment requests and plans to GitHub CLI and Paws CLI', () => {
-    expect(() => EnvironmentInspectRequestSchema.parse({
+  it('accepts alignment requests and safe interactive actions for every component', () => {
+    expect(EnvironmentInspectRequestSchema.parse({
       componentIds: ['ego-browser'],
-      desired: { componentId: 'ego-browser', targetVersion: '1.0.0' },
-    })).toThrow();
-    expect(() => ComponentPlanSchema.parse({
+      desired: { componentId: 'ego-browser', targetVersion: '0.4.7.4' },
+    }).desired?.componentId).toBe('ego-browser');
+    expect(ComponentPlanSchema.parse({
       componentId: 'cloudflared', action: 'upgrade', fromVersion: '2026.1.0', targetVersion: '2026.2.0',
       planFingerprint: 'a'.repeat(64), expiresAt: 601_000,
-    })).toThrow();
-    expect(() => ComponentObservationSchema.parse({ ...egoObservation, capability: 'alignable' })).toThrow();
+    }).componentId).toBe('cloudflared');
+    expect(ComponentPlanSchema.parse({
+      componentId: 'cloudflare-wrangler', action: 'authenticate', fromVersion: '4.1.0', targetVersion: '4.1.0',
+      planFingerprint: 'a'.repeat(64), expiresAt: 601_000,
+    }).action).toBe('authenticate');
+    expect(ComponentPlanSchema.parse({
+      componentId: 'ego-browser', action: 'onboard', fromVersion: '0.4.7.4', targetVersion: '0.4.7.4',
+      planFingerprint: 'a'.repeat(64), expiresAt: 601_000,
+    }).action).toBe('onboard');
   });
 
   it('couples an observation component ID to its details kind', () => {

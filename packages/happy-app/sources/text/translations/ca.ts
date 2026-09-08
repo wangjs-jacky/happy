@@ -16,6 +16,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const ca: TranslationStructure = {
     deviceEnvironment: {
+        actionEgoUpgrade: ({ from, version }: { from: string; version: string }) => `Actualitza Ego Lite i CLI ${from} → ${version}`,
+        actionEgoOnboard: 'Completa la configuració inicial d’Ego CLI', actionWranglerInstall: ({ version }: { version: string }) => `Instal·la Wrangler ${version}`, actionWranglerUpgrade: ({ from, version }: { from: string; version: string }) => `Actualitza Wrangler ${from} → ${version}`, actionWranglerAuthenticate: 'Inicia sessió a Cloudflare amb Wrangler', actionCloudflaredInstall: ({ version }: { version: string }) => `Instal·la cloudflared ${version}`, actionCloudflaredUpgrade: ({ from, version }: { from: string; version: string }) => `Actualitza cloudflared ${from} → ${version}`, actionCloudflaredAuthenticate: 'Obre l’inici de sessió del túnel de Cloudflare', confirmToolTitle: ({ component }: { component: string }) => `Alinear ${component}?`, confirmToolMessage: ({ actions }: { actions: string }) => `Revisa l’acció exacta per a cada màquina:\n\n${actions}\n\nLes instal·lacions i actualitzacions només utilitzen el propietari verificat del paquet. L’inici de sessió i la configuració inicial obren el flux interactiu oficial a la màquina. Les credencials no es copien mai entre màquines.`,
         egoPathReady: "Ego CLI està disponible al PATH",
         egoPathMissing: "Afegeix ~/.local/bin al PATH per executar ego-browser pel nom.",
         egoCliMissing: "Falta Ego CLI. Completa la configuració inicial d’Ego Lite en aquesta màquina.",

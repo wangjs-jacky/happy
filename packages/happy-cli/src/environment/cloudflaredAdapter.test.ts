@@ -17,7 +17,10 @@ function testDeps(options: {
   brewPath?: string | null;
   versionResult?: ProcessResult;
   brewInfoResult?: ProcessResult;
+  formulaPrefixResult?: ProcessResult;
   certificatePresent?: boolean;
+  resolvedCloudflared?: string | null;
+  resolvedExpected?: string | null;
 } = {}): CloudflaredAdapterDeps & { invocations: Invocation[]; existenceChecks: string[] } {
   const invocations: Invocation[] = [];
   const existenceChecks: string[] = [];
@@ -29,6 +32,8 @@ function testDeps(options: {
         return options.brewInfoResult
           ?? success('{"formulae":[{"versions":{"stable":"2026.8.4"}}]}');
       }
+      if (args[0] === '--prefix') return options.formulaPrefixResult ?? success('/opt/homebrew/opt/cloudflared\n');
+      if (args[0] === 'install' || args[0] === 'upgrade' || args[0] === 'tunnel') return success('completed\n');
       throw new Error(`unexpected invocation: ${executable} ${args.join(' ')}`);
     },
   };
@@ -43,6 +48,9 @@ function testDeps(options: {
       expect(candidates).toEqual(['/opt/homebrew/bin/cloudflared']);
       return options.cloudflaredPath === undefined ? '/opt/homebrew/bin/cloudflared' : options.cloudflaredPath;
     },
+    resolveRealpath: async (path) => path === '/opt/homebrew/bin/cloudflared'
+      ? options.resolvedCloudflared === undefined ? '/opt/homebrew/Cellar/cloudflared/2026.8.3/bin/cloudflared' : options.resolvedCloudflared
+      : options.resolvedExpected === undefined ? '/opt/homebrew/Cellar/cloudflared/2026.8.3/bin/cloudflared' : options.resolvedExpected,
     pathExists: async (path) => {
       existenceChecks.push(path);
       return options.certificatePresent ?? true;
@@ -66,23 +74,33 @@ describe('cloudflared environment adapter', () => {
 
     const observed = await adapter.inspect();
 
-    expect(adapter.alignment).toBe('inspect-only');
+    expect(adapter.alignment).toBe('supported');
     expect(observed).toEqual({
       componentId: 'cloudflared', platform: 'darwin', architecture: 'arm64', support: 'supported',
       installed: true, installedVersion: '2026.8.3', resolvedExecutable: '/opt/homebrew/bin/cloudflared',
-      source: { kind: 'homebrew', available: true, latestVersion: '2026.8.4', ownership: 'not-applicable' },
-      capability: 'inspect-only',
+      source: { kind: 'homebrew', available: true, latestVersion: '2026.8.4', ownership: 'verified' },
+      capability: 'alignable',
       details: { kind: 'cloudflared', tunnelCertificatePresent: true }, inspectedAt: 1_000,
     });
     expect(deps.existenceChecks).toEqual(['/Users/test/.cloudflared/cert.pem']);
     expect(deps.invocations).toEqual([
       expect.objectContaining({ executable: '/opt/homebrew/bin/cloudflared', args: ['--version'] }),
       expect.objectContaining({ executable: '/opt/homebrew/bin/brew', args: ['info', '--json=v2', 'cloudflared'] }),
+      expect.objectContaining({ executable: '/opt/homebrew/bin/brew', args: ['--prefix', 'cloudflared'] }),
     ]);
     expect(deps.invocations.every(({ options }) => (
       options.timeoutMs === 15_000 && options.maxOutputBytes === 64 * 1024
     ))).toBe(true);
     expect(JSON.stringify(observed)).not.toMatch(/cert\.pem|\/Users\/test|stdout|stderr/iu);
+  });
+
+  it('refuses mutation when the executable does not resolve into the Homebrew formula', async () => {
+    const observed = await createCloudflaredAdapter(testDeps({
+      resolvedCloudflared: '/opt/homebrew/bin/unmanaged-cloudflared',
+    })).inspect();
+
+    expect(observed).toMatchObject({ capability: 'inspect-only', reasonCode: 'version-source-mismatch',
+      source: { ownership: 'unverified' } });
   });
 
   it.each([true, false])('represents certificate presence %s only as a boolean', async (certificatePresent) => {
@@ -105,7 +123,7 @@ describe('cloudflared environment adapter', () => {
 
     expect(observed).toMatchObject({
       installed: true, installedVersion: '2026.8.3',
-      source: { kind: 'homebrew', available: true, latestVersion: null, ownership: 'not-applicable' },
+      source: { kind: 'homebrew', available: true, latestVersion: null, ownership: 'verified' },
       details: { kind: 'cloudflared', tunnelCertificatePresent: true }, reasonCode: 'process-timeout',
     });
     expect(JSON.stringify(observed)).not.toMatch(/PRIVATE|cert\.pem|\/Users\/private|stdout|stderr/iu);
@@ -123,9 +141,38 @@ describe('cloudflared environment adapter', () => {
 
     expect(observed).toMatchObject({
       installed: true, installedVersion: '2026.8.3',
-      source: { kind: 'homebrew', available: true, latestVersion: null, ownership: 'not-applicable' },
+      source: { kind: 'homebrew', available: true, latestVersion: null, ownership: 'verified' },
       reasonCode: 'formula-unavailable',
     });
     expect(JSON.stringify(observed)).not.toContain(invalidVersion);
+  });
+
+  it('plans and applies a Homebrew upgrade before tunnel login', async () => {
+    const deps = testDeps({ certificatePresent: false });
+    const adapter = createCloudflaredAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'cloudflared', targetVersion: '2026.8.4' }, observed, 1_000);
+
+    expect(plan.action).toBe('upgrade');
+    await adapter.apply(plan);
+    expect(deps.invocations.at(-1)).toEqual(expect.objectContaining({
+      executable: '/opt/homebrew/bin/brew', args: ['upgrade', 'cloudflared'],
+    }));
+  });
+
+  it('plans and starts official tunnel login after versions align', async () => {
+    const deps = testDeps({
+      certificatePresent: false,
+      versionResult: success('cloudflared version 2026.8.4 (built 2026-08-19-1200 UTC)\n'),
+    });
+    const adapter = createCloudflaredAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'cloudflared', targetVersion: '2026.8.4' }, observed, 1_000);
+
+    expect(plan.action).toBe('authenticate');
+    await adapter.apply(plan);
+    expect(deps.invocations.at(-1)).toEqual(expect.objectContaining({
+      executable: '/opt/homebrew/bin/cloudflared', args: ['tunnel', 'login'],
+    }));
   });
 });

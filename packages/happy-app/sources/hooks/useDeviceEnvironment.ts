@@ -4,6 +4,9 @@ import type { Machine } from '@/sync/storageTypes';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { applyMachineEnvironment, inspectMachineEnvironment } from '@/environment/environmentOps';
 import { buildFleetRows, fleetComponents, FLEET_COMPONENT_IDS, fleetRpcError, resolveFleetTarget, type FleetComponentRow, type FleetMachineScan, type FleetRow, type FleetTarget } from '@/environment/fleetModel';
+import { isVersionSupported } from '@/utils/versionUtils';
+
+const ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION = '1.3.8';
 
 export type FleetPhase = 'idle' | 'scanning' | 'scanned' | 'previewing' | 'previewed' | 'applying' | 'completed';
 
@@ -37,7 +40,7 @@ type FleetState = Pick<DeviceEnvironmentController, 'phase' | 'rows' | 'target' 
 };
 
 function isAlignable(componentId: EnvironmentComponentId): componentId is AlignableEnvironmentComponentId {
-    return componentId === 'github-cli' || componentId === 'paws-cli';
+    return FLEET_COMPONENT_IDS.includes(componentId);
 }
 
 function replaceComponent(row: FleetRow, component: FleetComponentRow): FleetRow {
@@ -106,7 +109,12 @@ export function useDeviceEnvironment(
     latestMachines.current = machines;
     const mounted = useRef(true);
     const applyInFlight = useRef(false);
-    const inspect = dependencies.inspect ?? inspectMachineEnvironment;
+    const inspect = dependencies.inspect ?? ((machineId, request) => {
+        const cliVersion = latestMachines.current.find((machine) => machine.id === machineId)?.metadata?.happyCliVersion;
+        return inspectMachineEnvironment(machineId, request, {
+            preferV2: isVersionSupported(cliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION),
+        });
+    });
     const apply = dependencies.apply ?? applyMachineEnvironment;
     const now = dependencies.now ?? Date.now;
     const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
@@ -243,9 +251,12 @@ export function useDeviceEnvironment(
         const desired: DesiredComponentState = { componentId, targetVersion: target.targetVersion };
         const epoch = previous.epoch + 1;
         const previewStartedAt = monotonicNow();
-        const fleet = latestMachines.current.filter((machine) => previous.rows.find((row) => row.machineId === machine.id)
-            ?.components[componentId].observation?.capability !== 'inspect-only');
-        const rows = clearPlans(previous.rows).map((row) => row.components[componentId].observation?.capability === 'inspect-only'
+        const fleet = latestMachines.current.filter((machine) => {
+            const observation = previous.rows.find((row) => row.machineId === machine.id)?.components[componentId].observation;
+            return observation?.capability === 'alignable' && observation.source.ownership !== 'unverified';
+        });
+        const rows = clearPlans(previous.rows).map((row) => row.components[componentId].observation?.capability !== 'alignable'
+            || row.components[componentId].observation?.source.ownership === 'unverified'
             ? row : replaceComponent(row, {
             componentId, status: row.online ? 'pending' : 'offline',
             ...(!row.online ? { reasonCode: 'machine-offline' as const } : {}),
@@ -279,11 +290,13 @@ export function useDeviceEnvironment(
         }
         const candidates = previous.rows.filter((row) => row.online
             && row.components[componentId].observation?.support === 'supported'
-            && (componentId !== 'paws-cli' || (row.components[componentId].observation?.source.kind === 'npm-global'
-                && row.components[componentId].observation?.source.ownership === 'verified'))
-            && (row.components[componentId].status === 'ready' || row.components[componentId].status === 'install' || row.components[componentId].status === 'upgrade')
+            && row.components[componentId].observation?.capability === 'alignable'
+            && row.components[componentId].observation?.source.ownership !== 'unverified'
+            && (row.components[componentId].status === 'ready' || row.components[componentId].status === 'install'
+                || row.components[componentId].status === 'upgrade' || row.components[componentId].status === 'authenticate'
+                || row.components[componentId].status === 'onboard')
             && latestMachines.current.some((machine) => machine.id === row.machineId && isMachineOnline(machine))
-            && (row.components[componentId].plan?.action === 'none' || row.components[componentId].plan?.action === 'install' || row.components[componentId].plan?.action === 'upgrade'));
+            && row.components[componentId].plan?.action !== 'manual-repair');
         const desired: DesiredComponentState = { componentId, targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         applyInFlight.current = true;
@@ -332,11 +345,9 @@ export function useDeviceEnvironment(
     }
 
     return { phase: state.phase, rows: state.rows, target: state.target, selectedComponent: state.selectedComponent,
-        targets: {
-            'github-cli': state.requiresFleetScan ? { kind: 'unavailable' }
-                : state.selectedComponent === 'github-cli' ? state.target : resolveFleetTarget(state.rows, 'github-cli'),
-            'paws-cli': state.requiresFleetScan ? { kind: 'unavailable' }
-                : state.selectedComponent === 'paws-cli' ? state.target : resolveFleetTarget(state.rows, 'paws-cli'),
-        },
+        targets: Object.fromEntries(FLEET_COMPONENT_IDS.map((componentId) => [componentId,
+            state.requiresFleetScan ? { kind: 'unavailable' }
+                : state.selectedComponent === componentId ? state.target : resolveFleetTarget(state.rows, componentId),
+        ])) as Record<AlignableEnvironmentComponentId, FleetTarget>,
         selectComponent, scan, preview, applyApproved, reset };
 }

@@ -23,7 +23,7 @@ export type FleetComponentRow = {
     componentId: EnvironmentComponentId;
     observation?: ComponentObservation;
     plan?: ComponentPlan;
-    status: 'pending' | 'offline' | 'ready' | 'install' | 'upgrade' | 'manual-repair'
+    status: 'pending' | 'offline' | 'ready' | 'install' | 'upgrade' | 'authenticate' | 'onboard' | 'manual-repair'
         | 'rpc-error' | 'rpc-timeout' | 'process-timeout' | 'succeeded' | 'failed' | 'stale-plan';
     reasonCode?: EnvironmentReasonCode;
     requiresScan?: boolean;
@@ -50,10 +50,12 @@ export function resolveFleetTarget(
         ? scan.components[componentId]
         : { observation: scan.observations?.find((entry) => entry.componentId === componentId),
             plan: scan.plans?.find((entry) => entry.componentId === componentId) })
-        .filter(({ observation }) => componentId !== 'paws-cli'
-            || (observation?.capability === 'alignable' && observation.source.ownership === 'verified'));
-    if (online.some((scan) => scan.observation?.reasonCode === 'version-source-mismatch'
-        || scan.plan?.reasonCode === 'version-source-mismatch')) {
+        .filter(({ observation }) => observation?.capability === 'alignable'
+            && observation.source.ownership !== 'unverified');
+    if (online.some((scan) => scan.plan?.reasonCode === 'version-source-mismatch')) {
+        return { kind: 'blocked', reasonCode: 'version-source-mismatch' };
+    }
+    if (componentId !== 'ego-browser' && online.some((scan) => scan.observation?.reasonCode === 'version-source-mismatch')) {
         return { kind: 'blocked', reasonCode: 'version-source-mismatch' };
     }
     const versions = new Set<string>();

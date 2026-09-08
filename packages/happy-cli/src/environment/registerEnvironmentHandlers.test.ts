@@ -49,7 +49,7 @@ function fixture() {
 describe('environment RPC handlers', () => {
   it('registers only typed inspect and apply handlers and returns service responses', async () => {
     const { handlers, service } = fixture();
-    expect([...handlers.keys()]).toEqual(['environment-inspect', 'environment-apply']);
+    expect([...handlers.keys()]).toEqual(['environment-inspect', 'environment-inspect-v2', 'environment-apply']);
     const inspectHandler = handlers.get('environment-inspect')!;
     const applyHandler = handlers.get('environment-apply')!;
     const inspectRequest = { componentIds: ['github-cli'], desired: validApplyRequest.desired };
@@ -58,6 +58,21 @@ describe('environment RPC handlers', () => {
     await expect(applyHandler(validApplyRequest)).resolves.toEqual(applyResponse);
     expect(service.apply).toHaveBeenCalledExactlyOnceWith(validApplyRequest);
     expect(service.apply.mock.calls[0]?.[0]).not.toBe(validApplyRequest);
+  });
+
+  it('keeps legacy scans parseable while v2 exposes negotiated alignment capabilities', async () => {
+    const { handlers, service } = fixture();
+    const ego = { ...observation, componentId: 'ego-browser' as const, capability: 'alignable' as const,
+      source: { kind: 'app-managed' as const, available: true, latestVersion: '0.4.7.4', ownership: 'not-applicable' as const },
+      details: { kind: 'ego-browser' as const, appVersion: '0.4.7.4', chromiumVersion: '150.0.0', nodeVersion: '24.0.0', pathReady: true, paired: true } };
+    service.inspect.mockResolvedValue({ observations: [ego] });
+
+    await expect(handlers.get('environment-inspect')!({ componentIds: ['ego-browser'] })).resolves.toMatchObject({
+      observations: [{ componentId: 'ego-browser', capability: 'inspect-only' }],
+    });
+    await expect(handlers.get('environment-inspect-v2')!({ componentIds: ['ego-browser'] })).resolves.toMatchObject({
+      observations: [{ componentId: 'ego-browser', capability: 'alignable' }],
+    });
   });
 
   it('allows observation-only inspection', async () => {

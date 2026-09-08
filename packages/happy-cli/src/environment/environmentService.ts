@@ -46,7 +46,9 @@ function result(
     result: {
       componentId: before.componentId, status, before, after,
       changed: changeVerified && (before.installed !== after.installed || before.installedVersion !== after.installedVersion
-        || before.resolvedExecutable !== after.resolvedExecutable),
+        || before.resolvedExecutable !== after.resolvedExecutable
+        || JSON.stringify(before.authentication) !== JSON.stringify(after.authentication)
+        || JSON.stringify(before.details) !== JSON.stringify(after.details)),
       ...(reasonCode === undefined ? {} : { reasonCode, repairGuide: repairGuide(before.componentId, reasonCode) }),
       ...(diagnosticSummary === undefined ? {} : { diagnosticSummary: diagnosticSummary.slice(0, 2048) }),
     },
@@ -86,12 +88,31 @@ function sameDecision(current: ComponentPlan, approved: ComponentPlan): boolean 
 }
 
 function verifiesTarget(after: ComponentObservation, plan: ComponentPlan): boolean {
-  return after.installed && after.support === 'supported' && plan.targetVersion !== null
+  const alignedVersion = after.installed && after.support === 'supported' && plan.targetVersion !== null
     && after.installedVersion === plan.targetVersion && after.source.available
     && after.source.latestVersion === plan.targetVersion && after.source.ownership === 'verified'
     // Ownership/formula/source failures must not become success just because gh prints
     // the target version. Authentication remains independent of package alignment.
     && (after.reasonCode === undefined || after.reasonCode === 'authentication-missing');
+  if (plan.action === 'authenticate') {
+    if (after.componentId === 'cloudflare-wrangler') {
+      return alignedVersion && after.authentication?.status === 'authenticated';
+    }
+    return alignedVersion && after.componentId === 'cloudflared'
+      && after.details.kind === 'cloudflared' && after.details.tunnelCertificatePresent;
+  }
+  if (plan.action === 'onboard') {
+    return after.componentId === 'ego-browser' && after.support === 'supported' && after.installed
+      && after.installedVersion === plan.targetVersion && after.source.available
+      && after.source.latestVersion === plan.targetVersion && after.details.kind === 'ego-browser'
+      && after.details.pathReady && after.details.paired;
+  }
+  if (after.componentId === 'ego-browser') {
+    return after.support === 'supported' && after.installed && after.installedVersion === plan.targetVersion
+      && after.source.available && after.source.latestVersion === plan.targetVersion
+      && after.details.kind === 'ego-browser' && after.details.pathReady && after.details.paired;
+  }
+  return alignedVersion;
 }
 
 function verifiedApplyResult(
