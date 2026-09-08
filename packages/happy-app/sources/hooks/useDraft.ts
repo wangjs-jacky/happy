@@ -1,120 +1,91 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { storage } from '@/sync/storage';
 import { useIsFocused } from '@react-navigation/native';
 
 interface UseDraftOptions {
-    autoSaveInterval?: number; // in milliseconds, default 2000
+    autoSaveInterval?: number;
 }
 
+// Each session owns its pending value and timer. Editing only reschedules the
+// timer; leaving the session flushes that session's latest committed text.
 export function useDraft(
     sessionId: string | null | undefined,
     value: string,
     onChange: (value: string) => void,
-    options: UseDraftOptions = {}
+    { autoSaveInterval = 2000 }: UseDraftOptions = {},
 ) {
-    const { autoSaveInterval = 2000 } = options;
-    const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Seed with the initial value so a pre-hydrated draft (e.g. ChatComposer
-    // reads storage synchronously on mount) doesn't trip the autosave into
-    // re-writing what we just loaded.
-    const lastSavedValue = useRef<string>(value);
     const isFocused = useIsFocused();
-
-    // Save draft to storage
-    const saveDraft = useCallback((draft: string) => {
-        if (!sessionId) return;
-        
-        storage.getState().updateSessionDraft(sessionId, draft);
-        lastSavedValue.current = draft;
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
+    const draft = useMemo(() => {
+        const state = {
+            value,
+            saved: value,
+            clearedValue: null as string | null,
+            timer: null as ReturnType<typeof setTimeout> | null,
+            cancel() {
+                if (state.timer !== null) clearTimeout(state.timer);
+                state.timer = null;
+            },
+            flush() {
+                state.cancel();
+                if (!sessionId || state.value === state.saved) return;
+                storage.getState().updateSessionDraft(sessionId, state.value);
+                state.saved = state.value;
+            },
+        };
+        return state;
+        // Value deliberately seeds only a new session, never an ordinary edit.
     }, [sessionId]);
 
-    // Load draft on mount and when focused
     useEffect(() => {
-        if (!sessionId || !isFocused) return;
-
-        const session = storage.getState().sessions[sessionId];
-        if (session?.draft && !value) {
-            onChange(session.draft);
-            lastSavedValue.current = session.draft;
-        } else if (!session?.draft) {
-            // Ensure lastSavedValue is empty if there's no draft
-            lastSavedValue.current = '';
-        }
-    }, [sessionId, isFocused, onChange]);
-
-    // Auto-save with smart debouncing
-    useEffect(() => {
-        if (!sessionId) return;
-
-        // Clear any existing timeout
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-
-        // Only save if value has changed
-        if (value !== lastSavedValue.current) {
-            const wasEmpty = !lastSavedValue.current.trim();
-            const isEmpty = !value.trim();
-
-            if (wasEmpty !== isEmpty) {
-                // State transition: empty <-> non-empty
-                // Save immediately for instant feedback
-                saveDraft(value);
-            } else if (!isEmpty) {
-                // Text is being modified (non-empty to non-empty)
-                // Debounce to avoid excessive saves
-                saveTimeoutRef.current = setTimeout(() => {
-                    saveDraft(value);
-                }, autoSaveInterval);
-            }
-            // If both are empty, no need to save
-        }
-
-        return () => {
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-            }
-        };
-    }, [value, sessionId, autoSaveInterval, saveDraft]);
-
-    // Save on app state change (background/inactive)
-    useEffect(() => {
-        if (!sessionId) return;
-
-        const handleAppStateChange = (nextAppState: AppStateStatus) => {
-            if (nextAppState === 'background' || nextAppState === 'inactive') {
-                if (value !== lastSavedValue.current) {
-                    saveDraft(value);
-                }
-            }
-        };
-
-        const subscription = AppState.addEventListener('change', handleAppStateChange);
-
+        const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+            if (next === 'background' || next === 'inactive') draft.flush();
+        });
         return () => {
             subscription.remove();
+            draft.flush();
         };
-    }, [sessionId, value, saveDraft]);
+    }, [draft]);
 
-    // Save on unmount
     useEffect(() => {
-        return () => {
-            if (sessionId && value !== lastSavedValue.current) {
-                saveDraft(value);
+        if (draft.clearedValue === value) return;
+        draft.clearedValue = null;
+        draft.value = value;
+    }, [draft, value]);
+
+    useEffect(() => {
+        if (!sessionId || !isFocused || draft.clearedValue !== null) return;
+        const saved = storage.getState().sessions[sessionId]?.draft;
+        if (saved && !draft.value) {
+            draft.value = saved;
+            draft.saved = saved;
+            onChangeRef.current(saved);
+        }
+    }, [draft, sessionId, isFocused]);
+
+    useEffect(() => {
+        draft.cancel();
+        if (draft.value !== draft.saved) {
+            if (!isFocused || !draft.value.trim() !== !draft.saved.trim()) {
+                draft.flush();
+            } else {
+                draft.timer = setTimeout(() => draft.flush(), autoSaveInterval);
             }
-        };
-    }, [sessionId, value, saveDraft]);
+        }
+        return () => draft.cancel();
+    }, [draft, value, isFocused, autoSaveInterval]);
 
-    // Clear draft (used after message is sent)
     const clearDraft = useCallback(() => {
-        if (!sessionId) return;
-        
-        storage.getState().updateSessionDraft(sessionId, null);
-        lastSavedValue.current = '';
-    }, [sessionId]);
+        draft.cancel();
+        // The composer may unmount before its cleared value renders. Suppress
+        // the sent value until the next actual edit instead of resurrecting it.
+        draft.clearedValue = draft.value;
+        draft.value = '';
+        draft.saved = '';
+        if (sessionId) storage.getState().updateSessionDraft(sessionId, null);
+    }, [draft, sessionId]);
 
-    return {
-        clearDraft
-    };
+    return { clearDraft };
 }
