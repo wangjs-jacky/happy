@@ -1,0 +1,65 @@
+{
+  "gesture": "17 real PageUp keys, no wheel; prior window548..600",
+  "a": {
+    "data": 352,
+    "inverted": false,
+    "top": 46552,
+    "height": 54148,
+    "client": 586,
+    "wire": 352,
+    "oldest": 249,
+    "newest": 600,
+    "older": true,
+    "newer": false,
+    "latest": true,
+    "visible": [
+      {
+        "text": "Image history 542: keep ",
+        "top": -4
+      },
+      {
+        "text": "Image history 543: keep ",
+        "top": 112
+      },
+      {
+        "text": "Image history 545: keep ",
+        "top": 402
+      },
+      {
+        "text": "Image history 546: keep ",
+        "top": 518
+      }
+    ]
+  },
+  "b": {
+    "data": 352,
+    "inverted": false,
+    "top": 46552,
+    "height": 54148,
+    "client": 586,
+    "wire": 352,
+    "oldest": 249,
+    "newest": 600,
+    "older": true,
+    "newer": false,
+    "latest": true,
+    "visible": [
+      {
+        "text": "Image history 542: keep ",
+        "top": -4
+      },
+      {
+        "text": "Image history 543: keep ",
+        "top": 112
+      },
+      {
+        "text": "Image history 545: keep ",
+        "top": 402
+      },
+      {
+        "text": "Image history 546: keep ",
+        "top": 518
+      }
+    ]
+  }
+}

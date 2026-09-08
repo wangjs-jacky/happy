@@ -1,0 +1,16 @@
+{
+  "failed": {
+    "phase": "failed",
+    "failure": "spawn",
+    "text": "Recover this isolated failed first message."
+  },
+  "restored": {
+    "phase": "restored",
+    "text": "Recover this isolated failed first message."
+  },
+  "after": {
+    "phase": "restored",
+    "text": "Recover this isolated failed first message.",
+    "presented": "Recover this isolated failed first message."
+  }
+}
