@@ -252,7 +252,7 @@ vi.mock('@/components/FileViewPanel', async () => {
     };
 });
 vi.mock('@/components/diff/PierreDiffView', () => ({ prefetchPierreDiff: vi.fn() }));
-vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
+vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({
     useImagePicker: () => ({
         selectedImages: [],

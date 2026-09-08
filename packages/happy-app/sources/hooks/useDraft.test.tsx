@@ -105,4 +105,42 @@ describe('useDraft lifecycle', () => {
         act(() => vi.advanceTimersByTime(2000));
         expect(state.writes).toEqual([]);
     });
+
+    it('flushes input received before its deferred render commits on unmount', () => {
+        render('start');
+        controls.updateDraft('newest characters');
+        act(() => { renderer.unmount(); renderer = undefined; });
+        expect(state.writes).toEqual([['a', 'newest characters']]);
+    });
+
+    it('debounces from the input event and ignores a stale deferred mirror render', () => {
+        render('start');
+        controls.updateDraft('first');
+        act(() => vi.advanceTimersByTime(1000));
+        controls.updateDraft('latest');
+        render('first');
+        act(() => vi.advanceTimersByTime(1999));
+        expect(state.writes).toEqual([]);
+        act(() => vi.advanceTimersByTime(1));
+        expect(state.writes).toEqual([['a', 'latest']]);
+    });
+
+    it('clears synchronously notified input without resurrecting an older deferred render', () => {
+        render('start');
+        controls.updateDraft('first');
+        controls.updateDraft('sending');
+        controls.clearDraft();
+        render('first');
+        act(() => vi.advanceTimersByTime(2000));
+        act(() => { renderer.unmount(); renderer = undefined; });
+        expect(state.writes).toEqual([['a', null]]);
+    });
+
+    it('keeps pending input notifications owned by the previous session on navigation', () => {
+        render('start');
+        controls.updateDraft('pending a');
+        render('other', 'b');
+        act(() => vi.advanceTimersByTime(2000));
+        expect(state.writes).toEqual([['a', 'pending a']]);
+    });
 });

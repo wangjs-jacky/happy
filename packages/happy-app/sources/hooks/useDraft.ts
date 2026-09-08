@@ -8,7 +8,8 @@ interface UseDraftOptions {
 }
 
 // Each session owns its pending value and timer. Editing only reschedules the
-// timer; leaving the session flushes that session's latest committed text.
+// timer; leaving the session flushes its latest text, including input captured
+// synchronously before a deferred React mirror commits.
 export function useDraft(
     sessionId: string | null | undefined,
     value: string,
@@ -22,6 +23,7 @@ export function useDraft(
         const state = {
             value,
             saved: value,
+            usesInputNotifications: false,
             clearedValue: null as string | null,
             timer: null as ReturnType<typeof setTimeout> | null,
             cancel() {
@@ -50,6 +52,7 @@ export function useDraft(
     }, [draft]);
 
     useEffect(() => {
+        if (draft.usesInputNotifications) return;
         if (draft.clearedValue === value) return;
         draft.clearedValue = null;
         draft.value = value;
@@ -65,7 +68,7 @@ export function useDraft(
         }
     }, [draft, sessionId, isFocused]);
 
-    useEffect(() => {
+    const scheduleSave = useCallback(() => {
         draft.cancel();
         if (draft.value !== draft.saved) {
             if (!isFocused || !draft.value.trim() !== !draft.saved.trim()) {
@@ -74,8 +77,21 @@ export function useDraft(
                 draft.timer = setTimeout(() => draft.flush(), autoSaveInterval);
             }
         }
-        return () => draft.cancel();
-    }, [draft, value, isFocused, autoSaveInterval]);
+    }, [draft, isFocused, autoSaveInterval]);
+
+    useEffect(() => {
+        // A delayed mirror must neither replace newer input nor restart its
+        // debounce deadline. Session cleanup owns cancellation and flushing.
+        if (!draft.usesInputNotifications) scheduleSave();
+        else if (!isFocused) draft.flush();
+    }, [draft, value, isFocused, scheduleSave]);
+
+    const updateDraft = useCallback((text: string) => {
+        draft.usesInputNotifications = true;
+        draft.clearedValue = null;
+        draft.value = text;
+        scheduleSave();
+    }, [draft, scheduleSave]);
 
     const clearDraft = useCallback(() => {
         draft.cancel();
@@ -87,5 +103,5 @@ export function useDraft(
         if (sessionId) storage.getState().updateSessionDraft(sessionId, null);
     }, [draft, sessionId]);
 
-    return { clearDraft };
+    return { clearDraft, updateDraft };
 }
