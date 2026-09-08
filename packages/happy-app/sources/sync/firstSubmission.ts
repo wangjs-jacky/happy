@@ -35,13 +35,26 @@ type Dependencies = {
     metric(phase: FirstSubmissionSnapshot['phase'], duration: number): void;
 };
 
-export function containsSubmissionAttachments(required: FirstSubmissionInput['attachments'], selected: FirstSubmissionInput['attachments']) {
+export function matchSubmissionAttachmentIds(required: FirstSubmissionInput['attachments'], selected: FirstSubmissionInput['attachments']) {
     const remaining = [...selected];
-    return required.every(attachment => {
-        const index = remaining.findIndex(image => image.id === attachment.id || Boolean(attachment.name && image.name === attachment.name));
+    const matched = new Set<string>();
+    const consume = (index: number) => {
         if (index < 0) return false;
-        remaining.splice(index, 1); return true;
+        matched.add(remaining[index].id);
+        remaining.splice(index, 1);
+        return true;
+    };
+    // Reserve every exact ID before a refresh-only filename fallback can
+    // consume a different descriptor's original. Each descriptor consumes one file.
+    const unmatched = required.filter(attachment => !consume(remaining.findIndex(image => image.id === attachment.id)));
+    unmatched.forEach(attachment => {
+        if (attachment.name) consume(remaining.findIndex(image => image.name === attachment.name));
     });
+    return matched;
+}
+
+export function containsSubmissionAttachments(required: FirstSubmissionInput['attachments'], selected: FirstSubmissionInput['attachments']) {
+    return matchSubmissionAttachmentIds(required, selected).size === required.length;
 }
 
 /** A single scoped operation owns work, not a mounted composer. Disk is a

@@ -27,7 +27,7 @@ import { t } from '@/text';
 import { storage, useProfile, useAllMachines, useIsDataReady, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useFirstSubmission } from '@/hooks/useFirstSubmission';
-import { containsSubmissionAttachments } from '@/sync/firstSubmission';
+import { containsSubmissionAttachments, matchSubmissionAttachmentIds } from '@/sync/firstSubmission';
 import { composeDraftAttachmentSelectionGeneration, useComposeDraft } from '@/sync/composeDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
@@ -765,8 +765,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const restored = current && current !== pending.text ? `${current}\n\n${pending.text}` : pending.text;
         if (!await restore(restored, omitAttachments)) return;
         if (omitAttachments) {
-            useComposeDraft.getState().setImages(images => images.filter(image =>
-                !pending.attachments.some(attachment => attachment.id === image.id || Boolean(attachment.name && attachment.name === image.name))));
+            useComposeDraft.getState().setImages(images => {
+                const omittedIds = matchSubmissionAttachmentIds(pending.attachments, images);
+                return images.filter(image => !omittedIds.has(image.id));
+            });
         }
         setText(restored);
         composerInputRef.current?.setTextAndSelection(restored, { start: restored.length, end: restored.length });

@@ -547,4 +547,26 @@ describe('ComposeHome session hydration recovery', () => {
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
+    it.each([false, true])('omits only one original while retaining newer same-name selections (refresh fallback: %s)', async refresh => {
+        vi.useFakeTimers(); vi.mocked(Modal.confirm).mockResolvedValue(true);
+        const original = { id: 'A', name: 'photo.png', uri: 'file:///original.png' } as any;
+        const newer = { id: 'B', name: 'photo.png', uri: 'file:///newer.png' } as any;
+        const secondNewer = { id: 'C', name: 'photo.png', uri: 'file:///second-newer.png' } as any;
+        let renderer: any;
+        act(() => { useComposeDraft.getState().setImages([original]); renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('original submission'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        act(() => {
+            if (refresh) {
+                const scope = getFirstSubmissionScope()!;
+                setFirstSubmissionScope(scope.key, scope.serverUrl);
+            }
+            // Put the newer file first so filename matching cannot win over A's exact ID.
+            useComposeDraft.getState().setImages(refresh ? [newer, secondNewer] : [newer, original]);
+        });
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-text-only' }).props.onPress(); });
+        expect(useComposeDraft.getState().images.map(image => image.id)).toEqual(refresh ? ['C'] : ['B']);
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('original submission');
+        act(() => renderer.unmount());
+    });
 });
