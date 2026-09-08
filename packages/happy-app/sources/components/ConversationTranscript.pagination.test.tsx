@@ -145,7 +145,12 @@ describe('ConversationTranscript older history pagination', () => {
         };
         const intent = (direction: 'older' | 'newer') => {
             if (gesture === 'keyboard') node.dispatchEvent(new KeyboardEvent('keydown', { key: direction === 'older' ? 'Home' : 'End', bubbles: true }));
-            if (gesture === 'scrollbar') node.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 792, clientY: 400, bubbles: true }));
+            if (gesture === 'scrollbar') {
+                // A scrollbar gesture needs actual displacement; pressing an
+                // already-reached edge alone has no older/newer direction.
+                node.scrollTop = direction === 'older' ? 100 : 4100;
+                node.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 792, clientY: 400, bubbles: true }));
+            }
             if (gesture === 'touch') { touch('touchstart', 200); touch('touchmove', direction === 'older' ? 300 : 100); }
         };
         act(() => emitScroll(0));
@@ -173,6 +178,69 @@ describe('ConversationTranscript older history pagination', () => {
         expect(newer).toHaveBeenCalledOnce();
         act(() => renderer.update(render('three', false)));
         act(() => emitScroll(4200));
+        expect(newer).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it.each(['wheel', 'shift-wheel', 'keyboard', 'touch', 'scrollbar'] as const)('keeps %s pagination in the requested direction when both preload zones overlap', async gesture => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, { scrollHeight: { value: 1980 }, clientHeight: { value: 925 }, clientWidth: { value: 784 } });
+        node.getBoundingClientRect = () => ({ left: 0, right: 800, top: 0, bottom: 925, width: 800, height: 925, x: 0, y: 0, toJSON() {} });
+        node.scrollTop = 500;
+        let targetOffset = 500;
+        const older = vi.fn(); const newer = vi.fn();
+        let renderer: any;
+        const render = (id: string, latest: boolean) => <ConversationTranscript metadata={null} sessionId="overlap"
+            messages={[userMessage(id)]} hasMoreOlder hasMoreNewer isAtLatest={latest}
+            onLoadOlder={older} onLoadNewer={newer} />;
+        await act(async () => { renderer = TestRenderer.create(render('latest', true), {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node } : null,
+        }); });
+        const intent = (delta: number) => {
+            targetOffset = node.scrollTop + delta;
+            if (gesture === 'wheel') node.dispatchEvent(new WheelEvent('wheel', { deltaY: delta }));
+            if (gesture === 'shift-wheel') node.dispatchEvent(new WheelEvent('wheel', { shiftKey: true, deltaX: delta, deltaY: -Math.sign(delta) * 0.1 }));
+            if (gesture === 'scrollbar') node.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 792, clientY: 400 }));
+            if (gesture === 'keyboard') node.dispatchEvent(new KeyboardEvent('keydown', { key: delta > 0 ? 'ArrowDown' : 'ArrowUp' }));
+            if (gesture === 'touch') {
+                for (const [type, y] of [['touchstart', 400], ['touchmove', 400 - delta]] as const) {
+                    const event = new Event(type);
+                    Object.defineProperty(event, 'touches', { value: [{ clientX: 100, clientY: y }] });
+                    node.dispatchEvent(event);
+                }
+            }
+        };
+        const emitScroll = () => {
+            node.scrollTop = targetOffset;
+            byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+                contentOffset: { y: targetOffset }, contentSize: { height: 1980 }, layoutMeasurement: { height: 925 },
+            } });
+        };
+        // Already at latest: a down gesture must not consume its intent by
+        // loading older just because the short grouped history is near the top.
+        act(() => { intent(100); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onStartReached(); });
+        expect(older).not.toHaveBeenCalled();
+        expect(newer).not.toHaveBeenCalled();
+        await act(async () => { renderer.update(render('historical', false)); });
+        if (gesture === 'scrollbar') {
+            act(() => {
+                intent(0);
+                emitScroll();
+                byId(renderer, 'conversation-transcript-list').props.onStartReached();
+                byId(renderer, 'conversation-transcript-list').props.onEndReached();
+            });
+            expect(older).not.toHaveBeenCalled();
+            expect(newer).not.toHaveBeenCalled();
+        }
+        act(() => { intent(-100); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onEndReached(); });
+        expect(older).toHaveBeenCalledOnce();
+        expect(newer).not.toHaveBeenCalled();
+        // Layout and vendor boundary callbacks cannot reverse/rearm a gesture.
+        await act(async () => { renderer.update(render('previous-page', false)); });
+        act(() => { emitScroll(); byId(renderer, 'conversation-transcript-list').props.onEndReached(); });
+        expect(newer).not.toHaveBeenCalled();
+        act(() => { intent(100); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onStartReached(); });
+        expect(older).toHaveBeenCalledOnce();
         expect(newer).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
     });
