@@ -419,6 +419,63 @@ describe('DeviceEnvironmentView', () => {
         expect(flattenedStyle(cell().props.style).flexBasis).toBe('20%');
     });
 
+    it('shows only the action for the current alignment stage', () => {
+        const hasAction = (view: TestRenderer.ReactTestRenderer, testID: string) =>
+            view.root.findAll((node: any) => node.props.testID === testID).length > 0;
+        const actionCount = (view: TestRenderer.ReactTestRenderer) =>
+            ['environment-scan-all', 'environment-preview-alignment', 'environment-confirm-alignment']
+                .filter((testID) => hasAction(view, testID)).length;
+        const scanning = renderEnvironmentView({ phase: 'scanning' });
+        expect(actionCount(scanning)).toBe(1);
+        expect(hasAction(scanning, 'environment-scan-all')).toBe(true);
+        expect(hasAction(scanning, 'environment-preview-alignment')).toBe(false);
+        expect(hasAction(scanning, 'environment-confirm-alignment')).toBe(false);
+
+        const scanned = renderEnvironmentView({ phase: 'scanned' });
+        expect(actionCount(scanned)).toBe(1);
+        expect(hasAction(scanned, 'environment-scan-all')).toBe(false);
+        expect(hasAction(scanned, 'environment-preview-alignment')).toBe(true);
+        expect(hasAction(scanned, 'environment-confirm-alignment')).toBe(false);
+        expect(textOf(scanned.root.findByProps({ testID: 'environment-preview-alignment' }))).toContain('Preview alignment');
+        expect(textOf(scanned.root.findByProps({ testID: 'environment-preview-alignment' }))).not.toContain('GitHub CLI');
+
+        const previewed = renderEnvironmentView({ phase: 'previewed', rows: [row('mac', { 'github-cli': {
+            status: 'upgrade', plan: plan('github-cli', 'upgrade', '2.79.0', '2.80.0'),
+        } })] });
+        expect(actionCount(previewed)).toBe(1);
+        expect(hasAction(previewed, 'environment-scan-all')).toBe(false);
+        expect(hasAction(previewed, 'environment-preview-alignment')).toBe(false);
+        expect(hasAction(previewed, 'environment-confirm-alignment')).toBe(true);
+        expect(textOf(previewed.root.findByProps({ testID: 'environment-confirm-alignment' }))).toContain('Apply alignment');
+        expect(textOf(previewed.root.findByProps({ testID: 'environment-confirm-alignment' }))).not.toContain('GitHub CLI');
+
+        for (const phase of ['scanned', 'previewed'] as const) {
+            const blocked = renderEnvironmentView({ phase, target: { kind: 'unavailable' } });
+            expect(actionCount(blocked)).toBe(1);
+            expect(hasAction(blocked, 'environment-scan-all')).toBe(true);
+            expect(hasAction(blocked, 'environment-preview-alignment')).toBe(false);
+            expect(hasAction(blocked, 'environment-confirm-alignment')).toBe(false);
+        }
+    });
+
+    it('keeps narrow component cards content-sized instead of stretching to the viewport', () => {
+        mocks.windowWidth = 390;
+        const view = renderEnvironmentView();
+        const cell = view.root.findByProps({ testID: 'environment-component-cell-mac-github-cli' });
+        const card = view.root.findByProps({ testID: 'environment-component-mac-github-cli' });
+        expect(flattenedStyle((cell.children[0] as any).props.style).height).toBeUndefined();
+        expect(flattenedStyle(card.props.style).flex).toBeUndefined();
+    });
+
+    it('keeps component cards equal-height in a multi-column layout', () => {
+        mocks.windowWidth = 1024;
+        const view = renderEnvironmentView();
+        const cell = view.root.findByProps({ testID: 'environment-component-cell-mac-github-cli' });
+        const card = view.root.findByProps({ testID: 'environment-component-mac-github-cli' });
+        expect(flattenedStyle((cell.children[0] as any).props.style).height).toBe('100%');
+        expect(flattenedStyle(card.props.style).flex).toBe(1);
+    });
+
     it('does not present an empty fleet as fully healthy', () => {
         const view = renderEnvironmentView({ rows: [] });
         const healthIcon = view.root.findByProps({ testID: 'environment-health-icon' });
