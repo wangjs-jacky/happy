@@ -4,9 +4,6 @@ import type { Machine } from '@/sync/storageTypes';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { applyMachineEnvironment, inspectMachineEnvironment } from '@/environment/environmentOps';
 import { buildFleetRows, fleetComponents, FLEET_COMPONENT_IDS, fleetRpcError, resolveFleetTarget, type FleetComponentRow, type FleetMachineScan, type FleetRow, type FleetTarget } from '@/environment/fleetModel';
-import { isVersionSupported } from '@/utils/versionUtils';
-
-const ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION = '1.3.8';
 
 export type FleetPhase = 'idle' | 'scanning' | 'scanned' | 'previewing' | 'previewed' | 'applying' | 'completed';
 
@@ -109,24 +106,10 @@ export function useDeviceEnvironment(
     latestMachines.current = machines;
     const mounted = useRef(true);
     const applyInFlight = useRef(false);
-    const inspect = dependencies.inspect ?? ((machineId, request) => {
-        const machine = latestMachines.current.find((candidate) => candidate.id === machineId);
-        const daemonCliVersion = typeof machine?.daemonState?.startedWithCliVersion === 'string'
-            ? machine.daemonState.startedWithCliVersion
-            : undefined;
-        const metadataCliVersion = machine?.metadata?.happyCliVersion;
-        // These encrypted records update independently after a daemon upgrade.
-        // Select v2 as soon as either record proves the running generation can
-        // serve it; requiring both to converge keeps a freshly upgraded daemon
-        // on the legacy, inspect-only endpoint.
-        const hasSynchronizedVersion = daemonCliVersion !== undefined || metadataCliVersion !== undefined;
-        const preferV2 = isVersionSupported(daemonCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION)
-            || isVersionSupported(metadataCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION);
-        if (!hasSynchronizedVersion) return inspectMachineEnvironment(machineId, request);
-        return inspectMachineEnvironment(machineId, request, {
-            preferV2,
-        });
-    });
+    // Synchronized version records may lag behind the running daemon. Negotiate
+    // the RPC capability directly; inspectMachineEnvironment falls back to the
+    // legacy endpoint only when the server reports that v2 is unavailable.
+    const inspect = dependencies.inspect ?? inspectMachineEnvironment;
     const apply = dependencies.apply ?? applyMachineEnvironment;
     const now = dependencies.now ?? Date.now;
     const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
