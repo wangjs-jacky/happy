@@ -15,6 +15,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
+import { TranscriptList } from './TranscriptList';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { Metadata } from '@/sync/storageTypes';
@@ -115,6 +116,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [boundaries, setBoundaries] = React.useState({ older: false, newer: false });
     const attempted = React.useRef(new Set<string>());
     const jumpPending = React.useRef(false);
+    const jumpRequest = React.useRef<object | null>(null);
     const userScrollStarted = React.useRef(false);
     const prepareBoundaryLoad = React.useRef<() => Promise<void> | void>(() => {});
     const boundaryAttemptKey = React.useCallback((direction: 'older' | 'newer') => {
@@ -195,6 +197,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
         followLatestOnLayout: Boolean(props.sessionId) || props.inverted !== false,
+        synchronousAnchoring: Platform.OS === 'web' && !inverted,
         listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
     prepareBoundaryLoad.current = () => {
         if (Platform.OS !== 'web' || !props.reading || !viewportRef.current) return;
@@ -388,7 +391,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             {renderItemContent({ item })}
         </TranscriptReadingMarker>;
         if (Platform.OS !== 'web') return content;
-        return <View onLayout={event => {
+        // react-native-web supports dataSet; native View's declarations omit it.
+        return <View {...{ dataSet: { transcriptKey: item.renderKey } }} onLayout={event => {
             const height = event.nativeEvent.layout.height;
             if (rowKeys.current.has(item.renderKey) && height > 0 && rowHeights.current.get(item.renderKey) !== height) {
                 rowHeights.current.set(item.renderKey, height);
@@ -440,11 +444,13 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const sessionRef = React.useRef(props.sessionId); sessionRef.current = props.sessionId;
     const scrollToBottom = React.useCallback(async () => {
         if (isAtLatest) { scrollLatest(); return; }
-        if (!props.onJumpToLatest || jumpPending.current) return;
+        if (!props.onJumpToLatest || jumpRequest.current) return;
         const session = props.sessionId;
+        const request = {}; jumpRequest.current = request;
         jumpPending.current = true;
         try { await props.onJumpToLatest(); }
         catch { if (sessionRef.current === session) jumpPending.current = false; }
+        finally { if (jumpRequest.current === request) jumpRequest.current = null; }
     }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
     const onContentSizeChange = React.useCallback((_width: number, height: number) => {
         setContentMeasurement({ boundary: boundaryAttemptKey('older'), generation: contentGeneration, height });
@@ -486,6 +492,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         // sheet is open. Resolve the stable id against the current transcript.
         const current = anchorsRef.current.find((candidate) => candidate.id === anchor.id);
         if (!current) return;
+        cancelReadingRestoreRef.current('older');
         const index = inverted ? current.displayIndex : displayItemsRef.current.length - 1 - current.displayIndex;
         flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
     }, [inverted]);
@@ -505,6 +512,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         setAnchorSheetOpen(false);
         if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
         jumpPending.current = false;
+        jumpRequest.current = null;
         attempted.current.clear();
         userScrollStarted.current = false;
         setBoundaries({ older: false, newer: false });
@@ -536,7 +544,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         <TranscriptReadingContext.Provider value={reading.markers}>
         <TranscriptGroupExpansionContext.Provider value={nestedExpansion}>
         <View ref={viewportRef} collapsable={false} style={styles.container}>
-            <FlatList<DisplayItem & { renderKey: string }>
+            <TranscriptList<DisplayItem & { renderKey: string }>
                 ref={flatListRef}
                 testID="conversation-transcript-list"
                 data={listItems}
@@ -552,6 +560,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 // index, making unmeasured anchors/latest impossible to seek.
                 // Estimates mount the target; reading markers correct its offset.
                 getItemLayout={Platform.OS === 'web' ? getWebItemLayout : undefined}
+                {...(Platform.OS === 'web' ? { onAnchorOffsetChange: reading.adjustOffset } : {})}
                 maintainVisibleContentPosition={inverted
                     ? { minIndexForVisible: 0, ...(isAtLatest ? { autoscrollToTopThreshold: 50 } : {}) }
                     : undefined}

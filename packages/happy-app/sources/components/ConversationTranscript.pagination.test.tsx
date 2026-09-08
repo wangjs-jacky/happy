@@ -665,11 +665,11 @@ describe('ConversationTranscript older history pagination', () => {
 
     it.each([true, false])('resolves a selected anchor after incoming messages shift its index (inverted=%s)', async (inverted) => {
         let renderer: any;
-        const scrollToIndex = vi.fn();
-        const render = (messages: Message[]) => <ConversationTranscript metadata={null} messages={messages} inverted={inverted} />;
+        const scrollToIndex = vi.fn(); const scrollToEnd = vi.fn();
+        const render = (messages: Message[]) => <ConversationTranscript metadata={null} sessionId="anchor-session" messages={messages} inverted={inverted} />;
         await act(async () => {
             renderer = TestRenderer.create(render([userMessage('u2'), userMessage('u1')]), {
-                createNodeMock: (element: any) => element.type === 'FlatList' ? { scrollToIndex } : null,
+                createNodeMock: (element: any) => element.type === 'FlatList' ? { scrollToIndex, scrollToEnd } : null,
             });
         });
         scroll(renderer);
@@ -679,6 +679,9 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.update(render([userMessage('u3'), userMessage('u2'), userMessage('u1'), userMessage('u0')])));
         act(() => oldSheet.onSelect(selected));
         expect(scrollToIndex).toHaveBeenLastCalledWith({ index: inverted ? 1 : 2, animated: true, viewPosition: 0.5 });
+        scrollToEnd.mockClear();
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(800, 4000));
+        expect(scrollToEnd).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
@@ -760,6 +763,17 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => { finish(); renderer.update(render(true)); });
         act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(100, 2000));
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: true });
+        act(() => renderer.unmount());
+    });
+
+    it('allows retry when a completed latest request still leaves a historical window', async () => {
+        const jump = vi.fn(async () => {});
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="retry-latest" messages={[userMessage('old')]} isAtLatest={false} onJumpToLatest={jump} />); });
+        await act(async () => { await byId(renderer, 'conversation-scroll-to-bottom').props.onPress(); });
+        await act(async () => { await byId(renderer, 'conversation-scroll-to-bottom').props.onPress(); });
+        expect(jump).toHaveBeenCalledTimes(2);
         act(() => renderer.unmount());
     });
 

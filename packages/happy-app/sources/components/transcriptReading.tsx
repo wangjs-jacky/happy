@@ -109,6 +109,7 @@ export function useTranscriptReading(options: {
     inverted: boolean;
     isAtLatest: boolean;
     followLatestOnLayout?: boolean;
+    synchronousAnchoring?: boolean;
     listRef: React.RefObject<any>;
     viewportRef: React.RefObject<any>;
     expanded: string[];
@@ -135,7 +136,7 @@ export function useTranscriptReading(options: {
     const previousProjection = React.useRef(projection);
     if (projection !== previousProjection.current) {
         previousProjection.current = projection;
-        if (!following.current && latest.current && latestEpoch.current === ownershipEpoch.current) {
+        if (!options.synchronousAnchoring && !following.current && latest.current && latestEpoch.current === ownershipEpoch.current) {
             pending.current = latest.current; mountedTarget.current = null;
         }
     }
@@ -244,6 +245,8 @@ export function useTranscriptReading(options: {
     }), [layout]);
     return {
         markers: options.adapter ? markers : null, layout, capture,
+        // The Web mask translates before its native scroll event is delivered.
+        adjustOffset(y: number) { offset.current = y; },
         scroll(y: number, distanceFromBottom: number) {
             offset.current = y;
             if (current.current.inverted || userScrolling.current) following.current = current.current.isAtLatest
@@ -261,6 +264,7 @@ export function useTranscriptReading(options: {
             userDirection.current = direction;
         },
         pin() {
+            if (current.current.synchronousAnchoring) return;
             if (latest.current && latestEpoch.current === ownershipEpoch.current && !following.current) pending.current = latest.current;
         },
         jumpLatest() { pending.current = null; following.current = true; userScrolling.current = false;

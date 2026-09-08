@@ -27,6 +27,7 @@ import { randomUUID } from 'expo-crypto';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { SessionView } from '@/-session/SessionView';
 import { useTranscriptReading } from '@/components/transcriptReading';
+import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -871,6 +872,38 @@ describe('message visibility synchronization', () => {
         expect(encryption).toBeTruthy();
     }, 30000);
 
+    it('does not resurrect evicted realtime rows when a held foreground fetch releases its message lock', async () => {
+        Platform.OS = 'web';
+        const storage = await useRealMessageComposition();
+        installSession('web-queued-compaction');
+        storage.getState().applySessions([hydrated(snapshot('web-queued-compaction'))]);
+        storage.setState({ currentViewingSessionId: 'web-queued-compaction' });
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-queued-compaction');
+        await syncForTest.applyLatestMessagePage('web-queued-compaction', { messages: [apiMessage(1)], hasMore: false },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        vi.mocked(voiceHooks.onMessages).mockClear();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const fetching = syncForTest.fetchMessages('web-queued-compaction', syncForTest.sessionMessageLoadGate.begin(lease));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        try {
+            for (let seq = 2; seq <= 1200; seq++) await syncForTest.handleUpdate(newMessageUpdate('web-queued-compaction', seq));
+        } finally {
+            http.resolve(response({ messages: [], hasMore: false }));
+            await fetching;
+            await syncForTest.getSessionMessageLock('web-queued-compaction').inLock(() => undefined);
+        }
+        const cache = storage.getState().sessionMessages['web-queued-compaction'];
+        const window = syncForTest.historyWindows.get('web-queued-compaction');
+        expect(cache.messages.length).toBeLessThanOrEqual(500);
+        expect(cache.messages.map(row => sync.getMessageWireId('web-queued-compaction', row.id)).sort())
+            .toEqual(window.messages.map((row: ApiMessage) => row.id).sort());
+        expect(cache.messages.every(row => sync.getMessageWireSeq('web-queued-compaction', row.id) !== null)).toBe(true);
+        const liveNotifications = vi.mocked(voiceHooks.onMessages).mock.calls.flatMap(([, rows]) =>
+            rows.flatMap(row => row.kind === 'user-text' ? [row.text] : []));
+        expect(liveNotifications).toEqual(Array.from({ length: 1199 }, (_, i) => `realtime-${i + 2}`));
+    });
+
     it('resolves modern live envelope rows to outer wire sequences before the next replay', async () => {
         Platform.OS = 'web';
         const storage = await useRealMessageComposition();
@@ -1238,6 +1271,32 @@ describe('message visibility synchronization', () => {
         tail.resolve(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
         await catchingUp;
         expect(mocks.state.sessionMessages['advancing-tail']).toMatchObject({ isAtLatest: false, latestVerifiedOwnerEpoch: null });
+    });
+
+    it('jumps over a large cached gap to the server tail instead of stopping at one newer page', async () => {
+        Platform.OS = 'web';
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('jump-large-gap');
+        const history = (await openLocalHistory('server|jump-large-gap'))!;
+        await history.commitPage('jump-large-gap', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(2000)], hasMore: true });
+        await history.appendMessages('jump-large-gap', [apiMessage(4000)]);
+        await history.commitReconciliation({ changes: [{ sessionId: 'jump-large-gap', revision: '1', deleted: false,
+            lastMessageSeq: 4000, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('jump-large-gap');
+        await syncForTest.applyHistoryWindow('jump-large-gap', await history.readWindow('jump-large-gap'),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: Array.from({ length: 100 }, (_, i) => apiMessage(2001 + i)), hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: Array.from({ length: 25 }, (_, i) => apiMessage(4000 - i)), hasMore: true }));
+        await sync.jumpToLatestMessages('jump-large-gap');
+        expect(syncForTest.historyWindows.get('jump-large-gap')).toMatchObject({ newestSeq: 4000, isAtLatest: true, hasMoreNewer: false });
+        expect(sync.resolveRenderedMessageId('jump-large-gap', 'message-4000')).not.toBeNull();
+        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual([
+            '/v3/sessions/jump-large-gap/messages?after_seq=2000&limit=100',
+            '/v3/sessions/jump-large-gap/messages?before_seq=2147483647&limit=25',
+        ]);
     });
 
     it('does not certify a tail when its catch-up request fails', async () => {
@@ -2815,6 +2874,30 @@ describe('message visibility synchronization', () => {
 
         expect(mocks.gitInvalidate).toHaveBeenCalledTimes(1);
         expect(mocks.gitInvalidate).toHaveBeenCalledWith('visible-session');
+    });
+
+    it.each(['live', 'forward'] as const)('refreshes visible git when %s compaction keeps an older reading anchor', async source => {
+        Platform.OS = 'web';
+        const encryption = installSession('compact-git', async rows => rows.map(row => ({ ...row,
+            content: row.seq === 501 ? rawToolResult('compact-tool-result') : rawText(`fetched-${row.seq}`),
+        })));
+        encryption.decryptMessage.mockImplementation(async (row: ApiMessage) => ({ ...row, content: rawToolResult('compact-tool-result') }));
+        const lease = syncForTest.sessionMessageLoadGate.enter('compact-git');
+        await syncForTest.applyLatestMessagePage('compact-git', {
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.state.currentViewingSessionId = 'compact-git';
+        mocks.state.mutableToolCalls.add('compact-git:call-1');
+        await sync.saveSessionReadingState('compact-git', { version: 1, anchorId: 'message-20', anchorSeq: 20,
+            offset: 0, expandedGroupIds: [], followLatest: false });
+        if (source === 'live') await syncForTest.handleUpdate(newMessageUpdate('compact-git', 501));
+        else {
+            mocks.apiRequest.mockResolvedValueOnce(response({ messages: [apiMessage(501)], hasMore: false }));
+            await syncForTest.fetchForwardSince('compact-git', encryption, 500, syncForTest.sessionMessageLoadGate.begin(lease));
+        }
+        expect(syncForTest.historyWindows.get('compact-git')).toMatchObject({ isAtLatest: false, hasMoreNewer: true });
+        expect(mocks.gitInvalidate).toHaveBeenCalledTimes(1);
+        expect(mocks.gitInvalidate).toHaveBeenCalledWith('compact-git');
     });
 
     it('refreshes git once when a visible gap contains a fetched mutable tool result', async () => {

@@ -1,0 +1,87 @@
+/**
+ * App-local compatibility adapter for react-native-web 0.21.2's VirtualizedList.
+ * That version retains numeric render-mask indices across prepends, unlike newer
+ * native lists. Stable keys alone therefore cannot keep a visible image mounted.
+ * Keep the vendor's bounded mask/overscan, but translate the surviving range and
+ * its measured scroll offset in the same React commit. No global vendor patch.
+ * The real vendor-class test is an upgrade gate for these private internals.
+ */
+export function createAnchoredWebVirtualizedList(Base: any): any {
+    if (typeof Base?._createRenderMask !== 'function' || typeof Base?.getDerivedStateFromProps !== 'function') {
+        throw new Error('Unsupported Web transcript virtualizer: bounded anchor adapter requires review');
+    }
+    const key = (props: any, index: number): string => props.keyExtractor(props.getItem(props.data, index), index);
+    return class AnchoredWebVirtualizedList extends Base {
+        private appliedAnchorRevision = 0;
+        constructor(props: any) {
+            super(props);
+            if (!this.state?.cellsAroundViewport || !this._scrollMetrics || typeof props.getItemLayout !== 'function') {
+                throw new Error('Unsupported Web transcript virtualizer geometry');
+            }
+            this.state = { ...this.state, anchorProps: props, anchorRevision: 0,
+                readAnchorOffset: () => this._scrollRef?.getScrollableNode?.()?.scrollTop ?? this._scrollMetrics.offset };
+        }
+
+        static getDerivedStateFromProps(props: any, previous: any): any {
+            const base = Base.getDerivedStateFromProps(props, previous);
+            const old = previous.anchorProps;
+            const next = { ...base, anchorProps: props };
+            if (!old || props.inverted || (old.data === props.data && old.getItemLayout === props.getItemLayout)) return next;
+            const count = props.getItemCount(props.data);
+            const oldCount = old.getItemCount(old.data);
+            if (!count || !oldCount) return next;
+            const indices = new Map<string, number>();
+            for (let index = 0; index < count; index++) indices.set(key(props, index), index);
+            const surviving: Array<{ old: number; next: number }> = [];
+            const range = previous.cellsAroundViewport;
+            for (let index = range.first; index <= Math.min(range.last, oldCount - 1); index++) {
+                const nextIndex = indices.get(key(old, index));
+                if (nextIndex !== undefined) surviving.push({ old: index, next: nextIndex });
+            }
+            if (!surviving.length) return next;
+            const offset = previous.readAnchorOffset();
+            const anchor = surviving.find(row => {
+                const frame = old.getItemLayout(old.data, row.old);
+                return frame.offset + frame.length > offset;
+            }) ?? surviving.at(-1)!;
+            const delta = props.getItemLayout(props.data, anchor.next).offset - old.getItemLayout(old.data, anchor.old).offset;
+            const cells = { first: Math.min(...surviving.map(row => row.next)), last: Math.max(...surviving.map(row => row.next)) };
+            return { ...next, cellsAroundViewport: cells, renderMask: Base._createRenderMask(props, cells),
+                ...(delta !== 0 ? { anchorRevision: previous.anchorRevision + 1, anchorOffset: Math.max(0, offset + delta) } : {}) };
+        }
+
+        getSnapshotBeforeUpdate(): { node: HTMLElement; offset: number } | null {
+            if (this.props.inverted) return null;
+            const scroll = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
+            if (!scroll?.getBoundingClientRect || !scroll.querySelectorAll) return null;
+            const viewport = scroll.getBoundingClientRect();
+            for (const node of scroll.querySelectorAll<HTMLElement>('[data-transcript-key]')) {
+                const bounds = node.getBoundingClientRect();
+                if (bounds.bottom > viewport.top && bounds.top < viewport.bottom) {
+                    return { node, offset: bounds.top - viewport.top };
+                }
+            }
+            return null;
+        }
+
+        componentDidUpdate(previous: any, _state: any, snapshot: { node: HTMLElement; offset: number } | null): void {
+            const scroll = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
+            const measured = snapshot?.node.isConnected && scroll?.getBoundingClientRect
+                ? Math.max(0, scroll.scrollTop + snapshot.node.getBoundingClientRect().top
+                    - scroll.getBoundingClientRect().top - snapshot.offset) : null;
+            if (measured !== null || this.appliedAnchorRevision !== this.state.anchorRevision) {
+                const offset = measured ?? this.state.anchorOffset;
+                // Real cells plus estimated spacers do not necessarily have the
+                // cumulative estimated offset. Trust the retained DOM snapshot,
+                // including any browser anchoring already performed this commit.
+                // Update metrics before the vendor schedules its next mask, so
+                // it cannot immediately discard the translated visible cells.
+                this._scrollMetrics = { ...this._scrollMetrics, offset };
+                if (!scroll || Math.abs(scroll.scrollTop - offset) > 0.5) this.scrollToOffset({ offset, animated: false });
+                this.props.onAnchorOffsetChange?.(offset);
+            }
+            this.appliedAnchorRevision = this.state.anchorRevision;
+            super.componentDidUpdate(previous);
+        }
+    };
+}

@@ -792,6 +792,12 @@ class Sync {
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
+        // A foreground fetch can hold the queue lock across a realtime burst.
+        // Drain live effects synchronously before replacing its projection;
+        // the eventual lock callback must not resurrect rows evicted below.
+        if (Platform.OS === 'web') this.drainQueuedMessages(id, new Set([
+            ...(this.historyWireProvenance.get(id)?.keys() ?? []), ...normalized.map(message => message.id),
+        ]));
         this.retireObservedLocalMessages(id, normalized);
         if (Platform.OS === 'web') {
             window = boundHistoryWindow(window, options);
@@ -1483,14 +1489,7 @@ class Sync {
         this.sessionQueueProcessing.add(sessionId);
         const lock = this.getSessionMessageLock(sessionId);
         void lock.inLock(() => {
-            while (true) {
-                const pending = this.sessionMessageQueue.get(sessionId);
-                if (!pending || pending.length === 0) {
-                    break;
-                }
-                const batch = pending.splice(0, pending.length);
-                this.applyMessages(sessionId, batch);
-            }
+            this.drainQueuedMessages(sessionId);
         }).finally(() => {
             this.sessionQueueProcessing.delete(sessionId);
             const pending = this.sessionMessageQueue.get(sessionId);
@@ -1498,6 +1497,21 @@ class Sync {
                 this.scheduleQueuedMessagesProcessing(sessionId);
             }
         });
+    }
+
+    private drainQueuedMessages(sessionId: string, wireIds?: Set<string>): void {
+        const pending = this.sessionMessageQueue.get(sessionId);
+        if (pending?.length && wireIds) {
+            // Unrelated/local-only queued rows are not certified by this wire
+            // replacement. Leave them owned by the normal projection queue.
+            const batch = pending.filter(message => wireIds.has(message.id));
+            for (let index = pending.length - 1; index >= 0; index--) {
+                if (wireIds.has(pending[index].id)) pending.splice(index, 1);
+            }
+            if (batch.length) this.applyMessages(sessionId, batch);
+            return;
+        }
+        while (pending?.length) this.applyMessages(sessionId, pending.splice(0, pending.length));
     }
 
     private hasPendingOutboxMessages() {
@@ -3879,6 +3893,12 @@ class Sync {
 
             const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
             if (!applied.current) return;
+            if (!didInvalidateGit
+                && applied.hasMutableToolResult
+                && storage.getState().currentViewingSessionId === sessionId) {
+                gitStatusSync.invalidate(sessionId);
+                didInvalidateGit = true;
+            }
             if (followLatest) {
                 const memoryLimit = Platform.OS === 'web'
                     ? (memoryWindow?.messages.length ?? 0) + messages.length
@@ -3894,12 +3914,6 @@ class Sync {
                     memoryWindow = this.historyWindows.get(sessionId);
                     if ((memoryWindow?.newestSeq ?? 0) < (messages.at(-1)?.seq ?? 0)) return;
                 }
-            }
-            if (!didInvalidateGit
-                && applied.hasMutableToolResult
-                && storage.getState().currentViewingSessionId === sessionId) {
-                gitStatusSync.invalidate(sessionId);
-                didInvalidateGit = true;
             }
 
             let maxSeq = afterSeq;
@@ -4274,6 +4288,11 @@ class Sync {
                         // owns this sequence, so neither history nor Git needs
                         // to be refreshed.
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
+                        // Inspect tool ownership before replay can evict the tool
+                        // row, and preserve the live refresh on compaction returns.
+                        if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
+                            gitStatusSync.invalidate(updateData.body.sid);
+                        }
                         if (historyWindow) {
                             const messages = [...historyWindow.messages, updateData.body.message];
                             const appended = { ...historyWindow, messages, newestSeq: incomingSeq };
@@ -4284,7 +4303,7 @@ class Sync {
                                 assertCurrent();
                                 // Apply this live event once for thinking/usage/permissions;
                                 // replay below only replaces the displayed projection.
-                                this.applyMessages(sid, [lastMessage]);
+                                this.enqueueMessages(sid, [lastMessage]);
                                 const lease = this.sessionMessageLoadGate.currentLease(sid) ?? this.sessionMessageLoadGate.enter(sid);
                                 await this.applyHistoryWindow(sid, appended, this.sessionMessageLoadGate.begin(lease), {
                                     compact: true, anchorSeq: reading?.followLatest === false ? reading.anchorSeq : undefined,
@@ -4312,9 +4331,6 @@ class Sync {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
-                        if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
-                            gitStatusSync.invalidate(updateData.body.sid);
-                        }
                     } else if (isVisible) {
                         const route = this.activeOpenSession;
                         if (route?.sessionId === updateData.body.sid) {
