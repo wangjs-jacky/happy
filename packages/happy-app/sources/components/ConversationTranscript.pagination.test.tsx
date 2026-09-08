@@ -298,6 +298,78 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('retries the same native history boundary when collapsing a group leaves no scroll range', async () => {
+        (Platform as any).OS = 'android';
+        const messages = [userMessage('latest')];
+        grouped.items = [{
+            type: 'tool-group', id: 'tools', messages,
+            hasRunning: false, hasPendingPermission: true,
+        }];
+        const onLoadOlder = vi.fn();
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                    hasMoreOlder isLoadingOlder={false} onLoadOlder={onLoadOlder} />,
+            );
+        });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 1200);
+            list.props.onEndReached();
+        });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+
+        const groupRow = () => byId(renderer, 'conversation-transcript-list').props
+            .renderItem({ item: grouped.items![0] }).props.children.props;
+        expect(groupRow().expanded).toBe(true);
+        act(() => groupRow().onToggle());
+        expect(groupRow().expanded).toBe(false);
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 320));
+
+        expect(onLoadOlder).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
+    it.each([
+        ['android', 900, 'still scrollable native content'],
+        ['web', 320, 'underfilled Web content'],
+    ])('does not release the same history boundary for %s after a group collapses', async (platform, collapsedHeight) => {
+        (Platform as any).OS = platform;
+        const messages = [userMessage('latest')];
+        grouped.items = [{
+            type: 'tool-group', id: 'tools', messages,
+            hasRunning: false, hasPendingPermission: true,
+        }];
+        const onLoadOlder = vi.fn();
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                    hasMoreOlder isLoadingOlder={false} onLoadOlder={onLoadOlder} />,
+            );
+        });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 1200);
+            list.props.onEndReached();
+        });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+
+        const groupRow = () => byId(renderer, 'conversation-transcript-list').props
+            .renderItem({ item: grouped.items![0] }).props.children.props;
+        act(() => groupRow().onToggle());
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, collapsedHeight));
+        act(() => byId(renderer, 'conversation-transcript-list').props.onEndReached());
+
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
     it('does not eagerly load an underfilled Web transcript', async () => {
         const onLoadOlder = vi.fn();
         let renderer: any;
