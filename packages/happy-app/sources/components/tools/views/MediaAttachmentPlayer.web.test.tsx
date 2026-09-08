@@ -109,4 +109,53 @@ describe('MediaAttachmentPlayer.web authenticated downloads', () => {
         expect(revokeObjectURL).toHaveBeenCalledOnce();
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:protected-video');
     });
+
+    it('renders audio as a compact control without autoplay by default', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <MediaAttachmentPlayer
+                    uri="https://files.test/voice.mp3"
+                    headers={{}}
+                    title="voice.mp3"
+                    kind="audio"
+                    mimeType="audio/mpeg"
+                    testID="voice-player"
+                />,
+            );
+        });
+
+        const frame = renderer.root.findByType('View');
+        const audio = renderer.root.findByType('audio');
+        expect(frame.props.style).toMatchObject({ height: 54, backgroundColor: 'transparent' });
+        expect(audio.props).toMatchObject({ controls: true, title: 'voice.mp3' });
+        expect(audio.props.autoPlay).toBeUndefined();
+        expect(audio.props.style).toMatchObject({ backgroundColor: 'transparent', borderRadius: 27 });
+
+        await act(async () => renderer.unmount());
+    });
+
+    it('requests playback when click-originated audio is mounted with autoplay', async () => {
+        const play = vi.fn(() => Promise.resolve());
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <MediaAttachmentPlayer
+                    uri="https://files.test/voice.mp3"
+                    headers={{}}
+                    title="voice.mp3"
+                    kind="audio"
+                    mimeType="audio/mpeg"
+                    testID="voice-player"
+                    autoPlay
+                />,
+                { createNodeMock: (element: { type?: string }) => element.type === 'audio' ? { play } : null },
+            );
+        });
+
+        expect(renderer.root.findByType('audio').props.autoPlay).toBe(true);
+        expect(play).toHaveBeenCalledOnce();
+
+        await act(async () => renderer.unmount());
+    });
 });

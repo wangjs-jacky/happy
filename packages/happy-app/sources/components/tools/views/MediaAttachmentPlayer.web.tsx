@@ -6,7 +6,7 @@ export function MediaAttachmentPlayer(props: MediaAttachmentPlayerProps) {
     const [source, setSource] = React.useState(() => (
         Object.keys(props.headers).length === 0 ? props.uri : null
     ));
-    const videoRef = React.useRef<HTMLVideoElement | null>(null);
+    const mediaRef = React.useRef<HTMLMediaElement | null>(null);
 
     React.useEffect(() => {
         if (Object.keys(props.headers).length === 0) {
@@ -40,8 +40,16 @@ export function MediaAttachmentPlayer(props: MediaAttachmentPlayerProps) {
         };
     }, [props.headers, props.mimeType, props.uri]);
 
+    React.useEffect(() => {
+        if (!source || !props.autoPlay) return;
+        const playback = mediaRef.current?.play();
+        void playback?.catch(() => {
+            // Native controls remain available if the browser declines autoplay.
+        });
+    }, [props.autoPlay, source]);
+
     const frameStyle = props.kind === 'audio'
-        ? { width: 300, maxWidth: '100%' as const, height: 64, backgroundColor: '#000' }
+        ? { width: 300, maxWidth: '100%' as const, height: 54, backgroundColor: 'transparent' }
         : {
             width: '100%' as const,
             maxWidth: 960,
@@ -54,14 +62,21 @@ export function MediaAttachmentPlayer(props: MediaAttachmentPlayerProps) {
     return (
         <View testID={props.testID} style={frameStyle}>
             {source ? React.createElement(props.kind === 'audio' ? 'audio' : 'video', {
-                ref: videoRef,
+                ref: mediaRef,
                 src: source,
                 controls: true,
+                autoPlay: props.autoPlay,
                 playsInline: true,
                 preload: 'metadata',
                 poster: props.posterUri,
                 title: props.title,
-                style: { width: '100%', height: '100%', backgroundColor: '#000', objectFit: 'contain', borderRadius: 12 },
+                style: {
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: props.kind === 'audio' ? 'transparent' : '#000',
+                    objectFit: 'contain',
+                    borderRadius: props.kind === 'audio' ? 27 : 12,
+                },
             }) : null}
         </View>
     );

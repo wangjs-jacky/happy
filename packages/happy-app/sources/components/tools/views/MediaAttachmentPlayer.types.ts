@@ -5,6 +5,7 @@ export type MediaAttachmentPlayerProps = {
     kind: 'audio' | 'video';
     mimeType: string;
     testID: string;
+    autoPlay?: boolean;
     posterUri?: string;
     aspectRatio?: number;
 };

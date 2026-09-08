@@ -15,7 +15,7 @@ import { PermissionFooter } from './PermissionFooter';
 import { parseToolUseError } from '@/utils/toolErrorParser';
 import { formatMCPTitle } from './views/MCPToolView';
 import { t } from '@/text';
-import { getTerminalToolCommand, isInlineImageFileTool, isInlineVideoFileTool, shouldRenderToolCardHeader } from '@/utils/toolDisplay';
+import { getTerminalToolCommand, isInlineAudioFileTool, isInlineImageFileTool, isInlineVideoFileTool, shouldRenderToolCardHeader } from '@/utils/toolDisplay';
 import { McpAppHost } from './McpAppHost';
 
 interface ToolViewProps {
@@ -169,8 +169,9 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     const isCompactTerminalTool = terminalCommand !== null;
     const isInlineCodexPatch = Platform.OS === 'web' && tool.name === 'CodexPatch';
     const isInlineVideoFile = isInlineVideoFileTool(tool);
+    const isInlineAudioFile = isInlineAudioFileTool(tool);
     const isInlineImageFile = isInlineImageFileTool(tool);
-    const isInlineMediaFile = isInlineVideoFile || isInlineImageFile;
+    const isInlineMediaFile = isInlineVideoFile || isInlineAudioFile || isInlineImageFile;
     const renderCardHeader = !isInlineMediaFile && shouldRenderToolCardHeader(tool.name, Platform.OS);
     const renderPermissionFooter = () => (
         tool.permission && sessionId && tool.name !== 'AskUserQuestion'

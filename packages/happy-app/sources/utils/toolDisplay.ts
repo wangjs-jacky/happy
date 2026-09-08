@@ -61,6 +61,10 @@ export function isInlineVideoFileTool(tool: Pick<ToolCall, 'name' | 'input'>): b
     return tool.name === 'file' && tool.input?.kind === 'video';
 }
 
+export function isInlineAudioFileTool(tool: Pick<ToolCall, 'name' | 'input'>): boolean {
+    return tool.name === 'file' && tool.input?.kind === 'audio';
+}
+
 export function isInlineImageFileTool(tool: Pick<ToolCall, 'name' | 'input'>): boolean {
     return tool.name === 'file' && (tool.input?.kind === undefined || tool.input?.kind === 'image');
 }

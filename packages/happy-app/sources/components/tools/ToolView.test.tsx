@@ -23,6 +23,7 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/hooks/useElapsedTime', () => ({ useElapsedTime: () => 1 }));
 vi.mock('@/utils/toolDisplay', () => ({
     getTerminalToolCommand: () => null,
+    isInlineAudioFileTool: (tool: { name?: string; input?: { kind?: string } }) => tool.name === 'file' && tool.input?.kind === 'audio',
     isInlineImageFileTool: () => false,
     isInlineVideoFileTool: () => false,
     shouldRenderToolCardHeader: () => true,
@@ -89,6 +90,22 @@ describe('ToolView MCP App presentation', () => {
         expect(renderer.root.findByProps({ testID: 'tool-card-header' })).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'mcp-app-content' })).toHaveLength(0);
         expect(renderer.root.findAllByType('McpAppHost')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('removes the protocol-level tool header around inline audio output', () => {
+        const tool = {
+            ...baseTool,
+            name: 'file',
+            state: 'completed' as const,
+            input: { kind: 'audio', name: 'voice.mp3', ref: 'voice-ref' },
+        };
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<ToolView metadata={null} tool={tool} sessionId="session-1" />);
+        });
+
+        expect(renderer.root.findAllByProps({ testID: 'tool-card-header' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 });
