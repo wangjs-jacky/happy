@@ -199,7 +199,9 @@ or command execution through this SDK method.
 
 ## Release status
 
-The package is currently consumed through workspace linking or an exact verified tarball while npm account recovery is pending. Do not claim registry availability until the first trusted-publishing workflow succeeds.
+The npm account has been recovered and the first public beta is being prepared. Until the exact version is verified on the registry, consume the SDK through workspace linking or a verified tarball. Account recovery alone does not renew existing local npm credentials; check `npm whoami` before publishing.
+
+The beta includes the connection fixes used by paws-agent-chrome v0.0.5: `syncing` is emitted during initial synchronization, followed by a reusable `snapshot` event before `ready`. Consumers can reuse that snapshot instead of downloading machines and sessions again. Individual session reads and realtime session updates require the Paws `/v2/sessions/:id` endpoint and never fall back to fetching the full session list.
 
 Maintainers prepare the version and changelog on a dedicated release PR branch with:
 

@@ -1,6 +1,6 @@
 {
   "name": "@wangjs-jacky/paws-agent",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "SDK and CLI for controlling Paws agent sessions remotely",
   "author": "wangjs-jacky",
   "license": "MIT",
@@ -85,6 +85,7 @@
     "@types/node": ">=20",
     "@types/qrcode-terminal": "^0.12.2",
     "pkgroll": "^2.14.2",
+    "socket.io": "^4.8.1",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
     "vitest": "^3.2.4"

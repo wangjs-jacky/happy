@@ -1302,6 +1302,9 @@ importers:
       pkgroll:
         specifier: ^2.14.2
         version: 2.22.0(typescript@5.9.3)
+      socket.io:
+        specifier: ^4.8.1
+        version: 4.8.3
       tsx:
         specifier: ^4.20.6
         version: 4.21.0
