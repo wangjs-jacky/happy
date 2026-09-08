@@ -56,7 +56,13 @@ vi.mock('@/utils/platform', () => ({ isRunningOnMac: () => false }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '1.0.0', runtimeVersion: 'test' } } }));
-vi.mock('expo-updates', () => ({ checkForUpdateAsync: vi.fn(), fetchUpdateAsync: vi.fn(), reloadAsync: vi.fn() }));
+vi.mock('expo-application', () => ({ nativeApplicationVersion: null }));
+vi.mock('expo-updates', () => ({
+    runtimeVersion: null,
+    checkForUpdateAsync: vi.fn(),
+    fetchUpdateAsync: vi.fn(),
+    reloadAsync: vi.fn(),
+}));
 // Upgrade identity is covered separately; this desktop router harness has no Expo native host.
 vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async () => ({ status: 'unsupported', available: false })) }));
 vi.mock('expo-secure-store', () => ({ getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));

@@ -54,8 +54,27 @@ describe('native upgrade client', () => {
             init.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
         })));
         const result = expect(checkNativeAppUpdate('https://server.test', identity)).rejects.toThrow('aborted');
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(20_000);
         await result;
+    });
+    it('waits long enough for separate release and sidecar verification phases', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(() => resolve(new Response(JSON.stringify({
+                status: 'up-to-date',
+                update_required: false,
+                update_url: null,
+                updateUrl: null,
+            }))), 15_000);
+            init.signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new Error('aborted'));
+            }, { once: true });
+        })));
+        const result = checkNativeAppUpdate('https://server.test', identity);
+        const expectation = expect(result).resolves.toEqual({ status: 'up-to-date', available: false });
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expectation;
     });
     it('rejects an older APK even if it comes from the correct GitHub repository', async () => {
         const oldUrl = url.replace('runtime24-', 'runtime22-');
