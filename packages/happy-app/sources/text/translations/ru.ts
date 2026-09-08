@@ -632,6 +632,18 @@ export const ru: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "Сохранение сообщения…",
+        submissionSpawning: "Запуск сеанса…",
+        submissionHydrating: "Подготовка сеанса…",
+        submissionSending: "Загрузка вложений и добавление сообщения в очередь…",
+        submissionProjecting: "Подтверждение сообщения…",
+        submissionSaveFailed: "Не удалось сохранить ход запуска. Восстановите текст здесь.",
+        submissionFailed: "Запуск приостановлен. Сообщение сохранено здесь.",
+        submissionInterrupted: "Запуск прерван. Проверьте сеанс перед повторной отправкой.",
+        submissionRestore: "Восстановить текст",
+        submissionCheckSession: "Проверить сеанс",
+        submissionRestoreWarning: "Сеанс или сообщение уже могут существовать. Восстановление текста не отправляет его повторно. Проверьте сеанс перед отправкой.",
+        submissionAttachmentRecovery: "Вложения остаются выбранными до принятия сообщения. После обновления страницы выберите исходные файлы заново перед отправкой.",
         title: 'Начать новую сессию',
         askMode: 'Спросить',
         agentMode: 'Агент',

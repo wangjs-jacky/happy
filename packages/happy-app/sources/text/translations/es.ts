@@ -652,6 +652,18 @@ export const es: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "Guardando tu mensaje…",
+        submissionSpawning: "Iniciando la sesión…",
+        submissionHydrating: "Preparando la sesión…",
+        submissionSending: "Subiendo archivos adjuntos y poniendo tu mensaje en cola…",
+        submissionProjecting: "Confirmando tu mensaje…",
+        submissionSaveFailed: "No se pudo guardar el progreso del inicio. Recupera tu texto aquí.",
+        submissionFailed: "El inicio se ha pausado. Tu mensaje está guardado aquí.",
+        submissionInterrupted: "El inicio se interrumpió. Revisa la sesión antes de volver a enviar.",
+        submissionRestore: "Restaurar texto",
+        submissionCheckSession: "Revisar sesión",
+        submissionRestoreWarning: "La sesión o el mensaje podrían existir ya. Restaurar el texto no lo reenvía. Revisa la sesión antes de volver a enviar.",
+        submissionAttachmentRecovery: "Los adjuntos siguen seleccionados hasta su aceptación. Después de recargar, vuelve a seleccionar los archivos originales antes de enviar.",
         title: 'Iniciar nueva sesión',
         askMode: 'Preguntar',
         agentMode: 'Agente',

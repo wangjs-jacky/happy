@@ -677,6 +677,18 @@ export const zhHans: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "正在保存消息…",
+        submissionSpawning: "正在启动会话…",
+        submissionHydrating: "正在准备会话…",
+        submissionSending: "正在上传附件并将消息加入队列…",
+        submissionProjecting: "正在确认消息…",
+        submissionSaveFailed: "启动进度保存失败，可在此恢复文字。",
+        submissionFailed: "启动已暂停，消息已保存在此处。",
+        submissionInterrupted: "启动被中断。再次发送前，请先检查会话。",
+        submissionRestore: "恢复文字",
+        submissionCheckSession: "检查会话",
+        submissionRestoreWarning: "会话或消息可能已创建。恢复文字不会重新发送；再次提交前，请先检查会话。",
+        submissionAttachmentRecovery: "附件会保留到消息被接受。刷新后再次发送前，请重新选择原文件。",
         title: '开始新会话',
         askMode: '问答',
         agentMode: 'Agent',

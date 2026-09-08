@@ -3,11 +3,16 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
 import { clearComposeDraft, useComposeDraft } from '@/sync/composeDraft';
+import { setFirstSubmissionScope } from '@/sync/firstSubmissionScope';
+vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'http://test' }));
 import type { LocalMessageQueueReceipt } from '@/sync/sync';
+import { Modal } from '@/modal';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
 vi.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000001' }));
+vi.mock('@/sync/sessionStartupTrace', () => ({ traceStartup: vi.fn() }));
+vi.mock('@/sync/sessionStartupTraceRuntime', () => ({ sessionStartupTraceRuntime: { begin: vi.fn(), bindSession: vi.fn() } }));
 
 const mocks = vi.hoisted(() => ({
     platformOS: 'web',
@@ -207,7 +212,10 @@ describe('ComposeHome session hydration recovery', () => {
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
+        const values = new Map<string, string>();
+        vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
         vi.clearAllMocks();
+        setFirstSubmissionScope(`test-${Math.random()}`, 'http://test');
         mocks.platformOS = 'web';
         mocks.isDataReady = true;
         mocks.selectedImages = [
@@ -322,7 +330,9 @@ describe('ComposeHome session hydration recovery', () => {
             await vi.runAllTimersAsync();
         });
 
-        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('Keep this draft');
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
+        expect(renderer.root.findByType('MessageComposer').props.isSending).toBe(false);
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('Keep this draft');
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.clearImages).not.toHaveBeenCalled();
 
@@ -355,6 +365,7 @@ describe('ComposeHome session hydration recovery', () => {
 
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.sendMessage).toHaveBeenCalledWith('session-1', 'Keep this draft', {
+            isCurrent: expect.any(Function),
             source: 'new_session',
             attachments: [
                 { id: 'image-a', uri: 'file:///a.png' },
@@ -402,7 +413,7 @@ describe('ComposeHome session hydration recovery', () => {
 
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.awaitLocalMessageProjection).not.toHaveBeenCalled();
-        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('Queued unchanged');
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
         expect(renderer.root.findByType('MessageComposer').props.selectedImages).toEqual([
             { id: 'image-a', uri: 'file:///a.png' },
             { id: 'image-b', uri: 'file:///b.png' },
@@ -420,7 +431,7 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => renderer.unmount());
     });
 
-    it('does not queue, navigate, or clear newer edits when hydration resolves after unmount', async () => {
+    it('finishes queued work after unmount without navigating or clearing newer edits', async () => {
         vi.useFakeTimers();
         let renderer: any;
         act(() => {
@@ -460,13 +471,38 @@ describe('ComposeHome session hydration recovery', () => {
         });
 
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
-        expect(mocks.updatePermission).not.toHaveBeenCalled();
-        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.navigateToSession).not.toHaveBeenCalled();
         expect(mocks.clearImages).not.toHaveBeenCalled();
         expect(mocks.removeImage).not.toHaveBeenCalled();
         expect(consoleErrorSpy.mock.calls.filter((values) => (
             values[0] !== 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer'
         ))).toEqual([]);
+    });
+
+    it('keeps recovery blocked until missing original attachments are explicitly reselected', async () => {
+        vi.useFakeTimers();
+        vi.mocked(Modal.confirm).mockResolvedValue(true);
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('recover attachments'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        act(() => useComposeDraft.getState().setImages([]));
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-submission' }).props.onPress(); });
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('recover attachments');
+        expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(true);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+    it('does not accept MMKV memory fallback as durable Web storage', async () => {
+        vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('blocked'); } });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('keep unsaved text'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); });
+        expect(mocks.machineSpawnNewSession).not.toHaveBeenCalled();
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('keep unsaved text');
+        act(() => renderer.unmount());
     });
 });

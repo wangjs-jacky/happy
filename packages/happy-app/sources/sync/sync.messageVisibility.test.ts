@@ -1810,6 +1810,21 @@ describe('message visibility synchronization', () => {
         expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toHaveLength(1);
     });
 
+    it('rejects first submission queue acceptance when its owner changes during upload', async () => {
+        await seedLocalProjectionSession();
+        let current = true;
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockImplementation(async () => {
+            current = false;
+            return { uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0 };
+        });
+        try {
+            await expect(sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any, isCurrent: () => current,
+            })).rejects.toThrow('local-message-session-unavailable');
+            expect(syncForTest.pendingOutbox.get('spawned-session') ?? []).toEqual([]);
+        } finally { upload.mockRestore(); }
+    });
+
     it.each([false, true])('restores accepted attachment and text receipts after eviction (remote acknowledgement: %s)', async (acknowledged) => {
         // Losing generation-local provenance must not strand an accepted spawn.
         const storage = await seedLocalProjectionSession();

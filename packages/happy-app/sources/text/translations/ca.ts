@@ -652,6 +652,18 @@ export const ca: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "S’està desant el missatge…",
+        submissionSpawning: "S’està iniciant la sessió…",
+        submissionHydrating: "S’està preparant la sessió…",
+        submissionSending: "S’estan pujant els adjunts i posant el missatge a la cua…",
+        submissionProjecting: "S’està confirmant el missatge…",
+        submissionSaveFailed: "No s’ha pogut desar el progrés de l’inici. Recupera el text aquí.",
+        submissionFailed: "L’inici s’ha pausat. El missatge està desat aquí.",
+        submissionInterrupted: "L’inici s’ha interromput. Comprova la sessió abans de tornar a enviar.",
+        submissionRestore: "Restaura el text",
+        submissionCheckSession: "Comprova la sessió",
+        submissionRestoreWarning: "La sessió o el missatge ja podrien existir. Restaurar el text no el torna a enviar. Comprova la sessió abans d’enviar.",
+        submissionAttachmentRecovery: "Els adjunts continuen seleccionats fins que s’acceptin. Després de recarregar la pàgina, torna a seleccionar els fitxers originals abans d’enviar.",
         title: 'Iniciar nova sessió',
         askMode: 'Pregunta',
         agentMode: 'Agent',

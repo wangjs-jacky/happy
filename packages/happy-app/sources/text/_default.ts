@@ -738,6 +738,18 @@ export const en = {
     },
 
     newSession: {
+        submissionSaving: 'Saving your message…',
+        submissionSpawning: 'Starting the session…',
+        submissionHydrating: 'Preparing the session…',
+        submissionSending: 'Uploading attachments and queuing your message…',
+        submissionProjecting: 'Confirming your message…',
+        submissionSaveFailed: 'Startup progress could not be saved. Recover your text here.',
+        submissionFailed: 'Startup paused. Your message is saved here.',
+        submissionInterrupted: 'Startup was interrupted. Check the session before sending again.',
+        submissionRestore: 'Restore text',
+        submissionCheckSession: 'Check session',
+        submissionRestoreWarning: 'The session or message may already exist. Restoring text does not resend it. Check the session before submitting again.',
+        submissionAttachmentRecovery: 'Attachments remain selected until accepted. After a refresh, reselect the original files before sending.',
         title: 'Start New Session',
         askMode: 'Ask',
         agentMode: 'Agent',

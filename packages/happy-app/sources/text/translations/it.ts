@@ -650,6 +650,18 @@ export const it: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "Salvataggio del messaggio…",
+        submissionSpawning: "Avvio della sessione…",
+        submissionHydrating: "Preparazione della sessione…",
+        submissionSending: "Caricamento degli allegati e accodamento del messaggio…",
+        submissionProjecting: "Conferma del messaggio…",
+        submissionSaveFailed: "Impossibile salvare lo stato di avvio. Recupera il testo qui.",
+        submissionFailed: "Avvio in pausa. Il messaggio è salvato qui.",
+        submissionInterrupted: "Avvio interrotto. Controlla la sessione prima di inviare di nuovo.",
+        submissionRestore: "Ripristina testo",
+        submissionCheckSession: "Controlla sessione",
+        submissionRestoreWarning: "La sessione o il messaggio potrebbero già esistere. Ripristinare il testo non lo invia di nuovo. Controlla la sessione prima di inviare.",
+        submissionAttachmentRecovery: "Gli allegati restano selezionati fino all’accettazione. Dopo un aggiornamento della pagina, seleziona di nuovo i file originali prima di inviare.",
         title: 'Avvia nuova sessione',
         askMode: 'Chiedi',
         agentMode: 'Agente',

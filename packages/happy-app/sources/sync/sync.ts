@@ -59,6 +59,7 @@ import type { MessageSentSource } from '@/track';
 import { parseToken } from '@/utils/parseToken';
 import { RevenueCat, LogLevel, PaywallResult } from './revenueCat';
 import { getServerUrl } from './serverConfig';
+import { setFirstSubmissionScope } from './firstSubmissionScope';
 import { config } from '@/config';
 import { log } from '@/log';
 import { gitStatusSync } from './gitStatusSync';
@@ -277,6 +278,8 @@ type OutboxMessage = {
 };
 
 type SendMessageOptions = {
+    /** Fence a route-independent submission against logout or server changes. */
+    isCurrent?: () => boolean;
     displayText?: string;
     editedFromMessageId?: string;
     source?: MessageSentSource;
@@ -572,6 +575,7 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        setFirstSubmissionScope(this.sessionWarmCacheAccountKey, getServerUrl());
         await this.initializeLocalHistory();
         await this.#init();
 
@@ -593,6 +597,7 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        setFirstSubmissionScope(this.sessionWarmCacheAccountKey, getServerUrl());
         await this.initializeLocalHistory();
         if (!this.localHistory) await this.restoreSessionWarmCache();
         await this.#init();
@@ -1657,33 +1662,37 @@ class Sync {
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
+        isCurrent: () => boolean = () => true,
     ): Promise<{ uploaded: UploadedAttachment[]; failed: number }> {
         if (!this.credentials) return { uploaded: [], failed: attachments.length };
 
         const blobKey = this.encryption.getSessionBlobKey(sessionId);
+        const credentials = this.credentials;
+        const assertCurrent = () => { if (!isCurrent()) throw new Error('local-message-session-unavailable'); };
 
         const uploaded: UploadedAttachment[] = [];
         let failed = 0;
 
         for (const attachment of attachments) {
+            assertCurrent();
             try {
                 uploaded.push(await uploadAttachmentForSession(
                     {
-                        credentials: this.credentials,
+                        credentials,
                         sessionId,
                         attachment,
                         blobKey: blobKey ?? undefined,
                     },
                     {
-                        requestUpload: requestAttachmentUpload,
-                        uploadMediaFile,
+                        requestUpload: (...args) => { assertCurrent(); return requestAttachmentUpload(...args); },
+                        uploadMediaFile: (...args) => { assertCurrent(); return uploadMediaFile(...args); },
                         readFileBytes,
                         encryptBlob,
-                        uploadEncryptedBlob,
+                        uploadEncryptedBlob: (...args) => { assertCurrent(); return uploadEncryptedBlob(...args); },
                     },
                 ));
             } catch (err) {
-                console.error(`[attachments] Failed to upload ${attachment.name}:`, err);
+                assertCurrent();
                 failed++;
                 // Skip this attachment; do not abort the whole message send.
             }
@@ -1693,6 +1702,8 @@ class Sync {
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
+        const isCurrent = options?.isCurrent ?? (() => true);
+        if (!isCurrent()) throw new Error('local-message-session-unavailable');
 
         // Snapshot per-turn controls before the first possible await. If the
         // user changes model/effort while attachment upload or initial sync is
@@ -1730,7 +1741,8 @@ class Sync {
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments, isCurrent);
+            if (!isCurrent()) throw new Error('local-message-session-unavailable');
 
             if (failed > 0) {
                 Modal.alert(
@@ -1849,7 +1861,7 @@ class Sync {
 
         // No awaits between ownership validation and the complete outbox commit.
         // Nothing from a failed upload/encryption attempt becomes locally queued.
-        if (this.encryption !== encryptionOwner
+        if (!isCurrent() || this.encryption !== encryptionOwner
             || encryptionOwner.getSessionEncryption(sessionId) !== encryption
             || !storage.getState().sessions[sessionId]) throw new Error('local-message-session-unavailable');
         // Preserve the queue identity: an in-flight flush owns a prefix of this

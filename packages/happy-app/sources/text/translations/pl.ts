@@ -669,6 +669,18 @@ export const pl: TranslationStructure = {
     },
 
     newSession: {
+        submissionSaving: "Zapisywanie wiadomości…",
+        submissionSpawning: "Uruchamianie sesji…",
+        submissionHydrating: "Przygotowywanie sesji…",
+        submissionSending: "Przesyłanie załączników i dodawanie wiadomości do kolejki…",
+        submissionProjecting: "Potwierdzanie wiadomości…",
+        submissionSaveFailed: "Nie udało się zapisać postępu uruchamiania. Przywróć tekst tutaj.",
+        submissionFailed: "Uruchamianie wstrzymane. Wiadomość jest tutaj zapisana.",
+        submissionInterrupted: "Uruchamianie przerwano. Sprawdź sesję przed ponownym wysłaniem.",
+        submissionRestore: "Przywróć tekst",
+        submissionCheckSession: "Sprawdź sesję",
+        submissionRestoreWarning: "Sesja lub wiadomość może już istnieć. Przywrócenie tekstu nie wysyła go ponownie. Sprawdź sesję przed wysłaniem.",
+        submissionAttachmentRecovery: "Załączniki pozostają wybrane do momentu przyjęcia. Po odświeżeniu strony wybierz ponownie oryginalne pliki przed wysłaniem.",
         title: 'Rozpocznij nową sesję',
         askMode: 'Pytaj',
         agentMode: 'Agent',

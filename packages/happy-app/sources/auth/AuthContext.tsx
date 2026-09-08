@@ -9,6 +9,7 @@ import { trackLogout } from '@/track';
 import { clearPublicSessionShareJobs } from '@/sync/publicSessionShareQueueRuntime';
 import { clearSessionWarmCache } from '@/sync/sessionWarmCache';
 import { clearLocalHistoryCaches } from '@/sync/localHistoryStore';
+import { clearFirstSubmissionScope } from '@/sync/firstSubmissionScope';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -41,6 +42,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     };
 
     const logout = async () => {
+        clearFirstSubmissionScope();
         const clearingHistory = clearLocalHistoryCaches();
         trackLogout();
         clearPublicSessionShareJobs();
