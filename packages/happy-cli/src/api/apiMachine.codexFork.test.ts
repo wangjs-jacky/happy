@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { codexClientMethods } = vi.hoisted(() => ({
+const { codexAttachCandidateMethods, codexClientMethods } = vi.hoisted(() => ({
+    codexAttachCandidateMethods: {
+        dismiss: vi.fn(),
+        list: vi.fn(),
+        markAttached: vi.fn(),
+    },
     codexClientMethods: {
         connect: vi.fn(),
         disconnect: vi.fn(),
@@ -14,6 +19,13 @@ const { codexClientMethods } = vi.hoisted(() => ({
 vi.mock('@/codex/codexAppServerClient', () => ({
     CodexAppServerClient: vi.fn().mockImplementation(() => codexClientMethods),
 }));
+
+vi.mock('@/codex/codexAttachCandidates', () => ({
+    createCodexAttachCandidateService: vi.fn(() => codexAttachCandidateMethods),
+    listCodexThreadsFromStateDb: vi.fn(),
+}));
+
+import { ApiMachineClient } from './apiMachine';
 
 function machineClient() {
     return {
@@ -32,8 +44,47 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         for (const method of Object.values(codexClientMethods)) {
             method.mockReset();
         }
+        for (const method of Object.values(codexAttachCandidateMethods)) {
+            method.mockReset();
+        }
         codexClientMethods.connect.mockResolvedValue(undefined);
         codexClientMethods.disconnect.mockResolvedValue(undefined);
+    });
+
+    it('takes over a Codex Desktop candidate without forcing shared transport', async () => {
+        codexAttachCandidateMethods.list.mockResolvedValue([{
+            threadId: 'thread-desktop',
+            title: 'Existing desktop conversation',
+            directory: '/tmp/project',
+            createdAt: 1,
+            updatedAt: 2,
+        }]);
+        const spawnSession = vi.fn().mockResolvedValue({
+            type: 'success',
+            sessionId: 'happy-attached',
+        });
+
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:codex-attach-candidate')?.({
+            threadId: 'thread-desktop',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-attached' });
+        expect(spawnSession).toHaveBeenCalledWith({
+            directory: '/tmp/project',
+            agent: 'codex',
+            resumeCodexThreadId: 'thread-desktop',
+            environmentVariables: {
+                HAPPY_IMPORTED_SESSION_TITLE: 'Existing desktop conversation',
+            },
+        });
+        expect(codexAttachCandidateMethods.markAttached).toHaveBeenCalledWith('thread-desktop');
     });
 
     it('registers a full Codex thread fork RPC', async () => {
@@ -42,7 +93,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             thread: { id: 'thread-forked', turns: [] },
         });
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession: vi.fn(),
@@ -67,7 +117,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
     it('forwards resumeCodexThreadId through the spawn RPC', async () => {
         const spawnSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'happy-forked' });
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession,
@@ -97,7 +146,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             errorMessage: 'Entrypoint does not exist',
         });
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession,
@@ -119,7 +167,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
     it('forwards effort through the resume RPC', async () => {
         const resumeSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession: vi.fn(),
@@ -157,7 +204,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             },
         });
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession: vi.fn(),
@@ -194,7 +240,6 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         codexClientMethods.rollbackThread.mockResolvedValue({ thread: { id: 'thread-forked', turns: [] } });
         codexClientMethods.injectItems.mockResolvedValue({});
 
-        const { ApiMachineClient } = await import('./apiMachine');
         const client = new ApiMachineClient('token', machineClient());
         client.setRPCHandlers({
             spawnSession: vi.fn(),

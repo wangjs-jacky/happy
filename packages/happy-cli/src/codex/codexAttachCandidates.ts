@@ -81,8 +81,9 @@ function optionalNumber(value: unknown): number | undefined {
 
 /**
  * Reads only the lightweight Codex thread index. This deliberately avoids a
- * second app-server client while Codex Desktop or Paws is actively using the
- * shared process; takeover itself still resumes through that shared process.
+ * second app-server client during discovery. Takeover uses the normal private
+ * app-server by default; an explicitly configured shared transport remains an
+ * opt-in for environments that expose a compatible control socket.
  */
 export function listCodexThreadsFromStateDb(options: {
     codexHome?: string;
