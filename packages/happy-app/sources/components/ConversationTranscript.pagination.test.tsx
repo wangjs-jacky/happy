@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import * as React from 'react';
 import { act } from 'react';
 import { Platform } from 'react-native';
@@ -111,6 +112,122 @@ describe('ConversationTranscript older history pagination', () => {
         vi.unstubAllGlobals();
         (Platform as any).OS = 'web';
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    // Dispatch browser events on the actual scroll node: RN Web never emits
+    // onScrollBeginDrag. Only its onScroll payload is bridged by this fixture.
+    it.each(['keyboard', 'scrollbar', 'touch'] as const)('claims %s DOM navigation, preserves reading and allows one page per fresh gesture', async gesture => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, {
+            scrollHeight: { value: 5000 }, clientHeight: { value: 800 },
+            clientWidth: { value: 784 }, offsetWidth: { value: 800 },
+        });
+        node.getBoundingClientRect = () => ({ left: 0, right: 800, top: 0, bottom: 800, width: 800, height: 800, x: 0, y: 0, toJSON() {} });
+        const older = vi.fn(); const newer = vi.fn(); const scrollToEnd = vi.fn();
+        let renderer: any;
+        const render = (id: string, latest = true) => <ConversationTranscript metadata={null} sessionId="dom-navigation"
+            messages={[userMessage(id)]} hasMoreOlder hasMoreNewer isAtLatest={latest}
+            onLoadOlder={older} onLoadNewer={newer} />;
+        await act(async () => { renderer = TestRenderer.create(render('one'), {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node, scrollToEnd } : null,
+        }); });
+        const emitScroll = (y: number) => {
+            node.scrollTop = y;
+            node.dispatchEvent(new Event('scroll'));
+            byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+                contentOffset: { y }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 },
+            } });
+        };
+        const touch = (type: string, y: number) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperty(event, 'touches', { value: [{ clientY: y, clientX: 100 }] });
+            node.dispatchEvent(event);
+        };
+        const intent = (direction: 'older' | 'newer') => {
+            if (gesture === 'keyboard') node.dispatchEvent(new KeyboardEvent('keydown', { key: direction === 'older' ? 'Home' : 'End', bubbles: true }));
+            if (gesture === 'scrollbar') node.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 792, clientY: 400, bubbles: true }));
+            if (gesture === 'touch') { touch('touchstart', 200); touch('touchmove', direction === 'older' ? 300 : 100); }
+        };
+        act(() => emitScroll(0));
+        expect(older).not.toHaveBeenCalled();
+        act(() => intent('older'));
+        act(() => emitScroll(0));
+        expect(older).toHaveBeenCalledOnce();
+        scrollToEnd.mockClear();
+        act(() => renderer.update(render('two')));
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(800, 5500));
+        act(() => emitScroll(0));
+        expect(older).toHaveBeenCalledOnce();
+        expect(scrollToEnd).not.toHaveBeenCalled();
+        act(() => intent('older'));
+        act(() => emitScroll(0));
+        expect(older).toHaveBeenCalledTimes(2);
+        act(() => intent('older'));
+        act(() => emitScroll(0));
+        expect(older).toHaveBeenCalledTimes(3); // same boundary can be retried
+        act(() => renderer.update(render('two', false)));
+        act(() => emitScroll(4200));
+        expect(newer).not.toHaveBeenCalled();
+        act(() => intent('newer'));
+        act(() => emitScroll(4200));
+        expect(newer).toHaveBeenCalledOnce();
+        act(() => renderer.update(render('three', false)));
+        act(() => emitScroll(4200));
+        expect(newer).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it.each(['anchor', 'latest'] as const)('discards unused DOM navigation intent before a programmatic %s jump', async target => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, { scrollHeight: { value: 5000 }, clientHeight: { value: 800 } });
+        node.scrollTop = 2500;
+        const older = vi.fn();
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="jump" messages={[userMessage('one')]} hasMoreOlder onLoadOlder={older} />, {
+            createNodeMock: (element: any) => element.type === 'FlatList'
+                ? { getScrollableNode: () => node, scrollToIndex: vi.fn(), scrollToEnd: vi.fn() } : null,
+        }); });
+        act(() => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp' })));
+        scroll(renderer);
+        if (target === 'anchor') {
+            act(() => byId(renderer, 'conversation-anchors-button').props.onPress());
+            const sheet = renderer.root.findByType('BaseModal').props.children.props;
+            act(() => sheet.onSelect(sheet.anchors[0]));
+        } else act(() => byId(renderer, 'conversation-scroll-to-bottom').props.onPress());
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+            contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 },
+        } }));
+        expect(older).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('does not claim typing, prevented keys, background clicks or touch taps as navigation', async () => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, { scrollHeight: { value: 5000 }, clientHeight: { value: 800 }, clientWidth: { value: 784 } });
+        node.getBoundingClientRect = () => ({ left: 0, right: 800, top: 0, bottom: 800, width: 800, height: 800, x: 0, y: 0, toJSON() {} });
+        const input = document.createElement('textarea'); node.append(input);
+        const older = vi.fn(); const scrollToEnd = vi.fn(); let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="non-navigation" messages={[userMessage('one')]} hasMoreOlder onLoadOlder={older} />, {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node, scrollToEnd } : null,
+        }); });
+        scrollToEnd.mockClear();
+        act(() => {
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+            node.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+            const prevented = new KeyboardEvent('keydown', { key: 'PageUp', cancelable: true }); prevented.preventDefault(); node.dispatchEvent(prevented);
+            node.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100 }));
+            const tap = new Event('touchstart'); Object.defineProperty(tap, 'touches', { value: [{ clientX: 10, clientY: 10 }] }); node.dispatchEvent(tap);
+            node.dispatchEvent(new Event('touchend'));
+            byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+                contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 },
+            } });
+            byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(800, 5500);
+        });
+        expect(older).not.toHaveBeenCalled();
+        expect(scrollToEnd).toHaveBeenCalled();
+        act(() => renderer.unmount());
     });
 
     it('wires Web wheel ownership to the native scroll node and removes the listener on cleanup', async () => {

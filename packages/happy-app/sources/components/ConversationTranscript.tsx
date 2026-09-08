@@ -438,6 +438,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, []);
 
     const scrollLatest = React.useCallback(() => {
+        if (Platform.OS === 'web') userScrollStarted.current = false;
         reading.jumpLatest();
         if (inverted) flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
         else flatListRef.current?.scrollToEnd({ animated: true });
@@ -501,6 +502,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         // sheet is open. Resolve the stable id against the current transcript.
         const current = anchorsRef.current.find((candidate) => candidate.id === anchor.id);
         if (!current) return;
+        if (Platform.OS === 'web') userScrollStarted.current = false;
         cancelReadingRestoreRef.current('older');
         const index = inverted ? current.displayIndex : displayItemsRef.current.length - 1 - current.displayIndex;
         flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
@@ -531,21 +533,69 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         if (Platform.OS !== 'web') return;
         const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
-        const handler = (event: WheelEvent) => {
-            handleTranscriptWebWheel(event, node, () => {
-                for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
-                userScrollStarted.current = true;
-                cancelReadingRestoreRef.current(event.deltaY < 0 ? 'older' : event.deltaY > 0 ? 'newer' : undefined);
-                const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
-                const currentInverted = invertedRef.current;
-                const atOlderBoundary = currentInverted ? maxOffset - node.scrollTop <= 24 : node.scrollTop <= 24;
-                const atNewerBoundary = currentInverted ? node.scrollTop <= 24 : maxOffset - node.scrollTop <= 24;
-                if (event.deltaY < 0 && atOlderBoundary) loadBoundaryRef.current('older');
-                else if (event.deltaY > 0 && atNewerBoundary) loadBoundaryRef.current('newer');
-            });
+        const claim = (delta?: number) => {
+            for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
+            userScrollStarted.current = true;
+            cancelReadingRestoreRef.current(delta === undefined ? undefined : delta < 0 ? 'older' : 'newer');
+            const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
+            const currentInverted = invertedRef.current;
+            const atOlderBoundary = currentInverted ? maxOffset - node.scrollTop <= 24 : node.scrollTop <= 24;
+            const atNewerBoundary = currentInverted ? node.scrollTop <= 24 : maxOffset - node.scrollTop <= 24;
+            // Keys/touch can express navigation even when no scroll event can
+            // fire at the edge. Layout/anchor scrolls never rearm this gate.
+            if (delta !== undefined && delta < 0 && atOlderBoundary) loadBoundaryRef.current('older');
+            else if (delta !== undefined && delta > 0 && atNewerBoundary) loadBoundaryRef.current('newer');
         };
+        const handler = (event: WheelEvent) => {
+            handleTranscriptWebWheel(event, node, () => claim(event.deltaY || undefined));
+        };
+        const interactiveTarget = (event: Event) => event.target instanceof Element
+            && event.target.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="textbox"]');
+        const keydown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || interactiveTarget(event)) return;
+            const delta = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ? -1
+                : ['ArrowDown', 'PageDown', 'End'].includes(event.key) ? 1
+                : event.key === ' ' ? (event.shiftKey ? -1 : 1) : 0;
+            if (delta) claim(delta);
+        };
+        const pointerdown = (event: PointerEvent) => {
+            if (event.defaultPrevented || event.button !== 0 || event.target !== node || node.scrollHeight <= node.clientHeight) return;
+            const rect = node.getBoundingClientRect();
+            // Native scrollbar presses target the scroller itself. Include
+            // its overlay strip, while leaving content clicks/selection alone.
+            const x = event.clientX - rect.left;
+            if (x >= Math.min(node.clientLeft + node.clientWidth, rect.width - 16)
+                || (node.clientLeft > 0 && x < node.clientLeft)) claim();
+        };
+        let touch: { x: number; y: number } | null = null;
+        const touchstart = (event: TouchEvent) => {
+            touch = event.touches.length === 1 && !interactiveTarget(event)
+                ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+        };
+        const touchmove = (event: TouchEvent) => {
+            if (!touch || event.defaultPrevented || event.touches.length !== 1) return;
+            const next = event.touches[0];
+            const delta = touch.y - next.clientY;
+            if (Math.abs(delta) > Math.abs(touch.x - next.clientX)) claim(delta);
+            touch = { x: next.clientX, y: next.clientY };
+        };
+        const touchend = () => { touch = null; };
+        node.addEventListener('keydown', keydown);
+        node.addEventListener('pointerdown', pointerdown);
+        node.addEventListener('touchstart', touchstart, { passive: true });
+        node.addEventListener('touchmove', touchmove, { passive: true });
+        node.addEventListener('touchend', touchend);
+        node.addEventListener('touchcancel', touchend);
         node.addEventListener('wheel', handler, { passive: false });
-        return () => node.removeEventListener('wheel', handler);
+        return () => {
+            node.removeEventListener('wheel', handler);
+            node.removeEventListener('keydown', keydown);
+            node.removeEventListener('pointerdown', pointerdown);
+            node.removeEventListener('touchstart', touchstart);
+            node.removeEventListener('touchmove', touchmove);
+            node.removeEventListener('touchend', touchend);
+            node.removeEventListener('touchcancel', touchend);
+        };
     }, []);
 
     return (
