@@ -430,6 +430,72 @@ describe('useUnifiedAuthQrCode', () => {
         });
     });
 
+    it('processes an Android scan event after the native launch promise settles', async () => {
+        mocks.platformOS = 'android';
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+        await act(async () => {
+            await mocks.onScanned?.({ data: accountAuthUrl });
+        });
+
+        expect(mocks.confirm).toHaveBeenCalledTimes(1);
+        expect(mocks.accountAuth).toHaveBeenCalledWith(accountAuthUrl);
+    });
+
+    it('does not replace an Android session while its scan event is still pending', async () => {
+        mocks.platformOS = 'android';
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await mocks.onScanned?.({ data: accountAuthUrl });
+        });
+
+        expect(mocks.accountAuth).toHaveBeenCalledWith(accountAuthUrl);
+    });
+
+    it('keeps an Android session pending across provider replacement until its event arrives', async () => {
+        mocks.platformOS = 'android';
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        act(() => renderer.unmount());
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await mocks.onScanned?.({ data: terminalAuthUrl });
+        });
+        expect(mocks.terminalAuth).toHaveBeenCalledWith(terminalAuthUrl);
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await mocks.onScanned?.({ data: accountAuthUrl });
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+        expect(mocks.accountAuth).toHaveBeenCalledWith(accountAuthUrl);
+    });
+
     it('ignores scanner events when this provider did not launch the scanner', async () => {
         await act(async () => {
             await mocks.onScanned?.({ data: accountAuthUrl });
