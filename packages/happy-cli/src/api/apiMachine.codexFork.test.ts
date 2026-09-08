@@ -51,7 +51,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         codexClientMethods.disconnect.mockResolvedValue(undefined);
     });
 
-    it('takes over a Codex Desktop candidate without forcing shared transport', async () => {
+    it('takes over a Codex Desktop candidate through a private fork so the source can keep its active writer', async () => {
         codexAttachCandidateMethods.list.mockResolvedValue([{
             threadId: 'thread-desktop',
             title: 'Existing desktop conversation',
@@ -59,6 +59,10 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             createdAt: 1,
             updatedAt: 2,
         }]);
+        codexClientMethods.forkThread.mockResolvedValue({
+            threadId: 'thread-takeover-fork',
+            thread: { id: 'thread-takeover-fork', turns: [] },
+        });
         const spawnSession = vi.fn().mockResolvedValue({
             type: 'success',
             sessionId: 'happy-attached',
@@ -76,10 +80,16 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         });
 
         expect(result).toEqual({ type: 'success', sessionId: 'happy-attached' });
+        expect(codexClientMethods.connect).toHaveBeenCalledOnce();
+        expect(codexClientMethods.forkThread).toHaveBeenCalledWith({
+            threadId: 'thread-desktop',
+            cwd: '/tmp/project',
+        });
+        expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
         expect(spawnSession).toHaveBeenCalledWith({
             directory: '/tmp/project',
             agent: 'codex',
-            resumeCodexThreadId: 'thread-desktop',
+            resumeCodexThreadId: 'thread-takeover-fork',
             environmentVariables: {
                 HAPPY_IMPORTED_SESSION_TITLE: 'Existing desktop conversation',
             },

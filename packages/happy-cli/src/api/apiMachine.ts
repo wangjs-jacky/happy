@@ -282,14 +282,19 @@ export class ApiMachineClient {
                 throw new Error('Codex Desktop thread is no longer available for attachment');
             }
 
+            const forked = await withCodexAppServerClient((client) => forkCodexThread(client, {
+                threadId: candidate.threadId,
+                cwd: candidate.directory,
+            }));
+
             const result = await spawnSession({
                 directory: candidate.directory,
                 agent: 'codex',
-                resumeCodexThreadId: candidate.threadId,
+                resumeCodexThreadId: forked.newCodexThreadId,
                 environmentVariables: {
-                    // Candidate takeover must keep the normal private app-server
-                    // default. Shared transport is an explicit PoC opt-in and
-                    // Codex Desktop does not expose its stdio server as a socket.
+                    // Resume the fork through the normal private app-server.
+                    // The Desktop-owned source can keep its active writer while
+                    // Paws exclusively owns and continues the copied history.
                     HAPPY_IMPORTED_SESSION_TITLE: candidate.title.slice(0, 200),
                 },
             });
