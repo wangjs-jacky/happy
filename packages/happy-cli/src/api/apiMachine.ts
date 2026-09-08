@@ -287,12 +287,10 @@ export class ApiMachineClient {
                 agent: 'codex',
                 resumeCodexThreadId: candidate.threadId,
                 environmentVariables: {
-                    HAPPY_CODEX_APP_SERVER_MODE: 'shared',
-                    HAPPY_CODEX_APPROVAL_AUTHORITY: 'desktop',
+                    // Candidate takeover must keep the normal private app-server
+                    // default. Shared transport is an explicit PoC opt-in and
+                    // Codex Desktop does not expose its stdio server as a socket.
                     HAPPY_IMPORTED_SESSION_TITLE: candidate.title.slice(0, 200),
-                    ...(process.env.HAPPY_CODEX_APP_SERVER_SOCKET
-                        ? { HAPPY_CODEX_APP_SERVER_SOCKET: process.env.HAPPY_CODEX_APP_SERVER_SOCKET }
-                        : {}),
                 },
             });
 
