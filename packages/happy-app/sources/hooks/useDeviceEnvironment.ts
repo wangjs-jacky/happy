@@ -110,7 +110,13 @@ export function useDeviceEnvironment(
     const mounted = useRef(true);
     const applyInFlight = useRef(false);
     const inspect = dependencies.inspect ?? ((machineId, request) => {
-        const cliVersion = latestMachines.current.find((machine) => machine.id === machineId)?.metadata?.happyCliVersion;
+        const machine = latestMachines.current.find((candidate) => candidate.id === machineId);
+        const daemonCliVersion = typeof machine?.daemonState?.startedWithCliVersion === 'string'
+            ? machine.daemonState.startedWithCliVersion
+            : undefined;
+        // The running daemon handles the RPC. Its state updates before machine
+        // metadata after an upgrade, so prefer it and keep metadata as fallback.
+        const cliVersion = daemonCliVersion ?? machine?.metadata?.happyCliVersion;
         return inspectMachineEnvironment(machineId, request, {
             preferV2: isVersionSupported(cliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION),
         });
