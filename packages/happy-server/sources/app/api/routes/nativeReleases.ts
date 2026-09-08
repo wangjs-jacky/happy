@@ -38,20 +38,25 @@ function selectReleases(raw: unknown): Candidate[] {
     });
 }
 
-// One cache and one in-flight request per server, not per phone/channel. Failures
-// have a short cooldown and remain unknown; they never become "up to date".
+// One cache and one in-flight request per server, not per phone/channel. A
+// refresh failure may reuse a previously verified catalog during the short
+// cooldown; without verified data it remains unknown, never "up to date".
 export function createNativeReleaseCatalog() {
     let cache: NativeReleaseCatalog | undefined;
     let expiresAt = 0;
+    let staleUntil = 0;
     let retryAt = 0;
     let pending: Promise<NativeReleaseCatalog> | undefined;
     return async (): Promise<NativeReleaseCatalog> => {
         if (cache && Date.now() < expiresAt) return cache;
         if (pending) return pending;
-        if (Date.now() < retryAt) throw new Error('Release check temporarily unavailable');
+        if (Date.now() < retryAt) {
+            if (cache && Date.now() < staleUntil) return cache;
+            throw new Error('Release check temporarily unavailable');
+        }
         pending = (async () => {
             const releases: Candidate[] = [];
-            const signal = AbortSignal.timeout(8000); // Whole catalog, including bodies and sidecars.
+            const releaseSignal = AbortSignal.timeout(8000);
             // CLI and Android share this repository; /releases/latest is a CLI
             // release. Scan bounded pages, stopping once both APK channels exist.
             for (let page = 1; page <= 3; page++) {
@@ -59,7 +64,7 @@ export function createNativeReleaseCatalog() {
                     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Paws-native-updates' },
                     // Monorepo Node/RN ambient types disagree on AbortSignal;
                     // the runtime object is the standard Node abort signal.
-                    signal: signal as never,
+                    signal: releaseSignal as never,
                 });
                 if (!response.ok) throw new Error(`GitHub release check failed: ${response.status}`);
                 const raw: unknown = await response.json();
@@ -79,9 +84,10 @@ export function createNativeReleaseCatalog() {
                 .sort((a, b) => b.runtime - a.runtime || semver.rcompare(a.version, b.version)).slice(0, 16));
             // Run bounded sidecars concurrently so an unavailable channel cannot
             // consume the entire deadline before the other channel is checked.
+            const verificationSignal = AbortSignal.timeout(8000);
             await Promise.all(candidates.map(async candidate => {
                 try {
-                    const response = await fetch(candidate.verificationUrl, { signal: signal as never });
+                    const response = await fetch(candidate.verificationUrl, { signal: verificationSignal as never });
                     if (!response.ok) throw new Error('APK verification metadata unavailable');
                     const text = await response.text();
                     if (text.length > 16_384) throw new Error('APK verification metadata too large');
@@ -100,9 +106,11 @@ export function createNativeReleaseCatalog() {
             if (unavailableChannels.size) verified.unavailableChannels = [...unavailableChannels];
             cache = verified;
             expiresAt = Date.now() + (unavailableChannels.size ? 30_000 : 10 * 60_000);
+            staleUntil = Date.now() + 60 * 60_000;
             return verified;
         })().catch(error => {
             retryAt = Date.now() + 30_000;
+            if (cache && Date.now() < staleUntil) return cache;
             throw error;
         }).finally(() => { pending = undefined; });
         return pending;

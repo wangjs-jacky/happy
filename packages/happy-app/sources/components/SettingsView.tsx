@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import * as Updates from 'expo-updates';
 import { refreshNativeUpdateStatus } from '@/sync/nativeUpdate';
 import { checkAppUpdates } from '@/utils/checkAppUpdates';
@@ -88,10 +89,13 @@ export const SettingsView = React.memo(function SettingsView() {
     const { theme } = useUnistyles();
     const router = useSettingsRouter();
     const buildConfig = React.useMemo(() => getBuildConfig(), []);
-    const appVersion = Constants.expoConfig?.version || '1.0.0';
-    const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
-        ? Constants.expoConfig.runtimeVersion
-        : undefined;
+    const appVersion = Application.nativeApplicationVersion
+        || Constants.expoConfig?.version
+        || t('common.unknown');
+    const runtimeVersion = Updates.runtimeVersion
+        || (typeof Constants.expoConfig?.runtimeVersion === 'string'
+            ? Constants.expoConfig.runtimeVersion
+            : undefined);
     const versionDetail = [
         appVersion,
         runtimeVersion ? `runtime ${runtimeVersion}` : undefined,

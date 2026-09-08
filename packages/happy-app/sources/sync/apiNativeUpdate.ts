@@ -18,7 +18,7 @@ export async function checkNativeAppUpdate(serverUrl: string, identity: NativeAp
     }
     if (!validVersion(identity.version) || !validRuntime(identity.runtimeVersion)) throw new Error('Unable to determine the installed app version');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
         const response = await fetch(`${serverUrl}/v1/version`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,

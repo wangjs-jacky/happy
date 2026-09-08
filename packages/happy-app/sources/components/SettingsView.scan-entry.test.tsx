@@ -13,8 +13,10 @@ vi.mock('react-native', () => ({ Platform: { OS: 'ios' }, View: 'View' }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
-vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '1.0.0', runtimeVersion: 'test' } } }));
+vi.mock('expo-constants', () => ({ default: { expoConfig: undefined } }));
+vi.mock('expo-application', () => ({ nativeApplicationVersion: '1.7.1' }));
 vi.mock('expo-updates', () => ({
+    runtimeVersion: '24',
     checkForUpdateAsync: vi.fn(),
     fetchUpdateAsync: vi.fn(),
     reloadAsync: vi.fn(),
@@ -123,5 +125,13 @@ describe('SettingsView scan entry', () => {
 
         expect(scannerItems).toHaveLength(1);
         expect(scannerItems[0].props.onPress).toEqual(expect.any(Function));
+    });
+
+    it('shows the installed native version and runtime when Expo config is unavailable', () => {
+        const versionItem = renderer.root
+            .findAllByType('Item')
+            .find((node: any) => node.props.title === 'common.version');
+
+        expect(versionItem?.props.detail).toBe('1.7.1 / runtime 24');
     });
 });
