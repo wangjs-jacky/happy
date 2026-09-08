@@ -4,7 +4,7 @@ import { access, copyFile, mkdir, mkdtemp, readFile, readdir, writeFile } from '
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -12,7 +12,13 @@ const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageDir, '../..');
 const workspace = await mkdtemp(join(tmpdir(), 'paws-agent-pack-'));
 const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'));
-const providedTarball = process.argv[2] ? resolve(process.argv[2]) : null;
+const args = process.argv.slice(2);
+if (!args.includes('--prepare-browser') || args.some(arg => arg.startsWith('--') && arg !== '--prepare-browser')) {
+    throw new Error('Use --prepare-browser [tarball], then verify the emitted browserFixture in Ego before publishing.');
+}
+const tarballArgs = args.filter(arg => arg !== '--prepare-browser');
+if (tarballArgs.length > 1) throw new Error('Expected at most one tarball');
+const providedTarball = tarballArgs[0] ? resolve(tarballArgs[0]) : null;
 
 async function run(command, args, options = {}) {
     try {
@@ -125,25 +131,8 @@ for (const forbidden of ['node:', 'Buffer.from', 'process.env', 'paws-agent auth
     if (browserBundle.includes(forbidden)) throw new Error(`Browser bundle contains forbidden token: ${forbidden}`);
 }
 
-const { chromium } = await import('playwright');
-const systemChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-let executablePath = process.env.PAWS_CHROMIUM_EXECUTABLE;
-if (!executablePath) {
-    try {
-        await access(systemChrome, constants.X_OK);
-        executablePath = systemChrome;
-    } catch {
-        executablePath = undefined;
-    }
-}
-const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
-try {
-    const page = await browser.newPage();
-    await page.goto(pathToFileURL(join(browserDir, 'index.html')).href);
-    await page.waitForFunction(() => window.__PAWS_AGENT_VERIFY__ === 'ready');
-} finally {
-    await browser.close();
-}
+// Browser execution belongs to Ego, outside the GitHub-hosted runner. This
+// command only prepares the consumer; its success is not browser acceptance.
 
 const bytes = await readFile(tarball);
 const checksum = createHash('sha256').update(bytes).digest('hex');
@@ -156,5 +145,7 @@ process.stdout.write(JSON.stringify({
     sha256: checksum,
     files: listing.length,
     installSpec: process.env.PAWS_AGENT_INSTALL_SPEC ?? tarball,
-    checks: ['metadata', 'secret-scan', 'dry-run', 'publint', 'esm', 'cjs', 'cli', 'browser-bundle', 'chromium'],
+    browserFixture: join(browserDir, 'index.html'),
+    browserStatus: 'pending-ego-verification',
+    checks: ['metadata', 'secret-scan', 'dry-run', 'publint', 'esm', 'cjs', 'cli', 'browser-bundle'],
 }, null, 2) + '\n');

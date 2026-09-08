@@ -1,4 +1,5 @@
 name: Paws Agent npm publish
+run-name: "Paws Agent ${{ inputs.ego_verified_sha256 && 'publish' || 'prepare (not published)' }} · ${{ inputs.tag || github.ref_name }}"
 
 on:
   push:
@@ -8,6 +9,11 @@ on:
       tag:
         description: Existing immutable paws-agent-v* tag to publish
         required: true
+        type: string
+      ego_verified_sha256:
+        description: SHA-256 of this exact tarball after local Ego browser acceptance; empty only prepares an artifact
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -27,13 +33,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
-      - run: pnpm install --frozen-lockfile
       - name: Validate immutable release contract
         id: contract
         shell: bash
@@ -41,14 +47,14 @@ jobs:
           PAWS_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          PAWS_TAG_SHA="$(git rev-list -n 1 "$PAWS_RELEASE_TAG")"
+          PAWS_TAG_SHA="$(git rev-parse --verify "refs/tags/$PAWS_RELEASE_TAG^{commit}")"
           test -n "$PAWS_TAG_SHA"
           git fetch origin main
           git merge-base --is-ancestor "$PAWS_TAG_SHA" origin/main
           PAWS_TAG_SHA="$PAWS_TAG_SHA" GITHUB_SHA="$(git rev-parse HEAD)" node packages/paws-agent/scripts/release-contract.mjs
+      - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @wangjs-jacky/paws-agent test
       - run: pnpm --filter @wangjs-jacky/paws-agent test:integration
-      - run: pnpm exec playwright install --with-deps chromium
       - name: Pack once
         id: pack
         shell: bash
@@ -59,11 +65,20 @@ jobs:
           TARBALL="$(find "$RUNNER_TEMP/paws-agent" -name '*.tgz' -print -quit)"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           shasum -a 256 "$TARBALL" | tee "$RUNNER_TEMP/paws-agent/SHA256SUMS"
+          echo "sha256=$(shasum -a 256 "$TARBALL" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Require the exact Ego-verified digest before publication
+        if: inputs.ego_verified_sha256 != ''
+        env:
+          VERIFIED_SHA256: ${{ inputs.ego_verified_sha256 }}
+          ACTUAL_SHA256: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          node --input-type=module -e "import { assertEgoVerifiedDigest } from './packages/paws-agent/scripts/release-contract.mjs'; assertEgoVerifiedDigest(process.env.VERIFIED_SHA256, process.env.ACTUAL_SHA256)"
       - name: Verify the exact release tarball
         shell: bash
-        run: PAWS_AGENT_DIST_TAG="${{ steps.contract.outputs.dist_tag }}" node packages/paws-agent/scripts/verify-pack.mjs "${{ steps.pack.outputs.tarball }}"
+        run: PAWS_AGENT_DIST_TAG="${{ steps.contract.outputs.dist_tag }}" node packages/paws-agent/scripts/verify-pack.mjs --prepare-browser "${{ steps.pack.outputs.tarball }}" | tee "$RUNNER_TEMP/paws-agent/node-consumer-verification.json"
       - name: Check exact registry version
         id: registry
+        if: inputs.ego_verified_sha256 != ''
         shell: bash
         run: |
           if npm view "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}" version >/dev/null 2>&1; then
@@ -73,17 +88,27 @@ jobs:
           fi
       - name: Record previous stable dist-tag
         id: previous
+        if: inputs.ego_verified_sha256 != ''
         shell: bash
         run: echo "latest=$(npm view '@wangjs-jacky/paws-agent' dist-tags.latest 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - name: Verify an existing version is the exact local tarball
         if: steps.registry.outputs.exists == 'true'
         shell: bash
         run: node packages/paws-agent/scripts/verify-registry-integrity.mjs "${{ steps.pack.outputs.tarball }}" "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}"
-      - name: Publish with npm trusted publishing
+      - name: Publish with NPM_TOKEN or npm trusted publishing
         id: publish
-        if: steps.registry.outputs.exists == 'false'
+        if: inputs.ego_verified_sha256 != '' && steps.registry.outputs.exists == 'false'
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            echo 'Using repository NPM_TOKEN for npm publication.'
+            npm whoami --registry https://registry.npmjs.org
+          else
+            echo 'NPM_TOKEN absent; npm trusted publishing must already be configured.'
+          fi
           set +e
           npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --tag "${{ steps.contract.outputs.dist_tag }}"
           publish_status=$?
@@ -98,6 +123,7 @@ jobs:
           echo 'published=true' >> "$GITHUB_OUTPUT"
       - name: Verify exact registry artifact, consumers, and isolated E2E
         id: post_publish
+        if: inputs.ego_verified_sha256 != ''
         continue-on-error: true
         shell: bash
         env:
@@ -117,7 +143,7 @@ jobs:
             sleep 10
           done
           node packages/paws-agent/scripts/verify-registry-integrity.mjs "${{ steps.pack.outputs.tarball }}" "$PAWS_AGENT_INSTALL_SPEC"
-          node packages/paws-agent/scripts/verify-pack.mjs "${{ steps.pack.outputs.tarball }}"
+          node packages/paws-agent/scripts/verify-pack.mjs --prepare-browser "${{ steps.pack.outputs.tarball }}"
           pnpm --filter @wangjs-jacky/paws-agent test
           registry_e2e="$RUNNER_TEMP/paws-agent-registry-e2e"
           mkdir -p "$registry_e2e"
@@ -152,11 +178,28 @@ jobs:
       # GitHub Releases is reserved for Android APKs. npm + the immutable tag
       # remain the permanent CLI distribution/source record; CI evidence expires.
       - name: Preserve npm release evidence (90 days)
+        if: always() && steps.pack.outputs.tarball != ''
         uses: actions/upload-artifact@v4
         with:
           name: paws-agent-npm-evidence-${{ inputs.tag || github.ref_name }}
           path: |
             ${{ steps.pack.outputs.tarball }}
             ${{ runner.temp }}/paws-agent/SHA256SUMS
+            ${{ runner.temp }}/paws-agent/node-consumer-verification.json
           if-no-files-found: error
           retention-days: 90
+      - name: Explain preparation versus publication
+        if: success()
+        env:
+          VERIFIED_SHA256: ${{ inputs.ego_verified_sha256 }}
+          ACTUAL_SHA256: ${{ steps.pack.outputs.sha256 }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [ -z "$VERIFIED_SHA256" ]; then
+            echo '### Prepared only — NOT published to npm' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Download this run artifact, run verify-pack.mjs --prepare-browser on the tarball, and verify the emitted browserFixture in Ego. Then dispatch this workflow with the same tag and the verified SHA-256.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '### Exact Ego-verified tarball published/verified on npm' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Tag: $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: $ACTUAL_SHA256" >> "$GITHUB_STEP_SUMMARY"
