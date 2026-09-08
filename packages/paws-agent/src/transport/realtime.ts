@@ -142,6 +142,7 @@ export class PawsRealtimeTransport {
     private async handleConnect(): Promise<void> {
         if (this.disposed || this.manualDisconnect) return;
         try {
+            this.options.events.emit({ type: 'connection', state: 'syncing' });
             await this.options.resync();
             if (this.disposed || this.manualDisconnect) return;
             this.options.events.emit({ type: 'connection', state: 'ready' });

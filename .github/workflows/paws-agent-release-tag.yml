@@ -61,10 +61,10 @@ jobs:
           if [ -n "$existing" ]; then
             test "$existing" = "$PAWS_MERGE_SHA"
           else
-            git tag -a "$PAWS_TAG" "$PAWS_MERGE_SHA" -m "chore(agent): release ${PAWS_TAG}"
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' tag -a "$PAWS_TAG" "$PAWS_MERGE_SHA" -m "chore(agent): release ${PAWS_TAG}"
             git push origin "refs/tags/$PAWS_TAG"
           fi
-      - name: Dispatch tag-gated npm release
+      - name: Prepare tag-gated npm artifact (publication requires Ego verification)
         env:
           GH_TOKEN: ${{ github.token }}
           PAWS_TAG: ${{ steps.release.outputs.tag }}

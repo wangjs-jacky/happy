@@ -34,7 +34,7 @@ export type ReconnectPolicy = {
     attempts?: number;
 };
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'ready' | 'reconnecting';
+export type ConnectionState = 'disconnected' | 'connecting' | 'syncing' | 'ready' | 'reconnecting';
 
 export type Machine = {
     id: string;
@@ -161,6 +161,7 @@ export interface RequestsResource {
 
 export type PawsAgentEvent =
     | { type: 'connection'; state: ConnectionState }
+    | { type: 'snapshot'; machines: Machine[]; sessions: Session[] }
     | { type: 'machines'; machines: Machine[] }
     | { type: 'message'; sessionId: string; message: Message }
     | { type: 'session'; session: Session }
