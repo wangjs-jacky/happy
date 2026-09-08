@@ -127,6 +127,25 @@ describe('useDeviceEnvironment', () => {
         apply = vi.fn<DeviceEnvironmentDependencies['apply']>(async () => success());
     });
 
+    it('uses the running daemon version when machine metadata is stale after an upgrade', async () => {
+        const upgraded = machine('air');
+        upgraded.daemonState = { startedWithCliVersion: '1.3.8' };
+        rpc.mockReset();
+        rpc.mockResolvedValue(response());
+
+        function DefaultHarness() {
+            controller = useDeviceEnvironment([upgraded]);
+            return null;
+        }
+
+        act(() => root.render(createElement(DefaultHarness)));
+        await act(async () => controller.scan());
+
+        expect(rpc).toHaveBeenCalledExactlyOnceWith(
+            'air', 'environment-inspect-v2', { componentIds: ['github-cli', 'paws-cli', 'ego-browser', 'cloudflare-wrangler', 'cloudflared'] },
+        );
+    });
+
     afterEach(() => {
         act(() => root.unmount());
         vi.unstubAllGlobals();
