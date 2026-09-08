@@ -74,11 +74,27 @@ const scroll = (renderer: any) => act(() => renderer.root.findByType('FlatList')
     nativeEvent: { contentOffset: { y: 400 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 } },
 }));
 const byId = (renderer: any, testID: string) => renderer.root.findByProps({ testID });
+const installFrameQueue = () => {
+    let nextFrame = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.set(++nextFrame, callback);
+        return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (frame: number) => { frames.delete(frame); });
+    return async () => {
+        const pending = [...frames.values()];
+        frames.clear();
+        await act(async () => { pending.forEach(callback => callback(0)); });
+    };
+};
 
 describe('ConversationTranscript older history pagination', () => {
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+    let flushFrame: ReturnType<typeof installFrameQueue>;
 
     beforeEach(() => {
+        flushFrame = installFrameQueue();
         grouped.items = null;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const originalConsoleError = console.error;
@@ -90,6 +106,8 @@ describe('ConversationTranscript older history pagination', () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
         (Platform as any).OS = 'web';
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
@@ -147,6 +165,196 @@ describe('ConversationTranscript older history pagination', () => {
             });
         });
         expect(node.addEventListener).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('loads older history after native initial loading leaves the transcript shorter than its viewport', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const messages = [userMessage('latest')];
+        const render = (loading: boolean) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder isLoadingOlder={loading} onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(true)); });
+        const list = byId(renderer, 'conversation-transcript-list');
+        expect(typeof list.props.onLayout).toBe('function');
+        act(() => {
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 320);
+        });
+        expect(onLoadOlder).not.toHaveBeenCalled();
+
+        await act(async () => { renderer.update(render(false)); });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('waits for a fresh native measurement when newer content changes but the oldest boundary stays the same', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const render = (messages: Message[], loading: boolean) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder isLoadingOlder={loading} onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([userMessage('latest')], true)); });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => {
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 320);
+        });
+
+        const withNewerContent = [userMessage('new-latest'), userMessage('latest')];
+        await act(async () => { renderer.update(render(withNewerContent, true)); });
+        await act(async () => { renderer.update(render(withNewerContent, false)); });
+        expect(onLoadOlder).not.toHaveBeenCalled();
+
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 900));
+        expect(onLoadOlder).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('reuses an underfilled native measurement after same-height content settles without a size callback', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const render = (messages: Message[], loading: boolean) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder isLoadingOlder={loading} onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([userMessage('latest')], true)); });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 320);
+        });
+
+        const sameHeightReplacement = [userMessage('latest')];
+        await act(async () => { renderer.update(render(sameHeightReplacement, true)); });
+        await flushFrame();
+        await flushFrame();
+        await act(async () => { renderer.update(render(sameHeightReplacement, false)); });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('waits for a delayed taller native measurement instead of promoting by elapsed wall time', async () => {
+        vi.useFakeTimers();
+        installFrameQueue();
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const render = (messages: Message[], loading: boolean) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder isLoadingOlder={loading} onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([userMessage('latest')], true)); });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 320);
+        });
+
+        const tallerContent = [userMessage('new-latest'), userMessage('latest')];
+        await act(async () => { renderer.update(render(tallerContent, true)); });
+        await act(async () => { vi.advanceTimersByTime(50); });
+        await act(async () => { renderer.update(render(tallerContent, false)); });
+        expect(onLoadOlder).not.toHaveBeenCalled();
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 900));
+        expect(onLoadOlder).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('loads consecutive underfilled native pages and stops when older history is exhausted', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const render = (messages: Message[], loading: boolean, hasMore = true) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder={hasMore} isLoadingOlder={loading} onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([userMessage('latest')], false)); });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 240);
+        });
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+        const firstPage = [userMessage('latest'), userMessage('older-1')];
+        await act(async () => { renderer.update(render(firstPage, true)); });
+        await act(async () => { renderer.update(render(firstPage, false)); });
+        expect(onLoadOlder).toHaveBeenCalledTimes(1);
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 520));
+        expect(onLoadOlder).toHaveBeenCalledTimes(2);
+
+        const exhausted = [...firstPage, userMessage('oldest')];
+        await act(async () => { renderer.update(render(exhausted, true)); });
+        await act(async () => { renderer.update(render(exhausted, false, false)); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 700));
+        expect(onLoadOlder).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
+    it('does not eagerly load an underfilled Web transcript', async () => {
+        const onLoadOlder = vi.fn();
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} sessionId="session" messages={[userMessage('latest')]}
+                    hasMoreOlder onLoadOlder={onLoadOlder} />,
+            );
+        });
+        act(() => {
+            const list = byId(renderer, 'conversation-transcript-list');
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 240);
+        });
+        expect(onLoadOlder).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('waits for a fresh native content measurement before loading a changed history boundary', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        const render = (messages: Message[]) => (
+            <ConversationTranscript metadata={null} sessionId="session" messages={messages}
+                hasMoreOlder onLoadOlder={onLoadOlder} />
+        );
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([userMessage('latest')])); });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => {
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 320);
+        });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+
+        await act(async () => { renderer.update(render([userMessage('latest'), userMessage('older')])); });
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(400, 900));
+        expect(onLoadOlder).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('does not load older native history when content exactly fills the viewport', async () => {
+        (Platform as any).OS = 'android';
+        const onLoadOlder = vi.fn();
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <ConversationTranscript metadata={null} sessionId="session" messages={[userMessage('latest')]}
+                    hasMoreOlder onLoadOlder={onLoadOlder} />,
+            );
+        });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => {
+            list.props.onLayout({ nativeEvent: { layout: { height: 800 } } });
+            list.props.onContentSizeChange(400, 800);
+        });
+        expect(onLoadOlder).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
