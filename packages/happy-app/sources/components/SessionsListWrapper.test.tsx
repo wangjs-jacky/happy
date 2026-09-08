@@ -31,6 +31,7 @@ describe('session list recovery', () => {
         useSessionListSyncState.setState({ bootstrap: 'error', history: 'idle' });
         act(() => { renderer = TestRenderer.create(<SessionsListWrapper />); });
         expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+        expect(renderer.root.findByProps({ children: 'server.failedToConnectToServer' })).toBeTruthy();
         const retry = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
         act(() => retry.props.onPress());
         expect(useSessionListSyncState.getState().bootstrap).toBe('loading');
@@ -44,6 +45,8 @@ describe('session list recovery', () => {
         const content = renderer.root.findByType('Text');
         act(() => useSessionListSyncState.setState({ history: 'error' }));
         expect(renderer.root.findAllByType('Text')).toContain(content);
+        expect(renderer.root.findByProps({ children: 'sessionHistory.failedToLoad' })).toBeTruthy();
+        expect(renderer.root.findAllByProps({ children: 'server.failedToConnectToServer' })).toHaveLength(0);
         const retry = renderer.root.findByProps({ accessibilityRole: 'button', accessibilityLabel: 'common.retry' });
         act(() => retry.props.onPress());
         expect(useSessionListSyncState.getState().history).toBe('loading');

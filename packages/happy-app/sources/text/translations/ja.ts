@@ -676,6 +676,7 @@ export const ja: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'セッション履歴',
+        failedToLoad: 'セッション履歴を読み込めませんでした',
         empty: 'セッションが見つかりません',
         archiveTitle: 'アーカイブ済みセッション',
         archiveEmpty: 'アーカイブ済みのセッションはありません',
