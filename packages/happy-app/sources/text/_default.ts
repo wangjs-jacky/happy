@@ -738,6 +738,9 @@ export const en = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "Restore text only",
+        submissionOmitAttachmentsWarning: "Original attachments will be omitted. The session or message may already exist. Check the session before submitting again.",
+        submissionRestored: "Restored text is saved here until your next submission is safely saved.",
         submissionSaving: 'Saving your message…',
         submissionSpawning: 'Starting the session…',
         submissionHydrating: 'Preparing the session…',

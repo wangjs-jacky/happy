@@ -11,7 +11,7 @@ export type FirstSubmissionInput = {
 };
 export type FirstSubmissionSnapshot = FirstSubmissionInput & {
     version: 1; scope: string;
-    phase: 'saving' | 'spawning' | 'hydrating' | 'sending' | 'projecting' | 'ready' | 'failed';
+    phase: 'saving' | 'spawning' | 'hydrating' | 'sending' | 'projecting' | 'ready' | 'failed' | 'restored';
     sessionId?: string;
     failure?: 'storage' | 'interrupted' | 'cancelled' | 'hydrate' | 'send' | 'project' | 'spawn';
     retry?: 'hydrate' | 'send' | 'project';
@@ -34,6 +34,15 @@ type Dependencies = {
     accepted(input: FirstSubmissionInput, live: FirstSubmissionLive): void;
     metric(phase: FirstSubmissionSnapshot['phase'], duration: number): void;
 };
+
+export function containsSubmissionAttachments(required: FirstSubmissionInput['attachments'], selected: FirstSubmissionInput['attachments']) {
+    const remaining = [...selected];
+    return required.every(attachment => {
+        const index = remaining.findIndex(image => image.id === attachment.id || Boolean(attachment.name && image.name === attachment.name));
+        if (index < 0) return false;
+        remaining.splice(index, 1); return true;
+    });
+}
 
 /** A single scoped operation owns work, not a mounted composer. Disk is a
  * recovery record, never a durable outbox: refresh cannot prove RPC acceptance. */
@@ -61,14 +70,17 @@ export class FirstSubmissionOwner {
             const parsed = raw ? JSON.parse(raw) : null;
             if (parsed?.version === 1 && parsed.scope === scope && typeof parsed.text === 'string'
                 && typeof parsed.prompt === 'string' && Array.isArray(parsed.attachments)) {
-                recovered = { ...parsed, phase: 'failed', failure: 'interrupted', retry: undefined };
+                recovered = { ...parsed, phase: parsed.phase === 'restored' ? 'restored' : 'failed',
+                    failure: parsed.phase === 'restored' ? undefined : 'interrupted', retry: undefined };
             }
         } catch { /* An unreadable record never authorizes a send. */ }
         this.publish(recovered);
     }
 
     async submit(input: FirstSubmissionInput, live: FirstSubmissionLive): Promise<boolean> {
-        if (this.busy || this.snapshot || !this.current()) return false;
+        if (this.busy || this.clearing || !this.current()) return false;
+        if (this.snapshot && (this.snapshot.phase !== 'restored'
+            || !containsSubmissionAttachments(this.snapshot.attachments, input.attachments))) return false;
         this.busy = true;
         const generation = this.generation;
         const current = () => generation === this.generation && this.current();
@@ -161,6 +173,22 @@ export class FirstSubmissionOwner {
         try { return await this.finish(this.snapshot.retry, current); }
         catch { if (current()) this.fail('storage', this.receipt ? 'project' : undefined); return false; }
         finally { if (generation === this.generation) this.busy = false; }
+    }
+    /** Transfer to an editable recovery state without deleting its durable copy.
+     * Only a later durably saved submission may replace this record. */
+    async restore(text: string, attachments: FirstSubmissionInput['attachments'], expected = this.snapshot): Promise<boolean> {
+        if (this.busy || this.clearing || !expected || expected !== this.snapshot || !this.current()
+            || !['failed', 'restored'].includes(expected.phase)) return false;
+        this.clearing = true;
+        const generation = this.generation;
+        const restored: FirstSubmissionSnapshot = { ...expected, text, attachments: attachments.map(({ id, name }) => ({ id, name })),
+            phase: 'restored', failure: undefined, retry: undefined };
+        try {
+            await this.deps.save(this.scope, JSON.stringify(restored));
+            if (generation !== this.generation || !this.current()) return false;
+            this.live = undefined; this.receipt = undefined; this.publish(restored); return true;
+        } catch { return false; }
+        finally { if (generation === this.generation) this.clearing = false; }
     }
     async dismiss(expected = this.snapshot): Promise<boolean> {
         if (this.clearing || expected !== this.snapshot || (this.busy && this.snapshot?.phase !== 'ready') || !this.current()) return false;

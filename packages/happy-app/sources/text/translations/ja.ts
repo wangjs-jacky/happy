@@ -653,6 +653,9 @@ export const ja: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "テキストのみ復元",
+        submissionOmitAttachmentsWarning: "元の添付ファイルは含まれません。セッションやメッセージがすでに存在する可能性があります。再送信する前にセッションを確認してください。",
+        submissionRestored: "復元したテキストは、次の送信内容が安全に保存されるまでここに保存されます。",
         submissionSaving: "メッセージを保存中…",
         submissionSpawning: "セッションを開始中…",
         submissionHydrating: "セッションを準備中…",

@@ -677,6 +677,9 @@ export const zhHans: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "仅恢复文字",
+        submissionOmitAttachmentsWarning: "将不再包含原附件。会话或消息可能已存在，再次提交前请先检查会话。",
+        submissionRestored: "恢复的文字会保存在此处，直到下次提交的内容已安全保存。",
         submissionSaving: "正在保存消息…",
         submissionSpawning: "正在启动会话…",
         submissionHydrating: "正在准备会话…",

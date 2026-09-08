@@ -669,6 +669,9 @@ export const pl: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "Przywróć tylko tekst",
+        submissionOmitAttachmentsWarning: "Oryginalne załączniki zostaną pominięte. Sesja lub wiadomość może już istnieć. Sprawdź sesję przed ponownym wysłaniem.",
+        submissionRestored: "Przywrócony tekst pozostanie tutaj zapisany, aż następna wysyłana wiadomość zostanie bezpiecznie zapisana.",
         submissionSaving: "Zapisywanie wiadomości…",
         submissionSpawning: "Uruchamianie sesji…",
         submissionHydrating: "Przygotowywanie sesji…",

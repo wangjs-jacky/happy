@@ -651,6 +651,9 @@ export const pt: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "Restaurar apenas texto",
+        submissionOmitAttachmentsWarning: "Os anexos originais serão omitidos. A sessão ou a mensagem pode já existir. Confira a sessão antes de enviar novamente.",
+        submissionRestored: "O texto restaurado fica salvo aqui até que o próximo envio seja salvo com segurança.",
         submissionSaving: "Salvando sua mensagem…",
         submissionSpawning: "Iniciando a sessão…",
         submissionHydrating: "Preparando a sessão…",

@@ -632,6 +632,9 @@ export const ru: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "Восстановить только текст",
+        submissionOmitAttachmentsWarning: "Исходные вложения будут исключены. Сеанс или сообщение уже могут существовать. Проверьте сеанс перед повторной отправкой.",
+        submissionRestored: "Восстановленный текст хранится здесь, пока следующее отправляемое сообщение не будет надёжно сохранено.",
         submissionSaving: "Сохранение сообщения…",
         submissionSpawning: "Запуск сеанса…",
         submissionHydrating: "Подготовка сеанса…",

@@ -652,6 +652,9 @@ export const zhHant: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "僅還原文字",
+        submissionOmitAttachmentsWarning: "將不再包含原附件。工作階段或訊息可能已存在，再次提交前請先檢查工作階段。",
+        submissionRestored: "還原的文字會儲存在此處，直到下次提交的內容已安全儲存。",
         submissionSaving: "正在儲存訊息…",
         submissionSpawning: "正在啟動工作階段…",
         submissionHydrating: "正在準備工作階段…",

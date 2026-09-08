@@ -35,5 +35,6 @@ export function useFirstSubmission() {
         if (snapshot?.sessionId && await ensureSessionHydratedWithRetry(snapshot.sessionId, current)
             && mounted.current && current()) navigate(snapshot.sessionId);
     }, [navigate]);
-    return { pending, submit, retry: () => firstSubmission.retry(pending), dismiss: () => firstSubmission.dismiss(pending), checkSession };
+    return { pending, submit, retry: () => firstSubmission.retry(pending),
+        restore: (text: string, omitAttachments: boolean) => firstSubmission.restore(text, omitAttachments ? [] : pending?.attachments ?? [], pending), checkSession };
 }

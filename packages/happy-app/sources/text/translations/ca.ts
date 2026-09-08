@@ -652,6 +652,9 @@ export const ca: TranslationStructure = {
     },
 
     newSession: {
+        submissionRestoreTextOnly: "Restaura només el text",
+        submissionOmitAttachmentsWarning: "S’ometran els adjunts originals. La sessió o el missatge ja podrien existir. Comprova la sessió abans de tornar a enviar.",
+        submissionRestored: "El text restaurat es desa aquí fins que el següent enviament es desi de manera segura.",
         submissionSaving: "S’està desant el missatge…",
         submissionSpawning: "S’està iniciant la sessió…",
         submissionHydrating: "S’està preparant la sessió…",

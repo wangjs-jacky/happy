@@ -28,6 +28,47 @@ function fixture() {
     return { owner, deps, disk, effects, receipt, invalidate: () => { current = false; } };
 }
 describe('recoverable first submission', () => {
+    it('retains restored text across refresh without sending and replaces it only after durable submission', async () => {
+        const f = fixture(); f.deps.spawn.mockResolvedValueOnce({ type: 'error' } as any);
+        await f.owner.submit(input, { images: [] });
+        expect(await f.owner.restore('original and newer edit', [], f.owner.getSnapshot())).toBe(true);
+        f.owner.activate('account/server', () => true);
+        expect(f.owner.getSnapshot()).toMatchObject({ phase: 'restored', text: 'original and newer edit', attachments: [] });
+        expect(f.effects).toEqual([]);
+        f.deps.save.mockRejectedValueOnce(new Error('quota'));
+        await f.owner.submit({ ...input, text: 'replacement' }, { images: [] });
+        f.owner.activate('account/server', () => true);
+        expect(f.owner.getSnapshot()?.text).toBe('original and newer edit');
+        expect(f.effects).toEqual([]);
+    });
+    it('retains the old record and does not unlock submission when restore persistence fails', async () => {
+        const f = fixture(); f.deps.project.mockResolvedValue(false);
+        await f.owner.submit(input, { images: [] });
+        f.deps.save.mockRejectedValueOnce(new Error('quota'));
+        expect(await f.owner.restore('restored', [], f.owner.getSnapshot())).toBe(false);
+        expect(f.owner.getSnapshot()?.text).toBe('original');
+    });
+    it('requires reselected attachments after a normal restore and refresh, until explicitly omitted', async () => {
+        const f = fixture(); f.deps.spawn.mockResolvedValueOnce({ type: 'error' } as any);
+        await f.owner.submit(input, { images: [] });
+        await f.owner.restore(input.text, input.attachments);
+        f.owner.activate('account/server', () => true);
+        expect(await f.owner.submit({ ...input, attachments: [] }, { images: [] })).toBe(false);
+        expect(f.effects).toEqual([]);
+        await f.owner.restore(input.text, []);
+        expect(await f.owner.submit({ ...input, attachments: [] }, { images: [] })).toBe(true);
+        expect(f.effects).toEqual(['spawn', 'send']);
+    });
+    it('does not apply a delayed restore completion after account replacement', async () => {
+        const f = fixture(); f.deps.spawn.mockResolvedValueOnce({ type: 'error' } as any);
+        await f.owner.submit(input, { images: [] });
+        const saved = deferred<void>(); f.deps.save.mockImplementationOnce(() => saved.promise);
+        const restoring = f.owner.restore('old text', []);
+        f.owner.activate('other', () => true);
+        saved.resolve();
+        expect(await restoring).toBe(false);
+        expect(f.owner.getSnapshot()).toBeNull();
+    });
     it('saves before releasing or spawning and blocks same-tick duplicate submissions', async () => {
         const f = fixture(); const saved = deferred<void>();
         f.deps.save.mockImplementationOnce(() => saved.promise);
