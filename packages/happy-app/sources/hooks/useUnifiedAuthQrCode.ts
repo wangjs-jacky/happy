@@ -164,8 +164,16 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                 return;
             }
 
-            if (scannerSession.active && !await dismissOwnedScanner()) {
-                return;
+            if (scannerSession.active) {
+                if (Platform.OS !== 'ios') {
+                    // Android may resolve launchScanner before its already-emitted
+                    // barcode event crosses the JS bridge. Do not replace that
+                    // session because native events do not carry a generation ID.
+                    return;
+                }
+                if (!await dismissOwnedScanner()) {
+                    return;
+                }
             }
 
             if (!isMountedRef.current) {
@@ -181,9 +189,9 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
             const trackedLaunch = nativeLaunch
                 .then(
                     () => {
-                        if (scannerSession.generation === generation && Platform.OS !== 'ios') {
-                            scannerSession.active = false;
-                        }
+                        // Android emits the barcode event immediately before resolving this
+                        // promise, but the JS bridge may deliver the promise callback first.
+                        // Keep ownership until the event handler claims the scan.
                     },
                     () => {
                         if (scannerSession.generation === generation && Platform.OS !== 'ios') {
@@ -237,7 +245,11 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
             isMountedRef.current = false;
             const ownedGeneration = ownedScannerGenerationRef.current;
             ownedScannerGenerationRef.current = null;
-            if (ownedGeneration !== null && scannerSession.generation === ownedGeneration) {
+            if (
+                Platform.OS === 'ios'
+                && ownedGeneration !== null
+                && scannerSession.generation === ownedGeneration
+            ) {
                 scannerSession.generation += 1;
             }
         };
@@ -251,7 +263,17 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
         }
 
         const subscription = CameraView.onModernBarcodeScanned(async (event) => {
-            if (!scannerSession.active) {
+            const ownedGeneration = ownedScannerGenerationRef.current;
+            if (
+                !scannerSession.active
+                || (
+                    Platform.OS === 'ios'
+                    && (
+                        ownedGeneration === null
+                        || scannerSession.generation !== ownedGeneration
+                    )
+                )
+            ) {
                 return;
             }
 
@@ -268,6 +290,11 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
 
         return () => {
             subscription.remove();
+            if (Platform.OS !== 'ios') {
+                // Android has no dismiss API. Preserve the pending session so a
+                // replacement provider receives the already-emitted native event.
+                return;
+            }
             void (async () => {
                 const pendingLaunch = scannerSession.launching;
                 if (pendingLaunch) {
