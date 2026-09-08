@@ -166,6 +166,24 @@ describe('useDeviceEnvironment', () => {
         );
     });
 
+    it('probes v2 when synchronized machine version records are missing', async () => {
+        const upgraded = machine('air');
+        rpc.mockReset();
+        rpc.mockResolvedValue(response());
+
+        function DefaultHarness() {
+            controller = useDeviceEnvironment([upgraded]);
+            return null;
+        }
+
+        act(() => root.render(createElement(DefaultHarness)));
+        await act(async () => controller.scan());
+
+        expect(rpc).toHaveBeenCalledExactlyOnceWith(
+            'air', 'environment-inspect-v2', { componentIds: ['github-cli', 'paws-cli', 'ego-browser', 'cloudflare-wrangler', 'cloudflared'] },
+        );
+    });
+
     afterEach(() => {
         act(() => root.unmount());
         vi.unstubAllGlobals();

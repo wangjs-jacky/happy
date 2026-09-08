@@ -119,8 +119,10 @@ export function useDeviceEnvironment(
         // Select v2 as soon as either record proves the running generation can
         // serve it; requiring both to converge keeps a freshly upgraded daemon
         // on the legacy, inspect-only endpoint.
+        const hasSynchronizedVersion = daemonCliVersion !== undefined || metadataCliVersion !== undefined;
         const preferV2 = isVersionSupported(daemonCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION)
             || isVersionSupported(metadataCliVersion, ENVIRONMENT_INSPECT_V2_MINIMUM_CLI_VERSION);
+        if (!hasSynchronizedVersion) return inspectMachineEnvironment(machineId, request);
         return inspectMachineEnvironment(machineId, request, {
             preferV2,
         });
