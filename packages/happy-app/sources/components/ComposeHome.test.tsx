@@ -3,11 +3,17 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
 import { clearComposeDraft, useComposeDraft } from '@/sync/composeDraft';
+import { setFirstSubmissionScope } from '@/sync/firstSubmissionScope';
+import { getFirstSubmissionScope } from '@/sync/firstSubmissionScope';
+vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'http://test' }));
 import type { LocalMessageQueueReceipt } from '@/sync/sync';
+import { Modal } from '@/modal';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
 vi.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000001' }));
+vi.mock('@/sync/sessionStartupTrace', () => ({ traceStartup: vi.fn() }));
+vi.mock('@/sync/sessionStartupTraceRuntime', () => ({ sessionStartupTraceRuntime: { begin: vi.fn(), bindSession: vi.fn() } }));
 
 const mocks = vi.hoisted(() => ({
     platformOS: 'web',
@@ -207,7 +213,10 @@ describe('ComposeHome session hydration recovery', () => {
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
+        const values = new Map<string, string>();
+        vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
         vi.clearAllMocks();
+        setFirstSubmissionScope(`test-${Math.random()}`, 'http://test');
         mocks.platformOS = 'web';
         mocks.isDataReady = true;
         mocks.selectedImages = [
@@ -322,7 +331,9 @@ describe('ComposeHome session hydration recovery', () => {
             await vi.runAllTimersAsync();
         });
 
-        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('Keep this draft');
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
+        expect(renderer.root.findByType('MessageComposer').props.isSending).toBe(false);
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('Keep this draft');
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.clearImages).not.toHaveBeenCalled();
 
@@ -355,6 +366,7 @@ describe('ComposeHome session hydration recovery', () => {
 
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.sendMessage).toHaveBeenCalledWith('session-1', 'Keep this draft', {
+            isCurrent: expect.any(Function),
             source: 'new_session',
             attachments: [
                 { id: 'image-a', uri: 'file:///a.png' },
@@ -402,7 +414,7 @@ describe('ComposeHome session hydration recovery', () => {
 
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.awaitLocalMessageProjection).not.toHaveBeenCalled();
-        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('Queued unchanged');
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
         expect(renderer.root.findByType('MessageComposer').props.selectedImages).toEqual([
             { id: 'image-a', uri: 'file:///a.png' },
             { id: 'image-b', uri: 'file:///b.png' },
@@ -420,7 +432,7 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => renderer.unmount());
     });
 
-    it('does not queue, navigate, or clear newer edits when hydration resolves after unmount', async () => {
+    it('finishes queued work after unmount without navigating or clearing newer edits', async () => {
         vi.useFakeTimers();
         let renderer: any;
         act(() => {
@@ -460,13 +472,101 @@ describe('ComposeHome session hydration recovery', () => {
         });
 
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
-        expect(mocks.updatePermission).not.toHaveBeenCalled();
-        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
         expect(mocks.navigateToSession).not.toHaveBeenCalled();
         expect(mocks.clearImages).not.toHaveBeenCalled();
         expect(mocks.removeImage).not.toHaveBeenCalled();
         expect(consoleErrorSpy.mock.calls.filter((values) => (
             values[0] !== 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer'
         ))).toEqual([]);
+    });
+
+    it('keeps recovery blocked until missing original attachments are explicitly reselected', async () => {
+        vi.useFakeTimers();
+        vi.mocked(Modal.confirm).mockResolvedValue(true);
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('recover attachments'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        act(() => useComposeDraft.getState().setImages([]));
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-submission' }).props.onPress(); });
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('recover attachments');
+        expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(true);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+    it('does not accept MMKV memory fallback as durable Web storage', async () => {
+        vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new Error('blocked'); } });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('keep unsaved text'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); });
+        expect(mocks.machineSpawnNewSession).not.toHaveBeenCalled();
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('keep unsaved text');
+        act(() => renderer.unmount());
+    });
+    it.each([false, true])('explicitly restores durable text without unavailable original attachments (accepted: %s)', async accepted => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(accepted);
+        mocks.awaitLocalMessageProjection.mockResolvedValue(false);
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('retain original text'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        act(() => useComposeDraft.getState().setImages([]));
+        vi.mocked(Modal.confirm).mockResolvedValueOnce(false);
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-text-only' }).props.onPress(); });
+        expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(true);
+        vi.mocked(Modal.confirm).mockResolvedValueOnce(true);
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-text-only' }).props.onPress(); });
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('retain original text');
+        expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(false);
+        const scope = getFirstSubmissionScope()!;
+        act(() => { renderer.unmount(); clearComposeDraft(); setFirstSubmissionScope(scope.key, scope.serverUrl); });
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('retain original text');
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(accepted ? 1 : 0);
+        act(() => renderer.unmount());
+    });
+    it('keeps a normal restored text-only submission recoverable after refresh', async () => {
+        vi.useFakeTimers(); vi.mocked(Modal.confirm).mockResolvedValue(true);
+        let renderer: any;
+        act(() => { useComposeDraft.getState().setImages([]); renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('durable restored text'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-submission' }).props.onPress(); });
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('durable restored text');
+        const scope = getFirstSubmissionScope()!;
+        const persisted = JSON.parse(globalThis.localStorage.getItem(`first-submission-v1:${scope.key}`)!);
+        expect(persisted?.text).toBe('durable restored text');
+        act(() => { renderer.unmount(); clearComposeDraft(); setFirstSubmissionScope(scope.key, scope.serverUrl); });
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        expect(renderer.root.findByProps({ testID: 'compose-home-starting-text' }).props.children).toBe('durable restored text');
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+    it.each([false, true])('omits only one original while retaining newer same-name selections (refresh fallback: %s)', async refresh => {
+        vi.useFakeTimers(); vi.mocked(Modal.confirm).mockResolvedValue(true);
+        const original = { id: 'A', name: 'photo.png', uri: 'file:///original.png' } as any;
+        const newer = { id: 'B', name: 'photo.png', uri: 'file:///newer.png' } as any;
+        const secondNewer = { id: 'C', name: 'photo.png', uri: 'file:///second-newer.png' } as any;
+        let renderer: any;
+        act(() => { useComposeDraft.getState().setImages([original]); renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('original submission'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await vi.runAllTimersAsync(); });
+        act(() => {
+            if (refresh) {
+                const scope = getFirstSubmissionScope()!;
+                setFirstSubmissionScope(scope.key, scope.serverUrl);
+            }
+            // Put the newer file first so filename matching cannot win over A's exact ID.
+            useComposeDraft.getState().setImages(refresh ? [newer, secondNewer] : [newer, original]);
+        });
+        await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-text-only' }).props.onPress(); });
+        expect(useComposeDraft.getState().images.map(image => image.id)).toEqual(refresh ? ['C'] : ['B']);
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('original submission');
+        act(() => renderer.unmount());
     });
 });

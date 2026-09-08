@@ -108,6 +108,8 @@ export function useTranscriptReading(options: {
     items: DisplayItem[];
     inverted: boolean;
     isAtLatest: boolean;
+    followLatestOnLayout?: boolean;
+    synchronousAnchoring?: boolean;
     listRef: React.RefObject<any>;
     viewportRef: React.RefObject<any>;
     expanded: string[];
@@ -120,6 +122,8 @@ export function useTranscriptReading(options: {
     const ready = React.useRef(false);
     const offset = React.useRef(0);
     const following = React.useRef(options.isAtLatest);
+    const userScrolling = React.useRef(false);
+    const userDirection = React.useRef<'older' | 'newer' | undefined>(undefined);
     const generation = React.useRef(0);
     const ownershipEpoch = React.useRef(0);
     const latestEpoch = React.useRef(-1);
@@ -132,7 +136,7 @@ export function useTranscriptReading(options: {
     const previousProjection = React.useRef(projection);
     if (projection !== previousProjection.current) {
         previousProjection.current = projection;
-        if (!following.current && latest.current && latestEpoch.current === ownershipEpoch.current) {
+        if (!options.synchronousAnchoring && !following.current && latest.current && latestEpoch.current === ownershipEpoch.current) {
             pending.current = latest.current; mountedTarget.current = null;
         }
     }
@@ -170,6 +174,10 @@ export function useTranscriptReading(options: {
     const layout = React.useCallback(async () => {
         const { adapter, items, listRef, inverted } = current.current;
         const target = pending.current;
+        if (!inverted && current.current.followLatestOnLayout !== false && !target && following.current && current.current.isAtLatest && (!adapter || ready.current)) {
+            listRef.current?.scrollToEnd?.({ animated: false });
+            return;
+        }
         if (!adapter || !target) return;
         const owner = generation.current;
         const result = await measurements();
@@ -196,6 +204,8 @@ export function useTranscriptReading(options: {
         ready.current = false; latest.current = null; latestEpoch.current = -1; pending.current = null; mountedTarget.current = null;
         deferredCapture.current = false;
         following.current = current.current.isAtLatest;
+        userScrolling.current = false;
+        userDirection.current = undefined;
         current.current.restoreExpanded([]);
         if (adapter) void adapter.read().then(state => {
             if (owner !== generation.current) return;
@@ -209,6 +219,7 @@ export function useTranscriptReading(options: {
             const shouldCapture = deferredCapture.current;
             deferredCapture.current = false;
             if (shouldCapture && !pending.current) void capture();
+            if (!current.current.inverted && following.current && !pending.current) void layout();
         }).catch(() => {
             if (owner !== generation.current) return;
             ready.current = true;
@@ -234,20 +245,29 @@ export function useTranscriptReading(options: {
     }), [layout]);
     return {
         markers: options.adapter ? markers : null, layout, capture,
+        // The Web mask translates before its native scroll event is delivered.
+        adjustOffset(y: number) { offset.current = y; },
         scroll(y: number, distanceFromBottom: number) {
-            offset.current = y; following.current = current.current.isAtLatest && distanceFromBottom <= 50;
+            offset.current = y;
+            if (current.current.inverted || userScrolling.current) following.current = current.current.isAtLatest
+                && userDirection.current !== 'older' && distanceFromBottom <= 50;
             if (Date.now() - lastCapture.current > 120) { lastCapture.current = Date.now(); void capture(); }
             if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(() => { void capture(); }, 120);
         },
-        cancelRestore() {
+        cancelRestore(direction?: 'older' | 'newer') {
             ownershipEpoch.current += 1;
             pending.current = null;
             mountedTarget.current = null;
+            following.current = false;
+            userScrolling.current = true;
+            userDirection.current = direction;
         },
         pin() {
+            if (current.current.synchronousAnchoring) return;
             if (latest.current && latestEpoch.current === ownershipEpoch.current && !following.current) pending.current = latest.current;
         },
-        jumpLatest() { pending.current = null; following.current = true; if (latest.current) { latest.current.followLatest = true; persist(); } },
+        jumpLatest() { pending.current = null; following.current = true; userScrolling.current = false;
+            if (latest.current) { latest.current.followLatest = true; persist(); } },
     };
 }

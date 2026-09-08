@@ -173,7 +173,7 @@ vi.mock('@/hooks/useGlobalKeyboard', () => ({ useGlobalKeyboard: vi.fn() }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({ renameSessionToTitle: vi.fn(), renamingSession: false }) }));
 vi.mock('@/hooks/useSessionTaskPermission', () => ({ useSessionTaskPermission: () => ({}) }));
 vi.mock('@/hooks/useSessionWorkingDirectory', () => ({ useSessionWorkingDirectory: () => ({}) }));
-vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
+vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({ selectedImages: [] }) }));
 
 // Keep the existing host selector while exercising the real content/placeholder

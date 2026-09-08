@@ -26,6 +26,8 @@ import TestRenderer from 'react-test-renderer';
 import { randomUUID } from 'expo-crypto';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { SessionView } from '@/-session/SessionView';
+import { useTranscriptReading } from '@/components/transcriptReading';
+import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -368,6 +370,9 @@ async function useRealMessageComposition() {
 }
 
 async function seedDisconnectedMessageRanges(cachedMax = 100) {
+    // These cases exercise the native warm-cache frontier implementation.
+    // Web now uses the bounded wire window even when IndexedDB is unavailable.
+    Platform.OS = 'android';
     const storage = await useRealMessageComposition();
     storage.getState().applySessions([hydrated(snapshot('range-session', 250))]);
     mocks.sessionEncryptions.set('range-session', new SessionEncryption('range-session', {
@@ -752,10 +757,176 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
         await syncForTest.loadOlderMessages('archive');
         expect(mocks.apiRequest).not.toHaveBeenCalled();
-        expect(mocks.state.sessionMessages.archive.messages).toHaveLength(400);
+        expect(mocks.state.sessionMessages.archive.messages.length).toBeGreaterThan(300);
+        expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(500);
     }, 20000);
 
-    it('keeps cached Web history additive across older navigation instead of replacing every 300 raw events', async () => {
+    it('bounds a large Web projection and keeps both evicted boundaries reloadable', async () => {
+        Platform.OS = 'web';
+        installSession('bounded-web');
+        const lease = syncForTest.sessionMessageLoadGate.enter('bounded-web');
+        await syncForTest.applyHistoryWindow('bounded-web', {
+            messages: Array.from({ length: 2000 }, (_, i) => apiMessage(i + 1)),
+            oldestSeq: 1, newestSeq: 2000, hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        const window = syncForTest.historyWindows.get('bounded-web');
+        expect(window.messages).toHaveLength(500);
+        expect(window).toMatchObject({ oldestSeq: 1501, newestSeq: 2000, hasMoreOlder: true, hasMoreNewer: false, isAtLatest: true });
+        expect(mocks.state.sessionMessages['bounded-web'].messages).toHaveLength(500);
+    });
+
+    it('bounds Web history without IndexedDB and reloads evicted newer rows from the server', async () => {
+        Platform.OS = 'web'; installSession('web-memory-only');
+        syncForTest.localHistory = null;
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-memory-only');
+        await syncForTest.applyLatestMessagePage('web-memory-only', {
+            messages: Array.from({ length: 600 }, (_, i) => apiMessage(i + 1)), hasMore: false,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(syncForTest.historyWindows.get('web-memory-only')?.messages.length).toBeLessThanOrEqual(500);
+        mocks.apiRequest.mockImplementation(async (url: string) => {
+            const query = new URL(url, 'https://example.com').searchParams;
+            const before = Number(query.get('before_seq'));
+            const after = Number(query.get('after_seq'));
+            const start = before ? Math.max(1, before - 100) : after + 1;
+            const end = before ? before - 1 : Math.min(600, after + 100);
+            return response({ messages: Array.from({ length: end - start + 1 }, (_, i) => apiMessage(start + i)),
+                hasMore: before ? start > 1 : end < 600 });
+        });
+        for (let page = 0; page < 6 && syncForTest.historyWindows.get('web-memory-only').hasMoreOlder; page++) {
+            await syncForTest.loadOlderMessages('web-memory-only');
+        }
+        expect(syncForTest.historyWindows.get('web-memory-only')).toMatchObject({ oldestSeq: 1, hasMoreNewer: true });
+        for (let page = 0; page < 6 && syncForTest.historyWindows.get('web-memory-only').hasMoreNewer; page++) {
+            await syncForTest.loadNewerMessages('web-memory-only');
+        }
+        expect(syncForTest.historyWindows.get('web-memory-only')).toMatchObject({ newestSeq: 600, isAtLatest: true });
+        expect(mocks.state.sessionMessages['web-memory-only'].messages.length).toBeLessThanOrEqual(500);
+    });
+
+    it.each([false, true])('preserves the reading anchor during live compaction without IndexedDB and clears it on release (modern: %s)', async modern => {
+        Platform.OS = 'web';
+        const decrypt = async (rows: ApiMessage[]) => rows.map(row => ({ ...row, content: modern ? {
+            role: 'session', content: { type: 'session', data: { id: `envelope-${row.seq}`, time: row.createdAt,
+                role: 'user', ev: { t: 'text', text: `modern-${row.seq}` } } },
+        } : rawText(`fetched-${row.seq}`) }));
+        const encryption = installSession('web-memory-anchor', decrypt);
+        encryption.decryptMessage.mockImplementation(async (row: ApiMessage) => (await decrypt([row]))[0]);
+        syncForTest.localHistory = null;
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-memory-anchor');
+        await syncForTest.applyLatestMessagePage('web-memory-anchor', {
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        const rendered = mocks.state.sessionMessages['web-memory-anchor'].messages.find((row: any) => row.text === (modern ? 'modern-20' : 'fetched-20'));
+        expect(rendered).toBeDefined();
+        expect(sync.getMessageWireId('web-memory-anchor', rendered.id)).toBe('message-20');
+        expect(sync.getMessageWireSeq('web-memory-anchor', rendered.id)).toBe(20);
+        expect(sync.resolveRenderedMessageId('web-memory-anchor', 'message-20')).toBe(rendered.id);
+        const adapter = { key: 'web-memory-anchor', read: () => sync.readSessionReadingState('web-memory-anchor'),
+            save: (state: any) => sync.saveSessionReadingState('web-memory-anchor', state),
+            wireId: (id: string) => sync.getMessageWireId('web-memory-anchor', id),
+            wireSeq: (id: string) => sync.getMessageWireSeq('web-memory-anchor', id) };
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function ReadingProbe() {
+            reading = useTranscriptReading({ adapter, items: [], inverted: false, isAtLatest: true,
+                listRef: { current: null }, viewportRef: { current: { measureInWindow: (cb: any) => cb(0, 100, 800, 600) } },
+                expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(ReadingProbe)); });
+        reading!.markers!.register(rendered.id, { measureInWindow: (cb: any) => cb(0, 85, 800, 200) }, 0);
+        reading!.cancelRestore('older');
+        await reading!.capture();
+        expect(await adapter.read()).toMatchObject({ anchorId: 'message-20', anchorSeq: 20, offset: -15, followLatest: false });
+        act(() => renderer.unmount());
+        await syncForTest.handleUpdate(newMessageUpdate('web-memory-anchor', 501));
+        const anchored = syncForTest.historyWindows.get('web-memory-anchor');
+        expect(anchored.messages.some((message: ApiMessage) => message.seq === 20)).toBe(true);
+        expect(anchored).toMatchObject({ hasMoreNewer: true, isAtLatest: false });
+        const replayed = sync.resolveRenderedMessageId('web-memory-anchor', 'message-20');
+        expect(replayed).not.toBeNull();
+        expect(sync.getMessageWireSeq('web-memory-anchor', replayed!)).toBe(20);
+        await syncForTest.handleUpdate(newMessageUpdate('web-memory-anchor', 502));
+        expect(syncForTest.historyWindows.get('web-memory-anchor')).toBe(anchored);
+        syncForTest.releaseSessionMessageCache('web-memory-anchor');
+        expect(await sync.readSessionReadingState('web-memory-anchor')).toBeNull();
+    });
+
+    it('bounds thousands of consecutive live rows without replaying each append', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        const encryption = installSession('web-live-bound');
+        const history = (await openLocalHistory('server|web-live-bound'))!;
+        await history.commitPage('web-live-bound', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(1)], hasMore: false });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('web-live-bound');
+        const replay = vi.spyOn(syncForTest, 'applyHistoryWindow');
+        for (let seq = 2; seq <= 2000; seq++) {
+            await syncForTest.handleUpdate(newMessageUpdate('web-live-bound', seq));
+            expect(syncForTest.historyWindows.get('web-live-bound').messages.length).toBeLessThanOrEqual(500);
+        }
+        expect(replay.mock.calls.length).toBeLessThan(20);
+        expect(syncForTest.historyWindows.get('web-live-bound')).toMatchObject({ newestSeq: 2000, hasMoreOlder: true, isAtLatest: true });
+        expect((await history.readOlderPage('web-live-bound', 100))?.messages.some(message => message.seq === 99)).toBe(true);
+        expect(encryption).toBeTruthy();
+    }, 30000);
+
+    it('does not resurrect evicted realtime rows when a held foreground fetch releases its message lock', async () => {
+        Platform.OS = 'web';
+        const storage = await useRealMessageComposition();
+        installSession('web-queued-compaction');
+        storage.getState().applySessions([hydrated(snapshot('web-queued-compaction'))]);
+        storage.setState({ currentViewingSessionId: 'web-queued-compaction' });
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-queued-compaction');
+        await syncForTest.applyLatestMessagePage('web-queued-compaction', { messages: [apiMessage(1)], hasMore: false },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        vi.mocked(voiceHooks.onMessages).mockClear();
+        const http = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(http.promise);
+        const fetching = syncForTest.fetchMessages('web-queued-compaction', syncForTest.sessionMessageLoadGate.begin(lease));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        try {
+            for (let seq = 2; seq <= 1200; seq++) await syncForTest.handleUpdate(newMessageUpdate('web-queued-compaction', seq));
+        } finally {
+            http.resolve(response({ messages: [], hasMore: false }));
+            await fetching;
+            await syncForTest.getSessionMessageLock('web-queued-compaction').inLock(() => undefined);
+        }
+        const cache = storage.getState().sessionMessages['web-queued-compaction'];
+        const window = syncForTest.historyWindows.get('web-queued-compaction');
+        expect(cache.messages.length).toBeLessThanOrEqual(500);
+        expect(cache.messages.map(row => sync.getMessageWireId('web-queued-compaction', row.id)).sort())
+            .toEqual(window.messages.map((row: ApiMessage) => row.id).sort());
+        expect(cache.messages.every(row => sync.getMessageWireSeq('web-queued-compaction', row.id) !== null)).toBe(true);
+        const liveNotifications = vi.mocked(voiceHooks.onMessages).mock.calls.flatMap(([, rows]) =>
+            rows.flatMap(row => row.kind === 'user-text' ? [row.text] : []));
+        expect(liveNotifications).toEqual(Array.from({ length: 1199 }, (_, i) => `realtime-${i + 2}`));
+    });
+
+    it('resolves modern live envelope rows to outer wire sequences before the next replay', async () => {
+        Platform.OS = 'web';
+        const storage = await useRealMessageComposition();
+        const decrypt = async (rows: ApiMessage[]) => rows.map(row => ({ ...row, content: {
+            role: 'session', content: { type: 'session', data: { id: `envelope-${row.seq}`, time: row.createdAt,
+                role: 'user', ev: { t: 'text', text: `modern-${row.seq}` } } },
+        } }));
+        const encryption = installSession('web-modern-live', decrypt);
+        encryption.decryptMessage.mockImplementation(async (row: ApiMessage) => (await decrypt([row]))[0]);
+        storage.getState().applySessions([hydrated(snapshot('web-modern-live'))]);
+        const lease = syncForTest.sessionMessageLoadGate.enter('web-modern-live');
+        await syncForTest.applyLatestMessagePage('web-modern-live', { messages: [apiMessage(1)], hasMore: false },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        await syncForTest.handleUpdate(newMessageUpdate('web-modern-live', 2));
+        await vi.waitFor(() => {
+            const rendered = storage.getState().sessionMessages['web-modern-live'].messages.find((row: any) => row.text === 'modern-2');
+            expect(rendered).toBeDefined();
+            expect(sync.getMessageWireId('web-modern-live', rendered!.id)).toBe('message-2');
+            expect(sync.getMessageWireSeq('web-modern-live', rendered!.id)).toBe(2);
+        });
+    });
+
+    it('keeps cached Web history additive within the bounded window', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;
         Platform.OS = 'web';
@@ -767,11 +938,59 @@ describe('message visibility synchronization', () => {
 
         await expect(syncForTest.openSession('web-history')).resolves.toBe('ready');
         await syncForTest.loadOlderMessages('web-history');
+        await syncForTest.loadOlderMessages('web-history');
 
         expect(syncForTest.historyWindows.get('web-history').messages.map((message: ApiMessage) => message.seq))
             .toEqual(Array.from({ length: 500 }, (_, i) => i + 1));
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     }, 20000);
+
+    it('repeatedly traverses older and newer cached pages with a bounded contiguous Web projection', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web'; installSession('web-traverse');
+        const history = (await openLocalHistory('server|web-traverse'))!;
+        await history.commitPage('web-traverse', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 2000 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('web-traverse');
+        for (let cycle = 0; cycle < 2; cycle++) {
+            for (const direction of ['older', 'newer'] as const) {
+                for (let page = 0; page < 30; page++) {
+                    const before = syncForTest.historyWindows.get('web-traverse');
+                    if (!(direction === 'older' ? before.hasMoreOlder : before.hasMoreNewer)) break;
+                    await syncForTest.loadHistoryBoundary('web-traverse', direction);
+                    const after = syncForTest.historyWindows.get('web-traverse');
+                    expect(after.messages.length).toBeLessThanOrEqual(500);
+                    expect(after.newestSeq - after.oldestSeq + 1).toBe(after.messages.length);
+                    if (direction === 'older') expect(after.oldestSeq).toBeLessThan(before.oldestSeq);
+                    else expect(after.newestSeq).toBeGreaterThan(before.newestSeq);
+                }
+                const final = syncForTest.historyWindows.get('web-traverse');
+                expect(direction === 'older' ? final.oldestSeq : final.newestSeq).toBe(direction === 'older' ? 1 : 2000);
+            }
+        }
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    }, 60000);
+
+    it('bounds forward catch-up between pages instead of retaining every fetched row until completion', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web'; const encryption = installSession('web-catchup-bound');
+        const history = (await openLocalHistory('server|web-catchup-bound'))!;
+        await history.commitPage('web-catchup-bound', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(1)], hasMore: false });
+        syncForTest.localHistory = history;
+        await syncForTest.openSession('web-catchup-bound');
+        mocks.apiRequest.mockImplementation(async (url: string) => {
+            expect(syncForTest.historyWindows.get('web-catchup-bound').messages.length).toBeLessThanOrEqual(500);
+            expect(mocks.state.sessionMessages['web-catchup-bound'].messages.length).toBeLessThanOrEqual(500);
+            const after = Number(new URL(url, 'https://example.com').searchParams.get('after_seq'));
+            return response({ messages: Array.from({ length: 100 }, (_, i) => apiMessage(after + i + 1)), hasMore: after < 1901 });
+        });
+        const lease = syncForTest.sessionMessageLoadGate.currentLease('web-catchup-bound')!;
+        await syncForTest.fetchForwardSince('web-catchup-bound', encryption, 1, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(syncForTest.historyWindows.get('web-catchup-bound')).toMatchObject({ newestSeq: 2001, isAtLatest: true, hasMoreOlder: true });
+        expect(mocks.state.sessionMessages['web-catchup-bound'].messages.length).toBeLessThanOrEqual(500);
+    }, 30000);
 
     it('keeps visited Web history when a latest-window forward sync returns no new rows', async () => {
         globalThis.indexedDB = new IDBFactory();
@@ -933,8 +1152,8 @@ describe('message visibility synchronization', () => {
 
         const after = syncForTest.historyWindows.get('web-older-race');
         expect(after.messages.map((message: ApiMessage) => message.seq))
-            .toEqual(Array.from({ length: 1_201 }, (_, i) => i + 1));
-        expect(after).toMatchObject({ hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true });
+            .toEqual(Array.from({ length: 400 }, (_, i) => i + 802));
+        expect(after).toMatchObject({ hasMoreOlder: true, hasMoreNewer: false, isAtLatest: true });
     }, 20000);
 
     it('does not let a stale Web forward projection overwrite a concurrent realtime row', async () => {
@@ -967,7 +1186,7 @@ describe('message visibility synchronization', () => {
         expect(after).toMatchObject({ hasMoreOlder: true, hasMoreNewer: false, isAtLatest: true });
     }, 20000);
 
-    it('keeps visited Web rows mounted while pagination moves past a stale restored reading anchor', async () => {
+    it('moves past a stale restored anchor with bounded pagination and reloads it on newer navigation', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;
         Platform.OS = 'web';
@@ -987,7 +1206,12 @@ describe('message visibility synchronization', () => {
         const window = syncForTest.historyWindows.get('anchored-web-history');
         expect(window.oldestSeq).toBeLessThan(initialWindow.oldestSeq);
         expect(window.messages.length).toBeGreaterThan(initialWindow.messages.length);
-        expect(window.messages.some((message: ApiMessage) => message.seq === 1050)).toBe(true);
+        expect(window.messages.length).toBeLessThanOrEqual(500);
+        expect(window.messages.some((message: ApiMessage) => message.seq === 1050)).toBe(false);
+        expect(window).toMatchObject({ hasMoreNewer: true, isAtLatest: false });
+        await syncForTest.loadNewerMessages('anchored-web-history');
+        await syncForTest.loadNewerMessages('anchored-web-history');
+        expect(syncForTest.historyWindows.get('anchored-web-history').messages.some((message: ApiMessage) => message.seq === 1050)).toBe(true);
         expect(mocks.apiRequest).not.toHaveBeenCalled();
     }, 20000);
 
@@ -1047,6 +1271,32 @@ describe('message visibility synchronization', () => {
         tail.resolve(response({ messages: [apiMessage(41), apiMessage(42)], hasMore: false }));
         await catchingUp;
         expect(mocks.state.sessionMessages['advancing-tail']).toMatchObject({ isAtLatest: false, latestVerifiedOwnerEpoch: null });
+    });
+
+    it('jumps over a large cached gap to the server tail instead of stopping at one newer page', async () => {
+        Platform.OS = 'web';
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('jump-large-gap');
+        const history = (await openLocalHistory('server|jump-large-gap'))!;
+        await history.commitPage('jump-large-gap', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(2000)], hasMore: true });
+        await history.appendMessages('jump-large-gap', [apiMessage(4000)]);
+        await history.commitReconciliation({ changes: [{ sessionId: 'jump-large-gap', revision: '1', deleted: false,
+            lastMessageSeq: 4000, metadataVersion: 1, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('jump-large-gap');
+        await syncForTest.applyHistoryWindow('jump-large-gap', await history.readWindow('jump-large-gap'),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: Array.from({ length: 100 }, (_, i) => apiMessage(2001 + i)), hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: Array.from({ length: 25 }, (_, i) => apiMessage(4000 - i)), hasMore: true }));
+        await sync.jumpToLatestMessages('jump-large-gap');
+        expect(syncForTest.historyWindows.get('jump-large-gap')).toMatchObject({ newestSeq: 4000, isAtLatest: true, hasMoreNewer: false });
+        expect(sync.resolveRenderedMessageId('jump-large-gap', 'message-4000')).not.toBeNull();
+        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual([
+            '/v3/sessions/jump-large-gap/messages?after_seq=2000&limit=100',
+            '/v3/sessions/jump-large-gap/messages?before_seq=2147483647&limit=25',
+        ]);
     });
 
     it('does not certify a tail when its catch-up request fails', async () => {
@@ -1560,6 +1810,21 @@ describe('message visibility synchronization', () => {
         expect(syncForTest.pendingOutbox.get(receipt.sessionId)).toHaveLength(1);
     });
 
+    it('rejects first submission queue acceptance when its owner changes during upload', async () => {
+        await seedLocalProjectionSession();
+        let current = true;
+        const upload = vi.spyOn(syncForTest, 'uploadAttachmentsForSession').mockImplementation(async () => {
+            current = false;
+            return { uploaded: [{ ref: 'encrypted-file', name: 'photo.png', size: 1, width: 10, height: 10 }], failed: 0 };
+        });
+        try {
+            await expect(sync.sendMessage('spawned-session', 'hello', {
+                source: 'new_session', attachments: [{ id: 'attachment' }] as any, isCurrent: () => current,
+            })).rejects.toThrow('local-message-session-unavailable');
+            expect(syncForTest.pendingOutbox.get('spawned-session') ?? []).toEqual([]);
+        } finally { upload.mockRestore(); }
+    });
+
     it.each([false, true])('restores accepted attachment and text receipts after eviction (remote acknowledgement: %s)', async (acknowledged) => {
         // Losing generation-local provenance must not strand an accepted spawn.
         const storage = await seedLocalProjectionSession();
@@ -1672,7 +1937,8 @@ describe('message visibility synchronization', () => {
         };
 
         await expect(syncForTest.openSession('attribution-session')).resolves.toBe('ready');
-        expect(mocks.state.sessionMessages['attribution-session'].messagesMap['message-1']).toBeDefined();
+        expect(mocks.state.sessionMessages['attribution-session'].messages.some((message: any) =>
+            sync.getMessageWireId('attribution-session', message.id) === 'message-1')).toBe(true);
         expect(stages).toEqual([
             'web.messages.latest_started',
             'web.session.snapshot_started',
@@ -2625,6 +2891,30 @@ describe('message visibility synchronization', () => {
         expect(mocks.gitInvalidate).toHaveBeenCalledWith('visible-session');
     });
 
+    it.each(['live', 'forward'] as const)('refreshes visible git when %s compaction keeps an older reading anchor', async source => {
+        Platform.OS = 'web';
+        const encryption = installSession('compact-git', async rows => rows.map(row => ({ ...row,
+            content: row.seq === 501 ? rawToolResult('compact-tool-result') : rawText(`fetched-${row.seq}`),
+        })));
+        encryption.decryptMessage.mockImplementation(async (row: ApiMessage) => ({ ...row, content: rawToolResult('compact-tool-result') }));
+        const lease = syncForTest.sessionMessageLoadGate.enter('compact-git');
+        await syncForTest.applyLatestMessagePage('compact-git', {
+            messages: Array.from({ length: 500 }, (_, i) => apiMessage(i + 1)), hasMore: false,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.state.currentViewingSessionId = 'compact-git';
+        mocks.state.mutableToolCalls.add('compact-git:call-1');
+        await sync.saveSessionReadingState('compact-git', { version: 1, anchorId: 'message-20', anchorSeq: 20,
+            offset: 0, expandedGroupIds: [], followLatest: false });
+        if (source === 'live') await syncForTest.handleUpdate(newMessageUpdate('compact-git', 501));
+        else {
+            mocks.apiRequest.mockResolvedValueOnce(response({ messages: [apiMessage(501)], hasMore: false }));
+            await syncForTest.fetchForwardSince('compact-git', encryption, 500, syncForTest.sessionMessageLoadGate.begin(lease));
+        }
+        expect(syncForTest.historyWindows.get('compact-git')).toMatchObject({ isAtLatest: false, hasMoreNewer: true });
+        expect(mocks.gitInvalidate).toHaveBeenCalledTimes(1);
+        expect(mocks.gitInvalidate).toHaveBeenCalledWith('compact-git');
+    });
+
     it('refreshes git once when a visible gap contains a fetched mutable tool result', async () => {
         installSession('visible-session', async (messages) => messages.map((message) => ({
             id: message.id,
@@ -2859,7 +3149,8 @@ describe('message visibility synchronization', () => {
         await expect(oldOpening).rejects.toThrow('abandoned');
         expect(mocks.state.sessions['same-session']).toMatchObject({ seq: 20 });
         expect(mocks.state.sessionMessages['same-session']).toMatchObject({ isLoaded: true });
-        expect(mocks.state.sessionMessages['same-session'].messagesMap['message-7']).toBeDefined();
+        expect(mocks.state.sessionMessages['same-session'].messages.some((message: any) =>
+            sync.getMessageWireId('same-session', message.id) === 'message-7')).toBe(true);
         expect(syncForTest.getSessionLastMessageSeq('same-session')).toBe(7);
     });
 
@@ -2886,9 +3177,14 @@ describe('message visibility synchronization', () => {
         return {
             renderer,
             update: async () => { await act(async () => { renderer.update(render()); }); },
-            reach: () => act(() => renderer.root.findByType('FlatList').props.onScroll({ nativeEvent: {
-                contentOffset: { y: direction === 'older' ? 4500 : 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 500 },
-            } })),
+            reach: () => act(() => {
+                const list = renderer.root.findByType('FlatList');
+                list.props.onScrollBeginDrag();
+                list.props.onScroll({ nativeEvent: {
+                    contentOffset: { y: (direction === 'older') === list.props.inverted ? 4500 : 0 },
+                    contentSize: { height: 5000 }, layoutMeasurement: { height: 500 },
+                } });
+            }),
             retry: () => act(() => renderer.root.findByProps({ testID: `history-${direction}-retry` }).props.onPress()),
             unmount: () => act(() => renderer.unmount()),
         };
@@ -2966,6 +3262,7 @@ describe('message visibility synchronization', () => {
         const originalRows = [readingMessage];
         mocks.state.sessionMessages['visible-session'] = {
             messages: originalRows,
+            reducerState: createReducer(),
             messagesMap: { 'message-103': readingMessage }, isLoaded: true, hasMoreOlder: true, isLoadingOlder: false, isAtLatest: true,
         };
         syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });

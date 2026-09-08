@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { ActiveSessionsGroupCompact } from './ActiveSessionsGroupCompact';
+import { SessionsList } from './SessionsList';
 
 const mocks = vi.hoisted(() => {
     (globalThis as any).__DEV__ = false;
@@ -11,6 +12,9 @@ const mocks = vi.hoisted(() => {
         expansion: {} as Record<string, boolean>,
         renderExpansion: null as null | ((next: Record<string, boolean>) => void),
         setExpansion: vi.fn(),
+        sessions: [] as any[],
+        pinnedOrder: [] as string[],
+        pathname: '/',
     };
     return Object.assign(state, {
         updateExpansion(updater: (current: Record<string, boolean>) => Record<string, boolean>) {
@@ -32,11 +36,20 @@ vi.mock('react-native', async () => {
             typeof children === 'function' ? children({ pressed: false }) : children,
         ),
         View: 'View',
+        FlatList: 'FlatList',
+        ActivityIndicator: 'ActivityIndicator',
         useWindowDimensions: () => ({ width: 1024, height: 768 }),
     };
 });
 vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather' }));
-vi.mock('expo-router', () => ({ useRouter: () => ({ canDismiss: () => false, navigate: vi.fn() }) }));
+vi.mock('expo-router', () => ({ usePathname: () => mocks.pathname, useRouter: () => ({ canDismiss: () => false, navigate: vi.fn() }) }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
+vi.mock('@/hooks/useVisibleSessionListViewData', () => ({ useVisibleSessionListViewData: () => [{ type: 'active-sessions', sessions: mocks.sessions }] }));
+vi.mock('@/utils/requestReview', () => ({ requestReview: vi.fn() }));
+vi.mock('./UpdateBanner', () => ({ UpdateBanner: () => null }));
+vi.mock('./layout', () => ({ layout: { maxWidth: 800 } }));
+vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/hooks/bulkSessionActions', () => ({ bulkArchiveSessions: vi.fn(), bulkDeleteSessions: vi.fn() }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
         hairlineWidth: 1,
@@ -44,7 +57,7 @@ vi.mock('react-native-unistyles', () => ({
             accent: '#08f', divider: '#333', groupped: { background: '#111', sectionTitle: '#777' },
             radio: { active: '#08f' }, shadow: { color: '#000', opacity: 0.2 },
             surface: '#222', surfaceHigh: '#333', surfacePressed: '#444', surfaceSelected: '#555',
-            text: '#fff', textSecondary: '#999', success: '#0a0',
+            text: '#fff', textSecondary: '#999', success: '#0a0', header: { background: '#111' }, status: { error: '#f00' },
         } }),
     },
     useUnistyles: () => ({ theme: { colors: {
@@ -71,11 +84,12 @@ vi.mock('@/sync/storage', async () => {
         },
         useLocalSettingUpdater: () => mocks.updateExpansion,
         useSetting: () => ({ lists: [], tags: [], sessions: {} }),
+        useSettingMutable: () => [true, vi.fn()],
     };
 });
 vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => vi.fn() }));
 vi.mock('@/hooks/useSessionManagementPreferences', () => ({
-    useSessionManagementPreferences: () => ({ preferences: { pinnedOrder: [], focusOrder: [] } }),
+    useSessionManagementPreferences: () => ({ preferences: { pinnedOrder: mocks.pinnedOrder, focusOrder: [] } }),
 }));
 vi.mock('@/hooks/useLocalDayRollover', () => ({ useLocalDayRollover: () => 1 }));
 vi.mock('@/utils/sessionUtils', () => ({
@@ -116,6 +130,43 @@ describe('ActiveSessionsGroupCompact project expansion persistence', () => {
         vi.clearAllMocks();
         mocks.expansion = {};
         mocks.renderExpansion = null;
+        mocks.sessions = [];
+        mocks.pinnedOrder = [];
+        mocks.pathname = '/';
+    });
+
+    it('preserves pinned order, location and selected row when rendering an individual outer cell', () => {
+        mocks.sessions = ['a', 'b', 'c'].map(id => ({ ...session, id }));
+        mocks.pinnedOrder = ['c', 'a'];
+        mocks.pathname = '/session/c';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionsList />); });
+        const list = renderer.root.findByType('FlatList');
+        const rows = list.props.data.filter((item: any) => item.type === 'compact-session');
+        expect(rows.map((item: any) => item.session.id)).toEqual(['c', 'a', 'b']);
+        expect(rows.map((item: any) => item.showLocation)).toEqual([true, true, false]);
+        let cell: any;
+        act(() => { cell = TestRenderer.create(list.props.renderItem({ item: rows[0] })); });
+        expect(cell.root.findAllByType('Pressable')).toHaveLength(1);
+        expect(cell.root.findByProps({ testID: 'session-row-c' }).props.accessibilityState.selected).toBe(true);
+        act(() => { cell.unmount(); renderer.unmount(); });
+    });
+
+    it.each(['projects', 'time'] as const)('virtualizes all 1000 sessions as outer FlatList rows in %s mode', (layoutMode) => {
+        mocks.sessions = Array.from({ length: 1000 }, (_, index) => ({ ...session, id: `s-${index}`, createdAt: 1 }));
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionsList layoutMode={layoutMode} />); });
+        const list = renderer.root.findByType('FlatList');
+        const rows = list.props.data.filter((item: any) => item.type === 'compact-session');
+        expect(rows).toHaveLength(1000);
+        expect(new Set(rows.map((item: any) => list.props.keyExtractor(item))).size).toBe(1000);
+        expect(list.props.data.some((item: any) => item.type === 'active-sessions')).toBe(false);
+        if (layoutMode === 'projects') {
+            const header = list.props.data.find((item: any) => item.type === 'compact-header' && item.key.startsWith('project-'));
+            act(() => header.element.props.onToggle());
+            expect(renderer.root.findByType('FlatList').props.data.filter((item: any) => item.type === 'compact-session')).toHaveLength(0);
+        }
+        act(() => renderer.unmount());
     });
 
     it('keeps projects expanded by default and restores a collapsed project after remount', () => {

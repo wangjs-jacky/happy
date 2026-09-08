@@ -1222,8 +1222,8 @@ describe('deep-link session opening', () => {
         target.resolve(snapshot('deep-session'));
         latest.resolve(response({
             messages: [
-                { id: 'message-109', seq: 109, localId: null, createdAt: 109, updatedAt: 109, content: 'ciphertext' },
-                { id: 'message-103', seq: 103, localId: null, createdAt: 103, updatedAt: 103, content: 'ciphertext' },
+                { id: 'message-109', seq: 109, localId: null, createdAt: 109, updatedAt: 109, content: { t: 'encrypted', c: 'ciphertext' } },
+                { id: 'message-103', seq: 103, localId: null, createdAt: 103, updatedAt: 103, content: { t: 'encrypted', c: 'ciphertext' } },
             ],
             hasMore: true,
         }));
@@ -1274,7 +1274,7 @@ describe('deep-link session opening', () => {
         mocks.fetchSnapshot.mockReturnValue(target.promise);
         mocks.apiRequest.mockResolvedValue(response({
             messages: [
-                { id: 'message-4', seq: 4, localId: null, createdAt: 40, updatedAt: 40, content: 'ciphertext' },
+                { id: 'message-4', seq: 4, localId: null, createdAt: 40, updatedAt: 40, content: { t: 'encrypted', c: 'ciphertext' } },
             ],
             hasMore: true,
         }));
@@ -1341,13 +1341,13 @@ describe('deep-link session opening', () => {
         mocks.apiRequest
             .mockResolvedValueOnce(response({
                 messages: [
-                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: { t: 'encrypted', c: 'old' } },
                 ],
                 hasMore: true,
             }))
             .mockResolvedValueOnce(response({
                 messages: [
-                    { id: 'new-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: 'new' },
+                    { id: 'new-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: { t: 'encrypted', c: 'new' } },
                 ],
                 hasMore: false,
             }));
@@ -1425,13 +1425,13 @@ describe('deep-link session opening', () => {
         mocks.apiRequest
             .mockResolvedValueOnce(response({
                 messages: [
-                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: { t: 'encrypted', c: 'old' } },
                 ],
                 hasMore: true,
             }))
             .mockResolvedValueOnce(response({
                 messages: [
-                    { id: 'winning-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: 'new' },
+                    { id: 'winning-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: { t: 'encrypted', c: 'new' } },
                 ],
                 hasMore: false,
             }));
@@ -1481,7 +1481,7 @@ describe('deep-link session opening', () => {
         mocks.fetchSnapshot.mockResolvedValue(oldRaw);
         mocks.apiRequest.mockResolvedValue(response({
             messages: [
-                { id: 'stale-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+                { id: 'stale-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: { t: 'encrypted', c: 'old' } },
             ],
             hasMore: true,
         }));

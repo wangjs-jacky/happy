@@ -64,6 +64,35 @@ describe('storage session lifecycle', () => {
         });
     });
 
+    it('patches only the draft row on boolean changes and keeps unread flags and other row identities', () => {
+        const row = (id: string) => ({ id, seq: 0, createdAt: 1, updatedAt: 1,
+            active: true, activeAt: 1, metadata: null, metadataVersion: 0,
+            agentState: null, agentStateVersion: 0, thinking: false, thinkingAt: 0 });
+        storage.getState().applySessions([row('a'), row('b')]);
+        const original = storage.getState().sessionListViewData!;
+        const group = original.find(item => item.type === 'active-sessions')!;
+        if (group.type !== 'active-sessions') throw new Error('missing group');
+        group.sessions.forEach(row => { row.hasUnread = true; });
+        const other = group.sessions.find(row => row.id === 'b');
+        persistence.saveSessionDrafts({ unloaded: 'keep me' });
+        storage.getState().updateSessionDraft('a', 'first');
+        const updated = storage.getState().sessionListViewData!;
+        const nextGroup = updated.find(item => item.type === 'active-sessions')!;
+        if (nextGroup.type !== 'active-sessions') throw new Error('missing group');
+        expect(nextGroup.sessions.find(row => row.id === 'b')).toBe(other);
+        expect(nextGroup.sessions.find(row => row.id === 'a')).toMatchObject({ hasDraft: true, hasUnread: true });
+        storage.getState().updateSessionDraft('a', 'second');
+        expect(storage.getState().sessionListViewData).toBe(updated);
+        expect(persistence.loadSessionDrafts()).toEqual({ a: 'second', unloaded: 'keep me' });
+        storage.getState().updateSessionDraft('a', null);
+        expect(persistence.loadSessionDrafts()).toEqual({ unloaded: 'keep me' });
+    });
+
+    it('persists drafts even when the target session has not loaded', () => {
+        storage.getState().updateSessionDraft('unloaded-new', 'pending');
+        expect(persistence.loadSessionDrafts()['unloaded-new']).toBe('pending');
+    });
+
     it('restores persisted overrides for later incremental sessions and preserves explicit live clears', async () => {
         persistence.saveSessionDrafts({ 'batch-b': 'saved-draft' });
         persistence.saveSessionPermissionModes({ 'batch-b': 'acceptEdits' });

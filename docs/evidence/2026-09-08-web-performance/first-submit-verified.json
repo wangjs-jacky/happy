@@ -1,0 +1,15 @@
+{
+  "pending": {
+    "phase": "spawning",
+    "text": "",
+    "releaseMs": 22.5,
+    "submitCalls": 1
+  },
+  "newer": "New draft retained after first submission.",
+  "final": {
+    "path": "/session/cmtskiv4m08w0mgtqugk3ftpe",
+    "compose": "New draft retained after first submission.",
+    "submitCalls": 1,
+    "pending": false
+  }
+}

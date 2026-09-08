@@ -5,7 +5,7 @@ import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
 import { SessionListViewItem } from '@/sync/storage';
 import { Feather } from '@expo/vector-icons';
-import { ActiveSessionsGroupCompact, CompactSessionRow } from './ActiveSessionsGroupCompact';
+import { CompactSessionListItem, CompactSessionListRow, CompactSessionRow, useActiveSessionListItems } from './ActiveSessionsGroupCompact';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { Typography } from '@/constants/Typography';
@@ -136,8 +136,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     bulkToolbarButtonCompact: { minWidth: 44, minHeight: 44, height: undefined, flex: 1, paddingHorizontal: 4 },
 }));
 
+type SidebarListItem = Exclude<SessionListViewItem, { type: 'active-sessions' }> | CompactSessionListItem;
+
 export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projects' | 'time' }) {
-    const scrollState = useSidebarScrollState<SessionListViewItem>(layoutMode);
+    const scrollState = useSidebarScrollState<SidebarListItem>(layoutMode);
     const compactToolbar = useWindowDimensions().width < 600;
     const styles = stylesheet;
     const { theme } = useUnistyles();
@@ -154,14 +156,18 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
     const toggleArchived = React.useCallback(() => {
         setHideInactiveSessions(!hideInactiveSessions);
     }, [hideInactiveSessions, setHideInactiveSessions]);
-    // Selection is derived once from pathname so the data array stays stable
-    // across navigations. This keeps FlatList virtualization intact: only
-    // the previously- and newly-selected rows re-render, instead of the
-    // whole visible window.
+    // Keep session keys and row data stable across navigation; selection also
+    // reveals the selected project's header without remounting session rows.
     const selectedSessionId = React.useMemo<string | undefined>(() => {
         if (!pathname.startsWith('/session/')) return undefined;
         return pathname.split('/')[2];
     }, [pathname]);
+
+    const activeSessions = React.useMemo(() => data?.flatMap(item => item.type === 'active-sessions' ? item.sessions : []) ?? [], [data]);
+    const activeItems = useActiveSessionListItems({ sessions: activeSessions, layoutMode, selectedSessionId });
+    const listData = React.useMemo(() => data?.flatMap<SidebarListItem>(item => (
+        item.type === 'active-sessions' ? activeItems : [item]
+    )), [data, activeItems]);
 
     const selectedCount = selectedIds.size;
 
@@ -231,24 +237,18 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
         }
     }, [data && data.length > 0]);
 
-    // Early return if no data yet
-    if (!data) {
-        return (
-            <View style={styles.container} />
-        );
-    }
-
-    const keyExtractor = React.useCallback((item: SessionListViewItem, index: number) => {
+    const keyExtractor = React.useCallback((item: SidebarListItem, index: number) => {
         switch (item.type) {
             case 'header': return `header-${item.title}-${index}`;
-            case 'active-sessions': return 'active-sessions';
+            case 'compact-header':
+            case 'compact-session': return item.key;
             case 'archive-toggle': return 'archive-toggle';
             case 'project-group': return `project-group-${item.machine.id}-${item.displayPath}-${index}`;
             case 'session': return `session-${item.session.id}`;
         }
     }, []);
 
-    const renderItem = React.useCallback(({ item }: { item: SessionListViewItem }) => {
+    const renderItem = React.useCallback(({ item }: { item: SidebarListItem }) => {
         switch (item.type) {
             case 'header':
                 return (
@@ -275,11 +275,11 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                     </Pressable>
                 );
 
-            case 'active-sessions':
+            case 'compact-header':
+            case 'compact-session':
                 return (
-                    <ActiveSessionsGroupCompact
-                        layoutMode={layoutMode}
-                        sessions={item.sessions}
+                    <CompactSessionListRow
+                        item={item}
                         selectedSessionId={selectedSessionId}
                         selectionMode={selectionMode}
                         selectedIds={selectedIds}
@@ -313,19 +313,14 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                     />
                 );
         }
-    }, [layoutMode, selectedSessionId, toggleArchived, selectionMode, selectedIds, startSelection, toggleSelection]);
-
-
-    // Remove this section as we'll use FlatList for all items now
-
-
+    }, [selectedSessionId, toggleArchived, selectionMode, selectedIds, startSelection, toggleSelection]);
     const HeaderComponent = React.useCallback(() => {
         return (
             <UpdateBanner />
         );
     }, []);
 
-    // Footer removed - all sessions now shown inline
+    if (!data) return <View style={styles.container} />;
 
     return (
         <View style={styles.container}>
@@ -333,7 +328,7 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                 <FlatList
                     key={layoutMode}
                     {...scrollState}
-                    data={data}
+                    data={listData}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
                     extraData={`${selectedSessionId ?? ''}:${selectionMode}:${Array.from(selectedIds).join(',')}`}

@@ -1,6 +1,9 @@
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 
 export type SessionStartupStage =
+    | 'web.submission.saved'
+    | 'web.session.registered'
+    | 'web.first_message.projected'
     | 'web.spawn.clicked'
     | 'server.rpc.received'
     | 'server.rpc.daemon_found'
@@ -32,6 +35,9 @@ type UnsafeSessionStartupTraceEvent = unknown;
 
 const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SESSION_STARTUP_STAGES = new Set<SessionStartupStage>([
+    'web.submission.saved',
+    'web.session.registered',
+    'web.first_message.projected',
     'web.spawn.clicked',
     'server.rpc.received',
     'server.rpc.daemon_found',

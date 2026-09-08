@@ -106,7 +106,7 @@ function traceWebStartupStage(
     });
 }
 
-function configureSpawnedSession(sessionId: string, args: SpawnSessionArgs): void {
+export function configureSpawnedSession(sessionId: string, args: Pick<SpawnSessionArgs, 'permissionMode' | 'modelMode' | 'effortLevel' | 'fastMode' | 'sidebarListId'>): void {
     const sessionStorage = storage.getState();
     if (args.permissionMode !== undefined) {
         sessionStorage.updateSessionPermissionMode(sessionId, args.permissionMode);

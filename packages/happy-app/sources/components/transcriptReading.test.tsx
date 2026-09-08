@@ -11,6 +11,46 @@ const group = (id: string, ids: string[]) => ({ type: 'tool-group', id, messages
 const wire = (id: string) => id.replace(/-replayed$/, '');
 
 describe('durable transcript reading anchors', () => {
+    it('keeps public normal transcripts at the top when automatic latest layout is disabled', async () => {
+        const scrollToEnd = vi.fn();
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({ items: [], inverted: false, isAtLatest: true, followLatestOnLayout: false,
+                listRef: { current: { scrollToEnd } }, viewportRef: { current: null }, expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        await reading!.layout();
+        expect(scrollToEnd).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+    it('follows the latest normal-orientation content until the reader claims scrolling', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const scrollToEnd = vi.fn();
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({ items: [], inverted: false, isAtLatest: true,
+                listRef: { current: { scrollToEnd } }, viewportRef: { current: null }, expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        reading!.scroll(0, 1000); // Initial virtualized layout is not user intent.
+        scrollToEnd.mockClear();
+        await reading!.layout();
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+        scrollToEnd.mockClear();
+        reading!.cancelRestore('older');
+        reading!.scroll(0, 0); // A measurement event at the tail is not downward intent.
+        await reading!.layout();
+        expect(scrollToEnd).not.toHaveBeenCalled();
+        reading!.jumpLatest();
+        await reading!.layout();
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+        act(() => renderer.unmount());
+    });
+
     it('ignores a persisted restore that resolves after a Web wheel claims the viewport', async () => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
         const saved: ReadingState = { version: 1, anchorId: 'wire2', anchorSeq: 2, offset: -30, expandedGroupIds: [], followLatest: false };
@@ -242,7 +282,33 @@ describe('durable transcript reading anchors', () => {
         expect(groupIsExpanded(group('last', ['wire299']), keys, wire)).toBe(true);
     });
 
-    it('restores the second cross-screen block of one wire after rendered IDs are regenerated', async () => {
+    it('does not apply a second async correction after Web owns the retained projection offset', async () => {
+        let reading: ReturnType<typeof useTranscriptReading>;
+        const scrollToOffset = vi.fn();
+        const adapter = { key: 'sync-web', read: async () => null, save: vi.fn(), wireId: () => 'wire', wireSeq: () => 1 };
+        function Probe({ version }: { version: number }) {
+            reading = useTranscriptReading({ adapter, items: [{ type: 'message', id: `row-${version}`, message: msg(`row-${version}`) }],
+                inverted: false, isAtLatest: false, synchronousAnchoring: true,
+                listRef: { current: { scrollToOffset } },
+                viewportRef: { current: { measureInWindow: (cb: any) => cb(0, 100, 800, 600) } },
+                expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any; let rowY = 100;
+        await act(async () => { renderer = TestRenderer.create(<Probe version={0} />); });
+        reading!.markers!.register('row-0', { measureInWindow: (cb: any) => cb(0, rowY, 800, 200) }, 0);
+        reading!.cancelRestore('older');
+        await reading!.capture();
+        reading!.pin();
+        reading!.adjustOffset(30900);
+        rowY = 424; // An intermediate async measurement is not the position owner.
+        await act(async () => { renderer.update(<Probe version={1} />); });
+        await reading!.layout();
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it.each([false, true])('restores the second cross-screen block of one wire after rendered IDs are regenerated (sync Web: %s)', async synchronousAnchoring => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
         let saved: any = null; let reading: any;
         const adapter = { key: 'same-owner', read: async () => saved, save: (state: any) => { saved = state; },
@@ -253,6 +319,7 @@ describe('durable transcript reading anchors', () => {
         function Probe(props: { prefix: string }) {
             const items = ['first', 'second'].map(suffix => ({ type: 'message', id: `${props.prefix}-${suffix}`, message: msg(`${props.prefix}-${suffix}`) })) as any;
             reading = useTranscriptReading({ adapter, items, inverted: false, isAtLatest: false, listRef: list, viewportRef: viewport,
+                synchronousAnchoring,
                 expanded: [], restoreExpanded: () => {} });
             return <TranscriptReadingContext.Provider value={reading.markers}>{items.map((item: any) =>
                 <TranscriptReadingMarker key={item.id} messageId={item.id}><label>{item.id}</label></TranscriptReadingMarker>)}</TranscriptReadingContext.Provider>;

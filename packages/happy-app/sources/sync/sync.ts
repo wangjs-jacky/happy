@@ -59,6 +59,7 @@ import type { MessageSentSource } from '@/track';
 import { parseToken } from '@/utils/parseToken';
 import { RevenueCat, LogLevel, PaywallResult } from './revenueCat';
 import { getServerUrl } from './serverConfig';
+import { setFirstSubmissionScope } from './firstSubmissionScope';
 import { config } from '@/config';
 import { log } from '@/log';
 import { gitStatusSync } from './gitStatusSync';
@@ -113,6 +114,7 @@ import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRange
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, invalidateLocalHistorySession, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
+import { boundHistoryWindow, historyWindowBytes, WEB_HISTORY_MAX_MESSAGES, WEB_HISTORY_MAX_BYTES } from './historyWindowPolicy';
 import { sessionHistoryPageCache } from './sessionHistoryPageCache';
 import { SessionHistoryPrefetch } from './sessionHistoryPrefetch';
 import { fetchSessionChanges } from './apiSessionChanges';
@@ -146,12 +148,12 @@ function memoryHistoryPage(current: HistoryWindow | undefined, page: V3GetSessio
     const unique = [...new Map(combined.map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
     const messages = direction === 'older' ? unique.slice(0, limit) : unique.slice(-limit);
     return { messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null,
-        hasMoreOlder: direction === 'older' || direction === 'latest' ? page.hasMore : (current?.hasMoreOlder ?? false) || unique.length > limit,
+        hasMoreOlder: direction === 'older' ? page.hasMore : direction === 'latest' ? page.hasMore || unique.length > limit : (current?.hasMoreOlder ?? false) || unique.length > limit,
         hasMoreNewer: direction === 'older' ? (current?.hasMoreNewer ?? false) || unique.length > limit : direction === 'newer' && page.hasMore,
         isAtLatest: direction === 'latest' || (direction === 'older' ? current?.isAtLatest === true && unique.length <= limit : !page.hasMore),
     };
 }
-const historyNavigationWindowLimit = () => Platform.OS === 'web' ? 1000 : 300;
+const historyNavigationWindowLimit = () => Platform.OS === 'web' ? WEB_HISTORY_MAX_MESSAGES : 300;
 function retainMissingHistoryRows(window: HistoryWindow, current: HistoryWindow | undefined): HistoryWindow {
     if (!current) return window;
     const knownSeqs = new Set(window.messages.map(message => message.seq));
@@ -166,7 +168,12 @@ function retainMissingHistoryRows(window: HistoryWindow, current: HistoryWindow 
     // latest-following window may instead accept the new authoritative island.
     if (!overlaps) return current.isAtLatest ? window : current;
     const messages = [...window.messages, ...missing].sort((a, b) => a.seq - b.seq);
-    return { ...window, messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null };
+    const extendsOlder = (current.oldestSeq ?? Infinity) < (window.oldestSeq ?? Infinity);
+    const extendsNewer = (current.newestSeq ?? 0) > (window.newestSeq ?? 0);
+    return { ...window, messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null,
+        hasMoreOlder: extendsOlder ? current.hasMoreOlder : window.hasMoreOlder,
+        hasMoreNewer: extendsNewer ? current.hasMoreNewer : window.hasMoreNewer,
+        isAtLatest: extendsNewer ? current.isAtLatest : window.isAtLatest };
 }
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
@@ -271,6 +278,8 @@ type OutboxMessage = {
 };
 
 type SendMessageOptions = {
+    /** Fence a route-independent submission against logout or server changes. */
+    isCurrent?: () => boolean;
     displayText?: string;
     editedFromMessageId?: string;
     source?: MessageSentSource;
@@ -376,6 +385,10 @@ class Sync {
     private localHistory: LocalHistory | null = null;
     private historyPrefetch = new SessionHistoryPrefetch();
     private historyWindows = new Map<string, HistoryWindow>();
+    // Session envelopes have their own IDs; reducer realID is not necessarily
+    // the outer server wire ID used by history sequences and reading anchors.
+    private historyWireProvenance = new Map<string, Map<string, string>>();
+    private memoryReadingStates = new Map<string, ReadingState>();
     private historyWindowLoads = new Map<string, Promise<void>>();
     private historyBoundaryLoadingTokens = new Map<string, { isCurrent: () => boolean }>();
     private changesInFlight: Promise<void> | null = null;
@@ -562,6 +575,7 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        setFirstSubmissionScope(this.sessionWarmCacheAccountKey, getServerUrl());
         await this.initializeLocalHistory();
         await this.#init();
 
@@ -583,6 +597,7 @@ class Sync {
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
         this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        setFirstSubmissionScope(this.sessionWarmCacheAccountKey, getServerUrl());
         await this.initializeLocalHistory();
         if (!this.localHistory) await this.restoreSessionWarmCache();
         await this.#init();
@@ -599,6 +614,8 @@ class Sync {
         this.localHistory = Platform.OS === 'web' && this.sessionWarmCacheAccountKey
             ? await openLocalHistory(this.sessionWarmCacheAccountKey) : null;
         this.historyWindows.clear();
+        this.historyWireProvenance.clear();
+        this.memoryReadingStates.clear();
         this.changesSupported = null;
         const history = this.localHistory;
         if (!history || !this.sessionWarmCacheAccountKey) return;
@@ -681,11 +698,17 @@ class Sync {
         this.localHistory = null;
         for (const id of [...this.historyWindows.keys()]) this.releaseSessionMessageCache(id);
         this.historyWindows.clear();
+        this.historyWireProvenance.clear();
+        this.memoryReadingStates.clear();
         await clearing;
     };
 
-    public readSessionReadingState = (id: string): Promise<ReadingState | null> => this.localHistory?.readReadingState(id) ?? Promise.resolve(null);
-    public saveSessionReadingState = async (id: string, state: ReadingState): Promise<void> => { await this.localHistory?.writeReadingState(id, state); };
+    public readSessionReadingState = (id: string): Promise<ReadingState | null> => this.localHistory?.readReadingState(id)
+        ?? Promise.resolve(this.memoryReadingStates.get(id) ?? null);
+    public saveSessionReadingState = async (id: string, state: ReadingState): Promise<void> => {
+        if (this.localHistory) await this.localHistory.writeReadingState(id, state);
+        else if (this.historyWindows.has(id)) this.memoryReadingStates.set(id, state);
+    };
     public getLocalHistoryScope = (): LocalHistory | null => this.localHistory;
     private captureHistoryOwner = (sessionId: string, operation?: SessionMessageLoadOperation) => {
         const history = this.localHistory;
@@ -696,7 +719,8 @@ class Sync {
             && (!history || (fence !== undefined && history.isFenceCurrent(fence))) };
     };
     public getMessageWireId = (id: string, renderedId: string): string | null => {
-        return storage.getState().sessionMessages[id]?.reducerState.messages.get(renderedId)?.realID ?? null;
+        const normalizedId = storage.getState().sessionMessages[id]?.reducerState.messages.get(renderedId)?.realID;
+        return normalizedId ? this.historyWireProvenance.get(id)?.get(normalizedId) ?? normalizedId : null;
     };
     public getMessageWireBlockKey = (id: string, renderedId: string): string | null => {
         const rows = storage.getState().sessionMessages[id]?.reducerState.messages;
@@ -717,7 +741,7 @@ class Sync {
     };
     public resolveRenderedMessageId = (id: string, wireId: string): string | null => {
         const state = storage.getState().sessionMessages[id];
-        return state?.messages.find(message => state.reducerState.messages.get(message.id)?.realID === wireId)?.id ?? null;
+        return state?.messages.find(message => this.getMessageWireId(id, message.id) === wireId)?.id ?? null;
     };
 
     private retireObservedLocalMessages(sessionId: string, messages: readonly NormalizedMessage[]): void {
@@ -736,12 +760,13 @@ class Sync {
     }
 
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation,
-        options: { retainCurrentWebRows?: boolean } = {}): Promise<boolean> => {
+        options: { retainCurrentWebRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean } = {}): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
         if (!encryption) return false;
         const retainCurrentRows = Platform.OS === 'web' && options.retainCurrentWebRows === true;
         const normalized: NormalizedMessage[] = [];
+        const normalizedWireIds = new Map<NormalizedMessage, string>();
         let pending = window.messages;
         while (true) {
             if (pending.length > 0) {
@@ -752,6 +777,7 @@ class Sync {
                 }
                 normalized.push(...decrypted.flatMap(message => {
                     const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
+                    if (value && message) normalizedWireIds.set(value, message.id);
                     return value ? [value] : [];
                 }));
             }
@@ -771,12 +797,26 @@ class Sync {
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
+        // A foreground fetch can hold the queue lock across a realtime burst.
+        // Drain live effects synchronously before replacing its projection;
+        // the eventual lock callback must not resurrect rows evicted below.
+        if (Platform.OS === 'web') this.drainQueuedMessages(id, new Set([
+            ...(this.historyWireProvenance.get(id)?.keys() ?? []), ...normalized.map(message => message.id),
+        ]));
         this.retireObservedLocalMessages(id, normalized);
+        if (Platform.OS === 'web') {
+            window = boundHistoryWindow(window, options);
+            const retainedIds = new Set(window.messages.map(message => message.id));
+            for (let i = normalized.length - 1; i >= 0; i--) {
+                if (!retainedIds.has(normalizedWireIds.get(normalized[i])!)) normalized.splice(i, 1);
+            }
+        }
         // A latest-window replacement contains acknowledged wire rows only.
         // Keep only unobserved local projections in the live view. Receipt
         // provenance stays separate so acknowledged rows cannot resurrect
         // after ordinary bounded retention evicts their remote echo.
         const generation = this.sessionMessageCacheGenerations.get(id);
+        this.historyWireProvenance.set(id, new Map(normalized.map(message => [message.id, normalizedWireIds.get(message)!])));
         const accepted = window.isAtLatest ? [...(generation?.pendingLocalMessages?.values() ?? [])] : [];
         for (const message of accepted) {
             const represented = normalized.some(candidate => candidate.id === message.id
@@ -806,12 +846,13 @@ class Sync {
         const existing = this.historyWindowLoads.get(id);
         if (existing && this.historyBoundaryLoadingTokens.get(id)?.isCurrent()) return existing;
         const history = this.localHistory;
-        if (!history) return Promise.resolve();
+        if (!history && Platform.OS !== 'web') return Promise.resolve();
         const pending = (async () => {
             const navigationWindowLimit = historyNavigationWindowLimit();
             let verifiedLatestFromNetwork = false;
             const current = this.historyWindows.get(id);
             if (!current && direction !== 'latest') return;
+            if (current && direction === 'older' && !current.hasMoreOlder) return;
             const lease = this.sessionMessageLoadGate.currentLease(id) ?? this.sessionMessageLoadGate.enter(id);
             const operation = this.sessionMessageLoadGate.begin(lease);
             const owner = this.captureHistoryOwner(id, operation);
@@ -832,7 +873,7 @@ class Sync {
             } }) : state);
             patch({ [field]: true, [direction === 'older' ? 'olderError' : 'newerError']: null });
             try {
-                let latest = direction === 'latest' ? await history.readWindow(id) : null;
+                let latest = direction === 'latest' ? await history?.readWindow(id) ?? null : null;
                 if (!owner.isCurrent()) return;
                 if (latest && !latest.isAtLatest) {
                     const afterSeq = latest.newestSeq ?? 0;
@@ -843,7 +884,7 @@ class Sync {
                     const data = await response.json() as V3GetSessionMessagesResponse;
                     if (!owner.isCurrent()) return;
                     verifiedLatestFromNetwork = true;
-                    let committed = await history.commitPage(id, { ...data, direction: 'newer', boundary: afterSeq });
+                    let committed = await history?.commitPage(id, { ...data, direction: 'newer', boundary: afterSeq });
                     if (!owner.isCurrent()) return;
                     let fallback = memoryHistoryPage(latest, data, 'newer');
                     // An explicit jump may skip an unread gap. At most two pages
@@ -851,19 +892,19 @@ class Sync {
                     if (data.hasMore) {
                         const tail = await this.fetchLatestMessagePageRaw(id);
                         if (!owner.isCurrent()) return;
-                        committed = await history.commitPage(id, { ...tail, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
+                        committed = await history?.commitPage(id, { ...tail, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
                         fallback = memoryHistoryPage(undefined, tail, 'latest');
                     }
-                    latest = committed ? await history.readWindow(id, { limit: 300 }) ?? fallback : fallback;
+                    latest = committed ? await history?.readWindow(id, { limit: 300 }) ?? fallback : fallback;
                 }
                 if (direction !== 'latest' || !latest) {
-                    let page: HistoryPage | null = direction === 'older' ? await history.readOlderPage(id, boundary!, 100)
-                        : direction === 'newer' ? await history.readNewerPage(id, boundary!, 100) : null;
+                    let page: HistoryPage | null = direction === 'older' ? await history?.readOlderPage(id, boundary!, 100) ?? null
+                        : direction === 'newer' ? await history?.readNewerPage(id, boundary!, 100) ?? null : null;
                     if (!owner.isCurrent()) return;
                     if (!page && direction === 'older') {
                         await this.historyPrefetch.waitForPage(id, boundary!);
                         if (!owner.isCurrent()) return;
-                        page = await history.readOlderPage(id, boundary!, 100);
+                        page = await history?.readOlderPage(id, boundary!, 100) ?? null;
                     }
                     if (!owner.isCurrent()) return;
                     if (!page) {
@@ -874,7 +915,7 @@ class Sync {
                         const data = await response.json() as V3GetSessionMessagesResponse;
                         if (!owner.isCurrent()) return;
                         page = { direction: direction === 'newer' ? 'newer' : 'older', boundary: boundary!, ...data };
-                        const committed = await history.commitPage(id, page);
+                        const committed = await history?.commitPage(id, page);
                         if (!committed) {
                             // Quota failures keep the visible records and use the network
                             // page in memory. The durable cursor/coverage remains unchanged.
@@ -889,13 +930,11 @@ class Sync {
                         const anchorSeq = direction === 'latest' ? undefined : direction === 'older'
                             ? page!.messages[Math.max(0, page!.messages.length - 50)]?.seq ?? boundary!
                             : page!.messages[Math.min(49, page!.messages.length - 1)]?.seq ?? boundary!;
-                        const expanded = await history.readWindow(id, { anchorSeq, limit: navigationWindowLimit });
+                        const expanded = await history?.readWindow(id, { anchorSeq, limit: navigationWindowLimit }) ?? null;
                         if (Platform.OS === 'web' && direction !== 'latest') {
-                            // The Web transcript deliberately keeps visited rows mounted.
-                            // Re-centering a bounded window here removes those rows, which
-                            // unmounts attachment images and recreates their blob URLs when
-                            // the user scrolls back. Grow only through explicit navigation;
-                            // opening a route and native history remain bounded.
+                            // Merge overlapping rows before the shared cap is applied.
+                            // Keep the previous visible edge as the projection anchor;
+                            // offscreen evictions remain reloadable from durable history.
                             const source = expanded ?? page!;
                             latest = memoryHistoryPage(current, {
                                 messages: source.messages,
@@ -911,6 +950,7 @@ class Sync {
                 if (latest && owner.isCurrent()) {
                     const applied = await this.applyHistoryWindow(id, latest, operation, {
                         retainCurrentWebRows: direction !== 'latest',
+                        ...(direction !== 'latest' ? { direction, anchorSeq: boundary! } : {}),
                     });
                     if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
                         this.markLatestVerified(id, operation);
@@ -928,7 +968,8 @@ class Sync {
         })().finally(() => { if (this.historyWindowLoads.get(id) === pending) this.historyWindowLoads.delete(id); });
         this.historyWindowLoads.set(id, pending); return pending;
     };
-    public loadNewerMessages = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'newer');
+    public loadNewerMessages = (id: string): Promise<void> => this.historyWindows.get(id)?.hasMoreNewer === false
+        ? Promise.resolve() : this.loadHistoryBoundary(id, 'newer');
     public jumpToLatestMessages = async (id: string): Promise<void> => {
         const history = this.localHistory;
         const encryption = this.encryption;
@@ -1282,6 +1323,8 @@ class Sync {
     private releaseSessionMessageCache(sessionId: string, removeFromRetention = true): void {
         if (this.sessionRouteOwnership.ownsSession(sessionId)) this.historyPrefetch.stop();
         this.historyWindows.delete(sessionId);
+        this.historyWireProvenance.delete(sessionId);
+        this.memoryReadingStates.delete(sessionId);
         this.historyWindowLoads.delete(sessionId);
         this.historyBoundaryLoadingTokens.delete(sessionId);
         const messageSync = this.messagesSync.get(sessionId);
@@ -1451,14 +1494,7 @@ class Sync {
         this.sessionQueueProcessing.add(sessionId);
         const lock = this.getSessionMessageLock(sessionId);
         void lock.inLock(() => {
-            while (true) {
-                const pending = this.sessionMessageQueue.get(sessionId);
-                if (!pending || pending.length === 0) {
-                    break;
-                }
-                const batch = pending.splice(0, pending.length);
-                this.applyMessages(sessionId, batch);
-            }
+            this.drainQueuedMessages(sessionId);
         }).finally(() => {
             this.sessionQueueProcessing.delete(sessionId);
             const pending = this.sessionMessageQueue.get(sessionId);
@@ -1466,6 +1502,21 @@ class Sync {
                 this.scheduleQueuedMessagesProcessing(sessionId);
             }
         });
+    }
+
+    private drainQueuedMessages(sessionId: string, wireIds?: Set<string>): void {
+        const pending = this.sessionMessageQueue.get(sessionId);
+        if (pending?.length && wireIds) {
+            // Unrelated/local-only queued rows are not certified by this wire
+            // replacement. Leave them owned by the normal projection queue.
+            const batch = pending.filter(message => wireIds.has(message.id));
+            for (let index = pending.length - 1; index >= 0; index--) {
+                if (wireIds.has(pending[index].id)) pending.splice(index, 1);
+            }
+            if (batch.length) this.applyMessages(sessionId, batch);
+            return;
+        }
+        while (pending?.length) this.applyMessages(sessionId, pending.splice(0, pending.length));
     }
 
     private hasPendingOutboxMessages() {
@@ -1611,33 +1662,37 @@ class Sync {
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
+        isCurrent: () => boolean = () => true,
     ): Promise<{ uploaded: UploadedAttachment[]; failed: number }> {
         if (!this.credentials) return { uploaded: [], failed: attachments.length };
 
         const blobKey = this.encryption.getSessionBlobKey(sessionId);
+        const credentials = this.credentials;
+        const assertCurrent = () => { if (!isCurrent()) throw new Error('local-message-session-unavailable'); };
 
         const uploaded: UploadedAttachment[] = [];
         let failed = 0;
 
         for (const attachment of attachments) {
+            assertCurrent();
             try {
                 uploaded.push(await uploadAttachmentForSession(
                     {
-                        credentials: this.credentials,
+                        credentials,
                         sessionId,
                         attachment,
                         blobKey: blobKey ?? undefined,
                     },
                     {
-                        requestUpload: requestAttachmentUpload,
-                        uploadMediaFile,
+                        requestUpload: (...args) => { assertCurrent(); return requestAttachmentUpload(...args); },
+                        uploadMediaFile: (...args) => { assertCurrent(); return uploadMediaFile(...args); },
                         readFileBytes,
                         encryptBlob,
-                        uploadEncryptedBlob,
+                        uploadEncryptedBlob: (...args) => { assertCurrent(); return uploadEncryptedBlob(...args); },
                     },
                 ));
             } catch (err) {
-                console.error(`[attachments] Failed to upload ${attachment.name}:`, err);
+                assertCurrent();
                 failed++;
                 // Skip this attachment; do not abort the whole message send.
             }
@@ -1647,6 +1702,8 @@ class Sync {
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
+        const isCurrent = options?.isCurrent ?? (() => true);
+        if (!isCurrent()) throw new Error('local-message-session-unavailable');
 
         // Snapshot per-turn controls before the first possible await. If the
         // user changes model/effort while attachment upload or initial sync is
@@ -1684,7 +1741,8 @@ class Sync {
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments, isCurrent);
+            if (!isCurrent()) throw new Error('local-message-session-unavailable');
 
             if (failed > 0) {
                 Modal.alert(
@@ -1803,7 +1861,7 @@ class Sync {
 
         // No awaits between ownership validation and the complete outbox commit.
         // Nothing from a failed upload/encryption attempt becomes locally queued.
-        if (this.encryption !== encryptionOwner
+        if (!isCurrent() || this.encryption !== encryptionOwner
             || encryptionOwner.getSessionEncryption(sessionId) !== encryption
             || !storage.getState().sessions[sessionId]) throw new Error('local-message-session-unavailable');
         // Preserve the queue identity: an in-flight flush owns a prefix of this
@@ -3639,6 +3697,7 @@ class Sync {
                 }
                 if (!owner.isCurrent()) return;
             }
+            if (Platform.OS === 'web' && this.historyWindows.get(sessionId)?.isAtLatest === false) return;
             if (this.localHistory && this.historyWindows.has(sessionId)) {
                 const window = this.historyWindows.get(sessionId)!;
                 const change = await this.localHistory.readChange(sessionId);
@@ -3780,11 +3839,11 @@ class Sync {
                 sessionHistoryPageCache.save(warmAccount, sessionId, SEQ_BACKWARD_INITIAL_SENTINEL, data, pageCacheGeneration);
             }
         }
-        if (owner.history) {
-            const committed = await owner.history.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
+        if (owner.history || Platform.OS === 'web') {
+            const committed = await owner.history?.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
             if (!owner.isCurrent()) return false;
-            const fallback = memoryHistoryPage(undefined, data, 'latest');
-            const disk = committed ? await owner.history.readWindow(sessionId) : null;
+            const fallback = memoryHistoryPage(undefined, data, 'latest', Platform.OS === 'web' ? WEB_HISTORY_MAX_MESSAGES : 300);
+            const disk = committed ? await owner.history?.readWindow(sessionId) : null;
             if (!owner.isCurrent()) return false;
             const window = disk && fallback.messages.every(message => disk.messages.some(row => row.id === message.id)) ? disk : fallback;
             await this.applyHistoryWindow(sessionId, window, operation);
@@ -3846,17 +3905,27 @@ class Sync {
 
             const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
             if (!applied.current) return;
-            if (followLatest) {
-                const memoryLimit = Platform.OS === 'web'
-                    ? (memoryWindow?.messages.length ?? 0) + messages.length
-                    : 300;
-                memoryWindow = memoryHistoryPage(memoryWindow, { messages, hasMore: data.hasMore }, 'newer', memoryLimit);
-            }
             if (!didInvalidateGit
                 && applied.hasMutableToolResult
                 && storage.getState().currentViewingSessionId === sessionId) {
                 gitStatusSync.invalidate(sessionId);
                 didInvalidateGit = true;
+            }
+            if (followLatest) {
+                const memoryLimit = Platform.OS === 'web'
+                    ? (memoryWindow?.messages.length ?? 0) + messages.length
+                    : 300;
+                memoryWindow = memoryHistoryPage(memoryWindow, { messages, hasMore: data.hasMore }, 'newer', memoryLimit);
+                if (Platform.OS === 'web' && (memoryWindow.messages.length > WEB_HISTORY_MAX_MESSAGES
+                    || historyWindowBytes(memoryWindow) > WEB_HISTORY_MAX_BYTES)) {
+                    const reading = await this.readSessionReadingState(sessionId);
+                    if (!owner.isCurrent()) return;
+                    await this.applyHistoryWindow(sessionId, memoryWindow, operation, {
+                        compact: true, anchorSeq: reading?.followLatest === false ? reading.anchorSeq : undefined,
+                    });
+                    memoryWindow = this.historyWindows.get(sessionId);
+                    if ((memoryWindow?.newestSeq ?? 0) < (messages.at(-1)?.seq ?? 0)) return;
+                }
             }
 
             let maxSeq = afterSeq;
@@ -3874,9 +3943,9 @@ class Sync {
             }
             afterSeq = maxSeq;
         }
-        if (owner.history && owner.isCurrent() && followLatest && memoryWindow) {
+        if ((owner.history || Platform.OS === 'web') && owner.isCurrent() && followLatest && memoryWindow) {
             const diskLimit = Platform.OS === 'web' ? memoryWindow.messages.length : 300;
-            const disk = persisted ? await owner.history.readWindow(sessionId, { limit: diskLimit }) : null;
+            const disk = persisted ? await owner.history?.readWindow(sessionId, { limit: diskLimit }) : null;
             const window = disk && memoryWindow.messages.every(message => disk.messages.some(row => row.id === message.id)) ? disk : memoryWindow;
             if (owner.isCurrent()) await this.applyHistoryWindow(sessionId, window, operation, { retainCurrentWebRows: true });
         }
@@ -3940,7 +4009,7 @@ class Sync {
      * older-fetch is already in flight for this session.
      */
     loadOlderMessages = async (sessionId: string) => {
-        if (this.localHistory && this.historyWindows.has(sessionId)) return this.loadHistoryBoundary(sessionId, 'older');
+        if ((this.localHistory || Platform.OS === 'web') && this.historyWindows.has(sessionId)) return this.loadHistoryBoundary(sessionId, 'older');
         const frontier = this.sessionMessageFrontiers.get(sessionId);
         if (!frontier?.hasMoreOlder || frontier.olderBeforeSeq == null || frontier.olderBeforeSeq <= 1) {
             return;
@@ -4231,8 +4300,28 @@ class Sync {
                         // owns this sequence, so neither history nor Git needs
                         // to be refreshed.
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
+                        // Inspect tool ownership before replay can evict the tool
+                        // row, and preserve the live refresh on compaction returns.
+                        if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
+                            gitStatusSync.invalidate(updateData.body.sid);
+                        }
                         if (historyWindow) {
                             const messages = [...historyWindow.messages, updateData.body.message];
+                            const appended = { ...historyWindow, messages, newestSeq: incomingSeq };
+                            if (Platform.OS === 'web' && (messages.length > WEB_HISTORY_MAX_MESSAGES
+                                || historyWindowBytes(appended) > WEB_HISTORY_MAX_BYTES)) {
+                                const sid = updateData.body.sid;
+                                const reading = await this.readSessionReadingState(sid);
+                                assertCurrent();
+                                // Apply this live event once for thinking/usage/permissions;
+                                // replay below only replaces the displayed projection.
+                                this.enqueueMessages(sid, [lastMessage]);
+                                const lease = this.sessionMessageLoadGate.currentLease(sid) ?? this.sessionMessageLoadGate.enter(sid);
+                                await this.applyHistoryWindow(sid, appended, this.sessionMessageLoadGate.begin(lease), {
+                                    compact: true, anchorSeq: reading?.followLatest === false ? reading.anchorSeq : undefined,
+                                });
+                                return;
+                            }
                             if (Platform.OS !== 'web' && messages.length > 300 && historyOwner?.history) {
                                 const sid = updateData.body.sid;
                                 const fallback = memoryHistoryPage(historyWindow, { messages: [updateData.body.message], hasMore: false }, 'newer');
@@ -4249,13 +4338,11 @@ class Sync {
                                 return;
                             }
                             this.historyWindows.set(updateData.body.sid, { ...historyWindow, messages, newestSeq: incomingSeq });
+                            this.historyWireProvenance.get(updateData.body.sid)?.set(lastMessage.id, updateData.body.message.id);
                         }
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
-                        if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
-                            gitStatusSync.invalidate(updateData.body.sid);
-                        }
                     } else if (isVisible) {
                         const route = this.activeOpenSession;
                         if (route?.sessionId === updateData.body.sid) {

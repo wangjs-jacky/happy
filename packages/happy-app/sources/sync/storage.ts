@@ -1057,26 +1057,19 @@ export const storage = create<StorageState>()((set, get) => {
         }),
         updateSessionDraft: (sessionId: string, draft: string | null) => set((state) => {
             const session = state.sessions[sessionId];
-            if (!session) return state;
 
             // Don't store empty strings, convert to null
             const normalizedDraft = draft?.trim() ? draft : null;
 
-            // Collect all drafts for persistence
+            // Patch only this persisted draft, including sessions not loaded yet.
             const allDrafts = loadSessionDrafts();
-            Object.entries(state.sessions).forEach(([id, sess]) => {
-                delete allDrafts[id];
-                if (id === sessionId) {
-                    if (normalizedDraft) {
-                        allDrafts[id] = normalizedDraft;
-                    }
-                } else if (sess.draft) {
-                    allDrafts[id] = sess.draft;
-                }
-            });
+            if (normalizedDraft) allDrafts[sessionId] = normalizedDraft;
+            else delete allDrafts[sessionId];
 
             // Persist drafts
             saveSessionDrafts(allDrafts);
+            sessionDrafts = allDrafts;
+            if (!session || session.draft === normalizedDraft) return state;
 
             const updatedSessions = {
                 ...state.sessions,
@@ -1089,7 +1082,21 @@ export const storage = create<StorageState>()((set, get) => {
             return {
                 ...state,
                 sessions: updatedSessions,
-                sessionListViewData: buildSessionListViewData(updatedSessions)
+                sessionListViewData: !!session.draft?.trim() === !!normalizedDraft
+                    ? state.sessionListViewData
+                    : state.sessionListViewData?.map(item => {
+                        // Keep unread and all other derived flags intact.
+                        const patchRow = (row: SessionRowData) => row.id === sessionId
+                            ? { ...row, hasDraft: !!normalizedDraft }
+                            : row;
+                        if (item.type === 'session' && item.session.id === sessionId) {
+                            return { ...item, session: patchRow(item.session) };
+                        }
+                        if (item.type === 'active-sessions' && item.sessions.some(row => row.id === sessionId)) {
+                            return { ...item, sessions: item.sessions.map(patchRow) };
+                        }
+                        return item;
+                    }) ?? null
             };
         }),
         updateSessionPermissionMode: (sessionId: string, mode: string | null) => set((state) => {

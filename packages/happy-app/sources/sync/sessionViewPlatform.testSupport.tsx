@@ -103,7 +103,7 @@ vi.mock('@/hooks/useAgentSpace', () => ({ useAgentSpace: () => ({ enter: vi.fn()
 vi.mock('@/hooks/useGlobalKeyboard', () => ({ useGlobalKeyboard: vi.fn() }));
 vi.mock('@/hooks/useSessionTaskPermission', () => ({ useSessionTaskPermission: () => ({}) }));
 vi.mock('@/hooks/useSessionWorkingDirectory', () => ({ useSessionWorkingDirectory: () => ({}) }));
-vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
+vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({ selectedImages: [] }) }));
 
 // Keep the existing host selector while exercising the real content/placeholder

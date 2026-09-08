@@ -67,15 +67,11 @@ const MachineSeparator = React.memo(({ machineName, machineId }: { machineName: 
     );
 });
 
-export function ActiveSessionsGroupCompact({
+export function useActiveSessionListItems({
     layoutMode = 'projects',
     sessions,
     selectedSessionId,
-    selectionMode = false,
-    selectedIds,
-    onStartSelection,
-    onToggleSelection,
-}: ActiveSessionsGroupProps) {
+}: ActiveSessionsGroupProps): CompactSessionListItem[] {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -143,126 +139,111 @@ export function ActiveSessionsGroupCompact({
         return t('sessionHistory.daysAgo', { count: dayOffset });
     }, []);
 
-    return (
-        <View style={styles.container}>
-            {partitionedSessions.pinned.length > 0 ? (
-                <View style={styles.timeGroup} testID="session-pinned-group">
-                    <Text style={styles.timeGroupLabel}>{t('sessionSearch.sections.pinned')}</Text>
-                    {partitionedSessions.pinned.map((session) => (
-                        <CompactSessionRow
-                            key={session.id}
-                            session={session}
-                            selected={selectedSessionId === session.id}
-                            bulkSelected={selectedIds?.has(session.id) ?? false}
-                            selectionMode={selectionMode}
-                            showLocation
-                            onStartSelection={onStartSelection}
-                            onToggleSelection={onToggleSelection}
-                        />
-                    ))}
-                </View>
-            ) : null}
-            {layoutMode === 'projects' ? machineGroups.map((machineGroup, machineIndex) => {
-                return (
-                    <React.Fragment key={machineGroup.machineId}>
-                        {hasMultipleMachines && (
-                            <MachineSeparator
-                                machineName={machineGroup.machineName}
-                                machineId={machineGroup.machineId}
-                            />
-                        )}
-                        {machineGroup.projects.map((projectGroup, projectIndex) => {
-                            const firstSession = projectGroup.sessions[0];
-                            if (!firstSession) return null;
-                            const expanded = isSidebarGroupExpanded(
-                                sidebarGroupExpansion,
-                                'projects',
-                                projectGroup.key,
-                                true,
-                            );
-                            const current = projectGroup.key === selectedProjectKey;
-                            const selectedSession = selectedSessionId
-                                ? projectGroup.sessions.find((candidate) => candidate.id === selectedSessionId)
-                                : null;
-                            const activitySession = selectedSession ?? projectGroup.sessions.find((candidate) => (
-                                candidate.state === 'permission_required'
-                                || candidate.state === 'running'
-                                || candidate.hasUnread
-                            ));
-                            const activity = activitySession
-                                ? {
-                                    color: activitySession.hasUnread && activitySession.state === 'idle'
-                                        ? theme.colors.accent
-                                        : STATUS_CONFIG[activitySession.state].dotColor,
-                                    isPulsing: STATUS_CONFIG[activitySession.state].isPulsing,
-                                    label: `${getSessionStateLabel(activitySession.state)}${activitySession.isConnected ? '' : ` · ${t('status.disconnected')}`}`,
-                                    textColor: STATUS_CONFIG[activitySession.state].color,
-                                }
-                                : null;
+    const items: CompactSessionListItem[] = [];
+    if (sessions.length === 0) return items;
+    items.push({ type: 'compact-header', key: 'active-start', element: <View style={{ height: 12 }} /> });
+    const appendSessions = (rows: SessionRowData[], showLocation: boolean, bottom: number) => {
+        rows.forEach((session, index) => items.push({
+            type: 'compact-session',
+            key: `session-${session.id}`,
+            session,
+            showLocation,
+            showBorder: !showLocation && index < rows.length - 1,
+            marginBottom: index === rows.length - 1 ? bottom : 0,
+        }));
+    };
+    if (partitionedSessions.pinned.length > 0) {
+        items.push({
+            type: 'compact-header', key: 'pinned-header',
+            element: <Text style={styles.timeGroupLabel} testID="session-pinned-group">{t('sessionSearch.sections.pinned')}</Text>,
+        });
+        appendSessions(partitionedSessions.pinned, true, 10);
+    }
+    if (layoutMode === 'projects') {
+        machineGroups.forEach((machineGroup) => {
+            if (hasMultipleMachines) {
+                items.push({
+                    type: 'compact-header', key: `machine-${machineGroup.machineId}`,
+                    element: <MachineSeparator machineName={machineGroup.machineName} machineId={machineGroup.machineId} />,
+                });
+            }
+            machineGroup.projects.forEach((projectGroup) => {
+                const firstSession = projectGroup.sessions[0];
+                if (!firstSession) return;
+                const expanded = isSidebarGroupExpanded(sidebarGroupExpansion, 'projects', projectGroup.key, true);
+                const selectedSession = selectedSessionId
+                    ? projectGroup.sessions.find((candidate) => candidate.id === selectedSessionId)
+                    : null;
+                const activitySession = selectedSession ?? projectGroup.sessions.find((candidate) => (
+                    candidate.state === 'permission_required' || candidate.state === 'running' || candidate.hasUnread
+                ));
+                const activity = activitySession ? {
+                    color: activitySession.hasUnread && activitySession.state === 'idle'
+                        ? theme.colors.accent : STATUS_CONFIG[activitySession.state].dotColor,
+                    isPulsing: STATUS_CONFIG[activitySession.state].isPulsing,
+                    label: `${getSessionStateLabel(activitySession.state)}${activitySession.isConnected ? '' : ` · ${t('status.disconnected')}`}`,
+                    textColor: STATUS_CONFIG[activitySession.state].color,
+                } : null;
+                items.push({
+                    type: 'compact-header', key: `project-${projectGroup.key}`,
+                    element: <ProjectSectionHeader
+                        activity={activity}
+                        current={projectGroup.key === selectedProjectKey}
+                        session={firstSession}
+                        displayPath={projectGroup.displayPath}
+                        expanded={expanded}
+                        machineId={machineGroup.machineId}
+                        path={projectGroup.path}
+                        onCreateSession={() => router.navigate('/new')}
+                        onToggle={() => toggleProject(projectGroup.key)}
+                        testID={`sidebar-project-toggle-${projectGroup.key}`}
+                    />,
+                });
+                if (expanded) appendSessions(projectGroup.sessions, false, 4);
+            });
+        });
+    } else {
+        timeGroups.forEach((group) => {
+            items.push({
+                type: 'compact-header', key: `time-${group.key}`,
+                element: <Text style={styles.timeGroupLabel} testID={`session-time-group-${group.dayOffset}`}>{getTimeGroupLabel(group.dayOffset)}</Text>,
+            });
+            appendSessions(group.sessions, true, 10);
+        });
+    }
+    items.push({ type: 'compact-header', key: 'active-end', element: <View style={{ height: 12 }} /> });
+    return items;
+}
 
-                            return (
-                                <View
-                                    key={projectGroup.key}
-                                    style={[
-                                        styles.projectGroupWrapper,
-                                        {
-                                            zIndex: ((machineGroups.length - machineIndex) * 1000)
-                                                + (machineGroup.projects.length - projectIndex),
-                                        },
-                                    ]}
-                                >
-                                    <ProjectSectionHeader
-                                        activity={activity}
-                                        current={current}
-                                        session={firstSession}
-                                        displayPath={projectGroup.displayPath}
-                                        expanded={expanded}
-                                        machineId={machineGroup.machineId}
-                                        path={projectGroup.path}
-                                        onCreateSession={() => router.navigate('/new')}
-                                        onToggle={() => toggleProject(projectGroup.key)}
-                                        testID={`sidebar-project-toggle-${projectGroup.key}`}
-                                    />
-                                    {expanded ? (
-                                        <View style={styles.projectSessions} testID={`sidebar-project-sessions-${projectGroup.key}`}>
-                                            {projectGroup.sessions.map((session, index) => (
-                                                <CompactSessionRow
-                                                    key={session.id}
-                                                    session={session}
-                                                    selected={selectedSessionId === session.id}
-                                                    bulkSelected={selectedIds?.has(session.id) ?? false}
-                                                    selectionMode={selectionMode}
-                                                    showBorder={index < projectGroup.sessions.length - 1}
-                                                    onStartSelection={onStartSelection}
-                                                    onToggleSelection={onToggleSelection}
-                                                />
-                                            ))}
-                                        </View>
-                                    ) : null}
-                                </View>
-                            );
-                        })}
-                    </React.Fragment>
-                );
-            }) : timeGroups.map((timeGroup) => (
-                <View key={timeGroup.key} style={styles.timeGroup} testID={`session-time-group-${timeGroup.dayOffset}`}>
-                    <Text style={styles.timeGroupLabel}>{getTimeGroupLabel(timeGroup.dayOffset)}</Text>
-                    {timeGroup.sessions.map((session) => (
-                        <CompactSessionRow
-                            key={session.id}
-                            session={session}
-                            selected={selectedSessionId === session.id}
-                            bulkSelected={selectedIds?.has(session.id) ?? false}
-                            selectionMode={selectionMode}
-                            showLocation
-                            onStartSelection={onStartSelection}
-                            onToggleSelection={onToggleSelection}
-                        />
-                    ))}
-                </View>
-            ))}
+// Headers and individual sessions are data items at the outer FlatList level,
+// so expanding a large project never mounts its entire session tree at once.
+export type CompactSessionListItem =
+    | { type: 'compact-header'; key: string; element: React.ReactElement }
+    | { type: 'compact-session'; key: string; session: SessionRowData; showLocation: boolean; showBorder: boolean; marginBottom: number };
+
+export function CompactSessionListRow({ item, ...props }: Omit<ActiveSessionsGroupProps, 'sessions' | 'layoutMode'> & { item: CompactSessionListItem }) {
+    if (item.type === 'compact-header') return item.element;
+    return (
+        <View style={{ marginBottom: item.marginBottom }}>
+            <CompactSessionRow
+                session={item.session}
+                selected={props.selectedSessionId === item.session.id}
+                bulkSelected={props.selectedIds?.has(item.session.id) ?? false}
+                selectionMode={props.selectionMode}
+                showLocation={item.showLocation}
+                showBorder={item.showBorder}
+                onStartSelection={props.onStartSelection}
+                onToggleSelection={props.onToggleSelection}
+            />
         </View>
     );
+}
+
+export function ActiveSessionsGroupCompact(props: ActiveSessionsGroupProps) {
+    const items = useActiveSessionListItems(props);
+    return <View style={{ backgroundColor: stylesheet.container.backgroundColor }}>
+        {items.map(item => <CompactSessionListRow key={item.key} item={item} {...props} />)}
+    </View>;
 }
 
 // Compact Codex-style session row. Runtime status stays visible while actions

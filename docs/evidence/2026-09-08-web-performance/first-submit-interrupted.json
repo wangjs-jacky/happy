@@ -1,0 +1,12 @@
+{
+  "before": {
+    "phase": "spawning",
+    "text": "Refresh during isolated session creation."
+  },
+  "after": {
+    "phase": "failed",
+    "failure": "interrupted",
+    "text": "Refresh during isolated session creation.",
+    "presented": "Refresh during isolated session creation."
+  }
+}

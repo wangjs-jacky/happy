@@ -1,0 +1,95 @@
+{
+  "before": {
+    "data": 352,
+    "inverted": false,
+    "top": 46552,
+    "height": 54148,
+    "client": 586,
+    "wire": 352,
+    "oldest": 249,
+    "newest": 600,
+    "older": true,
+    "newer": false,
+    "latest": true,
+    "visible": [
+      {
+        "text": "Image history 542: keep ",
+        "top": -4
+      },
+      {
+        "text": "Image history 543: keep ",
+        "top": 112
+      },
+      {
+        "text": "Image history 545: keep ",
+        "top": 402
+      },
+      {
+        "text": "Image history 546: keep ",
+        "top": 518
+      }
+    ]
+  },
+  "away": {
+    "data": 352,
+    "inverted": false,
+    "top": 42548,
+    "height": 53656,
+    "client": 586,
+    "wire": 352,
+    "oldest": 249,
+    "newest": 600,
+    "older": true,
+    "newer": false,
+    "latest": true,
+    "visible": [
+      {
+        "text": "Image history 517: keep ",
+        "top": 24
+      },
+      {
+        "text": "Image history 518: keep ",
+        "top": 140
+      },
+      {
+        "text": "Image history 519: keep ",
+        "top": 256
+      },
+      {
+        "text": "Image history 521: keep ",
+        "top": 546
+      }
+    ]
+  },
+  "final": {
+    "data": 352,
+    "inverted": false,
+    "top": 53070,
+    "height": 53656,
+    "client": 586,
+    "wire": 352,
+    "oldest": 249,
+    "newest": 600,
+    "older": true,
+    "newer": false,
+    "latest": true,
+    "visible": [
+      {
+        "text": "Image history 595: keep ",
+        "top": -82
+      },
+      {
+        "text": "Image history 597: keep ",
+        "top": 208
+      },
+      {
+        "text": "Image history 598: keep ",
+        "top": 324
+      },
+      {
+        "text": "Image history 599: keep ",
+        "top": 440
+      }
+    ]
+  }
+}
