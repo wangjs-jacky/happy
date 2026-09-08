@@ -1167,6 +1167,15 @@ describe('CodexAppServerClient sandbox integration', () => {
                         });
                     }, 0);
                 }
+
+                if (msg.method === 'thread/delete' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {},
+                        });
+                    }, 0);
+                }
             },
         });
         mockSpawn.mockImplementation(() => proc);
@@ -1180,6 +1189,8 @@ describe('CodexAppServerClient sandbox integration', () => {
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'workspace-write',
+            lastTurnId: 'turn-complete',
+            deferGoalContinuation: true,
         });
         const read = await client.readThread({ threadId: forked.threadId, includeTurns: true });
         const rolledBack = await client.rollbackThread({ threadId: forked.threadId, numTurns: 2 });
@@ -1191,16 +1202,20 @@ describe('CodexAppServerClient sandbox integration', () => {
                 content: [{ type: 'input_text', text: 'hello' }],
             }],
         });
+        const deleted = await client.deleteThread({ threadId: forked.threadId });
 
         expect(forked.threadId).toBe('thread-forked');
         expect(read.thread.turns).toHaveLength(1);
         expect(rolledBack.thread.turns).toHaveLength(1);
         expect(injected).toEqual({});
+        expect(deleted).toEqual({});
         expect(requests.find((msg) => msg.method === 'thread/fork')?.params).toEqual(expect.objectContaining({
             threadId: 'thread-source',
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'workspace-write',
+            lastTurnId: 'turn-complete',
+            deferGoalContinuation: true,
         }));
         expect(requests.find((msg) => msg.method === 'thread/read')?.params).toEqual({
             threadId: 'thread-forked',
@@ -1217,6 +1232,9 @@ describe('CodexAppServerClient sandbox integration', () => {
                 role: 'user',
                 content: [{ type: 'input_text', text: 'hello' }],
             }],
+        });
+        expect(requests.find((msg) => msg.method === 'thread/delete')?.params).toEqual({
+            threadId: 'thread-forked',
         });
 
         await client.disconnect();
