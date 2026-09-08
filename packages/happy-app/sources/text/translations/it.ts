@@ -673,7 +673,7 @@ export const it: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'Cronologia sessioni',
-        failedToLoad: 'Impossibile caricare la cronologia delle sessioni',
+        failedToLoadMore: 'Impossibile caricare altra cronologia delle sessioni',
         empty: 'Nessuna sessione trovata',
         archiveTitle: 'Sessioni archiviate',
         archiveEmpty: 'Nessuna sessione archiviata',

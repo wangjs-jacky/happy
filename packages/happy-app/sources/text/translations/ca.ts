@@ -675,7 +675,7 @@ export const ca: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'Historial de sessions',
-        failedToLoad: "No s'ha pogut carregar l'historial de sessions",
+        failedToLoadMore: "No s'ha pogut carregar més historial de sessions",
         empty: 'No s\'han trobat sessions',
         archiveTitle: 'Sessions arxivades',
         archiveEmpty: 'No hi ha sessions arxivades',

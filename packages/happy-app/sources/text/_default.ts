@@ -794,7 +794,7 @@ export const en = {
     sessionHistory: {
         // Used by session history screen
         title: 'Session History',
-        failedToLoad: 'Failed to load session history',
+        failedToLoadMore: 'Failed to load more session history',
         empty: 'No sessions found',
         archiveTitle: 'Archived Sessions',
         archiveEmpty: 'No archived sessions',
