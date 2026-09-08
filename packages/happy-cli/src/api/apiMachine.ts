@@ -35,6 +35,7 @@ import {
     forkCodexThread,
     listCodexRewindPoints,
 } from '@/codex/codexThreadFork';
+import { isTerminalCodexTurn } from '@/codex/utils/sessionProtocolMapper';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -139,6 +140,14 @@ async function withSharedCodexAppServerClient<T>(handler: (client: CodexAppServe
         return await handler(client);
     } finally {
         await client.disconnect();
+    }
+}
+
+async function deleteFailedCodexTakeoverFork(threadId: string): Promise<void> {
+    try {
+        await withCodexAppServerClient((client) => client.deleteThread({ threadId }));
+    } catch (error) {
+        logger.debug('[API MACHINE] Failed to delete unused Codex takeover fork', error);
     }
 }
 
@@ -282,27 +291,46 @@ export class ApiMachineClient {
                 throw new Error('Codex Desktop thread is no longer available for attachment');
             }
 
-            const forked = await withCodexAppServerClient((client) => forkCodexThread(client, {
-                threadId: candidate.threadId,
-                cwd: candidate.directory,
-            }));
-
-            const result = await spawnSession({
-                directory: candidate.directory,
-                agent: 'codex',
-                resumeCodexThreadId: forked.newCodexThreadId,
-                environmentVariables: {
-                    // Resume the fork through the normal private app-server.
-                    // The Desktop-owned source can keep its active writer while
-                    // Paws exclusively owns and continues the copied history.
-                    HAPPY_IMPORTED_SESSION_TITLE: candidate.title.slice(0, 200),
-                },
+            const forked = await withCodexAppServerClient(async (client) => {
+                const { thread } = await client.readThread({
+                    threadId: candidate.threadId,
+                    includeTurns: true,
+                });
+                const latestTurn = (thread.turns ?? []).at(-1);
+                if (latestTurn && !isTerminalCodexTurn(latestTurn)) {
+                    throw new Error('Codex Desktop thread is still running; wait for the current response to finish and try again');
+                }
+                return forkCodexThread(client, {
+                    threadId: candidate.threadId,
+                    cwd: candidate.directory,
+                    ...(latestTurn ? { lastTurnId: latestTurn.id } : {}),
+                    deferGoalContinuation: true,
+                });
             });
+
+            let result: SpawnSessionResult;
+            try {
+                result = await spawnSession({
+                    directory: candidate.directory,
+                    agent: 'codex',
+                    resumeCodexThreadId: forked.newCodexThreadId,
+                    environmentVariables: {
+                        // Resume the fork through the normal private app-server.
+                        // The Desktop-owned source can keep its active writer while
+                        // Paws exclusively owns and continues the copied history.
+                        HAPPY_IMPORTED_SESSION_TITLE: candidate.title.slice(0, 200),
+                    },
+                });
+            } catch (error) {
+                await deleteFailedCodexTakeoverFork(forked.newCodexThreadId);
+                throw error;
+            }
 
             if (result.type === 'success') {
                 await this.codexAttachCandidates.markAttached(threadId);
                 return result;
             }
+            await deleteFailedCodexTakeoverFork(forked.newCodexThreadId);
             if (result.type === 'requestToApproveDirectoryCreation') {
                 throw new Error('Codex Desktop thread directory is no longer available');
             }

@@ -134,6 +134,7 @@ export type Thread = {
 
 export type ForkConversationParams = {
     threadId: ThreadId;
+    lastTurnId?: string | null;
     model?: string | null;
     modelProvider?: string | null;
     cwd?: string | null;
@@ -144,6 +145,7 @@ export type ForkConversationParams = {
     developerInstructions?: string | null;
     ephemeral?: boolean;
     threadSource?: unknown | null;
+    deferGoalContinuation?: boolean;
 };
 
 export type ForkConversationResponse = {
@@ -155,6 +157,12 @@ export type ForkConversationResponse = {
     sandbox?: unknown;
     reasoningEffort?: ReasoningEffort | null;
 };
+
+export type DeleteConversationParams = {
+    threadId: ThreadId;
+};
+
+export type DeleteConversationResponse = Record<string, never>;
 
 export type ReadConversationParams = {
     threadId: ThreadId;

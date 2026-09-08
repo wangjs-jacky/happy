@@ -14,11 +14,13 @@ export type CodexForkResult = {
 type CodexForkClient = {
     forkThread: (opts: {
         threadId: string;
+        lastTurnId?: string;
         cwd?: string;
         model?: string;
         approvalPolicy?: any;
         sandbox?: any;
         mcpServers?: Record<string, unknown>;
+        deferGoalContinuation?: boolean;
     }) => Promise<{ threadId: string; thread: Thread }>;
     rollbackThread: (opts: { threadId: string; numTurns: number }) => Promise<{ thread: Thread }>;
     injectItems: (opts: { threadId: string; items: unknown[] }) => Promise<unknown>;
@@ -97,6 +99,7 @@ export async function forkCodexThread(
     client: CodexForkClient,
     opts: {
         threadId: string;
+        lastTurnId?: string;
         cwd?: string;
         cutAfterItemId?: string;
         retainSelectedTurn?: boolean;
@@ -104,15 +107,20 @@ export async function forkCodexThread(
         approvalPolicy?: any;
         sandbox?: any;
         mcpServers?: Record<string, unknown>;
+        deferGoalContinuation?: boolean;
     },
 ): Promise<CodexForkResult> {
     const forked = await client.forkThread({
         threadId: opts.threadId,
+        ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.approvalPolicy ? { approvalPolicy: opts.approvalPolicy } : {}),
         ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
         ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}),
+        ...(opts.deferGoalContinuation !== undefined
+            ? { deferGoalContinuation: opts.deferGoalContinuation }
+            : {}),
     });
 
     if (opts.cutAfterItemId) {

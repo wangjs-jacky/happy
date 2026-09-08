@@ -30,6 +30,8 @@ import type {
     ResumeConversationResponse,
     ForkConversationParams,
     ForkConversationResponse,
+    DeleteConversationParams,
+    DeleteConversationResponse,
     ReadConversationParams,
     ReadConversationResponse,
     ThreadListParams,
@@ -1289,15 +1291,18 @@ export class CodexAppServerClient {
 
     async forkThread(opts: {
         threadId: string;
+        lastTurnId?: string;
         model?: string;
         cwd?: string;
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
+        deferGoalContinuation?: boolean;
     }): Promise<{ threadId: string; model: string; thread: Thread }> {
         const defaults = this.threadDefaults ?? {};
         const params: ForkConversationParams = {
             threadId: opts.threadId,
+            ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
             model: opts.model ?? defaults.model ?? null,
             modelProvider: null,
             cwd: opts.cwd ?? defaults.cwd ?? process.cwd(),
@@ -1308,6 +1313,7 @@ export class CodexAppServerClient {
             developerInstructions: null,
             ephemeral: false,
             threadSource: null,
+            deferGoalContinuation: opts.deferGoalContinuation,
         };
 
         const result = await this.request('thread/fork', params) as ForkConversationResponse;
@@ -1333,6 +1339,10 @@ export class CodexAppServerClient {
             includeTurns: opts.includeTurns ?? true,
         };
         return await this.request('thread/read', params) as ReadConversationResponse;
+    }
+
+    async deleteThread(opts: DeleteConversationParams): Promise<DeleteConversationResponse> {
+        return await this.request('thread/delete', opts) as DeleteConversationResponse;
     }
 
     async listThreads(opts: ThreadListParams = {}): Promise<ThreadListResponse> {
