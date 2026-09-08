@@ -3,6 +3,26 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createBrowserStepReporter, registerBrowserStepTool } from './startHappyServer';
 
 describe('Claude Happy MCP browser-step producer', () => {
+    it('rejects shared Ego screenshot paths before they can upload another task\'s pixels', async () => {
+        const uploaded: string[] = [];
+        const events: unknown[][] = [];
+        const report = createBrowserStepReporter({
+            async uploadImageAttachment(path: string) {
+                uploaded.push(path);
+                return { ref: 'wrong-task', name: 'shot.png', size: 1, dims: null, motionPhoto: null };
+            },
+            sendFileEvent: (...args: unknown[]) => { events.push(args); },
+        } as never);
+
+        for (const path of ['/tmp/ego-browser-shot-86506-1.png', '/tmp/ego-browser-shot-23-12.jpeg']) {
+            const result = await report({ path, label: 'Verified Paws', runId: 'paws-run', skillName: 'ego-browser' });
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/captureVerifiedBrowserStep/);
+        }
+        expect(uploaded).toEqual([]);
+        expect(events).toEqual([]);
+    });
+
     it('forwards optional stable run metadata from the MCP tool to the reporter', async () => {
         let handler: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
         const server = {
