@@ -17,7 +17,7 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { BROWSER_STEP_TOOL_DESCRIPTION } from "@/browser/browserStepReportingPrompt";
+import { BROWSER_STEP_TOOL_DESCRIPTION, BROWSER_STEP_CAPTURE_MODULE_URL } from "@/browser/browserStepReportingPrompt";
 import { configuration } from "@/configuration";
 import { fetchFinanceChart } from "@/finance/financeChart";
 import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
@@ -86,6 +86,9 @@ export function createBrowserStepReporter(client: Pick<ApiSessionClient, 'upload
     return async (input) => {
         logger.debug('[happyMCP] Reporting browser step:', input.label, input.path);
         try {
+            if (/^ego-browser-shot-\d+-\d+\.(png|jpe?g)$/i.test(basename(input.path))) {
+                throw new Error('Shared Ego screenshot files can be overwritten by another task. Recapture with captureVerifiedBrowserStep from ' + BROWSER_STEP_CAPTURE_MODULE_URL + ' inside the same Ego round; report its unique path. Do not rename or copy the shared file.');
+            }
             const uploaded = await client.uploadImageAttachment(input.path);
             client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
                 source: 'browser_step',
