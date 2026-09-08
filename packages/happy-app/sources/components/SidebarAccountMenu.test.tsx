@@ -207,6 +207,28 @@ describe('SidebarAccountMenu', () => {
         expect(mocks.triggerFocus).not.toHaveBeenCalled();
     });
 
+    it('focuses the trigger before opening desktop settings so modal close can restore it', () => {
+        const events: string[] = [];
+        const onOpenSettings = vi.fn(() => events.push('open-settings'));
+        mocks.triggerFocus.mockImplementation(() => events.push('focus-trigger'));
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarAccountMenu
+                    displayName="Paws User"
+                    onNavigate={mocks.navigate}
+                    onOpenChange={vi.fn()}
+                    onOpenSettings={onOpenSettings}
+                    open
+                    profile={profile}
+                />,
+            );
+        });
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
+
+        expect(events).toEqual(['focus-trigger', 'open-settings']);
+    });
+
     it('opens usage in a dialog without navigating away', () => {
         const onOpenChange = vi.fn();
         function UsageDialogHarness() {

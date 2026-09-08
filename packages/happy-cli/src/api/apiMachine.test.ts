@@ -5,6 +5,10 @@ import type { ComponentObservation } from '@slopus/happy-wire';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
 import { createProcessRunner } from '@/environment/processRunner';
 import { createGitHubCliAdapter } from '@/environment/githubCliAdapter';
+import { createPawsCliAdapter } from '@/environment/pawsCliAdapter';
+import { createEgoBrowserAdapter } from '@/environment/egoBrowserAdapter';
+import { createWranglerAdapter } from '@/environment/wranglerAdapter';
+import { createCloudflaredAdapter } from '@/environment/cloudflaredAdapter';
 import { createEnvironmentService } from '@/environment/environmentService';
 import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
 
@@ -95,11 +99,13 @@ vi.mock('@/environment/githubCliAdapter', async (importOriginal) => {
             let state: ComponentObservation = {
                 componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
                 installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
-                packageManager: { kind: 'homebrew', available: true, stableVersion: '2.80.0' },
+                source: { kind: 'homebrew', available: true, latestVersion: '2.80.0', ownership: 'verified' },
+                capability: 'alignable', details: { kind: 'github-cli' },
                 authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: Date.now(),
             };
             return {
                 id: 'github-cli',
+                alignment: 'supported',
                 inspect: async () => structuredClone(state),
                 plan: actual.createGitHubCliAdapter(deps).plan,
                 apply: async () => {
@@ -109,6 +115,26 @@ vi.mock('@/environment/githubCliAdapter', async (importOriginal) => {
             };
         }),
     };
+});
+
+vi.mock('@/environment/pawsCliAdapter', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/pawsCliAdapter')>();
+    return { ...actual, createPawsCliAdapter: vi.fn(actual.createPawsCliAdapter) };
+});
+
+vi.mock('@/environment/egoBrowserAdapter', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/egoBrowserAdapter')>();
+    return { ...actual, createEgoBrowserAdapter: vi.fn(actual.createEgoBrowserAdapter) };
+});
+
+vi.mock('@/environment/wranglerAdapter', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/wranglerAdapter')>();
+    return { ...actual, createWranglerAdapter: vi.fn(actual.createWranglerAdapter) };
+});
+
+vi.mock('@/environment/cloudflaredAdapter', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/environment/cloudflaredAdapter')>();
+    return { ...actual, createCloudflaredAdapter: vi.fn(actual.createCloudflaredAdapter) };
 });
 
 vi.mock('@/environment/environmentService', async (importOriginal) => {
@@ -282,6 +308,31 @@ describe('ApiMachineClient socket reconnection', () => {
                 runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
                 env: process.env, platform: process.platform, architecture: process.arch,
                 resolveExecutable: expect.any(Function), resolveRealpath: expect.any(Function), now: expect.any(Function),
+            }));
+            expect(vi.mocked(createEnvironmentService).mock.calls[0]?.[0].map((adapter) => adapter.id)).toEqual([
+                'github-cli', 'paws-cli', 'ego-browser', 'cloudflare-wrangler', 'cloudflared',
+            ]);
+            expect(createPawsCliAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
+                env: process.env, platform: process.platform, architecture: process.arch,
+                resolveExecutable: expect.any(Function), resolveRealpath: expect.any(Function), now: expect.any(Function),
+            }));
+            expect(createEgoBrowserAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
+                env: process.env, homeDirectory: expect.any(String), platform: process.platform,
+                architecture: process.arch, resolveExecutable: expect.any(Function),
+                readPlistValue: expect.any(Function), now: expect.any(Function),
+            }));
+            expect(createWranglerAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
+                env: process.env, platform: process.platform, architecture: process.arch,
+                resolveExecutable: expect.any(Function), now: expect.any(Function),
+            }));
+            expect(createCloudflaredAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                runner: vi.mocked(createProcessRunner).mock.results[0]?.value,
+                env: process.env, homeDirectory: expect.any(String), platform: process.platform,
+                architecture: process.arch, resolveExecutable: expect.any(Function),
+                pathExists: expect.any(Function), now: expect.any(Function),
             }));
         } finally {
             client.shutdown();

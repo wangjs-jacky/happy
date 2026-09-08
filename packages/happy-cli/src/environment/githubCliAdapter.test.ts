@@ -41,8 +41,10 @@ function observation(installedVersion: string | null, stableVersion: string | nu
     installed: installedVersion !== null,
     installedVersion,
     resolvedExecutable: installedVersion === null ? null : '/opt/homebrew/bin/gh',
-    packageManager: { kind: 'homebrew', available: true, stableVersion },
+    source: { kind: 'homebrew', available: true, latestVersion: stableVersion, ownership: 'verified' },
+    capability: 'alignable',
     authentication: { provider: 'github.com', status: 'authenticated' },
+    details: { kind: 'github-cli' },
     inspectedAt: 1_000,
   };
 }
@@ -112,9 +114,13 @@ describe('GitHub CLI environment adapter', () => {
 
     const observed = await adapter.inspect();
 
-    expect(observed.installedVersion).toBe('2.80.0');
-    expect(observed.packageManager.stableVersion).toBe('2.80.0');
-    expect(observed.authentication.status).toBe('authenticated');
+    expect(observed).toMatchObject({
+      installedVersion: '2.80.0',
+      source: { kind: 'homebrew', available: true, latestVersion: '2.80.0', ownership: 'verified' },
+      capability: 'alignable',
+      details: { kind: 'github-cli' },
+    });
+    expect(observed.authentication?.status).toBe('authenticated');
     expect(JSON.stringify(observed)).not.toContain('private-user');
     expect(observed.inspectedAt).toBe(1_000);
     expect(deps.invocations.map(({ executable, args }) => [executable, args])).toEqual([
@@ -165,7 +171,7 @@ describe('GitHub CLI environment adapter', () => {
     expect(adapter.plan(desired('2.80.0'), observation('2.79.0', '2.81.0'), 1_000).planFingerprint).not.toBe(baseline);
     expect(adapter.plan(desired('2.80.0'), {
       ...observation('2.79.0', '2.80.0'),
-      packageManager: { kind: 'homebrew', available: false, stableVersion: '2.80.0' },
+      source: { kind: 'homebrew', available: false, latestVersion: '2.80.0', ownership: 'verified' },
     }, 1_000).planFingerprint).not.toBe(baseline);
   });
 

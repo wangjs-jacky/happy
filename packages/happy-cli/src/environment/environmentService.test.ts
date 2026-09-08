@@ -9,17 +9,20 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import type { EnvironmentComponentAdapter } from './componentAdapter';
 import { createGitHubCliAdapter } from './githubCliAdapter';
+import { createPawsCliAdapter } from './pawsCliAdapter';
 import type { ProcessResult } from './processRunner';
 import { createEnvironmentService } from './environmentService';
 
 const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: '2.80.0' };
 const success: ProcessResult = { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+type GitHubObservation = Extract<ComponentObservation, { componentId: 'github-cli' }>;
 
-function adapterFixture(overrides: Partial<ComponentObservation> = {}) {
-  let state: ComponentObservation = {
+function adapterFixture(overrides: Partial<GitHubObservation> = {}) {
+  let state: GitHubObservation = {
     componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
     installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
-    packageManager: { kind: 'homebrew', available: true, stableVersion: '2.80.0' },
+    source: { kind: 'homebrew', available: true, latestVersion: '2.80.0', ownership: 'verified' },
+    capability: 'alignable', details: { kind: 'github-cli' },
     authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: 100_000,
     ...overrides,
   };
@@ -31,6 +34,7 @@ function adapterFixture(overrides: Partial<ComponentObservation> = {}) {
   });
   const adapter = {
     id: 'github-cli' as const,
+    alignment: 'supported' as const,
     inspect: vi.fn(async () => structuredClone(state)),
     plan: vi.fn(planner.plan),
     apply: vi.fn(async (plan: ComponentPlan) => {
@@ -38,7 +42,7 @@ function adapterFixture(overrides: Partial<ComponentObservation> = {}) {
       return success;
     }),
   } satisfies EnvironmentComponentAdapter;
-  return { adapter, setState: (patch: Partial<ComponentObservation>) => { state = { ...state, ...patch }; } };
+  return { adapter, setState: (patch: Partial<GitHubObservation>) => { state = { ...state, ...patch }; } };
 }
 
 function serviceWithAdapter(adapter: EnvironmentComponentAdapter, now = () => 100_000) {
@@ -52,11 +56,131 @@ async function validApplyRequest(service: ReturnType<typeof createEnvironmentSer
 }
 
 describe('environment service authorization and verification', () => {
+  it.each(['install-failed', 'verification-failed'] as const)('returns Paws-specific safe guidance after %s', async (failure) => {
+    const observed: ComponentObservation = { componentId: 'paws-cli', platform: 'darwin', architecture: 'arm64',
+      support: 'supported', installed: true, installedVersion: '1.3.5', resolvedExecutable: '/opt/npm/bin/paws',
+      source: { kind: 'npm-global', available: true, latestVersion: '1.3.6', ownership: 'verified' },
+      capability: 'alignable', details: { kind: 'paws-cli' }, inspectedAt: 100_000 };
+    const planner = createPawsCliAdapter({ runner: { run: async () => success }, resolveExecutable: async () => null,
+      resolveRealpath: async () => null, env: {}, platform: 'darwin', architecture: 'arm64', now: () => 100_000 });
+    const service = serviceWithAdapter({ ...planner, inspect: async () => observed,
+      apply: async () => ({ exitCode: failure === 'install-failed' ? 1 : 0, stdout: 'PRIVATE_OUTPUT', stderr: 'PRIVATE_ERROR', timedOut: false }) });
+    const pawsDesired: DesiredComponentState = { componentId: 'paws-cli', targetVersion: '1.3.6' };
+    const preview = await service.inspect({ componentIds: ['paws-cli'], desired: pawsDesired });
+    const applied = await service.apply({ desired: pawsDesired, plan: preview.plans![0], approvedAt: 100_000 });
+    expect(applied.result).toMatchObject({ status: 'failed', reasonCode: failure,
+      repairGuide: { commands: ['paws --version', 'command -v paws', 'npm prefix -g'] } });
+    expect(JSON.stringify(applied)).not.toMatch(/PRIVATE_|brew|\bgh\b/);
+    EnvironmentApplyResponseSchema.parse(applied);
+  });
   it('previews observations without requiring a desired version', async () => {
     const { adapter } = adapterFixture();
     const response = await serviceWithAdapter(adapter).inspect({ componentIds: ['github-cli'] });
     expect(response.observations[0]?.installedVersion).toBe('2.79.0');
     expect(response.plans).toBeUndefined();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it('inspects selected adapters concurrently and isolates a failure in requested order', async () => {
+    const started: string[] = [];
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const github = {
+      id: 'github-cli' as const,
+      alignment: 'inspect-only' as const,
+      inspect: async (): Promise<ComponentObservation> => {
+        started.push('github-cli');
+        await firstBlocked;
+        return {
+          componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
+          installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
+          source: { kind: 'homebrew', available: true, latestVersion: '2.80.0', ownership: 'verified' },
+          capability: 'alignable', authentication: { provider: 'github.com', status: 'authenticated' },
+          details: { kind: 'github-cli' }, inspectedAt: 100_000,
+        };
+      },
+    } satisfies EnvironmentComponentAdapter;
+    const paws = {
+      id: 'paws-cli' as const,
+      alignment: 'inspect-only' as const,
+      inspect: async (): Promise<ComponentObservation> => {
+        started.push('paws-cli');
+        throw new Error('PRIVATE_ADAPTER_FAILURE');
+      },
+    } satisfies EnvironmentComponentAdapter;
+    const cloudflared = {
+      id: 'cloudflared' as const,
+      alignment: 'inspect-only' as const,
+      inspect: async (): Promise<ComponentObservation> => {
+        started.push('cloudflared');
+        return {
+          componentId: 'cloudflared', platform: 'darwin', architecture: 'arm64', support: 'supported',
+          installed: true, installedVersion: '2026.8.1', resolvedExecutable: '/opt/homebrew/bin/cloudflared',
+          source: { kind: 'homebrew', available: true, latestVersion: '2026.8.1', ownership: 'not-applicable' },
+          capability: 'inspect-only', details: { kind: 'cloudflared', tunnelCertificatePresent: true },
+          inspectedAt: 100_000,
+        };
+      },
+    } satisfies EnvironmentComponentAdapter;
+    const inspecting = createEnvironmentService([github, paws, cloudflared], () => 100_000, () => {}).inspect({
+      componentIds: ['github-cli', 'paws-cli', 'cloudflared'],
+    });
+    await Promise.resolve();
+    const concurrentlyStarted = [...started];
+    releaseFirst();
+    const response = await inspecting;
+
+    expect(concurrentlyStarted).toEqual(['github-cli', 'paws-cli', 'cloudflared']);
+    expect(response.observations.map((observation) => observation.componentId)).toEqual([
+      'github-cli', 'paws-cli', 'cloudflared',
+    ]);
+    expect(response.observations).toMatchObject([
+      { componentId: 'github-cli', installedVersion: '2.79.0' },
+      {
+        componentId: 'paws-cli', support: 'unsupported', installed: false, installedVersion: null,
+        resolvedExecutable: null, source: { kind: 'none', available: false, latestVersion: null },
+        capability: 'inspect-only', details: { kind: 'paws-cli' }, reasonCode: 'unexpected-error',
+      },
+      { componentId: 'cloudflared', installedVersion: '2026.8.1' },
+    ]);
+    expect(JSON.stringify(response)).not.toContain('PRIVATE_ADAPTER_FAILURE');
+    EnvironmentInspectResponseSchema.parse(response);
+  });
+
+  it('inspects an inspect-only adapter but rejects desired and apply requests without invoking alignment', async () => {
+    const { adapter } = adapterFixture();
+    const inspectOnlyAdapter = {
+      ...adapter,
+      id: 'paws-cli' as const,
+      alignment: 'inspect-only' as const,
+      inspect: vi.fn(async (): Promise<ComponentObservation> => ({
+        componentId: 'paws-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
+        installed: true, installedVersion: '1.3.5', resolvedExecutable: '/custom/bin/paws',
+        source: { kind: 'npm-global', available: true, latestVersion: '1.3.6', ownership: 'unverified' },
+        capability: 'alignable', details: { kind: 'paws-cli' }, inspectedAt: 100_000,
+        reasonCode: 'version-source-mismatch',
+      })),
+      plan: undefined,
+      apply: undefined,
+    } satisfies EnvironmentComponentAdapter;
+    const service = serviceWithAdapter(inspectOnlyAdapter);
+
+    await expect(service.inspect({ componentIds: ['paws-cli'] })).resolves.toMatchObject({
+      observations: [{ componentId: 'paws-cli', installedVersion: '1.3.5' }],
+    });
+    await expect(service.inspect({
+      componentIds: ['paws-cli'],
+      desired: { componentId: 'paws-cli', targetVersion: '1.3.6' },
+    })).rejects.toThrow('does not support alignment');
+    await expect(service.apply({
+      desired: { componentId: 'paws-cli', targetVersion: '1.3.6' },
+      plan: {
+        componentId: 'paws-cli', action: 'upgrade', fromVersion: '1.3.5', targetVersion: '1.3.6',
+        planFingerprint: 'a'.repeat(64), expiresAt: 700_000,
+      },
+      approvedAt: 100_000,
+    })).rejects.toThrow('does not support alignment');
+    expect(adapter.plan).not.toHaveBeenCalled();
     expect(adapter.apply).not.toHaveBeenCalled();
   });
 
@@ -76,7 +200,7 @@ describe('environment service authorization and verification', () => {
   it.each([
     { installedVersion: '2.79.1' },
     { resolvedExecutable: '/custom/bin/gh' },
-    { packageManager: { kind: 'homebrew' as const, available: true, stableVersion: '2.81.0' } },
+    { source: { kind: 'homebrew' as const, available: true, latestVersion: '2.81.0', ownership: 'verified' as const } },
   ])('rejects changed install-critical state: %j', async (patch) => {
     const { adapter, setState } = adapterFixture();
     const service = serviceWithAdapter(adapter);
@@ -142,10 +266,10 @@ describe('environment service authorization and verification', () => {
   });
 
   it.each([
-    { reasonCode: 'homebrew-missing' as const, packageManager: { kind: 'homebrew' as const, available: false, stableVersion: null } },
-    { reasonCode: 'formula-unavailable' as const, packageManager: { kind: 'homebrew' as const, available: true, stableVersion: null } },
+    { reasonCode: 'homebrew-missing' as const, source: { kind: 'homebrew' as const, available: false, latestVersion: null, ownership: 'verified' as const } },
+    { reasonCode: 'formula-unavailable' as const, source: { kind: 'homebrew' as const, available: true, latestVersion: null, ownership: 'verified' as const } },
     { reasonCode: 'version-source-mismatch' as const, resolvedExecutable: '/custom/bin/gh' },
-    { packageManager: { kind: 'homebrew' as const, available: true, stableVersion: '2.81.0' } },
+    { source: { kind: 'homebrew' as const, available: true, latestVersion: '2.81.0', ownership: 'verified' as const } },
     { reasonCode: 'formula-unavailable' as const },
     { support: 'unsupported' as const, reasonCode: 'unsupported-platform' as const },
   ])('rejects exact-target post-inspection with unverified Homebrew state: %j', async (patch) => {

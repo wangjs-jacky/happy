@@ -91,16 +91,16 @@ function fingerprint(desired: DesiredComponentState, observed: ComponentObservat
     targetVersion: desired.targetVersion,
     installedVersion: observed.installedVersion,
     resolvedExecutable: observed.resolvedExecutable,
-    homebrewAvailable: observed.packageManager.available,
-    homebrewStableVersion: observed.packageManager.stableVersion,
+    homebrewAvailable: observed.source.available,
+    homebrewStableVersion: observed.source.latestVersion,
   });
   return createHash('sha256').update(canonicalJson, 'utf8').digest('hex');
 }
 
 function manualRepairReason(observed: ComponentObservation): EnvironmentReasonCode | undefined {
   if (observed.support !== 'supported') return observed.reasonCode ?? 'unexpected-error';
-  if (!observed.packageManager.available) return 'homebrew-missing';
-  if (observed.packageManager.stableVersion === null) return 'formula-unavailable';
+  if (!observed.source.available) return 'homebrew-missing';
+  if (observed.source.latestVersion === null) return 'formula-unavailable';
   if (observed.reasonCode === 'version-source-mismatch') return 'version-source-mismatch';
   if (observed.installed && observed.installedVersion === null) return 'unexpected-error';
   return undefined;
@@ -112,7 +112,7 @@ function planAction(desired: DesiredComponentState, observed: ComponentObservati
 } {
   const unavailableReason = manualRepairReason(observed);
   if (unavailableReason !== undefined) return { action: 'manual-repair', reasonCode: unavailableReason };
-  if (observed.packageManager.stableVersion !== desired.targetVersion) {
+  if (observed.source.latestVersion !== desired.targetVersion) {
     return { action: 'manual-repair', reasonCode: 'version-source-mismatch' };
   }
   const executableAbsent = !observed.installed
@@ -154,9 +154,12 @@ function parseHomebrewFormulaPrefix(stdout: string): string | null {
   return prefix.startsWith('/') ? prefix : null;
 }
 
-export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentComponentAdapter {
+export function createGitHubCliAdapter(
+  deps: GitHubCliAdapterDeps,
+): EnvironmentComponentAdapter & Required<Pick<EnvironmentComponentAdapter, 'plan' | 'apply'>> {
   return {
     id: 'github-cli',
+    alignment: 'supported',
 
     async inspect(): Promise<ComponentObservation> {
       const inspectedAt = deps.now();
@@ -168,8 +171,10 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
         installed: false,
         installedVersion: null,
         resolvedExecutable: null,
-        packageManager: { kind: 'homebrew', available: false, stableVersion: null },
+        source: { kind: 'homebrew', available: false, latestVersion: null, ownership: 'unverified' },
+        capability: 'alignable',
         authentication: { provider: 'github.com', status: 'unknown' },
+        details: { kind: 'github-cli' },
         inspectedAt,
         reasonCode,
       });
@@ -232,8 +237,13 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
         installed: ghPath !== null,
         installedVersion,
         resolvedExecutable: ghPath,
-        packageManager: { kind: 'homebrew', available: brewPath !== null, stableVersion },
+        source: {
+          kind: 'homebrew', available: brewPath !== null, latestVersion: stableVersion,
+          ownership: homebrewOwned ? 'verified' : 'unverified',
+        },
+        capability: 'alignable',
         authentication: { provider: 'github.com', status: authenticationStatus },
+        details: { kind: 'github-cli' },
         inspectedAt,
         ...(brewPath === null ? { reasonCode: 'homebrew-missing' as const }
           : stableVersion === null ? { reasonCode: 'formula-unavailable' as const }
