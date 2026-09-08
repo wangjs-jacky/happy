@@ -2,7 +2,7 @@
 import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ComponentPlan, EnvironmentInspectResponse, EnvironmentApplyResponse } from '@slopus/happy-wire';
+import type { ComponentObservation, ComponentPlan, EnvironmentInspectResponse, EnvironmentApplyResponse } from '@slopus/happy-wire';
 import type { Machine } from '@/sync/storageTypes';
 import { applyMachineEnvironment, inspectMachineEnvironment } from '@/environment/environmentOps';
 import { useDeviceEnvironment, type DeviceEnvironmentController, type DeviceEnvironmentDependencies } from './useDeviceEnvironment';
@@ -21,12 +21,28 @@ function response(action?: ComponentPlan['action'], version = '2.80.0'): Environ
         observations: [{ componentId: 'github-cli', platform: 'darwin', architecture: 'arm64',
             support: 'supported', installed: action !== 'install', installedVersion,
             resolvedExecutable: action === 'install' ? null : '/opt/homebrew/bin/gh',
-            packageManager: { kind: 'homebrew', available: true, stableVersion: version },
+            source: { kind: 'homebrew', available: true, latestVersion: version, ownership: 'verified' },
+            capability: 'alignable', details: { kind: 'github-cli' },
             authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: 1_000_000 }],
         ...(action ? { plans: [{ componentId: 'github-cli', action, fromVersion: installedVersion, targetVersion: version,
             planFingerprint: 'a'.repeat(64), expiresAt: 1_600_000,
             ...(action === 'manual-repair' ? { reasonCode: 'authentication-missing' as const } : {}) }] } : {}),
     };
+}
+
+function multiResponse(action?: ComponentPlan['action'], componentId: 'github-cli' | 'paws-cli' = 'paws-cli'): EnvironmentInspectResponse {
+    const github = response(componentId === 'github-cli' ? action : undefined);
+    const base = github.observations[0];
+    const paws: ComponentObservation = { ...base, componentId: 'paws-cli', capability: 'alignable',
+        details: { kind: 'paws-cli' }, installedVersion: '1.5.0',
+        source: { kind: 'npm-global', available: true, latestVersion: '1.6.0', ownership: 'verified' } };
+    const ego: ComponentObservation = { ...base, componentId: 'ego-browser', capability: 'inspect-only',
+        source: { kind: 'app-managed', available: true, latestVersion: null, ownership: 'not-applicable' },
+        details: { kind: 'ego-browser', appVersion: '1.0.0', chromiumVersion: '120.0.0', nodeVersion: '24.0.0', pathReady: true, paired: true } };
+    return { observations: [ego, paws, base],
+        ...(action ? { plans: componentId === 'github-cli' ? github.plans
+            : [{ componentId: 'paws-cli', action, fromVersion: '1.5.0', targetVersion: '1.6.0',
+                planFingerprint: 'b'.repeat(64), expiresAt: 1_600_000 }] } : {}) };
 }
 
 function success(): EnvironmentApplyResponse {
@@ -101,6 +117,34 @@ describe('useDeviceEnvironment', () => {
         await act(() => controller.preview());
     }
 
+    it('previews and applies verified Paws peers in a mixed-ownership fleet', async () => {
+        inspect.mockImplementation(async (id, request) => {
+            const scanned = multiResponse(request.desired ? 'upgrade' : undefined);
+            if (id === 'unverified') {
+                const paws = scanned.observations.find((entry) => entry.componentId === 'paws-cli')!;
+                paws.capability = 'inspect-only';
+                paws.source.ownership = 'unverified';
+                paws.reasonCode = 'version-source-mismatch';
+            }
+            return scanned;
+        });
+        apply.mockImplementation(async () => {
+            const before = multiResponse().observations[1];
+            return { result: { componentId: 'paws-cli', status: 'succeeded', before,
+                after: { ...before, installedVersion: '1.6.0' }, changed: true } };
+        });
+        mount([machine('verified'), machine('unverified')]);
+        await act(() => controller.scan());
+        act(() => controller.selectComponent('paws-cli'));
+        expect(controller.target).toEqual({ kind: 'ready', targetVersion: '1.6.0' });
+        await act(() => controller.preview('paws-cli'));
+        await act(() => controller.applyApproved('paws-cli'));
+        expect(controller.rows[0].components['paws-cli'].status).toBe('succeeded');
+        expect(controller.rows[1].components['paws-cli'].reasonCode).toBe('version-source-mismatch');
+        expect(inspect.mock.calls.filter(([, request]) => request.desired).map(([id]) => id)).toEqual(['verified']);
+        expect(apply.mock.calls.map(([id]) => id)).toEqual(['verified']);
+    });
+
     it('moves through every phase and sends only the daemon-approved plan', async () => {
         const scan = deferred<EnvironmentInspectResponse>();
         const preview = deferred<EnvironmentInspectResponse>();
@@ -109,7 +153,7 @@ describe('useDeviceEnvironment', () => {
         apply.mockReturnValueOnce(applied.promise);
         mount([machine('air'), machine('offline', false)]);
         expect(controller.phase).toBe('idle');
-        expect(controller.rows.map((row) => row.status)).toEqual(['pending', 'offline']);
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['pending', 'offline']);
         let operation!: Promise<void>;
         act(() => { operation = controller.scan(); });
         expect(controller.phase).toBe('scanning');
@@ -120,15 +164,15 @@ describe('useDeviceEnvironment', () => {
         await act(async () => { preview.resolve(response('upgrade')); await operation; });
         expect(controller.phase).toBe('previewed');
         expect(inspect.mock.calls).toEqual([
-            ['air', { componentIds: ['github-cli'] }],
+            ['air', { componentIds: ['github-cli', 'paws-cli', 'ego-browser', 'cloudflare-wrangler', 'cloudflared'] }],
             ['air', { componentIds: ['github-cli'], desired: { componentId: 'github-cli', targetVersion: '2.80.0' } }],
         ]);
         act(() => { operation = controller.applyApproved(); });
         expect(controller.phase).toBe('applying');
         await act(async () => { applied.resolve(success()); await operation; });
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'offline']);
-        expect(controller.rows[0].observation?.installedVersion).toBe('2.80.0');
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['succeeded', 'offline']);
+        expect(controller.rows[0].components['github-cli'].observation?.installedVersion).toBe('2.80.0');
         expect(apply).toHaveBeenCalledWith('air', { desired: { componentId: 'github-cli', targetVersion: '2.80.0' },
             plan: response('upgrade').plans![0], approvedAt: 1_000_000 });
     });
@@ -146,8 +190,8 @@ describe('useDeviceEnvironment', () => {
         await prepare();
         await act(() => controller.applyApproved());
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'rpc-timeout', 'succeeded', 'manual-repair', 'rpc-error', 'offline']);
-        expect(controller.rows[1]).toMatchObject({ reasonCode: 'rpc-timeout', requiresScan: true });
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['succeeded', 'rpc-timeout', 'succeeded', 'manual-repair', 'rpc-error', 'offline']);
+        expect(controller.rows[1].components['github-cli']).toMatchObject({ reasonCode: 'rpc-timeout', requiresScan: true });
         expect(apply.mock.calls.map(([id]) => id)).toEqual(['ok', 'unknown', 'noop']);
         await act(() => controller.applyApproved());
         await act(() => controller.preview());
@@ -201,8 +245,8 @@ describe('useDeviceEnvironment', () => {
         monotonicTime += kind === 'age' ? 600_001 : 1;
         await act(() => controller.applyApproved());
         expect(controller.phase).toBe('scanned');
-        expect(controller.rows[0]).toMatchObject({ reasonCode: 'plan-stale' });
-        expect(controller.rows[0].plan).toBeUndefined();
+        expect(controller.rows[0].components['github-cli']).toMatchObject({ reasonCode: 'plan-stale' });
+        expect(controller.rows[0].components['github-cli'].plan).toBeUndefined();
         expect(apply).not.toHaveBeenCalled();
     });
 
@@ -226,7 +270,7 @@ describe('useDeviceEnvironment', () => {
         monotonicTime += 600_000;
         await act(() => controller.applyApproved());
         expect(controller.phase).toBe('scanned');
-        expect(controller.rows[0].reasonCode).toBe('plan-stale');
+        expect(controller.rows[0].components['github-cli'].reasonCode).toBe('plan-stale');
         expect(apply).not.toHaveBeenCalled();
     });
 
@@ -253,7 +297,7 @@ describe('useDeviceEnvironment', () => {
         await act(async () => { pending.resolve(response('upgrade')); await operation; });
         await act(() => controller.preview());
         expect(controller.phase).toBe('idle');
-        expect(controller.rows[0].plan).toBeUndefined();
+        expect(controller.rows[0].components['github-cli'].plan).toBeUndefined();
     });
 
     it('ignores old apply results after scan and keeps an in-flight mutation locked across reset', async () => {
@@ -269,7 +313,7 @@ describe('useDeviceEnvironment', () => {
         expect(apply).toHaveBeenCalledTimes(1);
         await act(async () => { pending.resolve(success()); await old; });
         expect(controller.phase).toBe('previewed');
-        expect(controller.rows[0].status).toBe('upgrade');
+        expect(controller.rows[0].components['github-cli'].status).toBe('upgrade');
     });
 
     it('retains an invalid or missing preview plan as an error without synthesizing mutation', async () => {
@@ -277,7 +321,7 @@ describe('useDeviceEnvironment', () => {
         mount();
         await prepare();
         await act(() => controller.applyApproved());
-        expect(controller.rows[0].status).toBe('rpc-error');
+        expect(controller.rows[0].components['github-cli'].status).toBe('rpc-error');
         expect(apply).not.toHaveBeenCalled();
     });
 
@@ -288,7 +332,7 @@ describe('useDeviceEnvironment', () => {
         mount([machine('air', false), machine('new')]);
         await act(() => oldApply());
         expect(controller.phase).toBe('idle');
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([['air', 'offline'], ['new', 'pending']]);
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([['air', 'offline'], ['new', 'pending']]);
         expect(apply).not.toHaveBeenCalled();
         inspect.mockClear();
         await act(() => controller.scan());
@@ -305,7 +349,7 @@ describe('useDeviceEnvironment', () => {
         mount([machine('air', false), machine('new')]);
         await act(async () => { delayed.resolve(response('upgrade')); await pending; });
         expect(controller.phase).toBe('idle');
-        expect(controller.rows.map((row) => row.status)).toEqual(['offline', 'pending']);
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['offline', 'pending']);
         await act(() => controller.applyApproved());
         expect(apply).not.toHaveBeenCalled();
     });
@@ -340,9 +384,9 @@ describe('useDeviceEnvironment', () => {
         mount(['ok', 'failed', 'stale', 'repair'].map((id) => machine(id)));
         await prepare();
         await act(() => controller.applyApproved());
-        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'failed', 'stale-plan', 'manual-repair']);
-        expect(controller.rows[2].requiresScan).toBe(true);
-        expect(controller.rows[3].result?.repairGuide?.commands).toEqual(['gh auth login']);
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['succeeded', 'failed', 'stale-plan', 'manual-repair']);
+        expect(controller.rows[2].components['github-cli'].requiresScan).toBe(true);
+        expect(controller.rows[3].components['github-cli'].result?.repairGuide?.commands).toEqual(['gh auth login']);
     });
 
     it('treats a structured RPC timeout as unknown rather than a failed installation', async () => {
@@ -352,7 +396,7 @@ describe('useDeviceEnvironment', () => {
         mount();
         await prepare();
         await act(() => controller.applyApproved());
-        expect(controller.rows[0]).toMatchObject({ status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true });
+        expect(controller.rows[0].components['github-cli']).toMatchObject({ status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true });
     });
 
     it('preserves a structured local process timeout as a distinct unknown state', async () => {
@@ -362,7 +406,7 @@ describe('useDeviceEnvironment', () => {
         mount();
         await prepare();
         await act(() => controller.applyApproved());
-        expect(controller.rows[0]).toMatchObject({
+        expect(controller.rows[0].components['github-cli']).toMatchObject({
             status: 'process-timeout', reasonCode: 'process-timeout', requiresScan: true,
             result: { status: 'failed', reasonCode: 'process-timeout' },
         });
@@ -377,7 +421,7 @@ describe('useDeviceEnvironment', () => {
         act(() => { pending = controller.scan(); });
         await act(async () => { fast.resolve(response()); });
         expect(controller.phase).toBe('scanning');
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([
             ['slow', 'pending'], ['offline', 'offline'], ['fast', 'ready'],
         ]);
         expect(controller.target).toEqual({ kind: 'ready', targetVersion: '2.80.0' });
@@ -399,16 +443,16 @@ describe('useDeviceEnvironment', () => {
         act(() => { pending = controller.preview(); });
         await act(async () => { fast.resolve(response('upgrade')); });
         expect(controller.phase).toBe('previewing');
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([
             ['slow', 'pending'], ['offline', 'offline'], ['fast', 'upgrade'],
         ]);
-        expect(controller.rows[2].plan).toEqual(response('upgrade').plans![0]);
+        expect(controller.rows[2].components['github-cli'].plan).toEqual(response('upgrade').plans![0]);
         await act(() => controller.applyApproved());
         expect(apply).not.toHaveBeenCalled();
         await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
         expect(controller.phase).toBe('previewed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'upgrade']);
-        expect(controller.rows[0].requiresScan).toBe(true);
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['rpc-timeout', 'offline', 'upgrade']);
+        expect(controller.rows[0].components['github-cli'].requiresScan).toBe(true);
     });
 
     it('publishes each apply result independently and holds the phase and duplicate guard until all settle', async () => {
@@ -419,27 +463,27 @@ describe('useDeviceEnvironment', () => {
         apply.mockImplementation((id) => id === 'slow' ? slow.promise : fast.promise);
         let pending!: Promise<void>;
         act(() => { pending = controller.applyApproved(); });
-        expect(controller.rows[0]).toMatchObject({
-            machineId: 'slow', plan: undefined,
+        expect(controller.rows[0].components['github-cli']).toMatchObject({
+            plan: undefined,
             dispatchedAction: { action: 'upgrade', fromVersion: '2.79.0', targetVersion: '2.80.0' },
         });
         await act(async () => { fast.resolve(success()); });
         expect(controller.phase).toBe('applying');
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([
             ['slow', 'upgrade'], ['offline', 'offline'], ['fast', 'succeeded'],
         ]);
-        expect(controller.rows[0]).toMatchObject({
+        expect(controller.rows[0].components['github-cli']).toMatchObject({
             plan: undefined,
             dispatchedAction: { action: 'upgrade', fromVersion: '2.79.0', targetVersion: '2.80.0' },
         });
-        expect(controller.rows[2].result?.changed).toBe(true);
+        expect(controller.rows[2].components['github-cli'].result?.changed).toBe(true);
         await act(() => controller.applyApproved());
         expect(apply).toHaveBeenCalledTimes(2);
         await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'succeeded']);
-        expect(controller.rows[0].dispatchedAction).toBeUndefined();
-        expect(controller.rows[0]).toMatchObject({ requiresScan: true, reasonCode: 'rpc-timeout' });
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['rpc-timeout', 'offline', 'succeeded']);
+        expect(controller.rows[0].components['github-cli'].dispatchedAction).toBeUndefined();
+        expect(controller.rows[0].components['github-cli']).toMatchObject({ requiresScan: true, reasonCode: 'rpc-timeout' });
     });
 
     it.each(['success', 'timeout'] as const)('retains settled and outstanding apply rows when a device goes offline: %s', async (settlement) => {
@@ -449,14 +493,14 @@ describe('useDeviceEnvironment', () => {
         apply.mockImplementation((id) => id === 'slow' ? slow.promise : Promise.resolve(success()));
         let pending!: Promise<void>;
         await act(async () => { pending = controller.applyApproved(); });
-        expect(controller.rows[0].status).toBe('succeeded');
+        expect(controller.rows[0].components['github-cli'].status).toBe('succeeded');
 
         mount([machine('slow', false), machine('new'), machine('fast'), machine('offline', false)]);
         expect(controller.phase).toBe('applying');
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([
             ['slow', 'offline'], ['new', 'pending'], ['fast', 'succeeded'], ['offline', 'offline'],
         ]);
-        expect(controller.rows.every((row) => row.plan === undefined)).toBe(true);
+        expect(controller.rows.every((row) => row.components['github-cli'].plan === undefined)).toBe(true);
         await act(() => controller.applyApproved());
         await act(() => controller.preview());
         expect(apply).toHaveBeenCalledTimes(2);
@@ -466,16 +510,16 @@ describe('useDeviceEnvironment', () => {
             await pending;
         });
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['offline', 'pending', 'succeeded', 'offline']);
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['offline', 'pending', 'succeeded', 'offline']);
         expect(controller.rows[0].online).toBe(false);
-        if (settlement === 'success') expect(controller.rows[0].result?.status).toBe('succeeded');
-        else expect(controller.rows[0].requiresScan).toBe(true);
-        expect(controller.rows[2].result?.status).toBe('succeeded');
+        if (settlement === 'success') expect(controller.rows[0].components['github-cli'].result?.status).toBe('succeeded');
+        else expect(controller.rows[0].components['github-cli'].requiresScan).toBe(true);
+        expect(controller.rows[2].components['github-cli'].result?.status).toBe('succeeded');
 
         mount([machine('fast'), machine('slow'), machine('new'), machine('offline', false)]);
         expect(controller.phase).toBe('completed');
-        expect(controller.rows[0].status).toBe('succeeded');
-        expect(controller.rows[1].status).toBe(settlement === 'success' ? 'succeeded' : 'rpc-timeout');
+        expect(controller.rows[0].components['github-cli'].status).toBe('succeeded');
+        expect(controller.rows[1].components['github-cli'].status).toBe(settlement === 'success' ? 'succeeded' : 'rpc-timeout');
         await act(() => controller.applyApproved());
         expect(apply).toHaveBeenCalledTimes(2);
     });
@@ -488,10 +532,10 @@ describe('useDeviceEnvironment', () => {
         let pending!: Promise<void>;
         act(() => { pending = controller.applyApproved(); });
         mount([machine('new')]);
-        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([['new', 'pending'], ['air', 'offline']]);
+        expect(controller.rows.map((row) => [row.machineId, row.components['github-cli'].status])).toEqual([['new', 'pending'], ['air', 'offline']]);
         await act(async () => { pendingResult.resolve(success()); await pending; });
         expect(controller.phase).toBe('completed');
-        expect(controller.rows[1]).toMatchObject({ machineId: 'air', online: false, status: 'offline', result: { status: 'succeeded' } });
+        expect(controller.rows[1].components['github-cli']).toMatchObject({ status: 'offline', result: { status: 'succeeded' } });
     });
 
     it.each(['scan', 'preview', 'applyApproved'] as const)('publishes an early %s timeout while another machine is pending', async (operation) => {
@@ -510,7 +554,7 @@ describe('useDeviceEnvironment', () => {
             (operation === 'applyApproved' ? fastApply : fastInspect).reject(new Error('operation has timed out'));
         });
         expect(controller.phase).toBe(operation === 'scan' ? 'scanning' : operation === 'preview' ? 'previewing' : 'applying');
-        expect(controller.rows[1]).toMatchObject({ machineId: 'fast', status: 'rpc-timeout', requiresScan: true });
+        expect(controller.rows[1].components['github-cli']).toMatchObject({ status: 'rpc-timeout', requiresScan: true });
         expect(controller.rows.map((row) => row.machineId)).toEqual(['slow', 'fast', 'offline']);
         await act(async () => {
             if (operation === 'applyApproved') slowApply.resolve(success());
@@ -518,7 +562,7 @@ describe('useDeviceEnvironment', () => {
             await pending;
         });
         expect(controller.phase).toBe(operation === 'scan' ? 'scanned' : operation === 'preview' ? 'previewed' : 'completed');
-        expect(controller.rows[1].status).toBe('rpc-timeout');
+        expect(controller.rows[1].components['github-cli'].status).toBe('rpc-timeout');
     });
 
     it.each(['all-none', 'mixed'] as const)('broadcasts the exact approved %s plans and retains unchanged verification', async (mode) => {
@@ -547,8 +591,271 @@ describe('useDeviceEnvironment', () => {
             plan: plans[index].plans![0], approvedAt: 1_000_000,
         }]));
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'succeeded', 'succeeded', 'offline']);
-        expect(controller.rows.slice(0, 3).map((row) => row.result?.changed))
+        expect(controller.rows.map((row) => row.components['github-cli'].status)).toEqual(['succeeded', 'succeeded', 'succeeded', 'offline']);
+        expect(controller.rows.slice(0, 3).map((row) => row.components['github-cli'].result?.changed))
             .toEqual(mode === 'mixed' ? [false, true, false] : [false, false, false]);
     });
+    it('scans all five IDs once per online machine and maps unordered partial observations by identity', async () => {
+        inspect.mockResolvedValue(multiResponse());
+        mount([machine('air'), machine('offline', false)]);
+        await act(() => controller.scan());
+        expect(inspect.mock.calls).toEqual([['air', {
+            componentIds: ['github-cli', 'paws-cli', 'ego-browser', 'cloudflare-wrangler', 'cloudflared'],
+        }]]);
+        const components = controller.rows[0].components;
+        expect(components['github-cli'].observation?.installedVersion).toBe('2.79.0');
+        expect(components['paws-cli'].observation?.installedVersion).toBe('1.5.0');
+        expect(components['ego-browser'].observation?.details).toMatchObject({ paired: true });
+        expect(components['cloudflared']).toMatchObject({ status: 'rpc-error', requiresScan: true });
+        expect(Object.values(controller.rows[1].components).map((entry) => entry.status))
+            .toEqual(['offline', 'offline', 'offline', 'offline', 'offline']);
+        expect(controller.targets).toEqual({
+            'github-cli': { kind: 'ready', targetVersion: '2.80.0' },
+            'paws-cli': { kind: 'ready', targetVersion: '1.6.0' },
+        });
+    });
+
+    it('previews and applies Paws only, retaining sibling observations through the operation', async () => {
+        inspect.mockImplementation(async (_id, request) => request.desired
+            ? { ...multiResponse('upgrade'), observations: [multiResponse().observations[1]] }
+            : multiResponse());
+        apply.mockImplementation(async (_id, request) => {
+            const before = multiResponse().observations[1];
+            return { result: { componentId: request.desired.componentId, status: 'succeeded', before,
+                after: { ...before, installedVersion: '1.6.0' }, changed: true } };
+        });
+        mount();
+        await act(() => controller.scan());
+        const github = controller.rows[0].components['github-cli'].observation;
+        const ego = controller.rows[0].components['ego-browser'].observation;
+        await act(() => controller.preview('paws-cli'));
+        expect(controller.selectedComponent).toBe('paws-cli');
+        expect(controller.target).toEqual({ kind: 'ready', targetVersion: '1.6.0' });
+        expect(controller.rows[0].components['paws-cli'].plan?.componentId).toBe('paws-cli');
+        await act(() => controller.applyApproved('paws-cli'));
+        expect(inspect.mock.calls[1][1]).toEqual({ componentIds: ['paws-cli'],
+            desired: { componentId: 'paws-cli', targetVersion: '1.6.0' } });
+        expect(apply.mock.calls[0][1].desired).toEqual({ componentId: 'paws-cli', targetVersion: '1.6.0' });
+        expect(controller.rows[0].components['paws-cli']).toMatchObject({ status: 'succeeded', observation: { installedVersion: '1.6.0' } });
+        expect(controller.rows[0].components['github-cli'].observation).toEqual(github);
+        expect(controller.rows[0].components['ego-browser'].observation).toEqual(ego);
+    });
+
+    it.each(['ego-browser', 'cloudflare-wrangler', 'cloudflared'] as const)('rejects %s alignment actions before RPC', async (componentId) => {
+        inspect.mockResolvedValue(multiResponse());
+        mount();
+        await act(() => controller.scan());
+        inspect.mockClear();
+        act(() => controller.selectComponent(componentId));
+        await act(() => controller.preview(componentId));
+        await act(() => controller.applyApproved(componentId));
+        expect(controller.selectedComponent).toBe('github-cli');
+        expect(inspect).not.toHaveBeenCalled();
+        expect(apply).not.toHaveBeenCalled();
+        expect(controller.phase).toBe('scanned');
+    });
+
+    it('rejects saved approval after selecting another component and preserves sibling results', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        mount();
+        await act(() => controller.scan());
+        await act(() => controller.preview('paws-cli'));
+        const oldApply = controller.applyApproved;
+        act(() => controller.selectComponent('github-cli'));
+        await act(() => oldApply('paws-cli'));
+        expect(apply).not.toHaveBeenCalled();
+        expect(controller.rows[0].components['paws-cli'].plan).toBeUndefined();
+        expect(controller.phase).toBe('scanned');
+    });
+
+    it('isolates a missing selected preview plan and a failed preview RPC from sibling observations', async () => {
+        inspect.mockResolvedValueOnce(multiResponse()).mockResolvedValueOnce(multiResponse());
+        mount();
+        await act(() => controller.scan());
+        const siblings = controller.rows[0].components;
+        await act(() => controller.preview('paws-cli'));
+        expect(controller.rows[0].components['paws-cli'].status).toBe('rpc-error');
+        expect(controller.rows[0].components['github-cli']).toEqual(siblings['github-cli']);
+        expect(controller.rows[0].components['ego-browser']).toEqual(siblings['ego-browser']);
+        inspect.mockRejectedValueOnce(new Error('timeout'));
+        await act(() => controller.preview('github-cli'));
+        expect(controller.rows[0].components['github-cli'].status).toBe('rpc-timeout');
+        expect(controller.rows[0].components['ego-browser']).toEqual(siblings['ego-browser']);
+    });
+
+    it('retains Paws dispatched results and all sibling observations across registry changes', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined));
+        const pending = deferred<EnvironmentApplyResponse>();
+        apply.mockReturnValueOnce(pending.promise);
+        mount();
+        await act(() => controller.scan());
+        await act(() => controller.preview('paws-cli'));
+        const siblings = controller.rows[0].components;
+        let operation!: Promise<void>;
+        act(() => { operation = controller.applyApproved(); });
+        mount([machine('air', false), machine('new')]);
+        expect(controller.rows[0].components['paws-cli'].dispatchedAction?.targetVersion).toBe('1.6.0');
+        const before = multiResponse().observations[1];
+        await act(async () => {
+            pending.resolve({ result: { componentId: 'paws-cli', status: 'succeeded', before,
+                after: { ...before, installedVersion: '1.6.0' }, changed: true } });
+            await operation;
+        });
+        expect(controller.rows[0].components['paws-cli']).toMatchObject({ status: 'offline', result: { status: 'succeeded' } });
+        expect(controller.rows[0].components['github-cli'].observation).toEqual(siblings['github-cli'].observation);
+        expect(controller.rows[0].components['ego-browser'].observation).toEqual(siblings['ego-browser'].observation);
+        mount([machine('air'), machine('new')]);
+        expect(controller.rows[0].components['paws-cli'].status).toBe('succeeded');
+        expect(controller.rows[0].components['github-cli'].status).toBe('ready');
+    });
+
+    it('retains completed results when a sibling preview is invalidated by registry changes', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        await act(() => controller.preview('paws-cli'));
+        mount([machine('air', false), machine('new')]);
+        expect(controller.rows[0].components['github-cli'].result?.status).toBe('succeeded');
+        expect(controller.rows[0].components['paws-cli'].plan).toBeUndefined();
+        expect(controller.phase).toBe('idle');
+        mount([machine('air'), machine('new')]);
+        expect(controller.rows[0].components['github-cli'].status).toBe('succeeded');
+        await act(() => controller.applyApproved('paws-cli'));
+        expect(apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a Paws approval when executable ownership is unverified even if a daemon returns an install plan', async () => {
+        inspect.mockImplementation(async (_id, request) => {
+            const value = multiResponse(request.desired ? 'upgrade' : undefined);
+            value.observations[1].source.ownership = 'unverified';
+            return value;
+        });
+        mount();
+        await act(() => controller.scan());
+        await act(() => controller.preview('paws-cli'));
+        await act(() => controller.applyApproved('paws-cli'));
+        expect(apply).not.toHaveBeenCalled();
+        expect(controller.rows[0].components['github-cli'].observation).toBeDefined();
+    });
+
+    it('does not attach a mismatched apply response to the approved component', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined));
+        mount();
+        await act(() => controller.scan());
+        await act(() => controller.preview('paws-cli'));
+        await act(() => controller.applyApproved());
+        expect(controller.rows[0].components['paws-cli']).toMatchObject({ status: 'rpc-error', requiresScan: true });
+        expect(controller.rows[0].components['paws-cli'].observation?.componentId).toBe('paws-cli');
+        expect(controller.rows[0].components['paws-cli'].result).toBeUndefined();
+        expect(controller.rows[0].components['github-cli'].observation?.componentId).toBe('github-cli');
+    });
+
+    it('requires a fresh scan before sibling preview after completed results survive a registry change', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        mount([machine('air'), machine('new')]);
+        inspect.mockClear();
+        await act(() => controller.preview('paws-cli'));
+        act(() => controller.selectComponent('paws-cli'));
+        await act(() => controller.preview());
+        expect(inspect).not.toHaveBeenCalled();
+        expect(controller.targets['paws-cli']).toEqual({ kind: 'unavailable' });
+        expect(controller.rows[0].components['github-cli'].result?.status).toBe('succeeded');
+    });
+
+    it.each([false, true])('preserves newer sibling repair state when registry reconciliation retains a completed apply (prior Paws result: %s)', async (priorPawsResult) => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        apply.mockImplementation(async (_id, request) => {
+            const before = request.desired.componentId === 'paws-cli' ? multiResponse().observations[1] : response().observations[0];
+            return { result: { componentId: request.desired.componentId, status: 'succeeded', before,
+                after: { ...before, installedVersion: request.desired.targetVersion }, changed: true } };
+        });
+        mount();
+        await act(() => controller.scan());
+        if (priorPawsResult) {
+            await act(() => controller.preview('paws-cli'));
+            await act(() => controller.applyApproved());
+            expect(controller.rows[0].components['paws-cli'].result?.after.installedVersion).toBe('1.6.0');
+        }
+        await act(() => controller.preview('github-cli'));
+        await act(() => controller.applyApproved());
+        const repair = multiResponse('manual-repair');
+        repair.observations[1].installedVersion = '1.6.1';
+        repair.observations[1].reasonCode = 'version-ahead';
+        repair.plans![0].reasonCode = 'version-ahead';
+        inspect.mockResolvedValueOnce(repair);
+        await act(() => controller.preview('paws-cli'));
+        mount([machine('air'), machine('new')]);
+        expect(controller.rows[0].components['github-cli'].result?.status).toBe('succeeded');
+        expect(controller.rows[0].components['paws-cli']).toMatchObject({
+            status: 'manual-repair', reasonCode: 'version-ahead', observation: { installedVersion: '1.6.1' },
+        });
+        if (priorPawsResult) expect(controller.rows[0].components['paws-cli'].result).toMatchObject({
+            status: 'succeeded', after: { installedVersion: '1.6.0' },
+        });
+        expect(controller.rows[0].components['paws-cli'].plan).toBeUndefined();
+        mount([machine('air', false), machine('new')]);
+        mount([machine('air'), machine('new')]);
+        expect(controller.rows[0].components['paws-cli']).toMatchObject({
+            status: 'manual-repair', reasonCode: 'version-ahead', observation: { installedVersion: '1.6.1' },
+        });
+    });
+
+    it('requires scanning a timed-out component even after selecting a sibling and switching back', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        apply.mockRejectedValueOnce(new Error('RPC timeout'));
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        expect(controller.rows[0].components['github-cli'].requiresScan).toBe(true);
+        act(() => controller.selectComponent('paws-cli'));
+        act(() => controller.selectComponent('github-cli'));
+        inspect.mockClear();
+        await act(() => controller.preview());
+        await act(() => controller.applyApproved());
+        expect(inspect).not.toHaveBeenCalled();
+        expect(apply).toHaveBeenCalledTimes(1);
+        expect(controller.rows[0].components['github-cli']).toMatchObject({ status: 'rpc-timeout', requiresScan: true });
+        await act(() => controller.preview('paws-cli'));
+        expect(controller.rows[0].components['paws-cli'].plan?.componentId).toBe('paws-cli');
+        expect(controller.rows[0].components['github-cli'].requiresScan).toBe(true);
+        await act(() => controller.scan());
+        await act(() => controller.preview('github-cli'));
+        await act(() => controller.applyApproved());
+        expect(apply).toHaveBeenCalledTimes(2);
+    });
+
+    it('binds a saved no-argument approval to its original component and preview', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        mount();
+        await prepare();
+        const approveGithub = controller.applyApproved;
+        await act(() => controller.preview('paws-cli'));
+        await act(() => approveGithub());
+        expect(apply).not.toHaveBeenCalled();
+        expect(controller.selectedComponent).toBe('paws-cli');
+        expect(controller.phase).toBe('previewed');
+        await act(() => controller.preview('github-cli'));
+        await act(() => approveGithub());
+        expect(apply).not.toHaveBeenCalled();
+        await act(() => controller.applyApproved());
+        expect(apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains a sibling manual-repair preview when another component already has an apply result', async () => {
+        inspect.mockImplementation(async (_id, request) => multiResponse(request.desired ? 'upgrade' : undefined, request.desired?.componentId));
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        inspect.mockResolvedValueOnce(multiResponse('manual-repair'));
+        await act(() => controller.preview('paws-cli'));
+        await act(() => controller.applyApproved());
+        expect(controller.rows[0].components['paws-cli'].status).toBe('manual-repair');
+        expect(controller.rows[0].components['github-cli'].result?.status).toBe('succeeded');
+        expect(apply).toHaveBeenCalledTimes(1);
+    });
+
 });

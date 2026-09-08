@@ -8,7 +8,8 @@ import type { ProcessResult } from './processRunner';
 
 export interface EnvironmentComponentAdapter {
   readonly id: EnvironmentComponentId;
+  readonly alignment: 'supported' | 'inspect-only';
   inspect(): Promise<ComponentObservation>;
-  plan(desired: DesiredComponentState, observed: ComponentObservation, now: number): ComponentPlan;
-  apply(approvedPlan: ComponentPlan): Promise<ProcessResult>;
+  plan?(desired: DesiredComponentState, observed: ComponentObservation, now: number): ComponentPlan;
+  apply?(approvedPlan: ComponentPlan): Promise<ProcessResult>;
 }

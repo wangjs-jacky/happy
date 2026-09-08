@@ -5,7 +5,8 @@
 
 import { io, Socket } from 'socket.io-client';
 import { join } from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
 import { MachineMetadata, DaemonState, Machine, Update, UpdateMachineBody } from './types';
@@ -15,6 +16,10 @@ import { backoff } from '@/utils/time';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { createProcessRunner, resolveExecutable } from '@/environment/processRunner';
 import { createGitHubCliAdapter } from '@/environment/githubCliAdapter';
+import { createPawsCliAdapter } from '@/environment/pawsCliAdapter';
+import { createEgoBrowserAdapter } from '@/environment/egoBrowserAdapter';
+import { createWranglerAdapter } from '@/environment/wranglerAdapter';
+import { createCloudflaredAdapter } from '@/environment/cloudflaredAdapter';
 import { createEnvironmentService } from '@/environment/environmentService';
 import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
 import { detectCLIAvailability, CLIAvailability } from '@/utils/detectCLI';
@@ -179,15 +184,40 @@ export class ApiMachineClient {
         registerCommonHandlers(this.rpcHandlerManager, process.cwd());
 
         // Keep issued previews and apply locks alive across socket reconnections.
-        const environmentService = createEnvironmentService([createGitHubCliAdapter({
-            runner: createProcessRunner(),
+        const runner = createProcessRunner();
+        const sharedDependencies = {
+            runner,
             resolveExecutable,
-            resolveRealpath: async (path) => realpath(path).catch(() => null),
             env: process.env,
             platform: process.platform,
             architecture: process.arch,
             now: Date.now,
-        })]);
+        };
+        const homeDirectory = homedir();
+        const resolveRealpath = async (path: string): Promise<string | null> => realpath(path).catch(() => null);
+        const environmentService = createEnvironmentService([
+            createGitHubCliAdapter({ ...sharedDependencies, resolveRealpath }),
+            createPawsCliAdapter({ ...sharedDependencies, resolveRealpath }),
+            createEgoBrowserAdapter({
+                ...sharedDependencies,
+                homeDirectory,
+                readPlistValue: async (path, key) => {
+                    const inspected = await runner.run('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', path], {
+                        timeoutMs: 5_000,
+                        maxOutputBytes: 1024,
+                        env: process.env,
+                    });
+                    const value = inspected.exitCode === 0 && !inspected.timedOut ? inspected.stdout.trim() : '';
+                    return value.length > 0 ? value : null;
+                },
+            }),
+            createWranglerAdapter(sharedDependencies),
+            createCloudflaredAdapter({
+                ...sharedDependencies,
+                homeDirectory,
+                pathExists: async (path) => access(path).then(() => true, () => false),
+            }),
+        ]);
         registerEnvironmentHandlers(this.rpcHandlerManager, environmentService);
     }
 

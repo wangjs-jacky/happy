@@ -175,6 +175,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                                 navigate('/settings');
                                 return;
                             }
+                            triggerRef.current?.focus?.();
                             onOpenChange(false);
                             onOpenSettings();
                         }}
