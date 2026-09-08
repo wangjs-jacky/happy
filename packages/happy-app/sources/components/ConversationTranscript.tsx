@@ -95,6 +95,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         generation: object;
         height: number;
     } | null>(null);
+    const contentMeasurementRef = React.useRef(contentMeasurement);
     const anchorPillVisibleRef = React.useRef(false);
     const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const indexRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -453,10 +454,18 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         finally { if (jumpRequest.current === request) jumpRequest.current = null; }
     }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
     const onContentSizeChange = React.useCallback((_width: number, height: number) => {
-        setContentMeasurement({ boundary: boundaryAttemptKey('older'), generation: contentGeneration, height });
+        const boundary = boundaryAttemptKey('older');
+        const previous = contentMeasurementRef.current;
+        const measurement = { boundary, generation: contentGeneration, height };
+        contentMeasurementRef.current = measurement;
+        if (Platform.OS !== 'web' && viewportHeight !== null && height < viewportHeight
+            && previous?.boundary === boundary && height < previous.height) {
+            attempted.current.delete(boundary);
+        }
+        setContentMeasurement(measurement);
         if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
         else void reading.layout();
-    }, [boundaryAttemptKey, contentGeneration, isAtLatest, scrollLatest, reading]);
+    }, [boundaryAttemptKey, contentGeneration, isAtLatest, scrollLatest, reading, viewportHeight]);
     React.useEffect(() => {
         if (Platform.OS === 'web' || contentMeasurement === null || contentMeasurement.generation === contentGeneration
             || contentMeasurement.boundary !== boundaryAttemptKey('older')) return;

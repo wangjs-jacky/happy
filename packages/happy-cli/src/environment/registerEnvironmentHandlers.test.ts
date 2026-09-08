@@ -13,7 +13,8 @@ import { registerEnvironmentHandlers } from './registerEnvironmentHandlers';
 const observation: ComponentObservation = {
   componentId: 'github-cli', platform: 'darwin', architecture: 'arm64', support: 'supported',
   installed: true, installedVersion: '2.79.0', resolvedExecutable: '/opt/homebrew/bin/gh',
-  packageManager: { kind: 'homebrew', available: true, stableVersion: '2.80.0' },
+  source: { kind: 'homebrew', available: true, latestVersion: '2.80.0', ownership: 'verified' },
+  capability: 'alignable', details: { kind: 'github-cli' },
   authentication: { provider: 'github.com', status: 'authenticated' }, inspectedAt: 100_000,
 };
 const validApplyRequest: EnvironmentApplyRequest = {

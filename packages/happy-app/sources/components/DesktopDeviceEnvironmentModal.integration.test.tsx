@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
         state: {} as any,
         screenOptions: {} as Record<string, any>,
         descriptors: {} as Record<string, any>,
+        confirm: vi.fn(),
         send: (_action: any) => {},
     };
 });
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('react-native', () => ({
     Modal: 'Modal', Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
     Pressable: 'Pressable', Text: 'Text', View: 'View', ScrollView: 'ScrollView', ActivityIndicator: 'ActivityIndicator',
+    useWindowDimensions: () => ({ width: 1440, height: 900, scale: 1, fontScale: 1 }),
 }));
 vi.mock('@react-navigation/native', () => ({
     StackRouter,
@@ -71,7 +73,7 @@ vi.mock('@/sync/storage', () => ({
 vi.mock('@/sync/sync', () => ({ sync: {} }));
 vi.mock('@/sync/serverConfig', () => ({ isUsingCustomServer: () => false }));
 vi.mock('@/track', () => ({ trackWhatsNewClicked: vi.fn() }));
-vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: vi.fn(), prompt: vi.fn() } }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: mocks.confirm, prompt: vi.fn() } }));
 vi.mock('@/hooks/useMultiClick', () => ({ useMultiClick: (callback: unknown) => callback }));
 vi.mock('@/utils/machineUtils', () => ({ isMachineOnline: () => true }));
 vi.mock('react-native-unistyles', () => ({
@@ -93,7 +95,11 @@ vi.mock('@/sync/apiServices', () => ({ disconnectService: vi.fn() }));
 vi.mock('@/sync/profile', () => ({ getDisplayName: () => null }));
 vi.mock('@/components/MascotSwitcher', () => ({ MascotSwitcher: 'MascotSwitcher' }));
 vi.mock('@/text', () => ({
-    SUPPORTED_LANGUAGES: { en: {} }, getLanguageNativeName: () => 'English', t: (key: string) => key,
+    SUPPORTED_LANGUAGES: { en: {} }, getLanguageNativeName: () => 'English', t: (key: string, params?: { actions?: string }) => {
+        if (key === 'deviceEnvironment.confirmMessage') return `GitHub authentication requires sign-in\n${params?.actions ?? ''}`;
+        if (key === 'deviceEnvironment.confirmPawsMessage') return `npm global ownership is required\n${params?.actions ?? ''}`;
+        return key;
+    },
 }));
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageTag: 'en-US' }] }));
 vi.mock('@/sync/appConfig', () => ({ loadAppConfig: () => ({}) }));
@@ -110,7 +116,8 @@ const options = {
     routeNames: ['index', 'session/[id]', 'settings/index', 'settings/device-environment'], routeParamList: {}, routeGetIdList: {},
 };
 const controller: DeviceEnvironmentController = {
-    phase: 'idle', rows: [], target: { kind: 'unavailable' }, scan: vi.fn(), preview: vi.fn(), applyApproved: vi.fn(), reset: vi.fn(),
+    phase: 'idle', rows: [], target: { kind: 'unavailable' }, targets: { 'github-cli': { kind: 'unavailable' }, 'paws-cli': { kind: 'unavailable' } },
+    selectedComponent: 'github-cli', selectComponent: vi.fn(), scan: vi.fn(), preview: vi.fn(), applyApproved: vi.fn(), reset: vi.fn(),
 };
 
 function textContent(node: { findAllByType: (type: string) => Array<{ children: unknown[] }> }): string[] {
@@ -192,5 +199,46 @@ describe('Device Environment desktop settings modal integration', () => {
         expect(state.routes).toEqual(workspace);
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
         expect(textContent(renderer!.root)).toContain('Workspace content');
+    });
+
+    it('confirms only the selected Paws preview from the desktop modal and applies Paws', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        mocks.confirm.mockResolvedValue(true);
+        const previewController = {
+            ...controller,
+            phase: 'previewed', selectedComponent: 'paws-cli', target: { kind: 'ready', targetVersion: '1.1.0' },
+            targets: { 'github-cli': { kind: 'ready', targetVersion: '2.80.0' }, 'paws-cli': { kind: 'ready', targetVersion: '1.1.0' } },
+            applyApproved: vi.fn(),
+            rows: [{ machine: { id: 'desktop-paws', metadata: null }, machineId: 'desktop-paws', online: true, components: {
+                'github-cli': { componentId: 'github-cli', status: 'ready', observation: { componentId: 'github-cli', capability: 'alignable', installed: true, installedVersion: '2.80.0', support: 'supported', source: { available: true, latestVersion: '2.80.0', ownership: 'verified' }, authentication: { status: 'authenticated' }, details: { kind: 'github-cli' } } },
+                'paws-cli': { componentId: 'paws-cli', status: 'upgrade', plan: { action: 'upgrade', fromVersion: '1.0.0', targetVersion: '1.1.0' }, observation: { componentId: 'paws-cli', capability: 'alignable', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.1.0', ownership: 'verified' }, details: { kind: 'paws-cli' } } },
+                'ego-browser': { componentId: 'ego-browser', status: 'ready', observation: { componentId: 'ego-browser', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: null, ownership: 'not-applicable' }, details: { kind: 'ego-browser', paired: true } } },
+                'cloudflare-wrangler': { componentId: 'cloudflare-wrangler', status: 'ready', observation: { componentId: 'cloudflare-wrangler', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.0.0', ownership: 'unverified' }, details: { kind: 'cloudflare-wrangler' } } },
+                cloudflared: { componentId: 'cloudflared', status: 'ready', observation: { componentId: 'cloudflared', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.0.0', ownership: 'not-applicable' }, details: { kind: 'cloudflared', tunnelCertificatePresent: true } } },
+            } }],
+        } as unknown as DeviceEnvironmentController;
+        original = StackRouter({ initialRouteName: 'index' });
+        router = createDesktopModalRouter({ initialRouteName: 'index' });
+        state = original.getInitialState(options);
+        state = router.getStateForAction(state, StackActions.push('settings/index', { desktopModal: '1' }), options) ?? state;
+        const render = () => {
+            mocks.state = state;
+            mocks.descriptors = Object.fromEntries(state.routes.map((route: any) => [route.key, {
+                route, options: mocks.screenOptions[route.name] ?? { headerTitle: route.name },
+                render: () => route.name === 'settings/index' ? <SettingsView />
+                    : route.name === 'settings/device-environment' ? React.createElement(SettingsDeviceEnvironment as any, { controller: previewController })
+                        : React.createElement('Text', null, 'Workspace content'),
+            }]));
+            act(() => { renderer = TestRenderer.create(<DesktopStackNavigator children={null} />); });
+        };
+        mocks.send = (action: any) => { state = router.getStateForAction(state, action, options) ?? state; render(); };
+        render();
+        act(() => renderer!.root.findByProps({ testID: 'settings-device-environment' }).props.onPress());
+        await act(async () => renderer!.root.findByProps({ testID: 'environment-confirm-alignment' }).props.onPress());
+        const [, message] = mocks.confirm.mock.calls[0];
+        expect(message).toContain('npm global ownership');
+        expect(message).toContain('desktop-paws');
+        expect(message).not.toContain('GitHub authentication');
+        expect(previewController.applyApproved).toHaveBeenCalledWith('paws-cli');
     });
 });

@@ -4,6 +4,7 @@ import {
   EnvironmentApplyRequestSchema,
   EnvironmentComponentIdSchema,
   EnvironmentInspectRequestSchema,
+  environmentRepairCommands,
   type ComponentApplyResult,
   type ComponentObservation,
   type ComponentPlan,
@@ -29,19 +30,8 @@ const MAX_ISSUED_PLANS = 128;
 const MAX_APPLY_LOG_CHARACTERS = 512;
 type ApplyExitStatus = number | 'not-executed' | 'timeout' | 'error';
 type ApplyVerification = 'not-run' | 'passed' | 'failed' | 'unavailable';
-const REPAIR_COMMANDS: Partial<Record<EnvironmentReasonCode, readonly string[]>> = {
-  'homebrew-missing': ['command -v brew'],
-  'formula-unavailable': ['brew info gh'],
-  'version-source-mismatch': ['command -v gh', 'gh --version', 'brew info gh'],
-  'version-ahead': ['gh --version', 'brew info gh'],
-  'authentication-missing': ['gh auth login --hostname github.com'],
-  'install-failed': ['brew doctor', 'brew info gh'],
-  'verification-failed': ['gh --version', 'brew info gh'],
-  'unexpected-error': ['gh --version', 'brew info gh'],
-};
-
-function repairGuide(reasonCode: EnvironmentReasonCode): RepairGuide {
-  return { channel: 'local-terminal', reasonCode, commands: [...(REPAIR_COMMANDS[reasonCode] ?? [])] };
+function repairGuide(componentId: EnvironmentComponentId, reasonCode: EnvironmentReasonCode): RepairGuide {
+  return { channel: 'local-terminal', reasonCode, commands: environmentRepairCommands(componentId, reasonCode) };
 }
 
 function result(
@@ -57,20 +47,32 @@ function result(
       componentId: before.componentId, status, before, after,
       changed: changeVerified && (before.installed !== after.installed || before.installedVersion !== after.installedVersion
         || before.resolvedExecutable !== after.resolvedExecutable),
-      ...(reasonCode === undefined ? {} : { reasonCode, repairGuide: repairGuide(reasonCode) }),
+      ...(reasonCode === undefined ? {} : { reasonCode, repairGuide: repairGuide(before.componentId, reasonCode) }),
       ...(diagnosticSummary === undefined ? {} : { diagnosticSummary: diagnosticSummary.slice(0, 2048) }),
     },
   };
 }
 
 function unknownObservation(componentId: EnvironmentComponentId, now: number): ComponentObservation {
-  return {
-    componentId, platform: process.platform, architecture: process.arch, support: 'unsupported',
+  const common = {
+    platform: process.platform, architecture: process.arch, support: 'unsupported' as const,
     installed: false, installedVersion: null, resolvedExecutable: null,
-    packageManager: { kind: 'homebrew', available: false, stableVersion: null },
-    authentication: { provider: 'github.com', status: 'unknown' },
-    inspectedAt: now, reasonCode: 'unexpected-error',
+    source: { kind: 'none' as const, available: false, latestVersion: null, ownership: 'not-applicable' as const },
+    inspectedAt: now, reasonCode: 'unexpected-error' as const,
   };
+  switch (componentId) {
+    case 'github-cli': return { ...common, componentId, capability: 'alignable', details: { kind: componentId } };
+    case 'paws-cli': return { ...common, componentId, capability: 'inspect-only', details: { kind: componentId } };
+    case 'ego-browser': return {
+      ...common, componentId, capability: 'inspect-only',
+      details: { kind: componentId, appVersion: null, chromiumVersion: null, nodeVersion: null, pathReady: false, paired: false },
+    };
+    case 'cloudflare-wrangler': return { ...common, componentId, capability: 'inspect-only', details: { kind: componentId } };
+    case 'cloudflared': return {
+      ...common, componentId, capability: 'inspect-only',
+      details: { kind: componentId, tunnelCertificatePresent: false },
+    };
+  }
 }
 
 function approvalKey(desired: DesiredComponentState, plan: ComponentPlan): string {
@@ -85,8 +87,8 @@ function sameDecision(current: ComponentPlan, approved: ComponentPlan): boolean 
 
 function verifiesTarget(after: ComponentObservation, plan: ComponentPlan): boolean {
   return after.installed && after.support === 'supported' && plan.targetVersion !== null
-    && after.installedVersion === plan.targetVersion && after.packageManager.available
-    && after.packageManager.stableVersion === plan.targetVersion
+    && after.installedVersion === plan.targetVersion && after.source.available
+    && after.source.latestVersion === plan.targetVersion && after.source.ownership === 'verified'
     // Ownership/formula/source failures must not become success just because gh prints
     // the target version. Authentication remains independent of package alignment.
     && (after.reasonCode === undefined || after.reasonCode === 'authentication-missing');
@@ -134,6 +136,14 @@ export function createEnvironmentService(
     return adapter;
   }
 
+  function requireAlignmentAdapter(id: EnvironmentComponentId): Required<Pick<EnvironmentComponentAdapter, 'plan' | 'apply'>> & EnvironmentComponentAdapter {
+    const adapter = requireAdapter(id);
+    if (adapter.alignment !== 'supported' || adapter.plan === undefined || adapter.apply === undefined) {
+      throw new Error('Environment component does not support alignment');
+    }
+    return adapter as Required<Pick<EnvironmentComponentAdapter, 'plan' | 'apply'>> & EnvironmentComponentAdapter;
+  }
+
   function prunePlans(time: number): void {
     for (const [key, issued] of issuedPlans) {
       if (issued.expiresAt <= time) issuedPlans.delete(key);
@@ -147,7 +157,12 @@ export function createEnvironmentService(
     return parsed.data;
   }
 
-  function planFor(adapter: EnvironmentComponentAdapter, desired: DesiredComponentState, before: ComponentObservation, time: number): ComponentPlan {
+  function planFor(
+    adapter: Required<Pick<EnvironmentComponentAdapter, 'plan'>> & EnvironmentComponentAdapter,
+    desired: DesiredComponentState,
+    before: ComponentObservation,
+    time: number,
+  ): ComponentPlan {
     let planned: ComponentPlan;
     try { planned = adapter.plan(desired, before, time); }
     catch { throw new Error('Component planning failed'); }
@@ -167,17 +182,18 @@ export function createEnvironmentService(
       if (request.desired !== undefined && !request.componentIds.includes(request.desired.componentId)) {
         throw new Error('Desired component must be selected for inspection');
       }
+      const alignmentAdapter = request.desired === undefined ? undefined : requireAlignmentAdapter(request.desired.componentId);
       const observations: ComponentObservation[] = [];
       const plans: ComponentPlan[] = [];
       prunePlans(now());
-      for (const adapter of selected) {
-        let observed: ComponentObservation;
-        try { observed = await observe(adapter); }
-        catch { observed = unknownObservation(adapter.id, now()); }
+      const settledObservations = await Promise.allSettled(selected.map((adapter) => observe(adapter)));
+      for (const [index, adapter] of selected.entries()) {
+        const settled = settledObservations[index]!;
+        const observed = settled.status === 'fulfilled' ? settled.value : unknownObservation(adapter.id, now());
         observations.push(observed);
-        if (request.desired !== undefined) {
+        if (request.desired !== undefined && adapter.id === alignmentAdapter?.id) {
           const time = now();
-          const plan = planFor(adapter, request.desired, observed, time);
+          const plan = planFor(alignmentAdapter, request.desired, observed, time);
           plans.push(plan);
           const key = approvalKey(request.desired, plan);
           if (!issuedPlans.has(key)) issuedPlans.set(key, { issuedAt: time, expiresAt: plan.expiresAt });
@@ -192,7 +208,7 @@ export function createEnvironmentService(
       const parsed = EnvironmentApplyRequestSchema.safeParse(input);
       if (!parsed.success) throw new Error('Invalid environment apply request');
       const request = parsed.data;
-      const adapter = requireAdapter(request.desired.componentId);
+      const adapter = requireAlignmentAdapter(request.desired.componentId);
       const startedAt = now();
       let exitStatus: ApplyExitStatus = 'not-executed';
       let verification: ApplyVerification = 'not-run';

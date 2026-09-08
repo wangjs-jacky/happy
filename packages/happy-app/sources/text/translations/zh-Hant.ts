@@ -18,6 +18,16 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHant: TranslationStructure = {
     deviceEnvironment: {
+        egoPathReady: "Ego CLI 已加入 PATH",
+        egoPathMissing: "請將 ~/.local/bin 加入 PATH，以便直接執行 ego-browser。",
+        egoCliMissing: "未找到 Ego CLI，請在這台機器上完成 Ego Lite 的首次設定。",
+        egoAppMissing: "未找到 Ego Lite 應用程式，請在這台機器上安裝並完成首次設定。",
+        egoUnsupported: "Ego Lite 應用程式檢查需要 macOS；此平台僅顯示 CLI 版本。",
+        pawsUnsupported: "Paws CLI 對齊需要 Apple Silicon Mac 與已驗證的全域 npm 安裝。",
+        componentUnsupported: "此平台不支援該元件檢查。",
+        cloudflaredFormulaUnavailable: "無法取得 cloudflared 配方，請檢查這台機器上的 Homebrew。",
+        cloudflaredHomebrewMissing: "未找到 Homebrew，無法檢查 cloudflared 的最新版本。",
+        componentVersionSourceMismatch: "版本來源不一致，請檢查該元件的安裝後重新掃描。",
         title: '裝置環境',
         subtitle: '檢查並統一各台機器上的開發工具',
         fleetReady: ({ ready, total }: { ready: number; total: number }) => `${ready}/${total} 台機器已達到目標版本`,
@@ -61,6 +71,8 @@ export const zhHant: TranslationStructure = {
         previewRequired: '預覽後查看具體操作',
         emptyFleet: '尚未註冊機器，請先連線一台機器。',
         authenticationNote: '版本就緒與 GitHub 驗證分別檢查。請在各台機器上執行 gh auth login 完成登入。',
+        confirmPawsMessage: ({ actions }: { actions: string }) => `請核對每台機器的 Paws CLI 操作：\n\n${actions}\n\n僅會執行列出的全域 npm 安裝與升級。對齊要求各台機器已驗證 npm 歸屬。`, pawsTimeoutRecovery: '請等待 npm 或目前的操作完成，然後重新掃描。', componentTimeoutRecovery: '請等待目前的操作完成，然後重新掃描。', pawsOwnershipMismatch: '無法驗證 Paws CLI 的歸屬。請在對齊前檢查全域 npm 前綴。', inspectOnly: '僅檢查',
+        developmentEnvironmentHealth: '開發環境健康狀況', componentReadyCount: ({ ready, total }: { ready: number; total: number }) => `${ready}/${total} 項元件檢查已就緒`, componentReady: '就緒', componentWarning: '需要處理', componentUnknown: '未知', pawsCli: 'Paws CLI', egoBrowser: 'Ego Lite 和 CLI', cloudflareWrangler: 'Cloudflare Wrangler', cloudflared: 'cloudflared', versionLatest: ({ version }: { version: string }) => `最新版本：${version}`, pawsOwnershipVerified: '已驗證全域 npm 套件歸屬', pawsOwnershipUnverified: 'Paws CLI 不屬於此全域 npm 安裝', egoAppVersion: ({ version }: { version: string }) => `Ego Lite：${version}`, egoCliVersion: ({ version }: { version: string }) => `Ego CLI：${version}`, egoChromiumVersion: ({ version }: { version: string }) => `Chromium：${version}`, egoNodeVersion: ({ version }: { version: string }) => `Node：${version}`, egoPaired: 'Ego Lite 和 CLI 版本一致', egoMismatch: 'Ego Lite 和 CLI 版本不一致', cloudflareAuthReady: 'Cloudflare 已驗證', cloudflareAuthMissing: '需要登入 Cloudflare', cloudflareAuthUnknown: 'Cloudflare 驗證狀態未知', cloudflareAccounts: ({ accounts }: { accounts: string }) => `帳戶：${accounts}`, tunnelCertificatePresent: '已找到通道登入憑證', tunnelCertificateMissing: '未找到通道登入憑證', actionPawsInstall: ({ version }: { version: string }) => `安裝 Paws CLI ${version}`, actionPawsUpgrade: ({ from, version }: { from: string; version: string }) => `升級 Paws CLI ${from} → ${version}`, confirmPawsTitle: '對齊 Paws CLI？', selectAlignmentTool: ({ component }: { component: string }) => `選擇 ${component} 對齊`, previewComponentAlignment: ({ component }: { component: string }) => `預覽 ${component} 對齊`, confirmComponentAction: ({ component }: { component: string }) => `執行 ${component} 對齊`,
     },
     relationshipAdvisor: {
         title: '狗頭軍師',
