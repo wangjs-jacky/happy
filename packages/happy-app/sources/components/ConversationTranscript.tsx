@@ -119,6 +119,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const jumpPending = React.useRef(false);
     const jumpRequest = React.useRef<object | null>(null);
     const userScrollStarted = React.useRef(false);
+    const userScrollDirection = React.useRef<'older' | 'newer' | undefined>(undefined);
+    const userScrollOffset = React.useRef<number | null>(null);
     const prepareBoundaryLoad = React.useRef<() => Promise<void> | void>(() => {});
     const boundaryAttemptKey = React.useCallback((direction: 'older' | 'newer') => {
         const renderedBoundary = direction === 'older' ? props.messages.at(-1)?.id : props.messages[0]?.id;
@@ -133,7 +135,9 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const error = direction === 'older' ? props.olderError : props.newerError;
         const load = direction === 'older' ? props.onLoadOlder : props.onLoadNewer;
         const key = boundaryAttemptKey(direction);
-        if (Platform.OS === 'web' && !retry && !userScrollStarted.current) return;
+        if (Platform.OS === 'web' && !retry && (!userScrollStarted.current
+            || (userScrollDirection.current === undefined && userScrollOffset.current !== null)
+            || (userScrollDirection.current !== undefined && userScrollDirection.current !== direction))) return;
         if (!load || more === false || loading || (!retry && (error || attempted.current.has(key)))) return;
         attempted.current.add(key);
         if (attempted.current.size > 8) attempted.current.delete(attempted.current.values().next().value!);
@@ -210,6 +214,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     cancelReadingRestoreRef.current = reading.cancelRestore;
     const claimScroll = React.useCallback(() => {
         userScrollStarted.current = true;
+        userScrollDirection.current = undefined;
+        userScrollOffset.current = null;
         cancelReadingRestoreRef.current();
     }, []);
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
@@ -404,6 +410,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
 
     const handleScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+        // Scrollbar presses have no direction until their first scroll. Wheel,
+        // keys and touch already carry intent; anchor corrections must not
+        // overwrite it or trigger the opposite overlapping preload boundary.
+        if (Platform.OS === 'web' && userScrollStarted.current && userScrollDirection.current === undefined
+            && userScrollOffset.current !== null && contentOffset.y !== userScrollOffset.current) {
+            const towardEnd = contentOffset.y > userScrollOffset.current;
+            userScrollDirection.current = towardEnd !== inverted ? 'newer' : 'older';
+        }
         const distanceFromBottom = inverted
             ? contentOffset.y
             : Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
@@ -526,6 +540,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         jumpRequest.current = null;
         attempted.current.clear();
         userScrollStarted.current = false;
+        userScrollDirection.current = undefined;
+        userScrollOffset.current = null;
         setBoundaries({ older: false, newer: false });
     }, [props.sessionId]);
 
@@ -536,6 +552,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const claim = (delta?: number) => {
             for (const key of currentBoundaryAttemptKeys.current) attempted.current.delete(key);
             userScrollStarted.current = true;
+            userScrollDirection.current = delta === undefined ? undefined : delta < 0 ? 'older' : 'newer';
+            userScrollOffset.current = node.scrollTop;
             cancelReadingRestoreRef.current(delta === undefined ? undefined : delta < 0 ? 'older' : 'newer');
             const maxOffset = Math.max(0, node.scrollHeight - node.clientHeight);
             const currentInverted = invertedRef.current;
@@ -547,7 +565,9 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             else if (delta !== undefined && delta > 0 && atNewerBoundary) loadBoundaryRef.current('newer');
         };
         const handler = (event: WheelEvent) => {
-            handleTranscriptWebWheel(event, node, () => claim(event.deltaY || undefined));
+            const delta = event.shiftKey && Math.abs(event.deltaX) > 0 && Math.abs(event.deltaY) < 1
+                ? event.deltaX : event.deltaY;
+            if (delta) handleTranscriptWebWheel(event, node, () => claim(delta));
         };
         const interactiveTarget = (event: Event) => event.target instanceof Element
             && event.target.closest('input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="textbox"]');
