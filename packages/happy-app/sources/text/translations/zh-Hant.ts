@@ -18,6 +18,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHant: TranslationStructure = {
     deviceEnvironment: {
+        actionEgoUpgrade: ({ from, version }: { from: string; version: string }) => `更新 Ego Lite 和 CLI ${from} → ${version}`,
+        actionEgoOnboard: '完成 Ego CLI 首次設定', actionWranglerInstall: ({ version }: { version: string }) => `安裝 Wrangler ${version}`, actionWranglerUpgrade: ({ from, version }: { from: string; version: string }) => `升級 Wrangler ${from} → ${version}`, actionWranglerAuthenticate: '使用 Wrangler 登入 Cloudflare', actionCloudflaredInstall: ({ version }: { version: string }) => `安裝 cloudflared ${version}`, actionCloudflaredUpgrade: ({ from, version }: { from: string; version: string }) => `升級 cloudflared ${from} → ${version}`, actionCloudflaredAuthenticate: '開啟 Cloudflare 通道登入', confirmToolTitle: ({ component }: { component: string }) => `對齊 ${component}？`, confirmToolMessage: ({ actions }: { actions: string }) => `請核對每台機器的具體操作：\n\n${actions}\n\n安裝和升級只使用已驗證的套件歸屬。登入和首次設定會在對應機器上開啟官方互動流程，憑據不會在機器之間複製。`,
         egoPathReady: "Ego CLI 已加入 PATH",
         egoPathMissing: "請將 ~/.local/bin 加入 PATH，以便直接執行 ego-browser。",
         egoCliMissing: "未找到 Ego CLI，請在這台機器上完成 Ego Lite 的首次設定。",

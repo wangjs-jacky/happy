@@ -40,7 +40,9 @@ function testDeps(options: {
       invocations.push({ executable, args: [...args], options: runOptions });
       if (args[0] === '--version') return options.versionResult ?? success('4.32.0\n');
       if (args[0] === 'view') return options.latestResult ?? success('"4.33.1"\n');
+      if (args[0] === 'prefix') return success('/opt/npm\n');
       if (args[0] === 'whoami') return options.whoamiResult ?? success(WHOAMI_OUTPUT);
+      if (args[0] === 'install' || args[0] === 'login') return success('completed\n');
       throw new Error(`unexpected invocation: ${executable} ${args.join(' ')}`);
     },
   };
@@ -49,6 +51,7 @@ function testDeps(options: {
     resolveExecutable: async (name) => name === 'wrangler'
       ? options.wranglerPath === undefined ? '/opt/npm/bin/wrangler' : options.wranglerPath
       : options.npmPath === undefined ? '/opt/npm/bin/npm' : options.npmPath,
+    resolveRealpath: async (path) => path.includes('wrangler') ? '/opt/npm/lib/node_modules/wrangler/bin/wrangler.js' : path,
     env: { PATH: '/test/bin', CLOUDFLARE_API_TOKEN: TOKEN },
     platform: 'darwin', architecture: 'arm64', now: () => 1_000, invocations,
   };
@@ -173,12 +176,12 @@ ${rows}
 
     const observed = await adapter.inspect();
 
-    expect(adapter.alignment).toBe('inspect-only');
+    expect(adapter.alignment).toBe('supported');
     expect(observed).toMatchObject({
       componentId: 'cloudflare-wrangler', installed: true, installedVersion: '4.32.0',
       resolvedExecutable: '/opt/npm/bin/wrangler',
-      source: { kind: 'npm-global', available: true, latestVersion: '4.33.1', ownership: 'not-applicable' },
-      capability: 'inspect-only',
+      source: { kind: 'npm-global', available: true, latestVersion: '4.33.1', ownership: 'verified' },
+      capability: 'alignable',
       authentication: { provider: 'cloudflare', status: 'authenticated', accountLabels: ['Example Team'] },
       details: { kind: 'cloudflare-wrangler' }, inspectedAt: 1_000,
     });
@@ -187,6 +190,7 @@ ${rows}
     expect(deps.invocations).toEqual([
       expect.objectContaining({ executable: '/opt/npm/bin/wrangler', args: ['--version'] }),
       expect.objectContaining({ executable: '/opt/npm/bin/npm', args: ['view', 'wrangler', 'version', '--json'] }),
+      expect.objectContaining({ executable: '/opt/npm/bin/npm', args: ['prefix', '-g'] }),
       expect.objectContaining({ executable: '/opt/npm/bin/wrangler', args: ['whoami'] }),
     ]);
     expect(deps.invocations.every(({ options }) => (
@@ -244,4 +248,43 @@ ${rows}
       if ('whoamiResult' in options) expect(observed.authentication).toEqual({ provider: 'cloudflare', status: 'unknown' });
     },
   );
+
+  it('plans and applies an exact npm upgrade before authentication', async () => {
+    const deps = testDeps();
+    const adapter = createWranglerAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'cloudflare-wrangler', targetVersion: '4.33.1' }, observed, 1_000);
+
+    expect(plan.action).toBe('upgrade');
+    await adapter.apply(plan);
+    expect(deps.invocations.at(-1)).toEqual(expect.objectContaining({
+      executable: '/opt/npm/bin/npm', args: ['install', '--global', 'wrangler@4.33.1'],
+    }));
+  });
+
+  it('treats an absent executable as installable without claiming ownership', async () => {
+    const deps = testDeps({ wranglerPath: null });
+    const adapter = createWranglerAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'cloudflare-wrangler', targetVersion: '4.33.1' }, observed, 1_000);
+
+    expect(observed).toMatchObject({ installed: false, capability: 'alignable',
+      source: { ownership: 'not-applicable', latestVersion: '4.33.1' } });
+    expect(plan.action).toBe('install');
+  });
+
+  it('plans and starts official keychain-backed login after versions align', async () => {
+    const deps = testDeps({ versionResult: success('4.33.1\n'), whoamiResult: {
+      exitCode: 0, stdout: 'You are not authenticated. Run wrangler login.', stderr: '', timedOut: false,
+    } });
+    const adapter = createWranglerAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'cloudflare-wrangler', targetVersion: '4.33.1' }, observed, 1_000);
+
+    expect(plan.action).toBe('authenticate');
+    await adapter.apply(plan);
+    expect(deps.invocations.at(-1)).toEqual(expect.objectContaining({
+      executable: '/opt/npm/bin/wrangler', args: ['login', '--browser=true', '--use-keyring'],
+    }));
+  });
 });

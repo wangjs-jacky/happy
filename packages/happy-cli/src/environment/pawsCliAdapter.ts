@@ -87,7 +87,7 @@ function comparePrerelease(left: string | undefined, right: string | undefined):
   return 0;
 }
 
-function compareVersions(left: string, right: string): number | null {
+export function compareVersions(left: string, right: string): number | null {
   if (!isValidSemver(left) || !isValidSemver(right)) return null;
   const leftMatch = SEMVER_PATTERN.exec(left);
   const rightMatch = SEMVER_PATTERN.exec(right);

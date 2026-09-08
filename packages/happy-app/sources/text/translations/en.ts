@@ -31,6 +31,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const en: TranslationStructure = {
     deviceEnvironment: {
+        actionEgoUpgrade: ({ from, version }: { from: string; version: string }) => `Update Ego Lite and CLI ${from} → ${version}`,
+        actionEgoOnboard: 'Complete Ego CLI onboarding', actionWranglerInstall: ({ version }: { version: string }) => `Install Wrangler ${version}`, actionWranglerUpgrade: ({ from, version }: { from: string; version: string }) => `Upgrade Wrangler ${from} → ${version}`, actionWranglerAuthenticate: 'Sign in to Cloudflare with Wrangler', actionCloudflaredInstall: ({ version }: { version: string }) => `Install cloudflared ${version}`, actionCloudflaredUpgrade: ({ from, version }: { from: string; version: string }) => `Upgrade cloudflared ${from} → ${version}`, actionCloudflaredAuthenticate: 'Open Cloudflare tunnel login', confirmToolTitle: ({ component }: { component: string }) => `Align ${component}?`, confirmToolMessage: ({ actions }: { actions: string }) => `Review the exact action for each machine:\n\n${actions}\n\nInstalls and upgrades only use the verified package owner. Sign-in and onboarding open the official interactive flow on that machine. Credentials are never copied between machines.`,
         egoPathReady: "Ego CLI is available on PATH",
         egoPathMissing: "Add ~/.local/bin to PATH to run ego-browser by name.",
         egoCliMissing: "Ego CLI is missing. Complete Ego Lite onboarding on this machine.",

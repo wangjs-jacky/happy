@@ -211,10 +211,11 @@ export class ApiMachineClient {
                     return value.length > 0 ? value : null;
                 },
             }),
-            createWranglerAdapter(sharedDependencies),
+            createWranglerAdapter({ ...sharedDependencies, resolveRealpath }),
             createCloudflaredAdapter({
                 ...sharedDependencies,
                 homeDirectory,
+                resolveRealpath,
                 pathExists: async (path) => access(path).then(() => true, () => false),
             }),
         ]);

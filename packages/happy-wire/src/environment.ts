@@ -9,7 +9,7 @@ export const EnvironmentComponentIdSchema = z.enum([
 ]);
 export type EnvironmentComponentId = z.infer<typeof EnvironmentComponentIdSchema>;
 
-export const AlignableEnvironmentComponentIdSchema = z.enum(['github-cli', 'paws-cli']);
+export const AlignableEnvironmentComponentIdSchema = EnvironmentComponentIdSchema;
 export type AlignableEnvironmentComponentId = z.infer<typeof AlignableEnvironmentComponentIdSchema>;
 
 export const EnvironmentSourceSchema = z.object({
@@ -84,6 +84,7 @@ const REPAIR_COMMANDS: Partial<Record<EnvironmentComponentId, Partial<Record<Env
   },
   'ego-browser': {
     'version-source-mismatch': ['ego-browser --version', 'command -v ego-browser'],
+    'authentication-missing': ['ego-browser onboarding'],
     'unexpected-error': ['ego-browser --version', 'command -v ego-browser'],
   },
   'cloudflare-wrangler': {
@@ -94,6 +95,7 @@ const REPAIR_COMMANDS: Partial<Record<EnvironmentComponentId, Partial<Record<Env
     'homebrew-missing': ['command -v brew'],
     'formula-unavailable': ['brew info cloudflared'],
     'version-source-mismatch': ['cloudflared --version', 'brew info cloudflared'],
+    'authentication-missing': ['cloudflared tunnel login'],
     'unexpected-error': ['cloudflared --version', 'command -v cloudflared'],
   },
 };
@@ -105,7 +107,7 @@ export function environmentRepairCommands(componentId: EnvironmentComponentId, r
 
 export const DesiredComponentStateSchema = z.object({
   componentId: AlignableEnvironmentComponentIdSchema,
-  targetVersion: z.string().regex(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u),
+  targetVersion: z.string().regex(/^\d+(?:\.\d+){2,3}(?:[-+][0-9A-Za-z.-]+)?$/u),
 }).strict();
 
 const ComponentObservationBaseSchema = z.object({
@@ -129,19 +131,19 @@ export const ComponentObservationSchema = z.discriminatedUnion('componentId', [
     componentId: z.literal('paws-cli'), capability: z.enum(['alignable', 'inspect-only']), details: PawsCliDetailsSchema,
   }).strict(),
   ComponentObservationBaseSchema.extend({
-    componentId: z.literal('ego-browser'), capability: z.literal('inspect-only'), details: EgoBrowserDetailsSchema,
+    componentId: z.literal('ego-browser'), capability: z.enum(['alignable', 'inspect-only']), details: EgoBrowserDetailsSchema,
   }).strict(),
   ComponentObservationBaseSchema.extend({
-    componentId: z.literal('cloudflare-wrangler'), capability: z.literal('inspect-only'), details: CloudflareWranglerDetailsSchema,
+    componentId: z.literal('cloudflare-wrangler'), capability: z.enum(['alignable', 'inspect-only']), details: CloudflareWranglerDetailsSchema,
   }).strict(),
   ComponentObservationBaseSchema.extend({
-    componentId: z.literal('cloudflared'), capability: z.literal('inspect-only'), details: CloudflaredDetailsSchema,
+    componentId: z.literal('cloudflared'), capability: z.enum(['alignable', 'inspect-only']), details: CloudflaredDetailsSchema,
   }).strict(),
 ]);
 
 export const ComponentPlanSchema = z.object({
   componentId: AlignableEnvironmentComponentIdSchema,
-  action: z.enum(['none', 'install', 'upgrade', 'manual-repair']),
+  action: z.enum(['none', 'install', 'upgrade', 'authenticate', 'onboard', 'manual-repair']),
   fromVersion: z.string().nullable(),
   targetVersion: z.string().nullable(),
   planFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),

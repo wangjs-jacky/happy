@@ -56,6 +56,35 @@ async function validApplyRequest(service: ReturnType<typeof createEnvironmentSer
 }
 
 describe('environment service authorization and verification', () => {
+  it('requires Wrangler authentication to change before an authenticate plan succeeds', async () => {
+    const wranglerDesired: DesiredComponentState = { componentId: 'cloudflare-wrangler', targetVersion: '4.33.1' };
+    let authenticated = false;
+    let authenticateOnApply = false;
+    const observation = (): ComponentObservation => ({
+      componentId: 'cloudflare-wrangler', platform: 'darwin', architecture: 'arm64', support: 'supported',
+      installed: true, installedVersion: '4.33.1', resolvedExecutable: '/opt/npm/bin/wrangler',
+      source: { kind: 'npm-global', available: true, latestVersion: '4.33.1', ownership: 'verified' },
+      capability: 'alignable', authentication: { provider: 'cloudflare', status: authenticated ? 'authenticated' : 'missing' },
+      details: { kind: 'cloudflare-wrangler' }, inspectedAt: 100_000,
+      ...(!authenticated ? { reasonCode: 'authentication-missing' as const } : {}),
+    });
+    const adapter: EnvironmentComponentAdapter = {
+      id: 'cloudflare-wrangler', alignment: 'supported', inspect: async () => observation(),
+      plan: (_desired, observed) => ({ componentId: 'cloudflare-wrangler', action: 'authenticate',
+        fromVersion: observed.installedVersion, targetVersion: '4.33.1', planFingerprint: 'b'.repeat(64), expiresAt: 700_000 }),
+      apply: async () => { if (authenticateOnApply) authenticated = true; return success; },
+    };
+    const service = serviceWithAdapter(adapter);
+    const preview = await service.inspect({ componentIds: ['cloudflare-wrangler'], desired: wranglerDesired });
+    const request = { desired: wranglerDesired, plan: preview.plans![0]!, approvedAt: 100_000 };
+
+    expect((await service.apply(request)).result).toMatchObject({ status: 'failed', reasonCode: 'verification-failed', changed: false });
+    authenticateOnApply = true;
+    const refreshed = await service.inspect({ componentIds: ['cloudflare-wrangler'], desired: wranglerDesired });
+    const succeeded = await service.apply({ ...request, plan: refreshed.plans![0]! });
+    expect(succeeded.result).toMatchObject({ status: 'succeeded', changed: true,
+      after: { authentication: { status: 'authenticated' } } });
+  });
   it.each(['install-failed', 'verification-failed'] as const)('returns Paws-specific safe guidance after %s', async (failure) => {
     const observed: ComponentObservation = { componentId: 'paws-cli', platform: 'darwin', architecture: 'arm64',
       support: 'supported', installed: true, installedVersion: '1.3.5', resolvedExecutable: '/opt/npm/bin/paws',

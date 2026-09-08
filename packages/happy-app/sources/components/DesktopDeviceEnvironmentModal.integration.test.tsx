@@ -116,7 +116,10 @@ const options = {
     routeNames: ['index', 'session/[id]', 'settings/index', 'settings/device-environment'], routeParamList: {}, routeGetIdList: {},
 };
 const controller: DeviceEnvironmentController = {
-    phase: 'idle', rows: [], target: { kind: 'unavailable' }, targets: { 'github-cli': { kind: 'unavailable' }, 'paws-cli': { kind: 'unavailable' } },
+    phase: 'idle', rows: [], target: { kind: 'unavailable' }, targets: {
+        'github-cli': { kind: 'unavailable' }, 'paws-cli': { kind: 'unavailable' },
+        'ego-browser': { kind: 'unavailable' }, 'cloudflare-wrangler': { kind: 'unavailable' }, cloudflared: { kind: 'unavailable' },
+    },
     selectedComponent: 'github-cli', selectComponent: vi.fn(), scan: vi.fn(), preview: vi.fn(), applyApproved: vi.fn(), reset: vi.fn(),
 };
 

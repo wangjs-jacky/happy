@@ -2,7 +2,7 @@
 import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ComponentObservation, ComponentPlan, EnvironmentInspectResponse, EnvironmentApplyResponse } from '@slopus/happy-wire';
+import type { ComponentObservation, ComponentPlan, EnvironmentComponentId, EnvironmentInspectResponse, EnvironmentApplyResponse } from '@slopus/happy-wire';
 import type { Machine } from '@/sync/storageTypes';
 import { applyMachineEnvironment, inspectMachineEnvironment } from '@/environment/environmentOps';
 import { useDeviceEnvironment, type DeviceEnvironmentController, type DeviceEnvironmentDependencies } from './useDeviceEnvironment';
@@ -30,7 +30,7 @@ function response(action?: ComponentPlan['action'], version = '2.80.0'): Environ
     };
 }
 
-function multiResponse(action?: ComponentPlan['action'], componentId: 'github-cli' | 'paws-cli' = 'paws-cli'): EnvironmentInspectResponse {
+function multiResponse(action?: ComponentPlan['action'], componentId: EnvironmentComponentId = 'paws-cli'): EnvironmentInspectResponse {
     const github = response(componentId === 'github-cli' ? action : undefined);
     const base = github.observations[0];
     const paws: ComponentObservation = { ...base, componentId: 'paws-cli', capability: 'alignable',
@@ -39,10 +39,10 @@ function multiResponse(action?: ComponentPlan['action'], componentId: 'github-cl
     const ego: ComponentObservation = { ...base, componentId: 'ego-browser', capability: 'inspect-only',
         source: { kind: 'app-managed', available: true, latestVersion: null, ownership: 'not-applicable' },
         details: { kind: 'ego-browser', appVersion: '1.0.0', chromiumVersion: '120.0.0', nodeVersion: '24.0.0', pathReady: true, paired: true } };
-    return { observations: [ego, paws, base],
-        ...(action ? { plans: componentId === 'github-cli' ? github.plans
-            : [{ componentId: 'paws-cli', action, fromVersion: '1.5.0', targetVersion: '1.6.0',
-                planFingerprint: 'b'.repeat(64), expiresAt: 1_600_000 }] } : {}) };
+    const plans = componentId === 'github-cli' ? github.plans
+        : componentId === 'paws-cli' && action ? [{ componentId: 'paws-cli' as const, action, fromVersion: '1.5.0', targetVersion: '1.6.0',
+            planFingerprint: 'b'.repeat(64), expiresAt: 1_600_000 }] : undefined;
+    return { observations: [ego, paws, base], ...(plans === undefined ? {} : { plans }) };
 }
 
 function success(): EnvironmentApplyResponse {
@@ -64,9 +64,29 @@ describe('environment RPC contract', () => {
     it('parses inspect responses and retains the normal machine RPC timeout', async () => {
         rpc.mockResolvedValue(response());
         expect(await inspectMachineEnvironment('air', { componentIds: ['github-cli'] })).toEqual(response());
-        expect(rpc).toHaveBeenCalledWith('air', 'environment-inspect', { componentIds: ['github-cli'] });
+        expect(rpc).toHaveBeenCalledWith('air', 'environment-inspect-v2', { componentIds: ['github-cli'] });
         rpc.mockResolvedValue({ observations: [{ token: 'unexpected' }] });
         await expect(inspectMachineEnvironment('air', { componentIds: ['github-cli'] })).rejects.toThrow();
+    });
+
+    it('falls back to the legacy inspection RPC only when v2 is unavailable', async () => {
+        rpc.mockRejectedValueOnce(new Error('RPC method not available')).mockResolvedValueOnce(response());
+        await expect(inspectMachineEnvironment('air', { componentIds: ['github-cli'] })).resolves.toEqual(response());
+        expect(rpc.mock.calls).toEqual([
+            ['air', 'environment-inspect-v2', { componentIds: ['github-cli'] }],
+            ['air', 'environment-inspect', { componentIds: ['github-cli'] }],
+        ]);
+
+        rpc.mockReset();
+        rpc.mockRejectedValueOnce(new Error('network unavailable'));
+        await expect(inspectMachineEnvironment('air', { componentIds: ['github-cli'] })).rejects.toThrow('network unavailable');
+        expect(rpc).toHaveBeenCalledOnce();
+    });
+
+    it('uses the legacy inspection RPC directly for a known pre-v2 daemon', async () => {
+        rpc.mockResolvedValue(response());
+        await expect(inspectMachineEnvironment('air', { componentIds: ['github-cli'] }, { preferV2: false })).resolves.toEqual(response());
+        expect(rpc).toHaveBeenCalledExactlyOnceWith('air', 'environment-inspect', { componentIds: ['github-cli'] });
     });
 
     it('parses apply responses and selects a ten-minute timeout', async () => {
@@ -612,6 +632,9 @@ describe('useDeviceEnvironment', () => {
         expect(controller.targets).toEqual({
             'github-cli': { kind: 'ready', targetVersion: '2.80.0' },
             'paws-cli': { kind: 'ready', targetVersion: '1.6.0' },
+            'ego-browser': { kind: 'unavailable' },
+            'cloudflare-wrangler': { kind: 'unavailable' },
+            cloudflared: { kind: 'unavailable' },
         });
     });
 
@@ -641,7 +664,50 @@ describe('useDeviceEnvironment', () => {
         expect(controller.rows[0].components['ego-browser'].observation).toEqual(ego);
     });
 
-    it.each(['ego-browser', 'cloudflare-wrangler', 'cloudflared'] as const)('rejects %s alignment actions before RPC', async (componentId) => {
+    it('previews and applies Wrangler authentication through the approved component plan', async () => {
+        const base = response().observations[0];
+        const before: ComponentObservation = {
+            ...base,
+            componentId: 'cloudflare-wrangler',
+            installedVersion: '4.1.0',
+            resolvedExecutable: '/opt/npm/bin/wrangler',
+            source: { kind: 'npm-global', available: true, latestVersion: '4.1.0', ownership: 'verified' },
+            capability: 'alignable',
+            details: { kind: 'cloudflare-wrangler' },
+            authentication: { provider: 'cloudflare', status: 'missing' },
+            reasonCode: 'authentication-missing',
+        };
+        const authenticationPlan: ComponentPlan = {
+            componentId: 'cloudflare-wrangler', action: 'authenticate', fromVersion: '4.1.0', targetVersion: '4.1.0',
+            planFingerprint: 'c'.repeat(64), expiresAt: 1_600_000,
+        };
+        inspect.mockImplementation(async (_id, request) => request.desired
+            ? { observations: [before], plans: [authenticationPlan] }
+            : { observations: [before] });
+        apply.mockResolvedValue({ result: {
+            componentId: 'cloudflare-wrangler', status: 'succeeded', before,
+            after: { ...before, authentication: { provider: 'cloudflare', status: 'authenticated' }, reasonCode: undefined },
+            changed: true,
+        } });
+
+        mount();
+        await act(() => controller.scan());
+        act(() => controller.selectComponent('cloudflare-wrangler'));
+        await act(() => controller.preview('cloudflare-wrangler'));
+        expect(controller.rows[0].components['cloudflare-wrangler']).toMatchObject({ status: 'authenticate', plan: authenticationPlan });
+        await act(() => controller.applyApproved('cloudflare-wrangler'));
+
+        expect(apply.mock.calls[0][1]).toEqual({
+            desired: { componentId: 'cloudflare-wrangler', targetVersion: '4.1.0' },
+            plan: authenticationPlan,
+            approvedAt: 1_000_000,
+        });
+        expect(controller.rows[0].components['cloudflare-wrangler']).toMatchObject({
+            status: 'succeeded', observation: { authentication: { status: 'authenticated' } },
+        });
+    });
+
+    it.each(['ego-browser', 'cloudflare-wrangler', 'cloudflared'] as const)('keeps %s selected but does not call RPC without an alignable target', async (componentId) => {
         inspect.mockResolvedValue(multiResponse());
         mount();
         await act(() => controller.scan());
@@ -649,7 +715,7 @@ describe('useDeviceEnvironment', () => {
         act(() => controller.selectComponent(componentId));
         await act(() => controller.preview(componentId));
         await act(() => controller.applyApproved(componentId));
-        expect(controller.selectedComponent).toBe('github-cli');
+        expect(controller.selectedComponent).toBe(componentId);
         expect(inspect).not.toHaveBeenCalled();
         expect(apply).not.toHaveBeenCalled();
         expect(controller.phase).toBe('scanned');

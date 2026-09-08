@@ -54,13 +54,13 @@ function observation(componentId: EnvironmentComponentId, overrides: Partial<Com
             capability: 'alignable', details: { kind: componentId }, authentication: { provider: 'github.com', status: 'authenticated' }, ...overrides } as ComponentObservation;
         case 'paws-cli': return { ...common, componentId, source: { kind: 'npm-global', available: true, latestVersion: '1.1.0', ownership: 'verified' },
             capability: 'alignable', details: { kind: componentId }, ...overrides } as ComponentObservation;
-        case 'ego-browser': return { ...common, componentId, capability: 'inspect-only', details: {
+        case 'ego-browser': return { ...common, componentId, source: { kind: 'app-managed', available: true, latestVersion: '1.0.0', ownership: 'not-applicable' }, capability: 'alignable', details: {
             kind: componentId, appVersion: '1.0.0', chromiumVersion: '128.0.0', nodeVersion: '22.0.0', pathReady: true, paired: true,
         }, ...overrides } as ComponentObservation;
         case 'cloudflare-wrangler': return { ...common, componentId, source: { kind: 'npm-global', available: true, latestVersion: '4.1.0', ownership: 'unverified' },
-            capability: 'inspect-only', details: { kind: componentId }, authentication: { provider: 'cloudflare', status: 'authenticated', accountLabels: ['Team Alpha'] }, ...overrides } as ComponentObservation;
+            capability: 'alignable', details: { kind: componentId }, authentication: { provider: 'cloudflare', status: 'authenticated', accountLabels: ['Team Alpha'] }, ...overrides } as ComponentObservation;
         case 'cloudflared': return { ...common, componentId, installedVersion: '2026.1.0', source: { ...common.source, latestVersion: '2026.2.0' },
-            capability: 'inspect-only', details: { kind: componentId, tunnelCertificatePresent: true }, ...overrides } as ComponentObservation;
+            capability: 'alignable', details: { kind: componentId, tunnelCertificatePresent: true }, ...overrides } as ComponentObservation;
     }
 }
 
@@ -75,7 +75,7 @@ function row(id: string, componentOverrides: Partial<Record<EnvironmentComponent
     })) };
 }
 
-function plan(componentId: 'github-cli' | 'paws-cli', action: ComponentPlan['action'], fromVersion: string | null, targetVersion: string): ComponentPlan {
+function plan(componentId: EnvironmentComponentId, action: ComponentPlan['action'], fromVersion: string | null, targetVersion: string): ComponentPlan {
     return { componentId, action, fromVersion, targetVersion, planFingerprint: 'a'.repeat(64), expiresAt: Date.now() + 60_000 };
 }
 
@@ -96,7 +96,13 @@ describe('DeviceEnvironmentView', () => {
 
     function renderEnvironmentView(state: Partial<DeviceEnvironmentController> = {}) {
         const target = { kind: 'ready' as const, targetVersion: '2.80.0' };
-        controller = { phase: 'scanned', rows: [row('mac')], target, targets: { 'github-cli': target, 'paws-cli': { kind: 'ready', targetVersion: '1.1.0' } },
+        controller = { phase: 'scanned', rows: [row('mac')], target, targets: {
+            'github-cli': target,
+            'paws-cli': { kind: 'ready', targetVersion: '1.1.0' },
+            'ego-browser': { kind: 'ready', targetVersion: '1.0.0' },
+            'cloudflare-wrangler': { kind: 'ready', targetVersion: '4.1.0' },
+            cloudflared: { kind: 'ready', targetVersion: '2026.2.0' },
+        },
             selectedComponent: 'github-cli', selectComponent: vi.fn(), scan: vi.fn().mockResolvedValue(undefined),
             preview: vi.fn().mockResolvedValue(undefined), applyApproved: vi.fn().mockResolvedValue(undefined), reset: vi.fn(), ...state };
         act(() => { renderer = TestRenderer.create(<DeviceEnvironmentView controller={controller} />); });
@@ -301,13 +307,15 @@ describe('DeviceEnvironmentView', () => {
         expect(textOf(view.root.findByProps({ testID: 'environment-component-partial-ego-browser' }))).toContain('State unknown; scan again');
         const cloudflared = textOf(view.root.findByProps({ testID: 'environment-component-partial-cloudflared' }));
         expect(cloudflared).toContain('Tunnel login certificate present');
-        expect(cloudflared).toContain('Inspection only');
+        expect(cloudflared).toContain('Preview to see the exact action');
     });
 
     it('ENV-08 preserves GitHub confirmation and excludes inspect-only components from controls and dialog', async () => {
         renderEnvironmentView({ phase: 'previewed', rows: [row('github', { 'github-cli': {
             status: 'upgrade', plan: plan('github-cli', 'upgrade', '2.79.0', '2.80.0'), observation: observation('github-cli', { installedVersion: '2.79.0' }),
-        } })] });
+        }, 'ego-browser': { observation: observation('ego-browser', { capability: 'inspect-only' }) },
+        'cloudflare-wrangler': { observation: observation('cloudflare-wrangler', { capability: 'inspect-only' }) },
+        cloudflared: { observation: observation('cloudflared', { capability: 'inspect-only' }) } })] });
         await press('environment-confirm-alignment');
         const [title, message] = mocks.confirm.mock.calls[0];
         expect(title).toBe('Align GitHub CLI?');
@@ -320,6 +328,44 @@ describe('DeviceEnvironmentView', () => {
         expect(controller.applyApproved).toHaveBeenCalledWith('github-cli');
     });
 
+    it('previews and confirms Wrangler login as an explicit per-machine action', async () => {
+        renderEnvironmentView({ phase: 'previewed', selectedComponent: 'cloudflare-wrangler',
+            target: { kind: 'ready', targetVersion: '4.1.0' }, rows: [row('wrangler', {
+                'cloudflare-wrangler': { status: 'authenticate',
+                    plan: plan('cloudflare-wrangler', 'authenticate', '4.1.0', '4.1.0'),
+                    observation: observation('cloudflare-wrangler', {
+                        source: { kind: 'npm-global', available: true, latestVersion: '4.1.0', ownership: 'verified' },
+                        authentication: { provider: 'cloudflare', status: 'missing' }, reasonCode: 'authentication-missing',
+                    }) },
+            })] });
+
+        await press('environment-confirm-alignment');
+        const [title, message] = mocks.confirm.mock.calls[0];
+        expect(title).toBe('Align Cloudflare Wrangler?');
+        expect(message).toContain('wrangler: Sign in to Cloudflare with Wrangler');
+        await act(async () => confirmation.resolve(true));
+        expect(controller.applyApproved).toHaveBeenCalledWith('cloudflare-wrangler');
+    });
+
+    it.each([
+        ['ego-browser', 'onboard', 'Complete Ego CLI onboarding', 'Align Ego Lite and CLI?'],
+        ['cloudflared', 'authenticate', 'Open Cloudflare tunnel login', 'Align cloudflared?'],
+    ] as const)('confirms the official %s interactive action', async (componentId, action, expectedAction, expectedTitle) => {
+        renderEnvironmentView({ phase: 'previewed', selectedComponent: componentId,
+            target: { kind: 'ready', targetVersion: componentId === 'ego-browser' ? '1.0.0' : '2026.2.0' },
+            rows: [row(componentId, { [componentId]: {
+                status: action,
+                plan: plan(componentId, action, componentId === 'ego-browser' ? '1.0.0' : '2026.1.0', componentId === 'ego-browser' ? '1.0.0' : '2026.2.0'),
+            } })] });
+
+        await press('environment-confirm-alignment');
+        const [title, message] = mocks.confirm.mock.calls[0];
+        expect(title).toBe(expectedTitle);
+        expect(message).toContain(`${componentId}: ${expectedAction}`);
+        expect(message).toContain('Credentials are never copied between machines');
+        await act(async () => confirmation.resolve(false));
+    });
+
     it('uses each component target for pre-preview warnings and verified successful applies', () => {
         const outdated = row('versions', {
             'github-cli': { observation: observation('github-cli', { installedVersion: '2.79.0' }) },
@@ -328,7 +374,7 @@ describe('DeviceEnvironmentView', () => {
         const view = renderEnvironmentView({ rows: [outdated] });
         expect(textOf(view.root.findByProps({ testID: 'environment-component-versions-github-cli' }))).toContain('Needs attention');
         expect(textOf(view.root.findByProps({ testID: 'environment-component-versions-paws-cli' }))).toContain('Needs attention');
-        expect(textOf(view.root.findByProps({ testID: 'environment-summary' }))).toContain('3/5');
+        expect(textOf(view.root.findByProps({ testID: 'environment-summary' }))).toContain('1/5');
 
         const before = observation('github-cli', { installedVersion: '2.79.0' });
         const after = observation('github-cli', { installedVersion: '2.80.0' });
@@ -339,7 +385,7 @@ describe('DeviceEnvironmentView', () => {
         controller = { ...controller, phase: 'completed', rows: [applied] };
         act(() => renderer!.update(<DeviceEnvironmentView controller={controller} />));
         expect(textOf(renderer!.root.findByProps({ testID: 'environment-component-versions-github-cli' }))).toContain('Ready');
-        expect(textOf(renderer!.root.findByProps({ testID: 'environment-summary' }))).toContain('4/5');
+        expect(textOf(renderer!.root.findByProps({ testID: 'environment-summary' }))).toContain('2/5');
     });
 
     it('uses component-aware Paws and timeout guidance without mislabeling missing observations', () => {

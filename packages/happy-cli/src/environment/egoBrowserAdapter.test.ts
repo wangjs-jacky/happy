@@ -14,6 +14,10 @@ function success(stdout: string): ProcessResult {
   return { exitCode: 0, stdout, stderr: '', timedOut: false };
 }
 
+function successOnStderr(stderr: string): ProcessResult {
+  return { exitCode: 0, stdout: '', stderr, timedOut: false };
+}
+
 function testDeps(options: {
   egoPath?: string | null;
   appVersions?: Record<string, string | null>;
@@ -25,6 +29,7 @@ function testDeps(options: {
     async run(executable, args, runOptions) {
       invocations.push({ executable, args: [...args], options: runOptions });
       if (args.length === 1 && args[0] === '--version') return options.versionResult ?? success(versionOutput);
+      if (args.length === 1 && (args[0] === 'onboarding' || args[0] === 'upgrade')) return success('completed\n');
       throw new Error(`unexpected invocation: ${executable} ${args.join(' ')}`);
     },
   };
@@ -73,6 +78,16 @@ describe('Ego browser environment adapter', () => {
     });
   });
 
+  it('reads the documented version output when the native CLI writes it to stderr', async () => {
+    const observed = await createEgoBrowserAdapter(testDeps({
+      appVersions: { '/Applications/Ego Lite.app/Contents/Info.plist': '0.4.7.4' },
+      versionResult: successOnStderr(versionOutput),
+    })).inspect();
+
+    expect(observed).toMatchObject({ installedVersion: '0.4.7.4', capability: 'alignable',
+      details: { chromiumVersion: '150.0.7871.101', nodeVersion: '24.18.0', paired: true } });
+  });
+
   it.each([
     'chromium 150.0.7871.101\nnode v24.18.0\n',
     'ego-browser 0.4.7.4\nchromium 150.0.7871.101\nnode 24.18.0\n',
@@ -96,12 +111,12 @@ describe('Ego browser environment adapter', () => {
     const adapter = createEgoBrowserAdapter(deps);
     const observed = await adapter.inspect();
 
-    expect(adapter.alignment).toBe('inspect-only');
+    expect(adapter.alignment).toBe('supported');
     expect(observed).toMatchObject({
       componentId: 'ego-browser', installed: true, installedVersion: '0.4.7.4',
       resolvedExecutable: '/Users/test/.local/bin/ego-browser',
       source: { kind: 'app-managed', available: true, latestVersion: '0.4.7.4', ownership: 'not-applicable' },
-      capability: 'inspect-only',
+      capability: 'alignable',
       details: {
         kind: 'ego-browser', appVersion: '0.4.7.4', chromiumVersion: '150.0.7871.101', nodeVersion: '24.18.0', paired: true,
       },
@@ -143,6 +158,33 @@ describe('Ego browser environment adapter', () => {
       installedVersion: '0.4.7.4', details: { appVersion: '0.4.7.3', paired: false },
       reasonCode: 'version-source-mismatch',
     });
+  });
+
+  it('keeps an app-managed CLI outside the daemon PATH as manual repair', async () => {
+    const deps = testDeps({ appVersions: { '/Applications/Ego Lite.app/Contents/Info.plist': '0.4.7.4' } });
+    const adapter = createEgoBrowserAdapter({ ...deps, env: { PATH: '/usr/bin' },
+      resolveExecutable: async (_name, path, candidates) => candidates.includes('/Users/test/.local/bin/ego-browser')
+        ? '/Users/test/.local/bin/ego-browser' : path === '/usr/bin' ? null : null,
+    });
+    const observed = await adapter.inspect();
+    const desired = { componentId: 'ego-browser' as const, targetVersion: '0.4.7.4' };
+    const plan = adapter.plan(desired, observed, 1_000);
+
+    expect(plan).toMatchObject({ action: 'manual-repair', reasonCode: 'unexpected-error' });
+    expect(deps.invocations).not.toContainEqual(expect.objectContaining({ args: ['onboarding'] }));
+  });
+
+  it('plans and applies the official self-updater for an app and CLI mismatch', async () => {
+    const deps = testDeps({ appVersions: { '/Applications/Ego Lite.app/Contents/Info.plist': '0.4.7.5' } });
+    const adapter = createEgoBrowserAdapter(deps);
+    const observed = await adapter.inspect();
+    const plan = adapter.plan({ componentId: 'ego-browser', targetVersion: '0.4.7.5' }, observed, 1_000);
+
+    expect(plan.action).toBe('upgrade');
+    await adapter.apply(plan);
+    expect(deps.invocations.at(-1)).toEqual(expect.objectContaining({
+      executable: '/Users/test/.local/bin/ego-browser', args: ['upgrade'],
+    }));
   });
 
   it('drops oversized plist versions instead of returning an invalid wire observation', async () => {

@@ -2,13 +2,16 @@
  * Safely inspect the local Ego Lite application and its CLI without starting a
  * browser, task space, or onboarding flow.
  */
-import type { ComponentObservation, EnvironmentReasonCode } from '@slopus/happy-wire';
+import { createHash } from 'node:crypto';
+import type { ComponentObservation, ComponentPlan, DesiredComponentState, EnvironmentReasonCode } from '@slopus/happy-wire';
 import type { EnvironmentComponentAdapter } from './componentAdapter';
 import { resolveExecutable, type ProcessResult, type ProcessRunner } from './processRunner';
 
 const INSPECT_TIMEOUT_MS = 15_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_VERSION_LENGTH = 128;
+const APPLY_TIMEOUT_MS = 8 * 60_000;
+const PLAN_TTL_MS = 10 * 60_000;
 const APP_PLIST_SUFFIX = 'Ego Lite.app/Contents/Info.plist';
 
 export type EgoBrowserAdapterDeps = {
@@ -88,10 +91,23 @@ async function readAppVersion(deps: EgoBrowserAdapterDeps): Promise<string | nul
   return null;
 }
 
-export function createEgoBrowserAdapter(deps: EgoBrowserAdapterDeps): EnvironmentComponentAdapter {
+function fingerprint(desired: DesiredComponentState, observed: ComponentObservation): string {
+  return createHash('sha256').update(JSON.stringify({
+    componentId: desired.componentId,
+    targetVersion: desired.targetVersion,
+    installedVersion: observed.installedVersion,
+    resolvedExecutable: observed.resolvedExecutable,
+    source: observed.source,
+    details: observed.details,
+  }), 'utf8').digest('hex');
+}
+
+export function createEgoBrowserAdapter(
+  deps: EgoBrowserAdapterDeps,
+): EnvironmentComponentAdapter & Required<Pick<EnvironmentComponentAdapter, 'plan' | 'apply'>> {
   return {
     id: 'ego-browser',
-    alignment: 'inspect-only',
+    alignment: 'supported',
 
     async inspect(): Promise<ComponentObservation> {
       const inspectedAt = deps.now();
@@ -109,7 +125,7 @@ export function createEgoBrowserAdapter(deps: EgoBrowserAdapterDeps): Environmen
           timeoutMs: INSPECT_TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: deps.env,
         });
       const parsedVersion = versionResult !== null && successful(versionResult)
-        ? parseEgoBrowserVersion(versionResult.stdout)
+        ? parseEgoBrowserVersion(`${versionResult.stdout}\n${versionResult.stderr}`.trim())
         : null;
       const versionsMatch = appVersion !== null && parsedVersion !== null && appVersion === parsedVersion.cliVersion;
       const paired = pathReady && versionsMatch;
@@ -130,7 +146,8 @@ export function createEgoBrowserAdapter(deps: EgoBrowserAdapterDeps): Environmen
         source: {
           kind: 'app-managed', available: appVersion !== null, latestVersion: appVersion, ownership: 'not-applicable',
         },
-        capability: 'inspect-only',
+        capability: deps.platform === 'darwin' && egoPath !== null && appVersion !== null && parsedVersion !== null
+          ? 'alignable' : 'inspect-only',
         details: {
           kind: 'ego-browser', appVersion, chromiumVersion: parsedVersion?.chromiumVersion ?? null,
           nodeVersion: parsedVersion?.nodeVersion ?? null, pathReady, paired,
@@ -138,6 +155,40 @@ export function createEgoBrowserAdapter(deps: EgoBrowserAdapterDeps): Environmen
         inspectedAt,
         ...(reasonCode === undefined ? {} : { reasonCode }),
       };
+    },
+
+    plan(desired, observed, now): ComponentPlan {
+      const details = observed.details.kind === 'ego-browser' ? observed.details : null;
+      let action: ComponentPlan['action'] = 'manual-repair';
+      let reasonCode: EnvironmentReasonCode | undefined = observed.reasonCode;
+      if (observed.capability === 'alignable' && details !== null && details.appVersion === desired.targetVersion) {
+        if (details.pathReady && !details.paired) {
+          action = 'upgrade';
+          reasonCode = undefined;
+        } else if (details.pathReady) {
+          action = 'none';
+          reasonCode = undefined;
+        }
+      }
+      return {
+        componentId: 'ego-browser', action, fromVersion: observed.installedVersion,
+        targetVersion: desired.targetVersion, planFingerprint: fingerprint(desired, observed),
+        expiresAt: now + PLAN_TTL_MS,
+        ...(reasonCode === undefined ? {} : { reasonCode }),
+      };
+    },
+
+    async apply(approvedPlan): Promise<ProcessResult> {
+      if (approvedPlan.action === 'manual-repair') throw new Error('manual-repair plans cannot be applied');
+      if (approvedPlan.action === 'none') return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+      const executable = await deps.resolveExecutable(
+        'ego-browser', deps.env.PATH, [`${deps.homeDirectory}/.local/bin/ego-browser`],
+      );
+      if (executable === null) throw new Error('ego-browser executable is unavailable');
+      const args = approvedPlan.action === 'onboard' ? ['onboarding'] : ['upgrade'];
+      return deps.runner.run(executable, args, {
+        timeoutMs: APPLY_TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: deps.env,
+      });
     },
   };
 }
