@@ -86,6 +86,12 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const showScrollButtonRef = React.useRef(false);
     const [showAnchorPill, setShowAnchorPill] = React.useState(false);
     const [anchorSheetOpen, setAnchorSheetOpen] = React.useState(false);
+    const [viewportHeight, setViewportHeight] = React.useState<number | null>(null);
+    const [contentMeasurement, setContentMeasurement] = React.useState<{
+        boundary: string;
+        generation: object;
+        height: number;
+    } | null>(null);
     const anchorPillVisibleRef = React.useRef(false);
     const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const indexRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -164,6 +170,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
         listRef: flatListRef, viewportRef, expanded: expandedKeys, restoreExpanded: setExpandedKeys });
+    const contentGeneration = React.useMemo(() => ({}), [collapsedGroups, expandedKeys, props.currentTurnActive,
+        props.groupToolCalls, props.messages]);
     const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
     cancelReadingRestoreRef.current = reading.cancelRestore;
     const seenCollapsibleGroupsRef = React.useRef<Set<string>>(new Set(
@@ -395,10 +403,37 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         try { await props.onJumpToLatest(); }
         catch { if (sessionRef.current === session) jumpPending.current = false; }
     }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
-    const onContentSizeChange = React.useCallback(() => {
+    const onContentSizeChange = React.useCallback((_width: number, height: number) => {
+        setContentMeasurement({ boundary: boundaryAttemptKey('older'), generation: contentGeneration, height });
         if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
         else void reading.layout();
-    }, [isAtLatest, scrollLatest, reading]);
+    }, [boundaryAttemptKey, contentGeneration, isAtLatest, scrollLatest, reading]);
+    React.useEffect(() => {
+        if (Platform.OS === 'web' || contentMeasurement === null || contentMeasurement.generation === contentGeneration
+            || contentMeasurement.boundary !== boundaryAttemptKey('older')) return;
+        const measured = contentMeasurement;
+        // Native reports a changed content height during layout. If two actual
+        // render frames pass without a new report, the previous height is still
+        // current and can safely follow the newly committed generation.
+        let secondFrame: number | null = null;
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                setContentMeasurement(current => current === measured
+                    ? { ...measured, generation: contentGeneration }
+                    : current);
+            });
+        });
+        return () => {
+            cancelAnimationFrame(firstFrame);
+            if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+        };
+    }, [boundaryAttemptKey, contentGeneration, contentMeasurement]);
+    React.useEffect(() => {
+        if (Platform.OS === 'web' || viewportHeight === null || contentMeasurement === null
+            || contentMeasurement.boundary !== boundaryAttemptKey('older')
+            || contentMeasurement.generation !== contentGeneration || contentMeasurement.height >= viewportHeight) return;
+        loadBoundary('older');
+    }, [boundaryAttemptKey, contentGeneration, contentMeasurement, loadBoundary, viewportHeight]);
     React.useEffect(() => {
         if (props.newerError) jumpPending.current = false;
         else if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
@@ -478,6 +513,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
                 contentContainerStyle={props.contentContainerStyle}
                 renderItem={renderItem}
+                onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
                 onScroll={handleScroll}
                 onScrollBeginDrag={reading.cancelRestore}
                 onContentSizeChange={onContentSizeChange}
