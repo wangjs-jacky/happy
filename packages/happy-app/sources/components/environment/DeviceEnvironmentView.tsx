@@ -152,8 +152,8 @@ function componentTarget(controller: DeviceEnvironmentController, componentId: E
     return componentId === controller.selectedComponent ? controller.target : controller.targets[componentId];
 }
 
-const ComponentEnvironmentRow = React.memo(({ machineId, machineLabel, component, target, applying }: {
-    machineId: string; machineLabel: string; component: FleetComponentRow; target?: FleetTarget; applying: boolean;
+const ComponentEnvironmentRow = React.memo(({ machineId, machineLabel, component, target, applying, stretch }: {
+    machineId: string; machineLabel: string; component: FleetComponentRow; target?: FleetTarget; applying: boolean; stretch: boolean;
 }) => {
     const { theme } = useUnistyles();
     const observation = component.observation;
@@ -177,7 +177,7 @@ const ComponentEnvironmentRow = React.memo(({ machineId, machineLabel, component
         || component.status === 'rpc-timeout' || component.status === 'process-timeout' || commands.length > 0;
 
     return (
-        <View testID={`environment-component-${machineId}-${component.componentId}`} style={styles.component}>
+        <View testID={`environment-component-${machineId}-${component.componentId}`} style={[styles.component, stretch && styles.componentStretch]}>
             <View style={styles.componentHeader}>
                 <View style={[styles.componentIcon, { backgroundColor: `${color}18` }]}>
                     <Ionicons name={componentIcon(component.componentId)} size={18} color={color} />
@@ -243,7 +243,8 @@ const ComponentEnvironmentRow = React.memo(({ machineId, machineLabel, component
                 accessibilityLabel={`${machineLabel} · ${componentName(component.componentId)} · ${t('profile.details')}`} accessibilityState={{ expanded }}
                 hitSlop={4}
                 onPress={() => setExpanded((value) => !value)} onFocus={() => setDetailsFocused(true)} onBlur={() => setDetailsFocused(false)}
-                style={[styles.detailsToggle, detailsFocused && styles.detailsToggleFocused]}>
+                style={[styles.detailsToggle, stretch ? styles.detailsToggleStretch : styles.detailsToggleCompact,
+                    detailsFocused && styles.detailsToggleFocused]}>
                 <Text style={styles.detailsToggleText}>{t('profile.details')}</Text>
                 <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={theme.colors.textLink} />
             </Pressable> : null}
@@ -274,9 +275,9 @@ const MachineEnvironmentRow = React.memo(({ row, controller, columns }: { row: F
             <View style={styles.machineDetails}>
                 {FLEET_COMPONENT_IDS.map((componentId) => <View key={componentId} testID={`environment-component-cell-${row.machineId}-${componentId}`}
                     style={{ flexBasis: `${100 / columns}%`, flexGrow: 0, flexShrink: 0 }}>
-                    <View style={styles.componentCell}>
+                    <View style={[styles.componentCell, columns > 1 && styles.componentCellStretch]}>
                         <ComponentEnvironmentRow machineId={row.machineId} machineLabel={machineName(row)} component={row.components[componentId]}
-                            target={componentTarget(controller, componentId)} applying={controller.phase === 'applying'} />
+                            target={componentTarget(controller, componentId)} applying={controller.phase === 'applying'} stretch={columns > 1} />
                     </View>
                 </View>)}
             </View>
@@ -352,6 +353,9 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
     const columns = contentWidth >= 1120 ? 5 : contentWidth >= 640 ? 2 : 1;
     const fullyReady = components.length > 0 && ready === components.length;
     const healthColor = fullyReady ? styles.healthGood : warning > 0 ? styles.healthWarning : styles.healthUnknown;
+    const showPreview = (controller.phase === 'scanned' && canPreview) || controller.phase === 'previewing';
+    const showConfirm = (controller.phase === 'previewed' && canConfirm) || controller.phase === 'applying';
+    const showScan = !showPreview && !showConfirm;
 
     return <ItemList containerStyle={styles.container} onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}>
         <View style={styles.summaryCard}>
@@ -379,17 +383,17 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
         </View>
         <View style={styles.toolbarCard}>
             <View style={styles.toolbar}>
-            <EnvironmentAction testID="environment-scan-all" title={t(controller.phase === 'scanning' ? 'deviceEnvironment.scanning' : 'deviceEnvironment.scanAll')}
-                icon="scan-outline" primary disabled={busy || controller.rows.length === 0} loading={controller.phase === 'scanning'} onPress={() => runAction('scan')} />
-            {alignable.map((componentId) => <EnvironmentAction key={componentId} testID={`environment-select-${componentId}`}
+            {showScan ? <EnvironmentAction testID="environment-scan-all" title={t(controller.phase === 'scanning' ? 'deviceEnvironment.scanning' : 'deviceEnvironment.scanAll')}
+                icon="scan-outline" primary disabled={busy || controller.rows.length === 0} loading={controller.phase === 'scanning'} onPress={() => runAction('scan')} /> : null}
+            {alignable.length > 1 ? alignable.map((componentId) => <EnvironmentAction key={componentId} testID={`environment-select-${componentId}`}
                 title={componentName(componentId)} icon={componentIcon(componentId)} active={selected === componentId} disabled={busy || selected === componentId}
-                onPress={() => runAction('select', componentId)} />)}
-            <EnvironmentAction testID="environment-preview-alignment"
-                title={t(controller.phase === 'previewing' ? 'deviceEnvironment.previewing' : 'deviceEnvironment.previewComponentAlignment', { component: componentName(selected) })}
-                icon="eye-outline" disabled={busy || !canPreview} loading={controller.phase === 'previewing'} onPress={() => runAction('preview')} />
-            <EnvironmentAction testID="environment-confirm-alignment"
-                title={t(controller.phase === 'applying' ? 'deviceEnvironment.applying' : 'deviceEnvironment.confirmComponentAction', { component: componentName(selected) })}
-                icon="checkmark-circle-outline" disabled={busy || !canConfirm} loading={controller.phase === 'applying'} onPress={() => runAction('confirm')} />
+                onPress={() => runAction('select', componentId)} />) : null}
+            {showPreview ? <EnvironmentAction testID="environment-preview-alignment"
+                title={t(controller.phase === 'previewing' ? 'deviceEnvironment.previewing' : 'deviceEnvironment.previewAlignment')}
+                icon="eye-outline" disabled={busy || !canPreview} loading={controller.phase === 'previewing'} onPress={() => runAction('preview')} /> : null}
+            {showConfirm ? <EnvironmentAction testID="environment-confirm-alignment"
+                title={t(controller.phase === 'applying' ? 'deviceEnvironment.applying' : 'deviceEnvironment.confirmAction')}
+                icon="checkmark-circle-outline" disabled={busy || !canConfirm} loading={controller.phase === 'applying'} onPress={() => runAction('confirm')} /> : null}
             </View>
         </View>
         {controller.rows.map((row) => <MachineEnvironmentRow key={row.machineId} row={row} controller={controller} columns={columns} />)}
@@ -442,9 +446,11 @@ const styles = StyleSheet.create((theme) => ({
     machineScoreValue: { color: theme.colors.text, fontSize: 17, lineHeight: 20, ...Typography.default('semiBold') },
     machineScoreLabel: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16, ...Typography.default() },
     machineDetails: { flexDirection: 'row', flexWrap: 'wrap', padding: 9 },
-    componentCell: { height: '100%', padding: 5 },
-    component: { flex: 1, minHeight: 170, gap: 7, padding: 13, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth,
+    componentCell: { padding: 5 },
+    componentCellStretch: { height: '100%' },
+    component: { minHeight: 170, gap: 7, padding: 13, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh },
+    componentStretch: { flex: 1 },
     componentHeader: { flexDirection: 'row', alignItems: 'flex-start', flexWrap: 'wrap', gap: 7 },
     componentIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     componentTitle: { flex: 1, minWidth: 72, color: theme.colors.text, fontSize: 14, lineHeight: 18, ...Typography.default('semiBold') },
@@ -455,8 +461,10 @@ const styles = StyleSheet.create((theme) => ({
     collapsedDetails: { display: 'none' },
     actionText: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20, ...Typography.default() },
     command: { color: theme.colors.text, backgroundColor: theme.colors.surfaceSelected, padding: 10, borderRadius: 6, fontSize: 13, ...Typography.mono() },
-    detailsToggle: { minHeight: 36, marginTop: 'auto', paddingHorizontal: 6, paddingVertical: 7, marginLeft: -6,
+    detailsToggle: { minHeight: 36, paddingHorizontal: 6, paddingVertical: 7, marginLeft: -6,
         flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', borderRadius: 7 },
+    detailsToggleStretch: { marginTop: 'auto' },
+    detailsToggleCompact: { marginTop: 4 },
     detailsToggleFocused: { backgroundColor: theme.colors.surfaceSelected },
     detailsToggleText: { color: theme.colors.textLink, fontSize: 12, ...Typography.default('semiBold') },
     toolbarCard: { marginHorizontal: 12, marginTop: 12, padding: 8, borderRadius: 14, backgroundColor: theme.colors.surface,
