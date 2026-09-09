@@ -36,7 +36,18 @@ vi.mock('react-native-unistyles', () => {
         useUnistyles: () => ({ theme }),
     };
 });
-vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
+vi.mock('@/constants/Typography', () => ({
+    Typography: {
+        default: () => ({ fontFamily: 'Default-Regular' }),
+        mono: (weight = 'regular') => ({
+            fontFamily: weight === 'semiBold'
+                ? 'MapleMonoNL-SemiBold'
+                : weight === 'italic'
+                    ? 'MapleMonoNL-Italic'
+                    : 'MapleMonoNL-Regular',
+        }),
+    },
+}));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import { MermaidRenderer } from './MermaidRenderer';
@@ -88,5 +99,24 @@ describe('MermaidRenderer native interaction contract', () => {
             paddingBottom: 12,
             paddingTop: 24,
         });
+    });
+
+    it('uses the chat Maple faces in the diagram error fallback', async () => {
+        await act(async () => {
+            renderer = TestRenderer.create(<MermaidRenderer content="not mermaid" typography="chatMono" />);
+        });
+
+        act(() => renderer!.root.findByType('WebView').props.onMessage({
+            nativeEvent: { data: JSON.stringify({ type: 'error' }) },
+        }));
+
+        const textNodes = renderer!.root.findAllByType('Text');
+        const title = textNodes.find((node: any) => node.props.children === 'markdown.mermaidRenderFailed')!;
+        const code = textNodes.find((node: any) => node.props.children === 'not mermaid')!;
+        expect(Object.assign({}, ...title.props.style.filter(Boolean))).toMatchObject({
+            fontFamily: 'MapleMonoNL-SemiBold',
+            fontWeight: 'normal',
+        });
+        expect(Object.assign({}, ...code.props.style.filter(Boolean)).fontFamily).toBe('MapleMonoNL-Regular');
     });
 });

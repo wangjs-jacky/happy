@@ -13,6 +13,7 @@ import {
     type DiagramCommand,
     type MermaidThemeConfig,
 } from './mermaidRendererModel';
+import { getMarkdownTypography, type MarkdownTypographyMode } from './markdownTypography';
 
 type DiagramCanvasHandle = {
     execute: (command: DiagramCommand) => void;
@@ -22,6 +23,7 @@ type DiagramCanvasProps = {
     config: MermaidThemeConfig;
     content: string;
     fullscreen?: boolean;
+    typography: MarkdownTypographyMode;
 };
 
 type PanzoomFactory = (
@@ -58,13 +60,14 @@ export function initializeWebDiagramPanzoom(
 
 let nextDiagramId = 0;
 
-function DiagramError(props: { content: string }) {
+function DiagramError(props: { content: string; typography: MarkdownTypographyMode }) {
+    const typography = getMarkdownTypography(props.typography);
     return (
         <View style={[styles.canvas, styles.errorContainer]}>
             <View style={styles.errorContent}>
-                <Text style={styles.errorText}>{t('markdown.mermaidRenderFailed')}</Text>
+                <Text style={[styles.errorText, typography.strong]}>{t('markdown.mermaidRenderFailed')}</Text>
                 <View style={styles.codeBlock}>
-                    <Text style={styles.codeText}>{props.content}</Text>
+                    <Text style={[styles.codeText, typography.inlineCode]}>{props.content}</Text>
                 </View>
             </View>
         </View>
@@ -142,7 +145,7 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
         };
     }, [props.fullscreen, svgContent]);
 
-    if (hasError) return <DiagramError content={props.content} />;
+    if (hasError) return <DiagramError content={props.content} typography={props.typography} />;
 
     return (
         <View style={[styles.canvas, props.fullscreen && styles.canvasFullscreen]}>
@@ -263,7 +266,7 @@ const NativeDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasP
         },
     }), []);
 
-    if (hasError) return <DiagramError content={props.content} />;
+    if (hasError) return <DiagramError content={props.content} typography={props.typography} />;
 
     return (
         <View style={[styles.canvas, props.fullscreen && styles.canvasFullscreen, !props.fullscreen && { height }]}>
@@ -371,6 +374,7 @@ function DiagramSurface(props: {
     config: MermaidThemeConfig;
     content: string;
     fullscreen?: boolean;
+    typography: MarkdownTypographyMode;
     onCloseFullscreen?: () => void;
     onOpenFullscreen?: () => void;
 }) {
@@ -393,12 +397,13 @@ function DiagramSurface(props: {
                 config={props.config}
                 content={props.content}
                 fullscreen={props.fullscreen}
+                typography={props.typography}
             />
         </View>
     );
 }
 
-export const MermaidRenderer = React.memo((props: { content: string }) => {
+export const MermaidRenderer = React.memo((props: { content: string; typography?: MarkdownTypographyMode }) => {
     const { theme } = useUnistyles();
     const [fullscreen, setFullscreen] = React.useState(false);
     const inlineCanvasRef = React.useRef<DiagramCanvasHandle>(null);
@@ -414,6 +419,7 @@ export const MermaidRenderer = React.memo((props: { content: string }) => {
                 config={config}
                 content={props.content}
                 onOpenFullscreen={openFullscreen}
+                typography={props.typography ?? 'default'}
             />
             <Modal
                 animationType="fade"
@@ -431,6 +437,7 @@ export const MermaidRenderer = React.memo((props: { content: string }) => {
                             content={props.content}
                             fullscreen
                             onCloseFullscreen={closeFullscreen}
+                            typography={props.typography ?? 'default'}
                         />
                     </View>
                 ) : null}
