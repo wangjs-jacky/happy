@@ -1147,7 +1147,6 @@ export async function runCodex(opts: {
     } as const;
     let first = true;
     let appendSystemPromptInjected = false;
-    let browserStepPromptInjected = false;
     const skillPathResolutionInstruction = createCodexSkillPathResolutionPromptLifecycle();
 
     try {
@@ -1429,7 +1428,6 @@ export async function runCodex(opts: {
             reasoningProcessor.abort();
             diffProcessor.reset();
             appendSystemPromptInjected = false;
-            browserStepPromptInjected = false;
             skillPathResolutionInstruction.onThreadReset();
             if (opts?.resetFirst) {
                 first = true;
@@ -1527,7 +1525,6 @@ export async function runCodex(opts: {
                     message: opts.prompt,
                     mode: opts.mode,
                     includeAppendSystemPrompt,
-                    includeBrowserStepInstruction: !browserStepPromptInjected,
                     includeSkillPathResolutionInstruction,
                     includeTitleInstruction: first,
                 });
@@ -1551,7 +1548,6 @@ export async function runCodex(opts: {
                     skillPathResolutionInstruction.markPromptSent();
                 }
                 first = false;
-                browserStepPromptInjected = true;
                 if (includeAppendSystemPrompt) {
                     appendSystemPromptInjected = true;
                 }

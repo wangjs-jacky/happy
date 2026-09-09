@@ -552,14 +552,6 @@ export const ca: TranslationStructure = {
             loadError: 'No s\'ha pogut carregar aquesta carpeta',
             retry: 'Torna-ho a provar',
         },
-        browserProgress: {
-            title: 'Progrés del navegador',
-            view: 'Mostra el progrés',
-            close: 'Tanca el progrés del navegador',
-            timelineTitle: 'Passos del navegador',
-            liveCount: ({ count }: { count: number }) => `En directe · ${count} ${count === 1 ? 'pas' : 'passos'}`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Pas ${current} de ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -994,11 +986,6 @@ export const ca: TranslationStructure = {
             openCamera: 'Obre la càmera',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Captura de pantalla',
-            screenshotFailedTitle: 'La captura de pantalla ha fallat',
-            screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
-            screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
             workingDirectory: 'Directori de treball',
             workingDirectoryFutureHint: 'En canviar-lo es continua en una sessió nova i s\'aplica al missatge següent i als posteriors. Aquesta sessió no canvia.',
             workingDirectoryInputPlaceholder: 'Introdueix un directori d\'aquesta màquina',
