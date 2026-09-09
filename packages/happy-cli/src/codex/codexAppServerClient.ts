@@ -1280,6 +1280,7 @@ export class CodexAppServerClient {
     async forkThread(opts: {
         threadId: string;
         lastTurnId?: string;
+        beforeTurnId?: string;
         model?: string;
         cwd?: string;
         approvalPolicy?: ApprovalPolicy;
@@ -1291,6 +1292,7 @@ export class CodexAppServerClient {
         const params: ForkConversationParams = {
             threadId: opts.threadId,
             ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
+            ...(opts.beforeTurnId ? { beforeTurnId: opts.beforeTurnId } : {}),
             model: opts.model ?? defaults.model ?? null,
             modelProvider: null,
             cwd: opts.cwd ?? defaults.cwd ?? process.cwd(),

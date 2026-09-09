@@ -15,6 +15,7 @@ type CodexForkClient = {
     forkThread: (opts: {
         threadId: string;
         lastTurnId?: string;
+        beforeTurnId?: string;
         cwd?: string;
         model?: string;
         approvalPolicy?: any;
@@ -22,7 +23,8 @@ type CodexForkClient = {
         mcpServers?: Record<string, unknown>;
         deferGoalContinuation?: boolean;
     }) => Promise<{ threadId: string; thread: Thread }>;
-    rollbackThread: (opts: { threadId: string; numTurns: number }) => Promise<{ thread: Thread }>;
+    readThread: (opts: { threadId: string; includeTurns: boolean }) => Promise<{ thread: Thread }>;
+    deleteThread: (opts: { threadId: string }) => Promise<unknown>;
     injectItems: (opts: { threadId: string; items: unknown[] }) => Promise<unknown>;
 };
 
@@ -110,41 +112,63 @@ export async function forkCodexThread(
         deferGoalContinuation?: boolean;
     },
 ): Promise<CodexForkResult> {
+    // Resolve the boundary on the source before creating anything. Paginated
+    // Codex threads cannot be rolled back after a full fork.
+    let cut: { turnId: string; text: string; retainedTurnIds: string[] } | undefined;
+    if (opts.cutAfterItemId) {
+        if (opts.lastTurnId) {
+            throw new Error('Cannot combine lastTurnId with cutAfterItemId');
+        }
+        const { thread } = await client.readThread({ threadId: opts.threadId, includeTurns: true });
+        const selected = findCutTurn(thread, opts.cutAfterItemId);
+        if (!selected) {
+            throw new CodexForkRewindPointNotFoundError(opts.cutAfterItemId, opts.threadId);
+        }
+        cut = {
+            turnId: thread.turns![selected.index].id,
+            text: selected.text,
+            retainedTurnIds: thread.turns!.slice(0, selected.index + (opts.retainSelectedTurn ? 1 : 0)).map(turn => turn.id),
+        };
+    }
     const forked = await client.forkThread({
         threadId: opts.threadId,
         ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
+        ...(cut ? (opts.retainSelectedTurn
+            ? { lastTurnId: cut.turnId }
+            : { beforeTurnId: cut.turnId }) : {}),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.approvalPolicy ? { approvalPolicy: opts.approvalPolicy } : {}),
         ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
         ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}),
-        ...(opts.deferGoalContinuation !== undefined
-            ? { deferGoalContinuation: opts.deferGoalContinuation }
+        ...((cut || opts.deferGoalContinuation !== undefined)
+            ? { deferGoalContinuation: cut ? true : opts.deferGoalContinuation }
             : {}),
     });
 
-    if (opts.cutAfterItemId) {
-        const cutTurn = findCutTurn(forked.thread, opts.cutAfterItemId);
-        if (!cutTurn) {
-            throw new CodexForkRewindPointNotFoundError(opts.cutAfterItemId, opts.threadId);
-        }
-        const turns = forked.thread.turns ?? [];
-        const turnsToDrop = turns.length - cutTurn.index - (opts.retainSelectedTurn ? 1 : 0);
-        if (turnsToDrop > 0) {
-            await client.rollbackThread({
-                threadId: forked.threadId,
-                numTurns: turnsToDrop,
-            });
-        }
-        if (!opts.retainSelectedTurn) {
-            await client.injectItems({
-                threadId: forked.threadId,
-                items: [{
-                    type: 'message',
-                    role: 'user',
-                    content: [{ type: 'input_text', text: cutTurn.text }],
-                }],
-            });
+    if (cut) {
+        try {
+            // Older servers may silently ignore unknown boundary fields. Check
+            // the persisted fork before returning it or restoring the prompt.
+            const { thread } = await client.readThread({ threadId: forked.threadId, includeTurns: true });
+            const retainedIds = thread.turns?.map(turn => turn.id);
+            if (!retainedIds || JSON.stringify(retainedIds) !== JSON.stringify(cut.retainedTurnIds)) {
+                throw new Error('Codex did not preserve the requested fork boundary; update Codex and try again');
+            }
+            if (!opts.retainSelectedTurn) {
+                await client.injectItems({
+                    threadId: forked.threadId,
+                    items: [{
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text: cut.text }],
+                    }],
+                });
+            }
+        } catch (error) {
+            // Best-effort cleanup, without masking the original failure.
+            await client.deleteThread({ threadId: forked.threadId }).catch(() => undefined);
+            throw error;
         }
     }
 
