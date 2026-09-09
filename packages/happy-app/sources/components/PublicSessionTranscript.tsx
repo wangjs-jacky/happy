@@ -30,14 +30,6 @@ export function PublicSessionTranscript({
     const cover = snapshot.version === 2 ? snapshot.appearance.cover : undefined;
     return (
         <View style={styles.page} testID="public-session-transcript">
-            {cover ? <PublicTranscriptCover publicId={publicId} cover={cover} /> : null}
-            <PublicTranscriptHeader
-                title={snapshot.title}
-                publishedAt={publishedAt}
-                source={snapshot.source?.provider}
-                appearanceMode={appearanceMode}
-                onAppearanceModeChange={onAppearanceModeChange}
-            />
             <View style={styles.transcript} testID="public-session-transcript-scroll-region">
                 <ConversationTranscript
                     metadata={null}
@@ -45,13 +37,26 @@ export function PublicSessionTranscript({
                     groupToolCalls={snapshot.presentation?.groupToolCalls ?? true}
                     currentTurnActive={false}
                     hasPendingPermission={false}
-                    visualTop={<View style={styles.transcriptTopInset} />}
+                    visualTop={(
+                        <>
+                            {cover ? <PublicTranscriptCover publicId={publicId} cover={cover} /> : null}
+                            <PublicTranscriptHeader
+                                title={snapshot.title}
+                                publishedAt={publishedAt}
+                                source={snapshot.source?.provider}
+                                appearanceMode={appearanceMode}
+                                onAppearanceModeChange={onAppearanceModeChange}
+                            />
+                            <View style={styles.transcriptTopInset} />
+                        </>
+                    )}
                     visualBottom={<View style={styles.transcriptBottomInset} />}
                     showMessageActions={false}
                     canEditLatestUserMessage={false}
                     showAnchorNavigation={false}
                     inverted={false}
                     contentContainerStyle={styles.transcriptContent}
+                    itemContainerStyle={styles.transcriptItem}
                 />
             </View>
         </View>
@@ -227,6 +232,9 @@ const styles = StyleSheet.create((theme) => ({
         width: '100%',
     },
     transcriptContent: {
+        width: '100%',
+    },
+    transcriptItem: {
         width: '100%',
         maxWidth: layout.maxWidth - 40,
         alignSelf: 'center',
