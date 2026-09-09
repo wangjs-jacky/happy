@@ -14,7 +14,8 @@ const sessionState = vi.hoisted(() => ({
     messages: [] as Message[], isLoaded: true, hasMoreOlder: true, isLoadingOlder: false,
     hasMoreNewer: false, isLoadingNewer: false, isAtLatest: true,
 }));
-const grouped = vi.hoisted(() => ({ items: null as any[] | null }));
+const grouped = vi.hoisted(() => ({ items: null as any[] | null, renderRows: false,
+    renders: [] as Array<{ id: string; expanded: boolean }> }));
 vi.mock('@/sync/storage', () => ({
     useSessionMessages: () => sessionState,
     useSession: () => ({ id: 'session', metadata: null }),
@@ -29,7 +30,8 @@ vi.mock('./ChatFooter', () => ({ ChatFooter: 'ChatFooter' }));
 vi.mock('react-native', () => ({
     AppState: { addEventListener: () => ({ remove: vi.fn() }) },
     ActivityIndicator: 'ActivityIndicator',
-    FlatList: 'FlatList',
+    FlatList: React.forwardRef((props: any, ref: any) => React.createElement('FlatList', { ...props, ref },
+        grouped.renderRows ? props.data.map((item: any) => React.cloneElement(props.renderItem({ item }), { key: item.renderKey })) : null)),
     Platform: { OS: 'web' },
     Pressable: 'Pressable',
     Text: 'Text',
@@ -59,6 +61,7 @@ vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: { text: '#fff' } } }),
 }));
 vi.mock('@/hooks/useGroupedMessages', () => ({
+    filterSupersededUserMessages: (messages: Message[]) => messages,
     useGroupedMessages: (messages: Message[]) => grouped.items ?? messages.map((message) => ({ type: 'message', id: message.id, message })),
     isSessionTurnActive: () => false,
 }));
@@ -66,7 +69,13 @@ vi.mock('@/utils/messageForkPoint', () => ({ getAgentMessageForkTargets: () => n
 vi.mock('@/modal/components/BaseModal', () => ({ BaseModal: 'BaseModal' }));
 vi.mock('@/text', () => ({ t: (key: string, params?: { count: number }) => params ? `${key}:${params.count}` : key }));
 vi.mock('./MessageView', () => ({ MessageView: 'MessageView' }));
-vi.mock('./ToolGroupView', () => ({ AgentWorkGroupView: 'AgentWorkGroupView', ToolGroupView: 'ToolGroupView' }));
+vi.mock('./ToolGroupView', () => ({
+    AgentWorkGroupView: (props: any) => {
+        grouped.renders.push({ id: props.group.id, expanded: props.expanded });
+        return React.createElement('AgentWorkGroupView', props);
+    },
+    ToolGroupView: 'ToolGroupView',
+}));
 vi.mock('./AttachmentGalleryView', () => ({ AttachmentGalleryView: 'AttachmentGalleryView' }));
 vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
 
@@ -98,6 +107,8 @@ describe('ConversationTranscript older history pagination', () => {
     beforeEach(() => {
         flushFrame = installFrameQueue();
         grouped.items = null;
+        grouped.renders = [];
+        grouped.renderRows = false;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const originalConsoleError = console.error;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -128,6 +139,50 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => renderer.update(<ConversationTranscript metadata={null}
             sessionId="group-window" messages={[userMessage('5')]} reading={adapter} />));
         expect(byId(renderer, 'conversation-transcript-list').props.data[0].renderKey).toBe(before);
+        act(() => renderer.unmount());
+    });
+
+    it.each([true, false])('never transiently expands a newly identified historical group (reading: %s)', async durable => {
+        grouped.renderRows = true;
+        const adapter = { key: 'fold-first-render', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id) };
+        const group = (ids: string[]) => ({ type: 'agent-work-group', id: 'group-' + ids[0],
+            messages: ids.map(userMessage), hasPendingPermission: false });
+        grouped.items = [group(['3', '2', '1'])];
+        const render = (messages: Message[]) => <ConversationTranscript metadata={null} sessionId="fold-first-render"
+            messages={messages} reading={durable ? adapter : undefined} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([])); });
+        grouped.renders = [];
+        grouped.items = [group(['5', '4', '3'])];
+        await act(async () => renderer.update(render([userMessage('5')])));
+        expect(grouped.renders.length).toBeGreaterThan(0);
+        expect(grouped.renders.every(row => row.expanded === false)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps a manually collapsed permission group closed through replayed group IDs', async () => {
+        grouped.renderRows = true;
+        const adapter = { key: 'permission-replay', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: () => 1 };
+        const group = (id: string) => ({ type: 'agent-work-group', id,
+            messages: [userMessage('member')], hasPendingPermission: true });
+        grouped.items = [group('first-id')];
+        const render = () => <ConversationTranscript metadata={null} sessionId="permission-replay"
+            messages={[userMessage('member')]} reading={adapter} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        const row = () => renderer.root.findByType('AgentWorkGroupView').props;
+        expect(row().expanded).toBe(true);
+        act(() => row().onToggle());
+        expect(row().expanded).toBe(false);
+        grouped.renders = [];
+        grouped.items = [group('replayed-id')];
+        await act(async () => renderer.update(render()));
+        expect(grouped.renders.length).toBeGreaterThan(0);
+        expect(grouped.renders.every(row => !row.expanded)).toBe(true);
+        act(() => row().onToggle());
+        expect(row().expanded).toBe(true);
         act(() => renderer.unmount());
     });
 

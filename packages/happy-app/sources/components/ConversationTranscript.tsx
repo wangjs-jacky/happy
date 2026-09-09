@@ -1,5 +1,6 @@
 import type { HistoryViewportReader } from '@/sync/historyWindowPolicy';
 import * as React from 'react';
+import { transcriptViewportRange } from './transcriptViewportRange';
 import { reconcileTranscriptIdentities } from './transcriptWindowIdentity';
 import {
     AppState,
@@ -25,6 +26,7 @@ import {
     type DisplayItem,
     type ToolGroupItem,
     useGroupedMessages,
+    filterSupersededUserMessages,
 } from '@/hooks/useGroupedMessages';
 import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
 import { getAgentMessageForkTargets, type MessageForkTarget } from '@/utils/messageForkPoint';
@@ -176,9 +178,9 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             const bounds = row.getBoundingClientRect();
             return bounds.bottom > rect.top && bounds.top < rect.bottom;
         }).map(row => row.dataset.transcriptKey));
-        const seqs = listItems.filter(item => keys.has(item.renderKey)).flatMap(item => itemMessages(item)
-            .map(message => props.reading!.wireSeq(message.id))).filter((seq): seq is number => seq !== null);
-        return seqs.length ? { firstSeq: Math.min(...seqs), lastSeq: Math.max(...seqs) } : undefined;
+        const visibleMessages = listItems.filter(item => keys.has(item.renderKey)).flatMap(itemMessages);
+        return transcriptViewportRange(filterSupersededUserMessages(props.messages), visibleMessages, props.reading.wireSeq,
+            { oldestSeq: props.olderCursor, newestSeq: props.newerCursor });
     };
     const rowHeights = React.useRef(new Map<string, number>());
     const rowKeys = React.useRef(new Set<string>());
@@ -307,6 +309,14 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         return initial;
     });
     const manuallyCollapsedRef = React.useRef<Set<string>>(new Set());
+    const [manuallyCollapsedKeys, setManuallyCollapsedKeys] = React.useState<string[]>([]);
+    const isManuallyCollapsed = React.useCallback((item: DisplayItem) => props.reading
+        ? groupIsExpanded(item, manuallyCollapsedKeys, props.reading.wireId)
+        : manuallyCollapsedRef.current.has(item.id), [manuallyCollapsedKeys, props.reading]);
+    const recordManualCollapse = React.useCallback((item: DisplayItem, collapsed: boolean) => {
+        if (collapsed) manuallyCollapsedRef.current.add(item.id); else manuallyCollapsedRef.current.delete(item.id);
+        if (props.reading) setManuallyCollapsedKeys(previous => setGroupExpansion(previous, item, collapsed, props.reading!.wireId));
+    }, [props.reading]);
     const [expandedKeys, setExpandedKeys] = React.useState<string[]>([]);
     const reading = useTranscriptReading({ adapter: props.reading, items: listItems, inverted, isAtLatest,
         followLatestOnLayout: Boolean(props.sessionId) || props.inverted !== false,
@@ -316,7 +326,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         if (Platform.OS !== 'web' || !props.reading || !viewportRef.current) return;
         return reading.capture().then(() => { if (isCurrent()) reading.pin(); });
     };
-    const contentGeneration = React.useMemo(() => ({}), [collapsedGroups, expandedKeys, props.currentTurnActive,
+    const contentGeneration = React.useMemo(() => ({}), [collapsedGroups, expandedKeys, manuallyCollapsedKeys, props.currentTurnActive,
         props.groupToolCalls, props.messages]);
     const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
     cancelReadingRestoreRef.current = reading.cancelRestore;
@@ -333,6 +343,8 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         if (!props.reading) return;
         setExpandedKeys(previous => displayItems.reduce((keys, item) => groupIsExpanded(item, keys, props.reading!.wireId)
             ? setGroupExpansion(keys, item, true, props.reading!.wireId) : keys, previous));
+        setManuallyCollapsedKeys(previous => displayItems.reduce((keys, item) => groupIsExpanded(item, keys, props.reading!.wireId)
+            ? setGroupExpansion(keys, item, true, props.reading!.wireId) : keys, previous));
     }, [displayItems, props.reading]);
 
     React.useEffect(() => {
@@ -348,7 +360,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 }
                 const isNew = !seenCollapsibleGroupsRef.current.has(item.id);
                 if (isNew) seenCollapsibleGroupsRef.current.add(item.id);
-                if (isAtLatest && item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedRef.current.has(item.id)) {
+                if (isAtLatest && item.hasPendingPermission && next.has(item.id) && !isManuallyCollapsed(item)) {
                     next.delete(item.id);
                     changed = true;
                 } else if (isNew && !item.hasPendingPermission) {
@@ -358,7 +370,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             }
             return changed ? next : previous;
         });
-    }, [displayItems, expandedKeys, props.reading, isAtLatest]);
+    }, [displayItems, expandedKeys, props.reading, isAtLatest, isManuallyCollapsed]);
 
     const displayItemsRef = React.useRef(displayItems);
     displayItemsRef.current = displayItems;
@@ -397,32 +409,38 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         });
     }, [latestUserMessageId, isAtLatest, props.reading]);
 
+    // A newly paged group must be collapsed in its first commit. Waiting for
+    // the discovery effect briefly mounts full tool output and moves the anchor.
+    const isGroupExpanded = React.useCallback((item: DisplayItem) => {
+        if (!isCollapsibleDisplayItem(item)) return false;
+        const pending = isAtLatest && item.hasPendingPermission && !isManuallyCollapsed(item);
+        return pending || (props.reading
+            ? groupIsExpanded(item, expandedKeys, props.reading.wireId)
+            : seenCollapsibleGroupsRef.current.has(item.id) && !collapsedGroups.has(item.id));
+    }, [collapsedGroups, expandedKeys, props.reading, isAtLatest, isManuallyCollapsed]);
     const handleToggleGroup = React.useCallback((groupId: string) => {
+        const item = displayItemsRef.current.find(item => item.id === groupId);
+        if (!item) return;
+        const expanded = isGroupExpanded(item);
         reading.pin();
         if (props.reading) {
-            const item = displayItemsRef.current.find(item => item.id === groupId);
-            if (item) setExpandedKeys(previous => setGroupExpansion(previous, item, collapsedGroups.has(groupId), props.reading!.wireId));
+            setExpandedKeys(previous => setGroupExpansion(previous, item, !expanded, props.reading!.wireId));
         }
+        recordManualCollapse(item, expanded);
         setCollapsedGroups((previous) => {
             const next = new Set(previous);
-            if (next.has(groupId)) {
-                next.delete(groupId);
-                manuallyCollapsedRef.current.delete(groupId);
-            } else {
-                next.add(groupId);
-                manuallyCollapsedRef.current.add(groupId);
-            }
+            if (expanded) next.add(groupId); else next.delete(groupId);
             return next;
         });
-    }, [collapsedGroups, props.reading, reading]);
+    }, [isGroupExpanded, props.reading, reading, recordManualCollapse]);
     const nestedExpansion = props.reading ? {
         isExpanded: (item: DisplayItem) => groupIsExpanded(item, expandedKeys, props.reading!.wireId)
-            || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id)),
+            || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !isManuallyCollapsed(item)),
         toggle: (item: DisplayItem) => {
             reading.pin();
             const expanded = groupIsExpanded(item, expandedKeys, props.reading!.wireId)
-                || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !manuallyCollapsedRef.current.has(item.id));
-            if (expanded) manuallyCollapsedRef.current.add(item.id); else manuallyCollapsedRef.current.delete(item.id);
+                || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !isManuallyCollapsed(item));
+            recordManualCollapse(item, expanded);
             setExpandedKeys(previous => setGroupExpansion(previous, item, !expanded, props.reading!.wireId));
         },
         observe: (item: DisplayItem) => setExpandedKeys(previous => setGroupExpansion(previous, item, true, props.reading!.wireId)),
@@ -441,7 +459,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                     group={item}
                     metadata={props.metadata}
                     sessionId={props.sessionId}
-                    expanded={!collapsedGroups.has(item.id)}
+                    expanded={isGroupExpanded(item)}
                     onToggle={() => handleToggleGroup(item.id)}
                 />
             );
@@ -463,7 +481,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                     group={item}
                     metadata={props.metadata}
                     sessionId={props.sessionId}
-                    expanded={!collapsedGroups.has(item.id)}
+                    expanded={isGroupExpanded(item)}
                     onToggle={() => handleToggleGroup(item.id)}
                 />
             );
@@ -489,7 +507,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         );
     }, [
         agentForkTargets,
-        collapsedGroups,
+        isGroupExpanded,
         handleToggleGroup,
         latestVisibleUserMessageId,
         props.canEditLatestUserMessage,

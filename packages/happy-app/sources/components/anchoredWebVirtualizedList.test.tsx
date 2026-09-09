@@ -101,6 +101,38 @@ it.each([false, true])('uses committed DOM displacement instead of estimated pre
     } finally { act(() => renderer.unmount()); }
 });
 
+it.each([[196, true, false], [891, true, false], [196, false, false], [36, true, true]] as const)('anchors visible media or falls back to a group (%spx, media visible: %s)', async (growth, mediaVisible, sliver) => {
+    let list: any; let renderer: any; const initialMediaTop = sliver ? 2 : mediaVisible ? 60 : 700; let mediaTop = initialMediaTop; let summaryTop = sliver ? -148 : 0;
+    const summary = { isConnected: true, getAttribute: () => 'summary',
+        getBoundingClientRect: () => ({ top: summaryTop, bottom: summaryTop + (sliver ? 150 : 36) }) };
+    const media = { isConnected: true, getAttribute: () => 'video',
+        getBoundingClientRect: () => ({ top: mediaTop, bottom: mediaTop + 441 }) };
+    const node = { scrollTop: 100, getBoundingClientRect: () => ({ top: 0, bottom: 600 }),
+        querySelectorAll: () => [summary, media], addEventListener() {}, removeEventListener() {} };
+    const Row = ({ phase }: { phase: number }) => {
+        React.useLayoutEffect(() => { if (phase === 1) mediaTop += growth; }, [phase]);
+        return <video />;
+    };
+    const data = (phase: number) => [
+        { id: 'summary', type: sliver ? 'image-group' : 'agent-work-group' },
+        ...(phase ? [{ id: 'older', type: 'message' }] : []),
+        { id: 'video', type: 'message' },
+    ];
+    const render = (phase: number) => <List {...props([])} data={data(phase)}
+        keyExtractor={(row: any) => row.id} ref={(value: any) => { list = value; }}
+        renderItem={({ item }: any) => item.id === 'video' ? <Row phase={phase} /> : <span />} />;
+    await act(async () => { renderer = TestRenderer.create(render(0)); });
+    list._scrollMetrics = { ...list._scrollMetrics, offset: 100, visibleLength: 600, contentLength: 1000 };
+    list._scrollRef = { getScrollableNode: () => node, scrollTo: ({ y }: { y: number }) => {
+        const delta = y - node.scrollTop; mediaTop -= delta; summaryTop -= delta; node.scrollTop = y;
+    } };
+    try {
+        await act(async () => renderer.update(render(1)));
+        expect(mediaTop).toBe(mediaVisible ? initialMediaTop : initialMediaTop + growth);
+        expect(node.scrollTop).toBe(mediaVisible ? 100 + growth : 100);
+    } finally { act(() => renderer.unmount()); }
+});
+
 it('initializes the actual Web entry after the app Babel/Unistyles transform', () => {
     const module = { exports: {} as any };
     const runtimeRequire = (id: string) => {

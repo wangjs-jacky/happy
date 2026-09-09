@@ -39,7 +39,7 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
         <View style={[styles.container, props.nested && styles.nestedContainer]}>
             {orderedActivities.map((activity) => activity.kind === 'skill' ? (
                     <SkillActivityRow
-                        key={`skill-${activity.order}-${activity.name}`}
+                        key={`skill-${activity.id}`}
                         activity={activity}
                     />
                 ) : inspector ? (
