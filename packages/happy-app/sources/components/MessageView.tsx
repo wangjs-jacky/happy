@@ -331,7 +331,7 @@ function UserTextBlock(props: {
           (modeLabel || showActions) && styles.userContentWithModeMeta,
         ]}
       >
-        <MarkdownView markdown={parsed.text} onOptionPress={props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} />
+        <MarkdownView markdown={parsed.text} onOptionPress={props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} typography="chatMono" />
       </Pressable>
       {showActions && (
         <View style={[styles.userMessageActions, modeLabel && styles.userMessageActionsWithMode]}>
@@ -479,7 +479,7 @@ function AgentTextBlock(props: {
         onMouseLeave: () => setIsHovered(false),
       } as any) : {})}
     >
-      <MarkdownView markdown={props.message.text} onOptionPress={props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} />
+      <MarkdownView markdown={props.message.text} onOptionPress={props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} typography="chatMono" />
       {showActions && (
         <View
           testID={`message-agent-actions-${props.message.id}`}
@@ -615,6 +615,7 @@ function AutoFoldPromptBlock(props: {
             markdown={bodyRenderState.text}
             onOptionPress={props.onOptionPress}
             sessionId={props.sessionId}
+            typography="chatMono"
             variant={bodyRenderState.markdownVariant}
           />
         ) : (

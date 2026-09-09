@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, Text, View, type StyleProp, type TextStyle } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { getMarkdownTypography, type MarkdownTypographyMode } from './markdown/markdownTypography';
 
 interface SimpleSyntaxHighlighterProps {
     code: string;
@@ -10,6 +11,7 @@ interface SimpleSyntaxHighlighterProps {
     testID?: string;
     textStyle?: StyleProp<TextStyle>;
     monochromeColor?: string;
+    typography?: MarkdownTypographyMode;
 }
 
 // Get theme-aware colors
@@ -257,10 +259,12 @@ export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = (
     testID,
     textStyle,
     monochromeColor,
+    typography = 'default',
 }) => {
     const { theme } = useUnistyles();
     const colors = getColors(theme);
     const tokens = React.useMemo(() => tokenizeCode(code, language), [code, language]);
+    const typographyStyles = getMarkdownTypography(typography);
 
     const getColorForType = (type: string, nestLevel?: number): string => {
         switch (type) {
@@ -318,19 +322,27 @@ export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = (
                     textStyle,
                 ]}
             >
-                {tokens.map((token, index) => (
-                    <Text
-                        key={index}
-                        selectable={selectable}
-                        style={{
-                            color: monochromeColor ?? getColorForType(token.type, token.nestLevel),
+                {tokens.map((token, index) => {
+                    const emphasized = ['keyword', 'controlFlow', 'type', 'function'].includes(token.type);
+                    const tokenTypography = typography === 'chatMono'
+                        ? (emphasized ? typographyStyles.strong : typographyStyles.inlineCode)
+                        : {
                             fontFamily: Typography.mono().fontFamily,
-                            fontWeight: ['keyword', 'controlFlow', 'type', 'function'].includes(token.type) ? '600' : '400',
-                        }}
-                    >
-                        {token.text}
-                    </Text>
-                ))}
+                            fontWeight: emphasized ? '600' as const : '400' as const,
+                        };
+                    return (
+                        <Text
+                            key={index}
+                            selectable={selectable}
+                            style={{
+                                color: monochromeColor ?? getColorForType(token.type, token.nestLevel),
+                                ...tokenTypography,
+                            }}
+                        >
+                            {token.text}
+                        </Text>
+                    );
+                })}
             </Text>
         </View>
     );
