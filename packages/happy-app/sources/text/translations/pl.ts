@@ -341,6 +341,7 @@ export const pl: TranslationStructure = {
         queued: ({ count }: { count: number }) => `W kolejce: ${count}`,
         failed: 'nieudana',
         completed: 'ukończona',
+        syncingResults: 'Ukończono · synchronizowanie wyników',
         permissionRequired: 'wymagane uprawnienie',
         permissionUnavailableOffline: 'Ta sesja jest rozłączona. Połącz ją ponownie, zanim odpowiesz na tę prośbę o potwierdzenie.',
         activeNow: 'Aktywny teraz',

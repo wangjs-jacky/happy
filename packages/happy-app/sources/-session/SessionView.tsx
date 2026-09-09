@@ -62,6 +62,7 @@ import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSes
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { useSessionTaskPermission } from '@/hooks/useSessionTaskPermission';
 import { useSessionWorkingDirectory } from '@/hooks/useSessionWorkingDirectory';
+import { useSessionResultSyncing } from '@/hooks/useSessionResultSyncing';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
@@ -136,7 +137,8 @@ function SessionHeaderTitle({
     const inputRef = React.useRef<TextInput>(null);
     const choosingTagRef = React.useRef(false);
     const { renameSessionToTitle, renamingSession } = useSessionQuickActions(session);
-    const sessionStatus = useSessionStatus(session);
+    const isSyncingResults = useSessionResultSyncing(session.id);
+    const sessionStatus = useSessionStatus(session, isSyncingResults);
 
     React.useEffect(() => {
         if (!editingRef.current) {
@@ -1476,7 +1478,8 @@ function SessionViewLoaded({
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
 
-    const sessionStatus = useSessionStatus(session);
+    const isSyncingResults = useSessionResultSyncing(session.id);
+    const sessionStatus = useSessionStatus(session, isSyncingResults);
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');

@@ -370,6 +370,7 @@ export const en = {
         queued: ({ count }: { count: number }) => `${count} message${count === 1 ? '' : 's'} queued`,
         failed: 'failed',
         completed: 'completed',
+        syncingResults: 'Finished · syncing results',
         permissionRequired: 'permission required',
         permissionUnavailableOffline: 'This session is disconnected. Reconnect before responding to this confirmation.',
         activeNow: 'Active now',

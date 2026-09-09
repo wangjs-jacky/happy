@@ -330,6 +330,7 @@ export const pt: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} mensage${count === 1 ? 'm' : 'ns'} na fila`,
         failed: 'falhou',
         completed: 'concluído',
+        syncingResults: 'Concluído · sincronizando resultados',
         permissionRequired: 'permissão necessária',
         permissionUnavailableOffline: 'Esta sessão está desconectada. Reconecte-a antes de responder a esta solicitação de confirmação.',
         activeNow: 'Ativo agora',

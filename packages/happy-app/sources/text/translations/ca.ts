@@ -330,6 +330,7 @@ export const ca: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} missatge${count === 1 ? '' : 's'} a la cua`,
         failed: 'fallit',
         completed: 'completat',
+        syncingResults: 'Finalitzat · sincronitzant resultats',
         permissionRequired: 'permís requerit',
         permissionUnavailableOffline: 'Aquesta sessió està desconnectada. Torna-la a connectar abans de respondre a aquesta sol·licitud de confirmació.',
         activeNow: 'Actiu ara',

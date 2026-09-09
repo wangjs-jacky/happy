@@ -79,6 +79,7 @@ vi.mock('@/utils/desktopNavigationLayout', async (importOriginal) => ({
     shouldUseCompactSessionHeader: () => false,
 }));
 vi.mock('@/utils/isTauri', () => ({ isTauri: () => false }));
+vi.mock('@/hooks/useSessionResultSyncing', () => ({ useSessionResultSyncing: () => false }));
 vi.mock('@/utils/sessionUtils', async (importOriginal) => ({
     ...await importOriginal<typeof import('@/utils/sessionUtils')>(),
     formatPathRelativeToHome: (path: string) => path,

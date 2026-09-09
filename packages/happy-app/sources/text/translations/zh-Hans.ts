@@ -330,6 +330,7 @@ export const zhHans: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} 条消息排队中`,
         failed: '已失败',
         completed: '已完成',
+        syncingResults: '执行完成，正在同步结果',
         permissionRequired: '需要权限',
         permissionUnavailableOffline: '此会话已断开连接。请重新连接后再响应此确认请求。',
         activeNow: '当前活跃',

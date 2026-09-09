@@ -78,6 +78,9 @@ interface SessionMessages {
     messagesMap: Record<string, Message>;
     reducerState: ReducerState;
     isLoaded: boolean;
+    // Latest verified tail/projection commit, distinct from received socket seq.
+    // Undefined until a page establishes the starting point; not a disk cursor.
+    latestAppliedSeq?: number;
     // True when the server reported more older messages exist beyond the
     // oldest one we currently have. Drives the "load older" affordance in
     // the chat list. Defaults to false until the initial fetch resolves —
@@ -202,7 +205,7 @@ interface StorageState {
     deleteMachine: (machineId: string) => void;
     applyLoaded: () => void;
     applyReady: () => void;
-    applyMessages: (sessionId: string, messages: NormalizedMessage[]) => { changed: string[], hasReadyEvent: boolean };
+    applyMessages: (sessionId: string, messages: NormalizedMessage[], latestAppliedSeq?: number) => { changed: string[], hasReadyEvent: boolean };
     applyMessagesLoaded: (sessionId: string) => void;
     applyOlderMessagesPagination: (sessionId: string, info: { hasMore: boolean }) => void;
     applyOlderMessagesLoading: (sessionId: string, isLoading: boolean) => void;
@@ -669,7 +672,7 @@ export const storage = create<StorageState>()((set, get) => {
             ...state,
             isDataReady: true
         })),
-        applyMessages: (sessionId: string, messages: NormalizedMessage[]) => {
+        applyMessages: (sessionId: string, messages: NormalizedMessage[], latestAppliedSeq?: number) => {
             let changed = new Set<string>();
             let hasReadyEvent = false;
             let latestReadyEventAt: number | null = null;
@@ -776,6 +779,9 @@ export const storage = create<StorageState>()((set, get) => {
                             messages: messagesArray,
                             messagesMap: mergedMessagesMap,
                             reducerState: existingSession.reducerState, // Explicitly include the mutated reducer state
+                            ...(latestAppliedSeq !== undefined ? {
+                                latestAppliedSeq: Math.max(existingSession.latestAppliedSeq ?? 0, latestAppliedSeq),
+                            } : {}),
                             isLoaded: true
                         }
                     }

@@ -434,7 +434,8 @@ class Sync {
     private sessionRouteOperations = new WeakMap<SessionOpenPromise, SessionRouteOperation>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
-    private sessionQueueProcessing = new Set<string>();
+    private queuedMessageSeqs = new WeakMap<NormalizedMessage, number>();
+    private sessionQueueProcessing = new Map<string, object>();
     private sessionFallbackTitleInFlight = new Set<string>();
     private sessionMessageLocks = new Map<string, AsyncLock>();
     // Tracks incremental session writes so a full refresh can retain sessions
@@ -797,9 +798,8 @@ class Sync {
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
-        // A foreground fetch can hold the queue lock across a realtime burst.
-        // Drain live effects synchronously before replacing its projection;
-        // the eventual lock callback must not resurrect rows evicted below.
+        // Flush any admitted live effects before replacing their projection;
+        // the scheduled microtask must not resurrect rows evicted below.
         if (Platform.OS === 'web') this.drainQueuedMessages(id, new Set([
             ...(this.historyWireProvenance.get(id)?.keys() ?? []), ...normalized.map(message => message.id),
         ]));
@@ -834,7 +834,7 @@ class Sync {
         this.sessionCachedMessageSeqs.set(id, new Set(window.messages.map(message => message.seq)));
         storage.setState(current => ({ sessionMessages: { ...current.sessionMessages, [id]: {
             messages, messagesMap: Object.fromEntries(messages.map(message => [message.id, message])), reducerState: state,
-            isLoaded: true, hasMoreOlder: window.hasMoreOlder, isLoadingOlder: false,
+            isLoaded: true, latestAppliedSeq: window.newestSeq ?? 0, hasMoreOlder: window.hasMoreOlder, isLoadingOlder: false,
             hasMoreNewer: window.hasMoreNewer, isLoadingNewer: false, isAtLatest: window.isAtLatest,
             latestVerifiedOwnerEpoch: null,
         } } }));
@@ -1303,7 +1303,7 @@ class Sync {
                     retryPending = true;
                     throw error;
                 }
-            }, () => this.getSessionLastMessageSeq(sessionId), () => (
+            }, () => this.getSessionProjectedMessageSeq(sessionId), () => (
                 this.sessionMessageLoadGate.isLeaseCurrent(lease)
             ));
             this.messagesSync.set(sessionId, sync);
@@ -1358,7 +1358,7 @@ class Sync {
         return sync;
     }
 
-    private enqueueMessages(sessionId: string, messages: NormalizedMessage[]) {
+    private enqueueMessages(sessionId: string, messages: NormalizedMessage[], latestSeq?: number) {
         if (messages.length === 0) {
             return;
         }
@@ -1369,6 +1369,9 @@ class Sync {
             this.sessionMessageQueue.set(sessionId, queue);
         }
         queue.push(...messages);
+        if (latestSeq !== undefined) {
+            for (const message of messages) this.queuedMessageSeqs.set(message, latestSeq);
+        }
 
         this.scheduleQueuedMessagesProcessing(sessionId);
     }
@@ -1444,9 +1447,9 @@ class Sync {
         const acceptedIds = generation.localMessageIds;
         if (!acceptedIds || localIds.some(id => !acceptedIds.has(id))) return false;
 
-        // The shared message lock can be held across HTTP. Drain only the
-        // receipt's normalized local entries synchronously, preserving their
-        // queue order and leaving realtime entries for the normal lock owner.
+        // Drain the receipt's local entries synchronously so navigation need
+        // not wait for the scheduled projection microtask. Preserve queue order
+        // and leave realtime entries for the normal projection task.
         // Reducer commits are synchronous, so no network writer can interleave.
         const ids = new Set(localIds);
         const queue = this.sessionMessageQueue.get(sessionId);
@@ -1491,20 +1494,36 @@ class Sync {
             return;
         }
 
-        this.sessionQueueProcessing.add(sessionId);
-        const lock = this.getSessionMessageLock(sessionId);
-        void lock.inLock(() => {
-            this.drainQueuedMessages(sessionId);
-        }).finally(() => {
-            this.sessionQueueProcessing.delete(sessionId);
-            const pending = this.sessionMessageQueue.get(sessionId);
-            if (pending && pending.length > 0) {
-                this.scheduleQueuedMessagesProcessing(sessionId);
+        const task = {};
+        this.sessionQueueProcessing.set(sessionId, task);
+        // Projection commits are synchronous. Network/history work may keep
+        // the fetch lock for seconds; an already admitted live row must not
+        // wait for that lock to reach the transcript. Coalesce this JS turn.
+        queueMicrotask(() => {
+            // Releasing/remounting a cache cancels the old task. Its callback
+            // must neither drain the new queue nor clear the new task's token.
+            if (this.sessionQueueProcessing.get(sessionId) !== task) return;
+            try {
+                this.drainQueuedMessages(sessionId);
+            } finally {
+                if (this.sessionQueueProcessing.get(sessionId) === task) {
+                    this.sessionQueueProcessing.delete(sessionId);
+                    if (this.sessionMessageQueue.get(sessionId)?.length) {
+                        this.scheduleQueuedMessagesProcessing(sessionId);
+                    }
+                }
             }
         });
     }
 
     private drainQueuedMessages(sessionId: string, wireIds?: Set<string>): void {
+        const apply = (batch: NormalizedMessage[]) => {
+            const seqs = batch.flatMap(message => {
+                const seq = this.queuedMessageSeqs.get(message);
+                return seq === undefined ? [] : [seq];
+            });
+            this.applyMessages(sessionId, batch, seqs.length ? Math.max(...seqs) : undefined);
+        };
         const pending = this.sessionMessageQueue.get(sessionId);
         if (pending?.length && wireIds) {
             // Unrelated/local-only queued rows are not certified by this wire
@@ -1513,10 +1532,10 @@ class Sync {
             for (let index = pending.length - 1; index >= 0; index--) {
                 if (wireIds.has(pending[index].id)) pending.splice(index, 1);
             }
-            if (batch.length) this.applyMessages(sessionId, batch);
+            if (batch.length) apply(batch);
             return;
         }
-        while (pending?.length) this.applyMessages(sessionId, pending.splice(0, pending.length));
+        while (pending?.length) apply(pending.splice(0, pending.length));
     }
 
     private hasPendingOutboxMessages() {
@@ -2655,7 +2674,7 @@ class Sync {
         } }) : state);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
         const hasLoadedMessageCache = storage.getState().sessionMessages[sessionId]?.isLoaded === true
-            && this.getSessionLastMessageSeq(sessionId) !== null;
+            && this.getSessionProjectedMessageSeq(sessionId) !== null;
         if (options.retry) markSessionCriticalPathHydrationRetry();
         markSessionCriticalPathAppStage('web.messages.latest_started');
         const historyOwner = this.localHistory;
@@ -2847,6 +2866,18 @@ class Sync {
 
     public getSessionLastMessageSeq(sessionId: string): number | null {
         return this.sessionMessageFrontiers.get(sessionId)?.latestSeq ?? null;
+    }
+
+    private getSessionProjectedMessageSeq(sessionId: string, includeQueued = false): number | null {
+        let seq = storage.getState().sessionMessages[sessionId]?.latestAppliedSeq
+            ?? null;
+        if (includeQueued && seq !== null) {
+            for (const message of this.sessionMessageQueue.get(sessionId) ?? []) {
+                const queuedSeq = this.queuedMessageSeqs.get(message);
+                if (queuedSeq === seq + 1) seq = queuedSeq;
+            }
+        }
+        return seq;
     }
 
     private advanceLatestMessageSeq(sessionId: string, seq: number): void {
@@ -3704,9 +3735,10 @@ class Sync {
                 if (!owner.isCurrent()) return;
                 if (change?.deleted) { this.removeSessionLocally(sessionId); return; }
                 const target = Math.max(change?.lastMessageSeq ?? 0, this.pendingHistoryTargets.get(sessionId) ?? 0);
-                if (!window.isAtLatest || (change && target <= (window.newestSeq ?? 0))) return;
+                const projectedSeq = this.getSessionProjectedMessageSeq(sessionId) ?? 0;
+                if (!window.isAtLatest || (change && target <= projectedSeq)) return;
                 // Unknown target is reconciled through metadata, never by probing old bodies.
-                if (this.changesSupported !== false && !change && target <= (window.newestSeq ?? 0)) return;
+                if (this.changesSupported !== false && !change && target <= projectedSeq) return;
             }
             const encryption = this.encryption.getSessionEncryption(sessionId);
             if (!encryption) {
@@ -3714,7 +3746,7 @@ class Sync {
                 throw new Error(`Session encryption not ready for ${sessionId}`);
             }
 
-            const knownLastSeq = this.getSessionLastMessageSeq(sessionId);
+            const knownLastSeq = this.getSessionProjectedMessageSeq(sessionId);
             const isInitialLoad = knownLastSeq === null;
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
@@ -3793,7 +3825,7 @@ class Sync {
         // An active/event winner may already have loaded a newer page while
         // this route's HTTP response was pending. Keep that cache's anchors.
         const isStalePage = () => storage.getState().sessionMessages[sessionId]?.isLoaded
-            && (this.getSessionLastMessageSeq(sessionId) ?? -1) > maxSeq;
+            && (this.getSessionProjectedMessageSeq(sessionId) ?? -1) > maxSeq;
         if (isStalePage()) return true;
         const decryptedMessages = messages.length > 0
             ? await encryption.createDetached().decryptMessages(messages)
@@ -3818,10 +3850,10 @@ class Sync {
             );
             if (normalized) normalizedMessages.push(normalized);
         }
-        if (normalizedMessages.length > 0) {
-            this.retireObservedLocalMessages(sessionId, normalizedMessages);
-            this.applyMessages(sessionId, normalizedMessages);
-        }
+        this.retireObservedLocalMessages(sessionId, normalizedMessages);
+        // Warm snapshots may contain disconnected realtime islands. Display
+        // them immediately, but only a network page certifies latest progress.
+        this.applyMessages(sessionId, normalizedMessages, source === 'network' ? maxSeq : undefined);
 
         const frontier = applyLatestRange(this.sessionMessageFrontiers.get(sessionId),
             this.recordFetchedMessageRange(sessionId, messages), data.hasMore);
@@ -3830,7 +3862,7 @@ class Sync {
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: frontier.hasMoreOlder,
         });
-        this.recordRoutePageCommit(operation, maxSeq);
+        if (source === 'network') this.recordRoutePageCommit(operation, maxSeq);
         if (warmAccount) {
             saveSessionWarmLatestPage(warmAccount, sessionId, data);
             // Startup warm pages can combine non-adjacent realtime records;
@@ -3839,7 +3871,7 @@ class Sync {
                 sessionHistoryPageCache.save(warmAccount, sessionId, SEQ_BACKWARD_INITIAL_SENTINEL, data, pageCacheGeneration);
             }
         }
-        if (owner.history || Platform.OS === 'web') {
+        if (source === 'network' && (owner.history || Platform.OS === 'web')) {
             const committed = await owner.history?.commitPage(sessionId, { ...data, direction: 'older', boundary: SEQ_BACKWARD_INITIAL_SENTINEL });
             if (!owner.isCurrent()) return false;
             const fallback = memoryHistoryPage(undefined, data, 'latest', Platform.OS === 'web' ? WEB_HISTORY_MAX_MESSAGES : 300);
@@ -3903,7 +3935,7 @@ class Sync {
             if (owner.history) persisted = await owner.history.commitPage(sessionId, { messages, hasMore: data.hasMore, direction: 'newer', boundary: afterSeq }) && persisted;
             if (!owner.isCurrent()) return;
 
-            const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+            const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation, true);
             if (!applied.current) return;
             if (!didInvalidateGit
                 && applied.hasMutableToolResult
@@ -3956,6 +3988,7 @@ class Sync {
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
         messages: ApiMessage[],
         operation: SessionMessageLoadOperation,
+        advancesLatestProjection = false,
     ): Promise<{ current: boolean; hasMutableToolResult: boolean }> => {
         const owner = this.captureHistoryOwner(sessionId, operation);
         const warmAccount = this.sessionWarmCacheAccountKey;
@@ -3987,10 +4020,11 @@ class Sync {
                 normalizedMessages.push(normalized);
             }
         }
-        if (normalizedMessages.length > 0) {
-            this.retireObservedLocalMessages(sessionId, normalizedMessages);
-            this.applyMessages(sessionId, normalizedMessages);
-        }
+        this.retireObservedLocalMessages(sessionId, normalizedMessages);
+        // Older pages may belong to a disconnected island below an ACK. Only
+        // forward catch-up from the applied cursor certifies latest progress.
+        this.applyMessages(sessionId, normalizedMessages,
+            advancesLatestProjection ? Math.max(...messages.map(message => message.seq)) : undefined);
         this.recordFetchedMessageRange(sessionId, messages);
         if (warmAccount) {
             appendSessionWarmMessages(warmAccount, sessionId, messages);
@@ -4291,7 +4325,10 @@ class Sync {
                         return;
                     }
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
-                    const currentLastSeq = this.getSessionLastMessageSeq(updateData.body.sid);
+                    // ACKs can observe an isolated sequence before its echo or
+                    // intervening rows are projected. Only the applied prefix
+                    // plus admitted queued rows can authorize the live fast path.
+                    const currentLastSeq = this.getSessionProjectedMessageSeq(updateData.body.sid, true);
                     const incomingSeq = updateData.body.message.seq;
                     const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid
                         || this.sessionRouteOwnership.ownsSession(updateData.body.sid);
@@ -4315,7 +4352,7 @@ class Sync {
                                 assertCurrent();
                                 // Apply this live event once for thinking/usage/permissions;
                                 // replay below only replaces the displayed projection.
-                                this.enqueueMessages(sid, [lastMessage]);
+                                this.enqueueMessages(sid, [lastMessage], incomingSeq);
                                 const lease = this.sessionMessageLoadGate.currentLease(sid) ?? this.sessionMessageLoadGate.enter(sid);
                                 await this.applyHistoryWindow(sid, appended, this.sessionMessageLoadGate.begin(lease), {
                                     compact: true, anchorSeq: reading?.followLatest === false ? reading.anchorSeq : undefined,
@@ -4340,7 +4377,7 @@ class Sync {
                             this.historyWindows.set(updateData.body.sid, { ...historyWindow, messages, newestSeq: incomingSeq });
                             this.historyWireProvenance.get(updateData.body.sid)?.set(lastMessage.id, updateData.body.message.id);
                         }
-                        this.enqueueMessages(updateData.body.sid, [lastMessage]);
+                        this.enqueueMessages(updateData.body.sid, [lastMessage], incomingSeq);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
                     } else if (isVisible) {
@@ -4836,8 +4873,8 @@ class Sync {
     // Apply store
     //
 
-    private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
-        const result = storage.getState().applyMessages(sessionId, messages);
+    private applyMessages = (sessionId: string, messages: NormalizedMessage[], latestAppliedSeq?: number) => {
+        const result = storage.getState().applyMessages(sessionId, messages, latestAppliedSeq);
         const hasCompletedTurn = messages.some((message) => (
             message.role === 'event'
             && message.content.type === 'ready'

@@ -148,6 +148,7 @@ vi.mock('@/utils/desktopNavigationLayout', () => ({
     shouldUseCompactSessionHeader: () => false,
 }));
 vi.mock('@/utils/isTauri', () => ({ isTauri: () => false }));
+vi.mock('@/hooks/useSessionResultSyncing', () => ({ useSessionResultSyncing: () => false }));
 vi.mock('@/utils/sessionUtils', () => ({
     formatPathRelativeToHome: (path: string) => path,
     getResumeCommandBlock: () => null,
