@@ -50,18 +50,40 @@ export function createAnchoredWebVirtualizedList(Base: any): any {
                 ...(delta !== 0 ? { anchorRevision: previous.anchorRevision + 1, anchorOffset: Math.max(0, offset + delta) } : {}) };
         }
 
-        getSnapshotBeforeUpdate(): { node: HTMLElement; offset: number } | null {
+        getSnapshotBeforeUpdate(previous: any): { node: HTMLElement; offset: number } | null {
             if (this.props.inverted) return null;
             const scroll = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
             if (!scroll?.getBoundingClientRect || !scroll.querySelectorAll) return null;
             const viewport = scroll.getBoundingClientRect();
-            for (const node of scroll.querySelectorAll<HTMLElement>('[data-transcript-key]')) {
-                const bounds = node.getBoundingClientRect();
-                if (bounds.bottom > viewport.top && bounds.top < viewport.bottom) {
-                    return { node, offset: bounds.top - viewport.top };
+            const survivingKeys = new Set<string>();
+            for (let index = 0; index < this.props.getItemCount(this.props.data); index++) survivingKeys.add(key(this.props, index));
+            const survivingContent = new Set<string>();
+            if (previous.data !== this.props.data) {
+                for (let index = 0; index < this.props.getItemCount(this.props.data); index++) {
+                    const item = this.props.getItem(this.props.data, index);
+                    if (item?.type === 'message' || item?.type === 'image-group') survivingContent.add(key(this.props, index));
                 }
             }
-            return null;
+            let fallback: { node: HTMLElement; offset: number } | null = null;
+            let contentFallback: { node: HTMLElement; offset: number } | null = null;
+            for (const node of scroll.querySelectorAll<HTMLElement>('[data-transcript-key]')) {
+                const nodeKey = node.getAttribute?.('data-transcript-key');
+                if (nodeKey && !survivingKeys.has(nodeKey)) continue;
+                const bounds = node.getBoundingClientRect();
+                if (bounds.bottom > viewport.top && bounds.top < viewport.bottom) {
+                    const anchor = { node, offset: bounds.top - viewport.top };
+                    // Paging can split a summary while retaining its outer key.
+                    // Keep the visible text/media below it in place, rather than
+                    // pinning the summary and pushing the reading content away.
+                    if (survivingContent.has(nodeKey ?? '')) {
+                        const visibleHeight = Math.min(bounds.bottom, viewport.bottom) - Math.max(bounds.top, viewport.top);
+                        if (visibleHeight >= Math.min(32, bounds.bottom - bounds.top)) return anchor;
+                        contentFallback ??= anchor;
+                    }
+                    fallback ??= anchor;
+                }
+            }
+            return contentFallback ?? fallback;
         }
 
         componentDidUpdate(previous: any, _state: any, snapshot: { node: HTMLElement; offset: number } | null): void {

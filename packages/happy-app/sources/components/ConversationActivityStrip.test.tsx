@@ -70,6 +70,24 @@ function toolMessage(id: string, name: string, input: Record<string, unknown>, c
 }
 
 describe('ConversationActivityStrip', () => {
+    it('keeps an open Skill preview mounted when older history changes its sorting position', () => {
+        const skill = toolMessage('2', 'Skill', { skill: 'ego-browser' });
+        const frame = toolMessage('3', 'file', { source: 'browser_step', ref: 'attachment://3', name: '3.png',
+            browserStep: { label: 'Verified', runId: 'stable-run', skillName: 'ego-browser' } });
+        const older = toolMessage('1', 'Skill', { skill: 'systematic-debugging' });
+        const runs = getBrowserStepRuns([skill, frame]);
+        const render = (messages: Message[]) => <BrowserProgressContext.Provider value={{ sessionId: 'stable-session', runs }}>
+            <ConversationActivityStrip messages={messages} />
+        </BrowserProgressContext.Provider>;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(render([skill])); });
+        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-stable-run' }).props.onPress());
+        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(1);
+        act(() => renderer.update(render([older, skill])));
+        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(1);
+        act(() => renderer.unmount());
+    });
+
     it('opens each repeated Ego invocation from the inline Skills row and receives later frames', () => {
         const first = toolMessage('1', 'Skill', { skill: 'ego-browser' });
         const second = toolMessage('3', 'Skill', { skillNames: ['ego-browser'] });

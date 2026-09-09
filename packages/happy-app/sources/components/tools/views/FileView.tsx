@@ -18,6 +18,7 @@ import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { openSessionImageViewer } from '@/sync/openSessionImageViewer';
 import { CHAT_IMAGE_THUMB_SIZE } from '@/utils/attachmentGalleryLayout';
 import { resolveMediaAttachmentSource } from '@/sync/resolveMediaAttachmentSource';
+import { attachmentCacheGeneration, subscribeAttachmentCache } from '@/sync/attachmentCacheContext';
 import type { MediaPlaybackSource } from '@/sync/mediaPlaybackSourceTypes';
 import { MediaAttachmentPlayer } from './MediaAttachmentPlayer';
 import { t } from '@/text';
@@ -199,41 +200,45 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
     source?: 'user' | 'generated' | 'browser_step';
 }) {
     const { theme } = useUnistyles();
-    const [source, setSource] = React.useState<MediaPlaybackSource | null>(null);
+    const generation = React.useSyncExternalStore(subscribeAttachmentCache, attachmentCacheGeneration, attachmentCacheGeneration);
+    const [resolved, setResolved] = React.useState<{ source: MediaPlaybackSource; generation: number } | null>(null);
+    const source = resolved?.generation === generation ? resolved.source : null;
     const [error, setError] = React.useState(false);
     const sourceType = attachmentSource === 'generated' ? 'generated' : 'user';
     const resolvedMimeType = mimeType ?? 'video/mp4';
     const directUri = directAttachmentUri(ref_, sessionId);
 
     React.useEffect(() => {
+        // Invalidation also destroys active streaming DOM. Resolve with the new
+        // ownership context, rather than retaining an old source/refresh closure.
+        setResolved(null);
+        setError(false);
         if (directUri) {
-            setError(false);
-            setSource({ uri: directUri, headers: {} });
+            setResolved({ source: { uri: directUri, headers: {} }, generation });
             return;
         }
         if (!sessionId) return;
         let cancelled = false;
-        setError(false);
         void resolveMediaAttachmentSource({
             sessionId,
             ref: ref_,
             mimeType: resolvedMimeType,
             encrypted,
         }).then((resolvedSource) => {
-            if (cancelled) {
+            if (cancelled || attachmentCacheGeneration() !== generation) {
                 void resolvedSource.release?.();
                 return;
             }
-            setSource(resolvedSource);
+            setResolved({ source: resolvedSource, generation });
         }).catch((cause: unknown) => {
-            if (cancelled) return;
+            if (cancelled || attachmentCacheGeneration() !== generation) return;
             console.warn(`[media-attachment] failed to open ${name}`, cause);
             setError(true);
         });
         return () => {
             cancelled = true;
         };
-    }, [directUri, encrypted, name, ref_, resolvedMimeType, sessionId]);
+    }, [directUri, encrypted, generation, name, ref_, resolvedMimeType, sessionId]);
 
     React.useEffect(() => () => {
         void source?.release?.();
@@ -245,6 +250,9 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
                 <MediaAttachmentPlayer
                     uri={source.uri}
                     headers={source.headers}
+                    reuseKey={source.reuseKey}
+                    refreshSource={source.refreshSource}
+                    isSourceCurrent={source.isCurrent}
                     title={name}
                     kind="video"
                     mimeType={resolvedMimeType}

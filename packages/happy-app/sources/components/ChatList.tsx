@@ -1,3 +1,4 @@
+import type { HistoryViewportReader } from '@/sync/historyWindowPolicy';
 import * as React from 'react';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,13 +42,13 @@ export const ChatList = React.memo((props: { session: Session }) => {
             editedFromMessageId: messageId,
         });
     }, [props.session.id]);
-    const handleLoadOlder = React.useCallback(() => {
+    const handleLoadOlder = React.useCallback((viewport?: HistoryViewportReader) => {
         if (!hasMoreOlder || isLoadingOlder) return;
-        void sync.loadOlderMessages(props.session.id).catch(() => undefined);
+        void sync.loadOlderMessages(props.session.id, viewport).catch(() => undefined);
     }, [hasMoreOlder, isLoadingOlder, props.session.id]);
-    const handleLoadNewer = React.useCallback(() => {
+    const handleLoadNewer = React.useCallback((viewport?: HistoryViewportReader) => {
         if (!hasMoreNewer || isLoadingNewer) return;
-        void sync.loadNewerMessages(props.session.id).catch(() => undefined);
+        void sync.loadNewerMessages(props.session.id, viewport).catch(() => undefined);
     }, [hasMoreNewer, isLoadingNewer, props.session.id]);
     const handleJumpToLatest = React.useCallback(() => sync.jumpToLatestMessages(props.session.id), [props.session.id]);
     const history = sync.getLocalHistoryScope();
@@ -80,6 +81,8 @@ export const ChatList = React.memo((props: { session: Session }) => {
             currentTurnActive={isAtLatest && isSessionTurnActive(session)}
             hasPendingPermission={isAtLatest && hasPendingPermission}
             onLoadOlder={handleLoadOlder}
+            olderCursor={sync.getHistoryBoundarySeq(props.session.id, 'older')}
+            newerCursor={sync.getHistoryBoundarySeq(props.session.id, 'newer')}
             hasMoreOlder={hasMoreOlder || !isLoaded}
             isLoadingOlder={isLoadingOlder || !isLoaded}
             onLoadNewer={handleLoadNewer}

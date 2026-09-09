@@ -14,13 +14,14 @@ const sessionState = vi.hoisted(() => ({
     messages: [] as Message[], isLoaded: true, hasMoreOlder: true, isLoadingOlder: false,
     hasMoreNewer: false, isLoadingNewer: false, isAtLatest: true,
 }));
-const grouped = vi.hoisted(() => ({ items: null as any[] | null }));
+const grouped = vi.hoisted(() => ({ items: null as any[] | null, renderRows: false,
+    renders: [] as Array<{ id: string; expanded: boolean }> }));
 vi.mock('@/sync/storage', () => ({
     useSessionMessages: () => sessionState,
     useSession: () => ({ id: 'session', metadata: null }),
     useSetting: () => true,
 }));
-vi.mock('@/sync/sync', () => ({ sync: { loadOlderMessages: vi.fn(), getLocalHistoryScope: () => null } }));
+vi.mock('@/sync/sync', () => ({ sync: { loadOlderMessages: vi.fn(), getLocalHistoryScope: () => null, getHistoryBoundarySeq: () => null } }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({}) }));
 vi.mock('@/utils/responsive', () => ({ useHeaderHeight: () => 0 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }));
@@ -29,7 +30,8 @@ vi.mock('./ChatFooter', () => ({ ChatFooter: 'ChatFooter' }));
 vi.mock('react-native', () => ({
     AppState: { addEventListener: () => ({ remove: vi.fn() }) },
     ActivityIndicator: 'ActivityIndicator',
-    FlatList: 'FlatList',
+    FlatList: React.forwardRef((props: any, ref: any) => React.createElement('FlatList', { ...props, ref },
+        grouped.renderRows ? props.data.map((item: any) => React.cloneElement(props.renderItem({ item }), { key: item.renderKey })) : null)),
     Platform: { OS: 'web' },
     Pressable: 'Pressable',
     Text: 'Text',
@@ -59,6 +61,7 @@ vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: { text: '#fff' } } }),
 }));
 vi.mock('@/hooks/useGroupedMessages', () => ({
+    filterSupersededUserMessages: (messages: Message[]) => messages,
     useGroupedMessages: (messages: Message[]) => grouped.items ?? messages.map((message) => ({ type: 'message', id: message.id, message })),
     isSessionTurnActive: () => false,
 }));
@@ -66,7 +69,13 @@ vi.mock('@/utils/messageForkPoint', () => ({ getAgentMessageForkTargets: () => n
 vi.mock('@/modal/components/BaseModal', () => ({ BaseModal: 'BaseModal' }));
 vi.mock('@/text', () => ({ t: (key: string, params?: { count: number }) => params ? `${key}:${params.count}` : key }));
 vi.mock('./MessageView', () => ({ MessageView: 'MessageView' }));
-vi.mock('./ToolGroupView', () => ({ AgentWorkGroupView: 'AgentWorkGroupView', ToolGroupView: 'ToolGroupView' }));
+vi.mock('./ToolGroupView', () => ({
+    AgentWorkGroupView: (props: any) => {
+        grouped.renders.push({ id: props.group.id, expanded: props.expanded });
+        return React.createElement('AgentWorkGroupView', props);
+    },
+    ToolGroupView: 'ToolGroupView',
+}));
 vi.mock('./AttachmentGalleryView', () => ({ AttachmentGalleryView: 'AttachmentGalleryView' }));
 vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
 
@@ -98,6 +107,8 @@ describe('ConversationTranscript older history pagination', () => {
     beforeEach(() => {
         flushFrame = installFrameQueue();
         grouped.items = null;
+        grouped.renders = [];
+        grouped.renderRows = false;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const originalConsoleError = console.error;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -112,6 +123,267 @@ describe('ConversationTranscript older history pagination', () => {
         vi.unstubAllGlobals();
         (Platform as any).OS = 'web';
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('keeps an overlapping folded group mounted when paging changes both boundary members', async () => {
+        const adapter = { key: 'group-window', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const group = (ids: string[]) => ({ type: 'agent-work-group', id: 'group-' + ids[0],
+            messages: ids.map(userMessage), hasPendingPermission: false });
+        grouped.items = [group(['3', '2', '1'])];
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="group-window" messages={[]} reading={adapter} />); });
+        const before = byId(renderer, 'conversation-transcript-list').props.data[0].renderKey;
+        grouped.items = [group(['5', '4', '3'])];
+        await act(async () => renderer.update(<ConversationTranscript metadata={null}
+            sessionId="group-window" messages={[userMessage('5')]} reading={adapter} />));
+        expect(byId(renderer, 'conversation-transcript-list').props.data[0].renderKey).toBe(before);
+        act(() => renderer.unmount());
+    });
+
+    it.each([true, false])('never transiently expands a newly identified historical group (reading: %s)', async durable => {
+        grouped.renderRows = true;
+        const adapter = { key: 'fold-first-render', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id) };
+        const group = (ids: string[]) => ({ type: 'agent-work-group', id: 'group-' + ids[0],
+            messages: ids.map(userMessage), hasPendingPermission: false });
+        grouped.items = [group(['3', '2', '1'])];
+        const render = (messages: Message[]) => <ConversationTranscript metadata={null} sessionId="fold-first-render"
+            messages={messages} reading={durable ? adapter : undefined} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render([])); });
+        grouped.renders = [];
+        grouped.items = [group(['5', '4', '3'])];
+        await act(async () => renderer.update(render([userMessage('5')])));
+        expect(grouped.renders.length).toBeGreaterThan(0);
+        expect(grouped.renders.every(row => row.expanded === false)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps a manually collapsed permission group closed through replayed group IDs', async () => {
+        grouped.renderRows = true;
+        const adapter = { key: 'permission-replay', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: () => 1 };
+        const group = (id: string) => ({ type: 'agent-work-group', id,
+            messages: [userMessage('member')], hasPendingPermission: true });
+        grouped.items = [group('first-id')];
+        const render = () => <ConversationTranscript metadata={null} sessionId="permission-replay"
+            messages={[userMessage('member')]} reading={adapter} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render()); });
+        const row = () => renderer.root.findByType('AgentWorkGroupView').props;
+        expect(row().expanded).toBe(true);
+        act(() => row().onToggle());
+        expect(row().expanded).toBe(false);
+        grouped.renders = [];
+        grouped.items = [group('replayed-id')];
+        await act(async () => renderer.update(render()));
+        expect(grouped.renders.length).toBeGreaterThan(0);
+        expect(grouped.renders.every(row => !row.expanded)).toBe(true);
+        act(() => row().onToggle());
+        expect(row().expanded).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('preserves measured scroll extent when screen-external rows are evicted and reloaded', async () => {
+        const adapter = { key: 'extent-window', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[]) => <ConversationTranscript metadata={null} sessionId="extent-window"
+            messages={rows} reading={adapter} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(messages)); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        act(() => {
+            for (const item of list().props.data) {
+                list().props.renderItem({ item }).props.onLayout({ nativeEvent: { layout: { height: 100 } } });
+            }
+        });
+        expect(list().props.getItemLayout(null, 5).offset).toBe(500);
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(500);
+        await act(async () => renderer.update(render(messages)));
+        expect(list().props.getItemLayout(null, 5).offset).toBe(500);
+        act(() => renderer.unmount());
+    });
+
+    it('settles restored row height against its placeholder and clears stale extent on resize', async () => {
+        const adapter = { key: 'extent-resize', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[], more = true) => <ConversationTranscript metadata={null} sessionId="extent-resize"
+            messages={rows} reading={adapter} hasMoreOlder={more} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(messages)); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        act(() => { for (const item of list().props.data) list().props.renderItem({ item }).props.onLayout({
+            nativeEvent: { layout: { height: 100 } } }); });
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        await act(async () => renderer.update(render(messages.slice(0, 6))));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(400);
+        act(() => list().props.renderItem({ item: list().props.data[0] }).props.onLayout({ nativeEvent: { layout: { height: 400 } } }));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(100);
+        expect(list().props.getItemLayout(null, 1).offset).toBe(500);
+        act(() => list().props.onLayout({ nativeEvent: { layout: { width: 900, height: 800 } } }));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(0);
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        expect(list().props.getItemLayout(null, 0).offset).toBeGreaterThan(0);
+        await act(async () => renderer.update(render(messages.slice(0, 5), false)));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(0);
+        act(() => renderer.unmount());
+    });
+
+    it('offers explicit continuation at the hard limit without dropping viewport protection on automatic retry', async () => {
+        const newer = vi.fn(); let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} sessionId="capacity"
+            messages={[userMessage('1')]} hasMoreNewer isAtLatest={false} newerError="history-window-capacity" onLoadNewer={newer} />); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+            contentOffset: { y: 0 }, contentSize: { height: 800 }, layoutMeasurement: { height: 800 },
+        } }));
+        const button = byId(renderer, 'history-newer-retry');
+        expect(button.findByType('Text').props.children).toBe('common.continue');
+        act(() => button.props.onPress());
+        expect(newer).toHaveBeenCalledWith(undefined);
+        act(() => renderer.unmount());
+    });
+
+    it('settles a batch of restored measurements without losing negative compensation', async () => {
+        const adapter = { key: 'extent-batch', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[]) => <ConversationTranscript metadata={null} sessionId="extent-batch"
+            messages={rows} reading={adapter} hasMoreOlder />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(messages)); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        const measure = (index: number, height: number) => act(() => list().props.renderItem({ item: list().props.data[index] })
+            .props.onLayout({ nativeEvent: { layout: { height } } }));
+        for (let i = 0; i < 10; i++) measure(i, i < 3 ? 60 : i < 5 ? 160 : 100);
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        await act(async () => renderer.update(render(messages.slice(0, 7))));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(180);
+        measure(0, 400);
+        expect(list().props.getItemLayout(null, 0).offset).toBe(0);
+        measure(1, 100);
+        expect(list().props.getItemLayout(null, 0).offset).toBe(0);
+        expect(list().props.getItemLayout(null, 2).offset).toBe(500);
+        act(() => renderer.unmount());
+    });
+
+    it('clears restoration debt on an unchanged first layout so later expansion adds real height', async () => {
+        const adapter = { key: 'extent-expand', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[]) => <ConversationTranscript metadata={null} sessionId="extent-expand"
+            messages={rows} reading={adapter} hasMoreOlder />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(messages)); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        const measure = (index: number, height: number) => act(() => list().props.renderItem({ item: list().props.data[index] })
+            .props.onLayout({ nativeEvent: { layout: { height } } }));
+        for (let i = 0; i < 10; i++) measure(i, 100);
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        await act(async () => renderer.update(render(messages.slice(0, 6))));
+        measure(0, 100);
+        measure(0, 500);
+        expect(list().props.getItemLayout(null, 0).offset).toBe(400);
+        expect(list().props.getItemLayout(null, 1).offset).toBe(900);
+        act(() => renderer.unmount());
+    });
+
+    it('continues to protect the current viewport on ordinary network-error retry', async () => {
+        const newer = vi.fn(); let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} sessionId="offline"
+            messages={[userMessage('1')]} hasMoreNewer isAtLatest={false} newerError="offline" onLoadNewer={newer} />); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+            contentOffset: { y: 0 }, contentSize: { height: 800 }, layoutMeasurement: { height: 800 },
+        } }));
+        act(() => byId(renderer, 'history-newer-retry').props.onPress());
+        expect(newer).toHaveBeenCalledWith(expect.any(Function));
+        act(() => renderer.unmount());
+    });
+
+    it('uses mounted row measurements when an initial width event cleared the height cache', async () => {
+        const adapter = { key: 'extent-dom', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id), blockKey: () => 'text:0' };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[]) => <ConversationTranscript metadata={null} sessionId="extent-dom"
+            messages={rows} reading={adapter} hasMoreOlder />;
+        let renderer: any;
+        let mountedRows: any[] = [];
+        const node = { querySelectorAll: () => mountedRows, addEventListener() {}, removeEventListener() {} };
+        await act(async () => { renderer = TestRenderer.create(render(messages), {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node } : null,
+        }); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        mountedRows = list().props.data.map((item: any) => ({ dataset: { transcriptKey: item.renderKey },
+            getBoundingClientRect: () => ({ height: 100 }) }));
+        await act(async () => renderer.update(render(messages.slice(0, 5))));
+        expect(list().props.getItemLayout(null, 0).offset).toBe(500);
+        act(() => renderer.unmount());
+    });
+
+    it.each((['older', 'newer'] as const).flatMap(direction =>
+        (['error', 'reverse', 'filled', 'unchanged', 'capturing-reverse', 'wire-only'] as const).map(stop => ({ direction, stop }))))(
+        'refills known $direction spacer after a sparse page and stops on $stop', async ({ direction, stop }) => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, { scrollHeight: { value: 1000 }, clientHeight: { value: 400 } });
+        node.scrollTop = direction === 'newer' ? 100 : 500;
+        const load = vi.fn();
+        let holdCapture = false;
+        const held: (() => void)[] = [];
+        const adapter = { key: 'spacer-refill', read: async () => null, save: () => {},
+            wireId: (id: string) => id, wireSeq: (id: string) => Number(id) };
+        const messages = Array.from({ length: 10 }, (_, i) => userMessage(String(10 - i)));
+        const render = (rows: Message[], error?: string, cursor = rows.length) => <ConversationTranscript metadata={null} sessionId="spacer-refill"
+            messages={rows} reading={stop === 'capturing-reverse' ? adapter : undefined} hasMoreOlder hasMoreNewer isAtLatest={false}
+            olderCursor={stop === 'wire-only' ? cursor : undefined} newerCursor={stop === 'wire-only' ? cursor : undefined}
+            onLoadOlder={direction === 'older' ? load : undefined} onLoadNewer={direction === 'newer' ? load : undefined}
+            olderError={direction === 'older' ? error : undefined} newerError={direction === 'newer' ? error : undefined} />;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(render(messages), {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { getScrollableNode: () => node }
+                : { measureInWindow: (cb: any) => {
+                    const finish = () => cb(0, 0, 800, 400);
+                    if (holdCapture) held.push(finish); else finish();
+                } },
+        }); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        act(() => { for (const item of list().props.data) list().props.renderItem({ item }).props.onLayout({
+            nativeEvent: { layout: { height: 100 } } }); });
+        const page = (count: number) => direction === 'newer' ? messages.slice(10 - count) : messages.slice(0, count);
+        await act(async () => renderer.update(render(page(5))));
+        await act(async () => node.dispatchEvent(new WheelEvent('wheel', { deltaY: direction === 'newer' ? 1 : -1, cancelable: true })));
+        expect(load).toHaveBeenCalledTimes(1);
+        holdCapture = stop === 'capturing-reverse';
+        await act(async () => renderer.update(render(page(stop === 'wire-only' ? 5 : 6), undefined, 6)));
+        await flushFrame(); await flushFrame();
+        if (stop === 'capturing-reverse') {
+            expect(held.length).toBeGreaterThan(0);
+            await act(async () => node.dispatchEvent(new WheelEvent('wheel', { deltaY: direction === 'newer' ? -1 : 1, cancelable: true })));
+            holdCapture = false;
+            await act(async () => { held.splice(0).forEach(finish => finish()); });
+            expect(load).toHaveBeenCalledTimes(1);
+            act(() => renderer.unmount());
+            return;
+        }
+        expect(load).toHaveBeenCalledTimes(2);
+        if (stop === 'wire-only') {
+            await act(async () => renderer.update(render(page(5), undefined, 6)));
+            await flushFrame(); await flushFrame();
+            expect(load).toHaveBeenCalledTimes(2);
+            act(() => renderer.unmount());
+            return;
+        }
+        if (stop === 'reverse') await act(async () => node.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: direction === 'newer' ? -1 : 1, cancelable: true,
+        })));
+        await act(async () => renderer.update(render(page(stop === 'filled' ? 10 : stop === 'unchanged' ? 6 : 7),
+            stop === 'error' ? 'history-window-capacity' : undefined)));
+        await flushFrame(); await flushFrame();
+        expect(load).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
     });
 
     // Dispatch browser events on the actual scroll node: RN Web never emits

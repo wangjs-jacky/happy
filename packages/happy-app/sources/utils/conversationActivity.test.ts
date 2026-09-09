@@ -50,6 +50,17 @@ describe('conversation activity model', () => {
         });
     });
 
+    it('keeps batch identity across replayed message IDs but separates distinct calls', () => {
+        const original = toolMessage('1', 'Skill', { skillNames: ['dev', 'tdd'] });
+        const withCallId = { ...original, tool: { ...original.tool, callId: 'batch-call' } };
+        const replayed = { ...withCallId, id: 'replayed-1' };
+        const other = { ...original, id: '2', tool: { ...original.tool, callId: 'other-call' } };
+        const first = collectConversationActivities([withCallId]).skills[0];
+        expect(collectConversationActivities([replayed]).skills[0].id).toBe(first.id);
+        const skills = collectConversationActivities([replayed, other]).skills;
+        expect(new Set(skills.map(skill => skill.id)).size).toBe(2);
+    });
+
     it('keeps an individual retry separate from its failed batch', () => {
         const batch = toolMessage('1', 'Skill', { skillNames: ['dev', 'workflow'] }, 'error');
         const retry = toolMessage('2', 'Skill', { skillName: 'workflow' });

@@ -1,3 +1,4 @@
+import type { HistoryViewportReader, HistoryViewportRange } from './historyWindowPolicy';
 import Constants from 'expo-constants';
 import { refreshNativeUpdateStatus } from './nativeUpdate';
 import type { PluginCatalogResponse } from '@slopus/happy-wire';
@@ -739,6 +740,10 @@ class Sync {
         const wireId = this.getMessageWireId(id, renderedId);
         return this.historyWindows.get(id)?.messages.find(message => message.id === wireId)?.seq ?? null;
     };
+    public getHistoryBoundarySeq = (id: string, direction: 'older' | 'newer'): number | null => {
+        const window = this.historyWindows.get(id);
+        return (direction === 'older' ? window?.oldestSeq : window?.newestSeq) ?? null;
+    };
     public resolveRenderedMessageId = (id: string, wireId: string): string | null => {
         const state = storage.getState().sessionMessages[id];
         return state?.messages.find(message => this.getMessageWireId(id, message.id) === wireId)?.id ?? null;
@@ -760,7 +765,7 @@ class Sync {
     }
 
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation,
-        options: { retainCurrentWebRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean } = {}): Promise<boolean> => {
+        options: { retainCurrentWebRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean; protectedRange?: HistoryViewportRange; viewport?: HistoryViewportReader } = {}): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
         if (!encryption) return false;
@@ -797,6 +802,10 @@ class Sync {
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
+        // A capacity deferral must leave the current projection and live queue
+        // untouched. Sample the viewport after every asynchronous decrypt.
+        if (Platform.OS === 'web') window = boundHistoryWindow(window, { ...options,
+            protectedRange: options.viewport?.() ?? options.protectedRange });
         // A foreground fetch can hold the queue lock across a realtime burst.
         // Drain live effects synchronously before replacing its projection;
         // the eventual lock callback must not resurrect rows evicted below.
@@ -805,7 +814,6 @@ class Sync {
         ]));
         this.retireObservedLocalMessages(id, normalized);
         if (Platform.OS === 'web') {
-            window = boundHistoryWindow(window, options);
             const retainedIds = new Set(window.messages.map(message => message.id));
             for (let i = normalized.length - 1; i >= 0; i--) {
                 if (!retainedIds.has(normalizedWireIds.get(normalized[i])!)) normalized.splice(i, 1);
@@ -842,7 +850,7 @@ class Sync {
         return true;
     };
 
-    private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest'): Promise<void> => {
+    private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest', viewport?: HistoryViewportReader): Promise<void> => {
         const existing = this.historyWindowLoads.get(id);
         if (existing && this.historyBoundaryLoadingTokens.get(id)?.isCurrent()) return existing;
         const history = this.localHistory;
@@ -950,7 +958,7 @@ class Sync {
                 if (latest && owner.isCurrent()) {
                     const applied = await this.applyHistoryWindow(id, latest, operation, {
                         retainCurrentWebRows: direction !== 'latest',
-                        ...(direction !== 'latest' ? { direction, anchorSeq: boundary! } : {}),
+                        ...(direction !== 'latest' ? { direction, anchorSeq: boundary!, viewport } : {}),
                     });
                     if (applied && direction === 'latest' && verifiedLatestFromNetwork && latest.isAtLatest) {
                         this.markLatestVerified(id, operation);
@@ -968,8 +976,8 @@ class Sync {
         })().finally(() => { if (this.historyWindowLoads.get(id) === pending) this.historyWindowLoads.delete(id); });
         this.historyWindowLoads.set(id, pending); return pending;
     };
-    public loadNewerMessages = (id: string): Promise<void> => this.historyWindows.get(id)?.hasMoreNewer === false
-        ? Promise.resolve() : this.loadHistoryBoundary(id, 'newer');
+    public loadNewerMessages = (id: string, viewport?: HistoryViewportReader): Promise<void> => this.historyWindows.get(id)?.hasMoreNewer === false
+        ? Promise.resolve() : this.loadHistoryBoundary(id, 'newer', viewport);
     public jumpToLatestMessages = async (id: string): Promise<void> => {
         const history = this.localHistory;
         const encryption = this.encryption;
@@ -4008,8 +4016,8 @@ class Sync {
      * earliest message, when no initial fetch has happened yet, or when an
      * older-fetch is already in flight for this session.
      */
-    loadOlderMessages = async (sessionId: string) => {
-        if ((this.localHistory || Platform.OS === 'web') && this.historyWindows.has(sessionId)) return this.loadHistoryBoundary(sessionId, 'older');
+    loadOlderMessages = async (sessionId: string, viewport?: HistoryViewportReader) => {
+        if ((this.localHistory || Platform.OS === 'web') && this.historyWindows.has(sessionId)) return this.loadHistoryBoundary(sessionId, 'older', viewport);
         const frontier = this.sessionMessageFrontiers.get(sessionId);
         if (!frontier?.hasMoreOlder || frontier.olderBeforeSeq == null || frontier.olderBeforeSeq <= 1) {
             return;
