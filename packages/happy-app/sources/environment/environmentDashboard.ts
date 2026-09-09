@@ -84,6 +84,7 @@ export type EnvironmentDashboardDependencies = {
     apply: typeof applyMachineEnvironment;
     machines(): Machine[];
     active(): boolean;
+    ready?(): boolean;
     now(): number;
 };
 export type EnvironmentDashboardStore = ReturnType<typeof createEnvironmentDashboard>;
@@ -100,7 +101,8 @@ export function createEnvironmentDashboard(deps: EnvironmentDashboardDependencie
     const patchCell = (machineId: string, id: EnvironmentComponentId, patch: Partial<EnvironmentCell>) => publish({
         rows: state.rows.map(row => row.machine.id !== machineId ? row : { ...row, cells: { ...row.cells, [id]: { ...row.cells[id], ...patch } } }),
     });
-    const currentMachine = (id: string) => deps.active() && deps.machines().some(m => m.id === id && m.active);
+    const ready = () => deps.ready?.() !== false;
+    const currentMachine = (id: string) => deps.active() && ready() && deps.machines().some(m => m.id === id && m.active);
     function setMachines(machines: Machine[]) {
         const previous = new Map(state.rows.map(row => [row.machine.id, row]));
         const rows = machines.map(machine => {
@@ -118,7 +120,7 @@ export function createEnvironmentDashboard(deps: EnvironmentDashboardDependencie
     }
 
     async function scan() {
-        if (!deps.active()) return;
+        if (!deps.active() || !ready()) return;
         if (state.running || state.scanning) { pendingScan = true; return; }
         pendingScan = false;
         setMachines(deps.machines());
@@ -145,6 +147,7 @@ export function createEnvironmentDashboard(deps: EnvironmentDashboardDependencie
     }
 
     function getCandidates(scope: EnvironmentScope = {}) {
+        if (!deps.active() || !ready()) return [];
         return state.rows.filter(row => row.machine.active && !unresolvedMachines.has(row.machine.id) && (!scope.machineId || scope.machineId === row.machine.id))
             .flatMap(row => FLEET_COMPONENT_IDS.filter(id => !scope.componentId || scope.componentId === id)
                 .filter(id => !busyPhases.includes(row.cells[id].phase) && describeEnvironmentCell(row.cells[id]).action === 'upgrade')
@@ -153,7 +156,7 @@ export function createEnvironmentDashboard(deps: EnvironmentDashboardDependencie
 
     type Task = { machineId: string; componentId: EnvironmentComponentId; action: Exclude<EnvironmentAction, 'manual' | null>; observation: ComponentObservation; targetVersion: string };
     async function execute(tasks: Task[]) {
-        if (!tasks.length || state.running || state.scanning || !deps.active()) return;
+        if (!tasks.length || state.running || state.scanning || !deps.active() || !ready()) return;
         publish({ running: true, batch: { total: tasks.length, done: 0, succeeded: 0, failed: 0, uncertain: 0, skipped: 0 } });
         for (const task of tasks) patchCell(task.machineId, task.componentId, { phase: 'queued', reasonCode: undefined, result: undefined });
         const finish = (task: Task, outcome: 'succeeded' | 'failed' | 'uncertain' | 'skipped') => {
@@ -196,6 +199,7 @@ export function createEnvironmentDashboard(deps: EnvironmentDashboardDependencie
                     const { result } = await deps.apply(machineId, { desired, plan, approvedAt: deps.now() });
                     if (result.componentId !== componentId || result.before.componentId !== componentId || result.after.componentId !== componentId) throw new Error('Mismatched result');
                     const isUnknown = result.reasonCode === 'rpc-timeout' || result.reasonCode === 'process-timeout'
+                        || result.reasonCode === 'operation-in-progress' || result.after.reasonCode === 'operation-in-progress'
                         || result.after.reasonCode === 'unexpected-error' || (result.status === 'succeeded' && result.after.installedVersion !== targetVersion);
                     const phase = isUnknown ? 'uncertain' : result.status === 'succeeded' ? 'succeeded' : result.status === 'stale-plan' ? 'changed' : 'failed';
                     patchCell(machineId, componentId, { phase, observation: result.after, result, reasonCode: result.reasonCode, checkedAt: deps.now() });

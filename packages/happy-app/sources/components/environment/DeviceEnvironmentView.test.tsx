@@ -113,6 +113,39 @@ describe('DeviceEnvironment matrix', () => {
         expect(textOf(renderer.toJSON())).toContain('No machines');
         expect(textOf(renderer.toJSON())).not.toContain('All tools are up to date');
     });
+    it('does not summarize a failed inspection as no available updates', () => {
+        const c = controller([row('a')]);
+        for (const cell of Object.values(c.rows[0].cells)) cell.phase = 'unknown';
+        render(c);
+        const footer = textOf(renderer.root.findByProps({ testID: 'environment-footer' }));
+        expect(footer).not.toContain('No updates available');
+        expect(footer).toMatch(/unverified|incompleteSummary/);
+        expect(footer.match(/unverified/g)).toHaveLength(1);
+        expect(renderer.root.findByProps({ testID: 'environment-update-all' }).props.disabled).toBe(true);
+    });
+    it('never claims no updates while the fleet is still being inspected', () => {
+        const c = controller([row('a')]); c.scanning = true;
+        render(c);
+        const footer = textOf(renderer.root.findByProps({ testID: 'environment-footer' }));
+        expect(footer).toContain('Checking');
+        expect(footer).not.toContain('updates available across');
+    });
+    it('distinguishes an offline-only fleet from a fully inspected fleet', () => {
+        render(controller([row('a', false)]));
+        const footer = textOf(renderer.root.findByProps({ testID: 'environment-footer' }));
+        expect(footer).toMatch(/No devices are online|noOnline/);
+    });
+    it('keeps cached versions visible but disables all mutations without a server connection', () => {
+        const c = controller(); c.connectionReady = false; render(c);
+        expect(textOf(renderer.toJSON())).toContain('Waiting for connection');
+        expect(textOf(renderer.toJSON())).not.toContain('Online');
+        expect(textOf(renderer.toJSON())).not.toContain('Up to date');
+        expect(textOf(renderer.toJSON())).toContain('Previous inspection result');
+        expect(textOf(renderer.root.findByProps({ testID: 'environment-summary' }))).toContain('disconnected');
+        expect(textOf(renderer.root.findByProps({ testID: 'environment-component-a-github-cli' }))).toContain('1.0.0');
+        for (const id of ['environment-scan-all', 'environment-update-all', 'environment-action-a-github-cli'])
+            expect(renderer.root.findByProps({ testID: id }).props.disabled).toBe(true);
+    });
     it('does not show a successful result when verification is uncertain', async () => {
         const c = controller(); const cell = c.rows[0].cells['github-cli'];
         cell.phase = 'uncertain';

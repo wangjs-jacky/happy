@@ -16,6 +16,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const it: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: 'Risultato del controllo precedente',
+        fleetDisconnected: ({ total }: { total: number }) => `${total} dispositivi · connessione interrotta`,
+        waitingForConnection: 'In attesa della connessione per il controllo automatico',
+        incompleteSummary: ({ count }: { count: number }) => `${count} elementi non verificati. Controlla di nuovo.`,
+        noOnline: 'Nessun dispositivo è online',
         confirmStopped: 'Ho verificato che è terminato',
         confirmStoppedMessage: 'Continua solo dopo aver verificato sul dispositivo che il processo di aggiornamento precedente sia terminato. Questa azione non arresta alcun processo remoto e ricontrolla soltanto il dispositivo; non riprova l’aggiornamento.',
         tools: 'Strumenti di sviluppo',

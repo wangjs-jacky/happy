@@ -16,6 +16,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const ca: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: 'Resultat de la comprovació anterior',
+        fleetDisconnected: ({ total }: { total: number }) => `${total} dispositius · connexió perduda`,
+        waitingForConnection: 'S’espera la connexió per comprovar automàticament',
+        incompleteSummary: ({ count }: { count: number }) => `${count} elements sense verificar. Torna a comprovar.`,
+        noOnline: 'No hi ha dispositius en línia',
         confirmStopped: 'He verificat que ha acabat',
         confirmStoppedMessage: 'Continua només després de comprovar al dispositiu que el procés d’actualització anterior ha acabat. Aquesta acció no atura cap procés remot i només tornarà a comprovar el dispositiu; no tornarà a intentar l’actualització.',
         tools: 'Eines de desenvolupament',

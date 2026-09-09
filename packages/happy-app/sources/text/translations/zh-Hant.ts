@@ -18,6 +18,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHant: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: '上次檢查結果',
+        fleetDisconnected: ({ total }: { total: number }) => `${total} 台裝置 · 連線已中斷`,
+        waitingForConnection: '等待連線後自動檢查',
+        incompleteSummary: ({ count }: { count: number }) => `${count} 項狀態未確認，請重新檢查`,
+        noOnline: '目前沒有在線裝置',
         confirmStopped: '我已確認執行結束',
         confirmStoppedMessage: '請先在目標裝置上確認上一次更新程序已經結束，再繼續。此操作不會終止遠端程序，只會重新檢查裝置，不會重試更新。',
         tools: '開發工具',

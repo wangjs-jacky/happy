@@ -18,6 +18,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: '上次检测结果',
+        fleetDisconnected: ({ total }: { total: number }) => `${total} 台设备 · 连接已断开`,
+        waitingForConnection: '等待连接后自动检测',
+        incompleteSummary: ({ count }: { count: number }) => `${count} 项状态未确认，请重新检测`,
+        noOnline: '当前没有在线设备',
         confirmStopped: '我已确认执行结束',
         confirmStoppedMessage: '请先在目标设备上确认上一次更新进程已经结束，再继续。此操作不会终止远端进程，只会重新检测设备，不会重试更新。',
         tools: '开发工具',

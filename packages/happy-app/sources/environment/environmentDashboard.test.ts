@@ -19,6 +19,7 @@ function observation(componentId: EnvironmentComponentId, version = '1.0.0', tar
 function fixture() {
     let fleet = [machine('a'), machine('b')];
     let active = true;
+    let ready = true;
     const observations = new Map(fleet.map(m => [m.id, ids.map(id => observation(id))]));
     const inspect = vi.fn(async (id: string, request: EnvironmentInspectRequest) => {
         const found = observations.get(id)!.filter(o => request.componentIds.includes(o.componentId));
@@ -33,13 +34,23 @@ function fixture() {
         observations.set(id, row.map(o => o.componentId === before.componentId ? after : o));
         return { result: { componentId: before.componentId, status: 'succeeded' as const, before, after, changed: true } };
     });
-    const store = createEnvironmentDashboard({ inspect, apply, machines: () => fleet, active: () => active, now: Date.now });
+    const store = createEnvironmentDashboard({ inspect, apply, machines: () => fleet, active: () => active, ready: () => ready, now: Date.now });
     store.setMachines(fleet);
-    return { store, inspect, apply, observations, setFleet: (value: Machine[]) => { fleet = value; store.setMachines(fleet); }, invalidate: () => { active = false; } };
+    return { store, inspect, apply, observations, setReady: (value: boolean) => { ready = value; }, setFleet: (value: Machine[]) => { fleet = value; store.setMachines(fleet); }, invalidate: () => { active = false; } };
 }
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 
 describe('environment dashboard task scope', () => {
+    it('keeps cached results but does not scan or dispatch while the transport is disconnected', async () => {
+        const f = fixture(); await f.store.scan();
+        const checked = f.store.getSnapshot().lastChecked;
+        f.inspect.mockClear(); f.setReady(false);
+        await f.store.scan(); await f.store.update({}); await f.store.runSingle('a', 'github-cli');
+        expect(f.inspect).not.toHaveBeenCalled(); expect(f.apply).not.toHaveBeenCalled();
+        expect(f.store.getCandidates()).toEqual([]);
+        expect(f.store.getSnapshot().lastChecked).toBe(checked);
+        expect(f.store.getSnapshot().rows[0].cells['github-cli'].observation?.installedVersion).toBe('1.0.0');
+    });
     it('blocks every mutation on an unresolved machine across clicks and ordinary scans', async () => {
         const f = fixture(); await f.store.scan(); f.apply.mockRejectedValueOnce(new Error('Connection lost'));
         await f.store.runSingle('a', 'github-cli');
@@ -122,6 +133,28 @@ describe('environment dashboard task scope', () => {
         await f.store.update({ machineId: 'a', componentId: 'github-cli' });
         expect(f.apply).not.toHaveBeenCalled(); expect(f.store.getSnapshot().rows[0].cells['github-cli'].phase).toBe('changed');
     });
+    it.each(['ownership', 'executable', 'source', 'support'] as const)('rejects changed %s before applying', async kind => {
+        const f = fixture(); await f.store.scan();
+        const changed = observation('github-cli');
+        if (kind === 'ownership') changed.source.ownership = 'unverified';
+        if (kind === 'executable') changed.resolvedExecutable = '/another/tool';
+        if (kind === 'source') changed.source.kind = 'homebrew';
+        if (kind === 'support') changed.support = 'unsupported';
+        f.inspect.mockResolvedValueOnce({ observations: [changed], plans: [{ componentId: 'github-cli', action: 'upgrade',
+            fromVersion: '1.0.0', targetVersion: '1.1.0', planFingerprint: 'a'.repeat(64), expiresAt: Date.now() + 600_000 }] });
+        await f.store.update({ machineId: 'a', componentId: 'github-cli' });
+        expect(f.apply).not.toHaveBeenCalled();
+        expect(f.store.getSnapshot().rows[0].cells['github-cli'].phase).toBe('changed');
+    });
+    it.each(['component', 'version'] as const)('does not claim success when the apply readback has the wrong %s', async kind => {
+        const f = fixture(); await f.store.scan();
+        f.apply.mockResolvedValueOnce({ result: { componentId: 'github-cli', status: 'succeeded', before: observation('github-cli'),
+            after: observation(kind === 'component' ? 'paws-cli' : 'github-cli', kind === 'version' ? '1.0.0' : '1.1.0'), changed: true } });
+        await f.store.update({ machineId: 'a', componentId: 'github-cli' });
+        expect(f.store.getSnapshot().batch).toMatchObject({ succeeded: 0, uncertain: 1 });
+        expect(f.store.getSnapshot().rows[0].unresolved).toBe(true);
+        expect(f.store.getCandidates({ machineId: 'a' })).toEqual([]);
+    });
     it('stops the uncertain machine queue and never blindly retries an unknown mutation', async () => {
         const f = fixture(); await f.store.scan(); f.apply.mockRejectedValueOnce(new Error('RPC timed out'));
         await f.store.update({});
@@ -130,6 +163,18 @@ describe('environment dashboard task scope', () => {
         expect(f.store.getSnapshot().rows[0].cells['github-cli'].phase).toBe('uncertain');
         const calls = f.apply.mock.calls.length; await f.store.update({ machineId: 'a', componentId: 'github-cli' });
         expect(f.apply).toHaveBeenCalledTimes(calls);
+    });
+    it('blocks the whole machine when the daemon reports an already running installer', async () => {
+        const f = fixture(); await f.store.scan();
+        f.apply.mockResolvedValueOnce({ result: { componentId: 'github-cli', status: 'failed',
+            before: observation('github-cli'), after: observation('github-cli'), changed: false,
+            reasonCode: 'operation-in-progress' } } as any);
+        await f.store.update({});
+        expect(f.apply.mock.calls.filter(([id]) => id === 'a')).toHaveLength(1);
+        expect(f.store.getSnapshot().rows[0].unresolved).toBe(true);
+        expect(f.store.getSnapshot().rows[0].cells['github-cli'].phase).toBe('uncertain');
+        expect(f.store.getCandidates({ machineId: 'a' })).toEqual([]);
+        expect(f.store.getSnapshot().batch).toMatchObject({ uncertain: 1, skipped: 3, succeeded: 4 });
     });
     it('continues independent work after a verified failed update and permits targeted retry', async () => {
         const f = fixture(); await f.store.scan(); f.apply.mockResolvedValueOnce({ result: { componentId: 'github-cli', status: 'failed' as 'succeeded', before: observation('github-cli'), after: observation('github-cli'), changed: false, reasonCode: 'install-failed' } } as any);

@@ -27,6 +27,11 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  */
 export const pl: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: 'Wynik poprzedniego sprawdzenia',
+        fleetDisconnected: ({ total }: { total: number }) => `Urządzenia: ${total} · połączenie utracone`,
+        waitingForConnection: 'Oczekiwanie na połączenie w celu automatycznego sprawdzenia',
+        incompleteSummary: ({ count }: { count: number }) => `Niezweryfikowane elementy: ${count}. Sprawdź ponownie.`,
+        noOnline: 'Brak urządzeń online',
         confirmStopped: 'Potwierdzam zakończenie procesu',
         confirmStoppedMessage: 'Kontynuuj dopiero po sprawdzeniu na urządzeniu, że poprzedni proces aktualizacji został zakończony. Ta czynność nie zatrzymuje zdalnego procesu i jedynie ponownie sprawdza urządzenie; nie ponawia aktualizacji.',
         tools: 'Narzędzia programistyczne',

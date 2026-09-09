@@ -19,6 +19,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const ja: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: '前回の確認結果',
+        fleetDisconnected: ({ total }: { total: number }) => `デバイス ${total} 台 · 接続が切れています`,
+        waitingForConnection: '接続後に自動で確認します',
+        incompleteSummary: ({ count }: { count: number }) => `${count} 件の状態が未確認です。再確認してください。`,
+        noOnline: 'オンラインのデバイスはありません',
         confirmStopped: '処理の終了を確認しました',
         confirmStoppedMessage: '前回の更新処理が終了したことを対象デバイスで確認してから続行してください。この操作でリモートの処理は停止しません。デバイスを再確認するだけで、更新は再試行しません。',
         tools: '開発ツール',

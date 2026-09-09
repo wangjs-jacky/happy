@@ -27,6 +27,11 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  */
 export const ru: TranslationStructure = {
     deviceEnvironmentDashboard: {
+        previousResult: 'Результат предыдущей проверки',
+        fleetDisconnected: ({ total }: { total: number }) => `Всего устройств: ${total} · соединение прервано`,
+        waitingForConnection: 'Ожидание подключения для автоматической проверки',
+        incompleteSummary: ({ count }: { count: number }) => `Не проверено элементов: ${count}. Проверьте снова.`,
+        noOnline: 'Нет устройств в сети',
         confirmStopped: 'Я убедился, что процесс завершён',
         confirmStoppedMessage: 'Продолжайте только после проверки на устройстве, что предыдущий процесс обновления завершён. Это действие не останавливает удалённый процесс и лишь повторно проверяет устройство; обновление не будет запущено повторно.',
         tools: 'Инструменты разработки',

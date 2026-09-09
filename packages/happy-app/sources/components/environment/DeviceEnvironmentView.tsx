@@ -16,7 +16,8 @@ import { environmentComponentName, environmentIcons, environmentReason } from '.
 const machineName = (row: EnvironmentRow) => row.machine.metadata?.displayName || row.machine.metadata?.host || row.machine.id;
 const working = (cell: EnvironmentCell) => ['checking', 'queued', 'preparing', 'updating'].includes(cell.phase);
 
-function cellStatus(cell: EnvironmentCell, online: boolean): string {
+function cellStatus(cell: EnvironmentCell, online: boolean, connected = true): string {
+    if (!connected) return t('deviceEnvironmentDashboard.previousResult');
     if (!online) return t('deviceEnvironmentDashboard.offline');
     switch (cell.phase) {
         case 'checking': return t('deviceEnvironmentDashboard.scanning');
@@ -68,8 +69,12 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
     const narrow = contentWidth < 740;
     const labelWidth = narrow ? 112 : 180;
     const cellWidth = Math.max(narrow ? 208 : 224, (contentWidth - 32 - labelWidth) / Math.max(1, controller.rows.length));
-    const busy = controller.scanning || controller.running;
+    const connected = controller.connectionReady !== false;
+    const busy = controller.scanning || controller.running || !connected;
     const candidates = controller.getCandidates();
+    const onlineRows = controller.rows.filter(row => row.machine.active);
+    const unverified = onlineRows.flatMap(row => Object.values(row.cells))
+        .filter(cell => ['unknown', 'source'].includes(describeEnvironmentCell(cell).state)).length;
     const attention = controller.rows.filter(row => row.machine.active).flatMap(row => Object.values(row.cells))
         .filter(cell => { const action = describeEnvironmentCell(cell).action; return action && action !== 'upgrade'; }).length;
     const selectedRow = controller.rows.find(row => row.machine.id === selected?.machineId);
@@ -79,7 +84,7 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
         requestAnimationFrame(() => scroll.current?.scrollToEnd({ animated: false }));
     }
     const [, perform] = useHappyAction(async (row: EnvironmentRow, componentId: EnvironmentComponentId) => {
-        if (latest.current.scanning || latest.current.running) return;
+        if (latest.current.scanning || latest.current.running || latest.current.connectionReady === false) return;
         const cell = row.cells[componentId], description = describeEnvironmentCell(cell);
         if (description.action === 'upgrade') { await controller.update({ machineId: row.machine.id, componentId }); return; }
         if (!description.action || description.action === 'manual') { showDetails(row, componentId); return; }
@@ -92,7 +97,7 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
             await latest.current.runSingle(row.machine.id, componentId);
     });
     const [, confirmStopped] = useHappyAction(async (machineId: string) => {
-        if (latest.current.scanning || latest.current.running) return;
+        if (latest.current.scanning || latest.current.running || latest.current.connectionReady === false) return;
         const approved = await Modal.confirm(t('deviceEnvironmentDashboard.confirmStopped'), t('deviceEnvironmentDashboard.confirmStoppedMessage'), {
             confirmText: t('deviceEnvironmentDashboard.confirmStopped'), cancelText: t('common.cancel'),
         });
@@ -100,7 +105,7 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
     });
     const renderCell = (row: EnvironmentRow, componentId: EnvironmentComponentId) => {
         const cell = row.cells[componentId], description = describeEnvironmentCell(cell), online = row.machine.active;
-        const ready = online && ['latest', 'optional-login'].includes(description.state) && !working(cell) && !['failed', 'uncertain'].includes(cell.phase);
+        const ready = connected && online && ['latest', 'optional-login'].includes(description.state) && !working(cell) && !['failed', 'uncertain'].includes(cell.phase);
         const action = description.action;
         const actionText = cell.phase === 'failed' && action === 'upgrade' ? t('deviceEnvironmentDashboard.retry')
             : action === 'upgrade' ? t('deviceEnvironmentDashboard.update') : action === 'install' ? t('deviceEnvironmentDashboard.install')
@@ -115,8 +120,8 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
                 </Text>
             </Pressable>
             <View style={styles.statusRow}>
-                {online && working(cell) ? <ActivityIndicator size="small" color={theme.colors.textLink} style={styles.spinner} /> : null}
-                <Text numberOfLines={2} style={[styles.status, ready && styles.ready]}>{cellStatus(cell, online)}</Text>
+                {connected && online && working(cell) ? <ActivityIndicator size="small" color={theme.colors.textLink} style={styles.spinner} /> : null}
+                <Text numberOfLines={2} style={[styles.status, ready && styles.ready]}>{cellStatus(cell, online, connected)}</Text>
                 {online && action ? <Action testID={`environment-action-${row.machine.id}-${componentId}`} title={actionText}
                     label={t('deviceEnvironmentDashboard.selectedAction', { machine: machineName(row), component: environmentComponentName(componentId), action: actionText })}
                     onPress={() => { void perform(row, componentId); }} disabled={busy || row.unresolved} /> : null}
@@ -129,14 +134,17 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
     const commands = selectedCell ? environmentRepairCommands(selectedCell.componentId, repairReason) : [];
     const batch = controller.batch;
     const summary = controller.running && batch ? t('deviceEnvironmentDashboard.batchProgress', { done: batch.done, total: batch.total })
-        : batch ? t('deviceEnvironmentDashboard.batchResult', batch)
-            : candidates.length ? t('deviceEnvironmentDashboard.updatesSummary', { count: candidates.length, machines: new Set(candidates.map(c => c.machineId)).size })
-                : t(controller.scanning ? 'deviceEnvironmentDashboard.scanning' : 'deviceEnvironmentDashboard.allCurrent');
+        : controller.scanning ? t('deviceEnvironmentDashboard.scanning')
+            : batch ? t('deviceEnvironmentDashboard.batchResult', batch)
+                : controller.connectionReady === false ? t('deviceEnvironmentDashboard.waitingForConnection')
+                    : !onlineRows.length ? t('deviceEnvironmentDashboard.noOnline')
+                        : candidates.length ? t('deviceEnvironmentDashboard.updatesSummary', { count: candidates.length, machines: new Set(candidates.map(c => c.machineId)).size })
+                            : unverified ? t('deviceEnvironmentDashboard.incompleteSummary', { count: unverified }) : t('deviceEnvironmentDashboard.allCurrent');
     return <View style={styles.container} onLayout={event => setContentWidth(event.nativeEvent.layout.width)} testID="environment-dashboard">
         <View style={styles.toolbar}>
             <View style={styles.summary} testID="environment-summary">
-                <Text style={styles.summaryText}>{t('deviceEnvironmentDashboard.fleet', { total: controller.rows.length, online: controller.rows.filter(row => row.machine.active).length })}</Text>
-                <Text style={styles.secondary}>{controller.lastChecked ? t('deviceEnvironmentDashboard.lastChecked', { time: new Date(controller.lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }) : t('deviceEnvironmentDashboard.notChecked')}</Text>
+                <Text style={styles.summaryText}>{connected ? t('deviceEnvironmentDashboard.fleet', { total: controller.rows.length, online: onlineRows.length }) : t('deviceEnvironmentDashboard.fleetDisconnected', { total: controller.rows.length })}</Text>
+                <Text style={styles.secondary}>{controller.connectionReady === false ? t('deviceEnvironmentDashboard.waitingForConnection') : controller.lastChecked ? t('deviceEnvironmentDashboard.lastChecked', { time: new Date(controller.lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }) : t('deviceEnvironmentDashboard.notChecked')}</Text>
             </View>
             <Action testID="environment-scan-all" title={t(controller.scanning ? 'deviceEnvironmentDashboard.scanning' : 'deviceEnvironmentDashboard.scan')} icon="refresh-outline"
                 disabled={busy || !controller.rows.length} onPress={() => { void controller.scan(); }} />
@@ -161,7 +169,7 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
                         <View>
                             <View style={styles.tableRow}>{controller.rows.map(row => <View key={row.machine.id} style={[styles.columnHeader, { width: cellWidth }]} testID={`environment-device-${row.machine.id}`}>
                                 <Text numberOfLines={1} style={styles.deviceName}>{machineName(row)}</Text>
-                                <Text style={[styles.secondary, row.machine.active && styles.ready]}>{t(row.machine.active ? 'deviceEnvironmentDashboard.online' : 'deviceEnvironmentDashboard.offline')}</Text>
+                                <Text style={[styles.secondary, connected && row.machine.active && styles.ready]}>{t(!connected ? 'deviceEnvironmentDashboard.previousResult' : row.machine.active ? 'deviceEnvironmentDashboard.online' : 'deviceEnvironmentDashboard.offline')}</Text>
                             </View>)}</View>
                             {FLEET_COMPONENT_IDS.map(componentId => <View key={componentId} style={styles.tableRow}>{controller.rows.map(row => renderCell(row, componentId))}</View>)}
                         </View>
@@ -177,8 +185,8 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
             {selectedCell && selectedRow ? <View style={styles.details} testID="environment-details">
                 <View style={styles.detailHeader}><Text style={styles.detailTitle}>{machineName(selectedRow)} · {environmentComponentName(selectedCell.componentId)}</Text>
                     <Action title={t('sidebarLists.close')} testID="environment-details-close" onPress={() => setSelected(null)} /></View>
-                <Text style={styles.detailCopy}>{cellStatus(selectedCell, selectedRow.machine.active)}</Text>
-                {selectedCell.phase === 'succeeded' && selectedCell.result?.status === 'succeeded' ? <Text style={styles.ready}>{t('deviceEnvironment.completed')} · {selectedCell.result.before.installedVersion ?? t('deviceEnvironment.notInstalled')} → {selectedCell.result.after.installedVersion}</Text> : null}
+                <Text style={styles.detailCopy}>{cellStatus(selectedCell, selectedRow.machine.active, connected)}</Text>
+                {selectedCell.phase === 'succeeded' && selectedCell.result?.status === 'succeeded' ? <Text style={connected ? styles.ready : styles.secondary}>{t('deviceEnvironment.completed')} · {selectedCell.result.before.installedVersion ?? t('deviceEnvironment.notInstalled')} → {selectedCell.result.after.installedVersion}</Text> : null}
                 {reason ? <Text style={styles.detailCopy}>{reason}</Text> : null}
                 {selectedCell.observation?.source.latestVersion ? <Text style={styles.detailCopy}>{t('deviceEnvironmentDashboard.target', { version: selectedCell.observation.source.latestVersion })} · {t('deviceEnvironmentDashboard.localSource')}</Text> : null}
                 {selectedCell.observation?.capability === 'inspect-only' ? <Text style={styles.detailCopy}>{t('deviceEnvironment.inspectOnly')}</Text> : null}
@@ -188,7 +196,10 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
         <View style={styles.footer} testID="environment-footer">
             <View style={styles.footerCopy} accessibilityLiveRegion="polite">
                 <Text style={styles.summaryText}>{summary}</Text>
-                <Text style={styles.secondary}>{controller.running ? t('deviceEnvironmentDashboard.background') : attention ? t('deviceEnvironmentDashboard.attentionSummary', { count: attention }) : t('deviceEnvironmentDashboard.verifyHint')}</Text>
+                <Text style={styles.secondary}>{controller.running ? t('deviceEnvironmentDashboard.background') : [
+                    unverified && !controller.scanning && (candidates.length > 0 || batch) ? t('deviceEnvironmentDashboard.incompleteSummary', { count: unverified }) : null,
+                    attention ? t('deviceEnvironmentDashboard.attentionSummary', { count: attention }) : null,
+                ].filter(Boolean).join(' · ') || t('deviceEnvironmentDashboard.verifyHint')}</Text>
             </View>
             <Action primary testID="environment-update-all" title={t('deviceEnvironmentDashboard.updateAll', { count: candidates.length })}
                 disabled={busy || !candidates.length} onPress={() => { void controller.update({}); }} />
