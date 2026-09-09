@@ -14,7 +14,7 @@ import { AuthCredentials } from '@/auth/tokenStorage';
 import { getServerUrl } from './serverConfig';
 import { appendFormFile } from './uploadFormFile';
 import type { AttachmentKind } from './attachmentTypes';
-import { captureAttachmentContext } from './attachmentCacheContext';
+import { captureAttachmentContext, subscribeAttachmentCache, type AttachmentContext } from './attachmentCacheContext';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — encrypted image lane
 export const MAX_MEDIA_FILE_SIZE = 500 * 1024 * 1024; // 500MB — plaintext audio/video lane
@@ -57,6 +57,39 @@ export type AttachmentDownloadSource = {
 
 const downloadSourceInFlight = new Map<string, Promise<AttachmentDownloadSource>>();
 const encryptedDownloadInFlight = new Map<string, Promise<Uint8Array>>();
+const DOWNLOAD_SOURCE_TTL_MS = 60_000;
+const DOWNLOAD_SOURCE_MAX_ENTRIES = 64;
+const DOWNLOAD_SOURCE_EXPIRY_MARGIN_MS = 5_000;
+const downloadSources = new Map<string, { source: AttachmentDownloadSource; expiresAt: number }>();
+subscribeAttachmentCache(() => {
+    downloadSources.clear();
+    downloadSourceInFlight.clear();
+});
+
+/** Keep only short-lived descriptors, never media bytes. Respect S3/OSS signed
+ * deadlines as well as the local TTL; malformed deadlines are not reusable. */
+function downloadSourceDeadline(uri: string, requestedAt: number): number {
+    let expiresAt = requestedAt + DOWNLOAD_SOURCE_TTL_MS;
+    try {
+        const params = new Map([...new URL(uri).searchParams].map(([name, value]) => [name.toLowerCase(), value]));
+        if (params.has('expires')) {
+            const seconds = Number(params.get('expires'));
+            if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+            expiresAt = Math.min(expiresAt, seconds * 1000 - DOWNLOAD_SOURCE_EXPIRY_MARGIN_MS);
+        }
+        for (const prefix of ['x-amz', 'x-oss']) {
+            const date = params.get(`${prefix}-date`);
+            const duration = params.get(`${prefix}-expires`);
+            if (date === undefined && duration === undefined) continue;
+            if (!date || !/^\d{8}T\d{6}Z$/.test(date) || !duration) return 0;
+            const start = Date.parse(date.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'));
+            const seconds = Number(duration);
+            if (!Number.isFinite(start) || !Number.isFinite(seconds) || seconds <= 0) return 0;
+            expiresAt = Math.min(expiresAt, start + seconds * 1000 - DOWNLOAD_SOURCE_EXPIRY_MARGIN_MS);
+        }
+    } catch { return 0; }
+    return expiresAt;
+}
 
 /**
  * Request a presigned (or server-hosted) upload URL for an attachment.
@@ -208,7 +241,7 @@ export async function downloadEncryptedAttachment(
         await context.assertCurrent();
         const cached = await context.history?.readAttachment(sessionId, ref);
         if (cached) { await context.assertCurrent(); return cached; }
-        const source = await requestDownloadSourceAt(context.token, context.server, sessionId, ref);
+        const source = await requestDownloadSourceAt(context, sessionId, ref);
         await context.assertCurrent();
         let blobRes: Response;
         try {
@@ -261,16 +294,47 @@ export function requestAttachmentDownloadSource(
     credentials: AuthCredentials,
     sessionId: string,
     ref: string,
+    options: { forceRefresh?: boolean } = {},
 ): Promise<AttachmentDownloadSource> {
-    return requestDownloadSourceAt(credentials.token, getServerUrl(), sessionId, ref);
+    return requestDownloadSourceAt(captureAttachmentContext(credentials, sessionId), sessionId, ref, options.forceRefresh);
 }
 
-function requestDownloadSourceAt(token: string, server: string, sessionId: string, ref: string) {
-    const key = JSON.stringify([server, sessionId, ref, token]);
+function requestDownloadSourceAt(context: AttachmentContext, sessionId: string, ref: string, forceRefresh = false) {
+    const key = JSON.stringify([context.server, context.key, ref]);
+    if (forceRefresh) downloadSources.delete(key);
+    const cached = downloadSources.get(key);
+    if (cached) {
+        downloadSources.delete(key);
+        if (cached.expiresAt > Date.now()) {
+            downloadSources.set(key, cached); // refresh the bounded LRU order
+            return context.assertCurrent().then(() => cached.source);
+        }
+    }
     const existing = downloadSourceInFlight.get(key);
-    if (existing) return existing;
+    if (existing) return existing.then(async source => {
+        await context.assertCurrent();
+        return source;
+    });
 
-    const request = requestAttachmentDownloadSourceUncached(token, server, sessionId, ref)
+    const requestedAt = Date.now();
+    const request = requestAttachmentDownloadSourceUncached(context.token, context.server, sessionId, ref)
+        .then(async source => {
+            // A late response must neither escape nor repopulate the cache after
+            // session deletion, account/server change, or credential rotation.
+            await context.assertCurrent();
+            const expiresAt = downloadSourceDeadline(source.uri, requestedAt);
+            const now = Date.now();
+            for (const [entryKey, entry] of downloadSources) {
+                if (entry.expiresAt <= now) downloadSources.delete(entryKey);
+            }
+            if (expiresAt > now) {
+                downloadSources.set(key, { source, expiresAt });
+                while (downloadSources.size > DOWNLOAD_SOURCE_MAX_ENTRIES) {
+                    downloadSources.delete(downloadSources.keys().next().value!);
+                }
+            }
+            return source;
+        })
         .finally(() => {
             if (downloadSourceInFlight.get(key) === request) downloadSourceInFlight.delete(key);
         });

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileView } from './FileView';
+import { invalidateLocalHistorySession } from '@/sync/localHistoryStore';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
@@ -190,6 +191,58 @@ describe('FileView media playback', () => {
             testID: 'media-attachment-player-user',
         });
 
+        act(() => renderer.unmount());
+    });
+
+    it('resolves a fresh video source after attachment invalidation without using its stale refresh callback', async () => {
+        const staleRefresh = vi.fn();
+        const stillCurrent = () => true;
+        mocks.resolveSource.mockResolvedValueOnce(Object.assign({
+            uri: 'https://files.test/before.mp4', headers: {}, release: mocks.release,
+        }, { reuseKey: 'before', refreshSource: staleRefresh, isCurrent: stillCurrent }));
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<FileView tool={videoTool({ encrypted: false })} sessionId="s1" metadata={null} messages={[]} />);
+        });
+        expect(renderer.root.findByType('MediaAttachmentPlayer').props.isSourceCurrent).toBe(stillCurrent);
+        mocks.resolveSource.mockResolvedValueOnce(Object.assign({
+            uri: 'https://files.test/after.mp4', headers: {}, release: mocks.release,
+        }, { reuseKey: 'after' }));
+        await act(async () => { invalidateLocalHistorySession('other-account-scope', 'other-session'); });
+        expect(mocks.resolveSource).toHaveBeenCalledTimes(2);
+        expect(staleRefresh).not.toHaveBeenCalled();
+        expect(renderer.root.findByType('MediaAttachmentPlayer').props).toMatchObject({ uri: 'https://files.test/after.mp4', reuseKey: 'after' });
+        act(() => renderer.unmount());
+    });
+
+    it('does not resurrect an old video when its async resolution completes after invalidation', async () => {
+        let resolveOld!: (source: { uri: string; headers: {}; release: typeof mocks.release }) => void;
+        mocks.resolveSource.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+        const releaseOld = vi.fn();
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<FileView tool={videoTool({ encrypted: false })} sessionId="s1" metadata={null} messages={[]} />);
+        });
+        mocks.resolveSource.mockResolvedValueOnce({ uri: 'https://files.test/fresh.mp4', headers: {}, release: mocks.release });
+        await act(async () => { invalidateLocalHistorySession('scope', 'deleted'); });
+        await act(async () => { resolveOld({ uri: 'https://files.test/stale.mp4', headers: {}, release: releaseOld }); });
+        expect(mocks.resolveSource).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findByType('MediaAttachmentPlayer').props.uri).toBe('https://files.test/fresh.mp4');
+        expect(releaseOld).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('clears an existing video if new credentials are unavailable after invalidation', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<FileView tool={videoTool({ encrypted: false })} sessionId="s1" metadata={null} messages={[]} />);
+        });
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(1);
+        mocks.resolveSource.mockRejectedValueOnce(new Error('Attachment credentials are unavailable'));
+        await act(async () => { invalidateLocalHistorySession('scope', 'logout'); });
+        expect(mocks.resolveSource).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findAllByType('MediaAttachmentPlayer')).toHaveLength(0);
+        expect(mocks.release).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
     });
 
