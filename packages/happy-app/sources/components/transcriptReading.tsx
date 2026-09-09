@@ -274,9 +274,20 @@ export function useTranscriptReading(options: {
         // The Web mask translates before its native scroll event is delivered.
         adjustOffset(y: number) { offset.current = y; },
         scroll(y: number, distanceFromBottom: number) {
+            const previousY = offset.current;
             offset.current = y;
-            if (current.current.inverted || userScrolling.current) following.current = current.current.isAtLatest
-                && userDirection.current !== 'older' && distanceFromBottom <= 50;
+            if (current.current.inverted || userScrolling.current) {
+                // Web can deliver a layout-induced scroll event after the user
+                // has returned to the latest edge. Keep following when the
+                // offset did not move; only a real upward user movement should
+                // take ownership away from latest-output following.
+                const transientLatestLayout = !current.current.inverted
+                    && following.current
+                    && Math.abs(y - previousY) <= 1;
+                following.current = current.current.isAtLatest
+                    && userDirection.current !== 'older'
+                    && (distanceFromBottom <= 50 || transientLatestLayout);
+            }
             if (Date.now() - lastCapture.current > 120) { lastCapture.current = Date.now(); void capture(); }
             if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(() => { void capture(); }, 120);

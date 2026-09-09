@@ -990,6 +990,12 @@ describe('ConversationTranscript older history pagination', () => {
             list.props.onScroll({ nativeEvent: {
                 contentOffset: { y: 4200 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 },
             } });
+            // A Web layout update can report the same scrollTop while the
+            // transcript grows. It must not cancel following after the user
+            // has returned to the latest edge.
+            list.props.onScroll({ nativeEvent: {
+                contentOffset: { y: 4200 }, contentSize: { height: 5300 }, layoutMeasurement: { height: 800 },
+            } });
             list.props.onContentSizeChange(800, 1200);
         });
         await flushFrame();
