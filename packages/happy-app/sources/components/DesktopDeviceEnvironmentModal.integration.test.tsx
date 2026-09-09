@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { StackActions, StackRouter } from '@react-navigation/routers';
 // @ts-expect-error narrow renderer harness
 import TestRenderer from 'react-test-renderer';
-import type { DeviceEnvironmentController } from '@/hooks/useDeviceEnvironment';
+import type { EnvironmentDashboardController } from '@/hooks/useEnvironmentDashboard';
 import { createDesktopModalRouter } from '@/navigation/desktopModalRouter';
 
 const mocks = vi.hoisted(() => {
@@ -84,16 +84,19 @@ vi.mock('@/hooks/useMultiClick', () => ({ useMultiClick: (callback: unknown) => 
 vi.mock('@/utils/machineUtils', () => ({ isMachineOnline: () => true }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (factory: any) => factory({ colors: {
+        button: { primary: { background: '#00aaff', tint: '#000' } }, surfaceHigh: '#222',
         accent: '#00ff88', divider: '#333', surface: '#111', surfacePressed: '#222', surfaceSelected: '#333',
         text: '#fff', textLink: '#00aaff', textSecondary: '#aaa', header: { background: '#111', tint: '#fff' },
         shadow: { color: '#000' }, status: { connected: '#0f0', connecting: '#ff0', disconnected: '#f00' },
     } }), absoluteFill: {}, hairlineWidth: 1 },
     useUnistyles: () => ({ theme: { colors: {
+        button: { primary: { background: '#00aaff', tint: '#000' } }, surfaceHigh: '#222',
         accent: '#00ff88', divider: '#333', surface: '#111', surfacePressed: '#222', surfaceSelected: '#333',
         text: '#fff', textLink: '#00aaff', textSecondary: '#aaa', header: { background: '#111', tint: '#fff' },
         shadow: { color: '#000' }, status: { connected: '#0f0', connecting: '#ff0', disconnected: '#f00' },
     } } }),
 }));
+vi.mock('@/hooks/useEnvironmentDashboard', () => ({ useEnvironmentDashboard: vi.fn() }));
 vi.mock('@/hooks/useHappyAction', () => ({ useHappyAction: (action: unknown) => [false, action] }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('@/sync/apiGithub', () => ({ disconnectGitHub: vi.fn(), getGitHubOAuthParams: vi.fn() }));
@@ -121,12 +124,9 @@ import { DesktopStackNavigator } from './DesktopAppStack';
 const options = {
     routeNames: ['index', 'session/[id]', 'settings/index', 'settings/device-environment'], routeParamList: {}, routeGetIdList: {},
 };
-const controller: DeviceEnvironmentController = {
-    phase: 'idle', rows: [], target: { kind: 'unavailable' }, targets: {
-        'github-cli': { kind: 'unavailable' }, 'paws-cli': { kind: 'unavailable' },
-        'ego-browser': { kind: 'unavailable' }, 'cloudflare-wrangler': { kind: 'unavailable' }, cloudflared: { kind: 'unavailable' },
-    },
-    selectedComponent: 'github-cli', selectComponent: vi.fn(), scan: vi.fn(), preview: vi.fn(), applyApproved: vi.fn(), reset: vi.fn(),
+const controller: EnvironmentDashboardController = {
+    rows: [], scanning: false, running: false,
+    scan: vi.fn(), update: vi.fn(), runSingle: vi.fn(), confirmStopped: vi.fn(), getCandidates: () => [],
 };
 
 function textContent(node: { findAllByType: (type: string) => Array<{ children: unknown[] }> }): string[] {
@@ -210,44 +210,4 @@ describe('Device Environment desktop settings modal integration', () => {
         expect(textContent(renderer!.root)).toContain('Workspace content');
     });
 
-    it('confirms only the selected Paws preview from the desktop modal and applies Paws', async () => {
-        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-        mocks.confirm.mockResolvedValue(true);
-        const previewController = {
-            ...controller,
-            phase: 'previewed', selectedComponent: 'paws-cli', target: { kind: 'ready', targetVersion: '1.1.0' },
-            targets: { 'github-cli': { kind: 'ready', targetVersion: '2.80.0' }, 'paws-cli': { kind: 'ready', targetVersion: '1.1.0' } },
-            applyApproved: vi.fn(),
-            rows: [{ machine: { id: 'desktop-paws', metadata: null }, machineId: 'desktop-paws', online: true, components: {
-                'github-cli': { componentId: 'github-cli', status: 'ready', observation: { componentId: 'github-cli', capability: 'alignable', installed: true, installedVersion: '2.80.0', support: 'supported', source: { available: true, latestVersion: '2.80.0', ownership: 'verified' }, authentication: { status: 'authenticated' }, details: { kind: 'github-cli' } } },
-                'paws-cli': { componentId: 'paws-cli', status: 'upgrade', plan: { action: 'upgrade', fromVersion: '1.0.0', targetVersion: '1.1.0' }, observation: { componentId: 'paws-cli', capability: 'alignable', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.1.0', ownership: 'verified' }, details: { kind: 'paws-cli' } } },
-                'ego-browser': { componentId: 'ego-browser', status: 'ready', observation: { componentId: 'ego-browser', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: null, ownership: 'not-applicable' }, details: { kind: 'ego-browser', paired: true } } },
-                'cloudflare-wrangler': { componentId: 'cloudflare-wrangler', status: 'ready', observation: { componentId: 'cloudflare-wrangler', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.0.0', ownership: 'unverified' }, details: { kind: 'cloudflare-wrangler' } } },
-                cloudflared: { componentId: 'cloudflared', status: 'ready', observation: { componentId: 'cloudflared', capability: 'inspect-only', installed: true, installedVersion: '1.0.0', support: 'supported', source: { available: true, latestVersion: '1.0.0', ownership: 'not-applicable' }, details: { kind: 'cloudflared', tunnelCertificatePresent: true } } },
-            } }],
-        } as unknown as DeviceEnvironmentController;
-        original = StackRouter({ initialRouteName: 'index' });
-        router = createDesktopModalRouter({ initialRouteName: 'index' });
-        state = original.getInitialState(options);
-        state = router.getStateForAction(state, StackActions.push('settings/index', { desktopModal: '1' }), options) ?? state;
-        const render = () => {
-            mocks.state = state;
-            mocks.descriptors = Object.fromEntries(state.routes.map((route: any) => [route.key, {
-                route, options: mocks.screenOptions[route.name] ?? { headerTitle: route.name },
-                render: () => route.name === 'settings/index' ? <SettingsView />
-                    : route.name === 'settings/device-environment' ? React.createElement(SettingsDeviceEnvironment as any, { controller: previewController })
-                        : React.createElement('Text', null, 'Workspace content'),
-            }]));
-            act(() => { renderer = TestRenderer.create(<DesktopStackNavigator children={null} />); });
-        };
-        mocks.send = (action: any) => { state = router.getStateForAction(state, action, options) ?? state; render(); };
-        render();
-        act(() => renderer!.root.findByProps({ testID: 'settings-device-environment' }).props.onPress());
-        await act(async () => renderer!.root.findByProps({ testID: 'environment-confirm-alignment' }).props.onPress());
-        const [, message] = mocks.confirm.mock.calls[0];
-        expect(message).toContain('npm global ownership');
-        expect(message).toContain('desktop-paws');
-        expect(message).not.toContain('GitHub authentication');
-        expect(previewController.applyApproved).toHaveBeenCalledWith('paws-cli');
-    });
 });
