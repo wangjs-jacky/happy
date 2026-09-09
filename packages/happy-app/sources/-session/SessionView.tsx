@@ -1450,6 +1450,7 @@ function SessionViewLoaded({
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
     const { messages, isLoaded } = useSessionMessages(sessionId);
+    const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
@@ -1569,6 +1570,7 @@ function SessionViewLoaded({
             void (async () => {
                 try {
                     await sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
+                    if (Platform.OS === 'web') setFollowLatestRequest(value => value + 1);
                     if (composerHandleRef.current !== composer) return;
                     if (composer?.getMessage() === liveMessage) composer.clearMessage();
                     for (const attachment of attachments ?? []) removeImage(attachment.id);
@@ -1651,7 +1653,7 @@ function SessionViewLoaded({
                     verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
                     isLoaded={isLoaded}
                 >
-                    {messages.length > 0 && <ChatList session={session} />}
+                    {messages.length > 0 && <ChatList session={session} followLatestRequest={followLatestRequest} />}
                 </VerifiedSessionMessageContent>
             </Deferred>
         </>

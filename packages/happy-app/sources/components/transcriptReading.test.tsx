@@ -39,6 +39,7 @@ describe('durable transcript reading anchors', () => {
         reading!.scroll(0, 1000); // Initial virtualized layout is not user intent.
         scrollToEnd.mockClear();
         await reading!.layout();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
         scrollToEnd.mockClear();
         reading!.cancelRestore('older');
@@ -47,8 +48,38 @@ describe('durable transcript reading anchors', () => {
         expect(scrollToEnd).not.toHaveBeenCalled();
         reading!.jumpLatest();
         await reading!.layout();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
         act(() => renderer.unmount());
+    });
+
+    it('keeps a latest jump from being overwritten by a delayed persisted reading state', async () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const saved: ReadingState = { version: 1, anchorId: 'old', anchorSeq: 1, offset: -30, expandedGroupIds: [], followLatest: false };
+        let resolveRead!: (state: ReadingState) => void;
+        const read = new Promise<ReadingState>(resolve => { resolveRead = resolve; });
+        const scrollToEnd = vi.fn();
+        const scrollToOffset = vi.fn();
+        let reading: ReturnType<typeof useTranscriptReading>;
+        function Probe() {
+            reading = useTranscriptReading({
+                adapter: { key: 'account/session', read: () => read, save: vi.fn(), wireId: wire, wireSeq: () => 1 },
+                items: [], inverted: false, isAtLatest: true,
+                listRef: { current: { scrollToEnd, scrollToOffset } }, viewportRef: { current: null },
+                expanded: [], restoreExpanded: () => {},
+            });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        reading!.jumpLatest();
+        await act(async () => { resolveRead(saved); await read; });
+        await reading!.layout();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+        delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
     });
 
     it('ignores a persisted restore that resolves after a Web wheel claims the viewport', async () => {
