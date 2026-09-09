@@ -83,6 +83,7 @@ export type ConversationTranscriptProps = {
     showScrollToBottom?: boolean;
     inverted?: boolean;
     contentContainerStyle?: StyleProp<ViewStyle>;
+    itemContainerStyle?: StyleProp<ViewStyle>;
 };
 
 export const ConversationTranscript = React.memo((props: ConversationTranscriptProps) => {
@@ -523,9 +524,11 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const content = <TranscriptReadingMarker messageId={itemMessages(item)[0]?.id ?? item.id}>
             {renderItemContent({ item })}
         </TranscriptReadingMarker>;
-        if (Platform.OS !== 'web') return content;
+        if (Platform.OS !== 'web') {
+            return props.itemContainerStyle ? <View style={props.itemContainerStyle}>{content}</View> : content;
+        }
         // react-native-web supports dataSet; native View's declarations omit it.
-        return <View {...{ dataSet: { transcriptKey: item.renderKey } }} onLayout={event => {
+        return <View style={props.itemContainerStyle} {...{ dataSet: { transcriptKey: item.renderKey } }} onLayout={event => {
             const height = event.nativeEvent.layout.height;
             if (rowKeys.current.has(item.renderKey) && height > 0) {
                 const debt = measurementDebt.current.get(item.renderKey);
@@ -538,7 +541,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 if (changed || debt) setHeightRevision(value => value + 1);
             }
         }}>{content}</View>;
-    }, [renderItemContent]);
+    }, [props.itemContainerStyle, renderItemContent]);
 
     const handleScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;

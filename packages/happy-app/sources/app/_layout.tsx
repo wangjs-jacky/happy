@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useUnistyles } from 'react-native-unistyles';
 import { ThemeCaptureRoot } from '@/components/ThemeTransition';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
+import { ImageViewerHost } from '@/components/ImageViewerHost';
 import { isPublicSessionSharePath } from '@/utils/publicSessionShareRouting';
 import { loadAppRootFonts } from '@/components/appRoot/appRootFonts';
 
@@ -57,6 +58,7 @@ function PublicShareRootLayout() {
                     <ThemeProvider value={navigationTheme}>
                         <StatusBarProvider />
                         <Slot />
+                        <ImageViewerHost />
                     </ThemeProvider>
                 </ThemeCaptureRoot>
             </GestureHandlerRootView>

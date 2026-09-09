@@ -17,6 +17,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     Text: 'Text',
     View: 'View',
+    useWindowDimensions: () => ({ fontScale: 1, width: 1024, height: 768 }),
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons' }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
@@ -61,6 +62,17 @@ vi.mock('react-native-unistyles', () => ({
 
 import { PublicSessionTranscript } from './PublicSessionTranscript';
 import { ConversationTranscript } from './ConversationTranscript';
+
+function renderPublicHeader(renderer: any) {
+    let headerRenderer: any;
+    const transcript = renderer.root.find((node: any) => (
+        node.props?.visualTop && node.props?.itemContainerStyle
+    ));
+    act(() => {
+        headerRenderer = TestRenderer.create(transcript.props.visualTop);
+    });
+    return headerRenderer;
+}
 
 const snapshot = {
     version: 1 as const,
@@ -142,8 +154,10 @@ describe('PublicSessionTranscript', () => {
         expect(renderer.root.findAllByProps({ testID: 'message-composer' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'desktop-left-sidebar' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'desktop-right-panel' })).toHaveLength(0);
-        expect(renderer.root.findAllByProps({ testID: 'public-session-source-label' })[0].props.children).toBe('Codex');
+        const headerRenderer = renderPublicHeader(renderer);
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-source-label' }).props.children).toBe('Codex');
 
+        act(() => headerRenderer.unmount());
         act(() => renderer.unmount());
     });
 
@@ -182,20 +196,22 @@ describe('PublicSessionTranscript', () => {
             );
         });
 
-        expect(renderer.root.findAllByProps({ testID: 'public-session-header-inner' })).toHaveLength(1);
-        const title = renderer.root.findByProps({ testID: 'public-session-title' });
+        const headerRenderer = renderPublicHeader(renderer);
+        expect(headerRenderer.root.findAllByProps({ testID: 'public-session-header-inner' })).toHaveLength(1);
+        const title = headerRenderer.root.findByProps({ testID: 'public-session-title' });
         expect(title.props.accessibilityRole).toBe('header');
         expect(title.props.style).toMatchObject({ fontSize: 22, lineHeight: 28, fontWeight: '600' });
-        const icons = renderer.root.findAllByType('Ionicons').map((icon: any) => icon.props.name);
+        const icons = headerRenderer.root.findAllByType('Ionicons').map((icon: any) => icon.props.name);
         expect(icons).toContain('document-text-outline');
         expect(icons).toContain('sparkles-outline');
         expect(icons).toContain('time-outline');
         expect(icons).not.toContain('chatbubble-ellipses-outline');
-        expect(renderer.root.findByProps({ testID: 'public-session-header-mark' }).props.style)
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-header-mark' }).props.style)
             .not.toHaveProperty('backgroundColor');
-        expect(renderer.root.findByProps({ testID: 'public-session-published-at' }).props.children)
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-published-at' }).props.children)
             .toBe(new Date(snapshot.sharedAt).toLocaleString());
 
+        act(() => headerRenderer.unmount());
         act(() => renderer.unmount());
     });
 
@@ -212,16 +228,18 @@ describe('PublicSessionTranscript', () => {
             );
         });
 
-        const cover = renderer.root.findByProps({ testID: 'public-session-cover-image' });
+        const headerRenderer = renderPublicHeader(renderer);
+        const cover = headerRenderer.root.findByProps({ testID: 'public-session-cover-image' });
         expect(cover.props.source).toEqual({
             uri: 'https://47.115.228.20:8443/v1/public/session-shares/public%2Fid/attachments/51515151-5151-4515-8515-515151515151',
         });
         expect(cover.props.resizeMode).toBe('cover');
-        const attribution = renderer.root.findByProps({ testID: 'public-session-cover-attribution' });
+        const attribution = headerRenderer.root.findByProps({ testID: 'public-session-cover-attribution' });
         expect(attribution.props.accessibilityRole).toBe('link');
         act(() => attribution.props.onPress());
         expect(mocks.openURL).toHaveBeenCalledWith('https://www.pexels.com/photo/731889/');
 
+        act(() => headerRenderer.unmount());
         act(() => renderer.unmount());
     });
 
@@ -238,9 +256,11 @@ describe('PublicSessionTranscript', () => {
             );
         });
 
-        expect(renderer.root.findAllByProps({ testID: 'public-session-cover' })).toHaveLength(0);
-        expect(renderer.root.findAllByProps({ testID: 'public-session-cover-image' })).toHaveLength(0);
+        const headerRenderer = renderPublicHeader(renderer);
+        expect(headerRenderer.root.findAllByProps({ testID: 'public-session-cover' })).toHaveLength(0);
+        expect(headerRenderer.root.findAllByProps({ testID: 'public-session-cover-image' })).toHaveLength(0);
 
+        act(() => headerRenderer.unmount());
         act(() => renderer.unmount());
     });
 
@@ -259,10 +279,11 @@ describe('PublicSessionTranscript', () => {
             );
         });
 
-        const group = renderer.root.findByProps({ testID: 'public-session-appearance-mode' });
+        const headerRenderer = renderPublicHeader(renderer);
+        const group = headerRenderer.root.findByProps({ testID: 'public-session-appearance-mode' });
         expect(group.props.accessibilityRole).toBeUndefined();
         expect(group.props.accessibilityLabel).toBe('sessionShare.appearance');
-        const buttons = renderer.root.findAll((node: any) => node.props.accessibilityRole === 'button');
+        const buttons = headerRenderer.root.findAll((node: any) => node.props?.accessibilityRole === 'button');
         expect(buttons.map((button: any) => button.props.accessibilityLabel)).toEqual([
             'sessionShare.appearanceLight',
             'sessionShare.appearanceDark',
@@ -271,17 +292,18 @@ describe('PublicSessionTranscript', () => {
         expect(buttons.map((button: any) => button.props['aria-pressed'])).toEqual([false, false, true]);
         expect(buttons.map((button: any) => button.props['aria-selected'])).toEqual([undefined, undefined, undefined]);
         act(() => buttons[0].props.onFocus());
-        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(true);
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(true);
         act(() => buttons[0].props.onBlur());
-        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(false);
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(false);
         act(() => buttons[1].props.onHoverIn());
-        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(true);
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(true);
         act(() => buttons[1].props.onHoverOut());
-        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(false);
+        expect(headerRenderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(false);
         act(() => buttons[1].props.onPress());
         expect(setAppearanceMode).toHaveBeenCalledWith('dark');
-        expect(renderer.root.findAllByProps({ testID: 'public-session-theme-pack-picker' })).toHaveLength(0);
+        expect(headerRenderer.root.findAllByProps({ testID: 'public-session-theme-pack-picker' })).toHaveLength(0);
 
+        act(() => headerRenderer.unmount());
         act(() => renderer.unmount());
     });
 
@@ -301,7 +323,13 @@ describe('PublicSessionTranscript', () => {
         const scrollRegion = renderer.root.findByProps({ testID: 'public-session-transcript-scroll-region' });
         expect(scrollRegion.props.style).toMatchObject({ flex: 1, width: '100%' });
         expect(scrollRegion.props.style).not.toHaveProperty('maxWidth');
-        expect(renderer.root.findByProps({ testID: 'conversation-transcript-list' }).props.contentContainerStyle)
+        const transcript = renderer.root.find((node: any) => (
+            node.props?.visualTop && node.props?.itemContainerStyle
+        ));
+        expect(transcript.props.visualTop).toBeTruthy();
+        expect(transcript.props.contentContainerStyle).toMatchObject({ width: '100%' });
+        expect(transcript.props.contentContainerStyle).not.toHaveProperty('maxWidth');
+        expect(transcript.props.itemContainerStyle)
             .toMatchObject({ width: '100%', maxWidth: 760, alignSelf: 'center' });
 
         act(() => renderer.unmount());

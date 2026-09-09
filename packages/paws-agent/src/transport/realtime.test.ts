@@ -57,7 +57,7 @@ describe('PawsRealtimeTransport', () => {
         socket.server('connect');
         await vi.waitFor(() => expect(resync).toHaveBeenCalledTimes(2));
 
-        expect(seen).toEqual(['connecting', 'ready', 'reconnecting', 'ready']);
+        expect(seen).toEqual(['connecting', 'syncing', 'ready', 'reconnecting', 'syncing', 'ready']);
     });
 
     it('disconnects idempotently and suppresses later callbacks', async () => {

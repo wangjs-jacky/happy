@@ -5,6 +5,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+export function assertEgoVerifiedDigest(verifiedSha256, actualSha256) {
+    if (!/^[a-f0-9]{64}$/.test(verifiedSha256 ?? '') || verifiedSha256 !== actualSha256) {
+        throw new Error('Publication requires the SHA-256 of the exact tarball verified in Ego');
+    }
+    return actualSha256;
+}
+
 export function validateReleaseContract({ tag, version, tagSha, headSha }) {
     const expectedTag = `paws-agent-v${version}`;
     if (tag !== expectedTag) throw new Error(`Expected tag ${expectedTag}, received ${tag}`);
