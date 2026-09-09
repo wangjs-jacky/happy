@@ -1193,6 +1193,10 @@ describe('CodexAppServerClient sandbox integration', () => {
             deferGoalContinuation: true,
         });
         const read = await client.readThread({ threadId: forked.threadId, includeTurns: true });
+        await client.forkThread({ threadId: 'thread-source', beforeTurnId: 'turn-first', deferGoalContinuation: true });
+        const beforeFork = requests.filter((msg) => msg.method === 'thread/fork').at(-1)?.params;
+        expect(beforeFork).toEqual(expect.objectContaining({ beforeTurnId: 'turn-first', deferGoalContinuation: true }));
+        expect(beforeFork).not.toHaveProperty('lastTurnId');
         const rolledBack = await client.rollbackThread({ threadId: forked.threadId, numTurns: 2 });
         const injected = await client.injectItems({
             threadId: forked.threadId,
