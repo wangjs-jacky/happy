@@ -552,14 +552,6 @@ export const es: TranslationStructure = {
             loadError: 'No se pudo cargar esta carpeta',
             retry: 'Reintentar',
         },
-        browserProgress: {
-            title: 'Progreso del navegador',
-            view: 'Ver progreso',
-            close: 'Cerrar progreso del navegador',
-            timelineTitle: 'Pasos del navegador',
-            liveCount: ({ count }: { count: number }) => `En directo · ${count} ${count === 1 ? 'paso' : 'pasos'}`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Paso ${current} de ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -994,11 +986,6 @@ export const es: TranslationStructure = {
             openCamera: 'Abrir cámara',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Captura de pantalla',
-            screenshotFailedTitle: 'Error en la captura de pantalla',
-            screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
-            screenshotUnsupportedPlatform: 'Las capturas de pantalla solo se admiten en macOS por ahora.',
             workingDirectory: 'Directorio de trabajo',
             workingDirectoryFutureHint: 'Al cambiarlo se continúa en una sesión nueva y se aplica al siguiente mensaje y a los posteriores. Esta sesión no cambia.',
             workingDirectoryInputPlaceholder: 'Introduce un directorio de esta máquina',

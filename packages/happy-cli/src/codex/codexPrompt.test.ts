@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { BROWSER_STEP_REPORTING_INSTRUCTION } from '@/browser/browserStepReportingPrompt';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import {
     buildCodexTurnPrompt,
@@ -21,7 +20,6 @@ describe('buildCodexTurnPrompt', () => {
             message: 'inspect the installed WebSearch Skill',
             mode: {},
             includeAppendSystemPrompt: false,
-            includeBrowserStepInstruction: false,
             includeSkillPathResolutionInstruction: true,
             includeTitleInstruction: false,
         });
@@ -39,7 +37,6 @@ describe('buildCodexTurnPrompt', () => {
             message: 'continue the task',
             mode: {},
             includeAppendSystemPrompt: false,
-            includeBrowserStepInstruction: false,
             includeSkillPathResolutionInstruction: false,
             includeTitleInstruction: false,
         });
@@ -70,7 +67,6 @@ describe('buildCodexTurnPrompt', () => {
                 appendSystemPrompt: '<options><option>Yes</option></options>',
             },
             includeAppendSystemPrompt: true,
-            includeBrowserStepInstruction: false,
             includeTitleInstruction: true,
         });
 
@@ -90,7 +86,6 @@ describe('buildCodexTurnPrompt', () => {
             message: 'hello',
             mode: {},
             includeAppendSystemPrompt: true,
-            includeBrowserStepInstruction: false,
             includeTitleInstruction: true,
         });
 
@@ -107,29 +102,10 @@ describe('buildCodexTurnPrompt', () => {
                 appendSystemPrompt: '<options><option>Yes</option></options>',
             },
             includeAppendSystemPrompt: false,
-            includeBrowserStepInstruction: false,
             includeTitleInstruction: false,
         });
 
         expect(prompt).toBe('continue');
-    });
-
-    it('injects the Ego browser reporting contract without repeating the title instruction on a resumed thread', () => {
-        const prompt = buildCodexTurnPrompt({
-            message: 'continue the existing task',
-            mode: {},
-            includeAppendSystemPrompt: false,
-            includeBrowserStepInstruction: true,
-            includeTitleInstruction: false,
-        });
-
-        expect(prompt).toBe(
-            `${CODEX_HAPPY_SYSTEM_PROMPT_START}\n\n` +
-            `${BROWSER_STEP_REPORTING_INSTRUCTION}\n\n` +
-            `${CODEX_HAPPY_SYSTEM_PROMPT_END}\n\n` +
-            'continue the existing task',
-        );
-        expect(prompt).not.toContain(CHANGE_TITLE_INSTRUCTION);
     });
 
     it('can re-inject Happy append prompt without title instruction after a thread reset', () => {
@@ -139,7 +115,6 @@ describe('buildCodexTurnPrompt', () => {
                 appendSystemPrompt: '<options><option>Yes</option></options>',
             },
             includeAppendSystemPrompt: true,
-            includeBrowserStepInstruction: false,
             includeTitleInstruction: false,
         });
 
@@ -159,7 +134,6 @@ describe('buildCodexTurnPrompt', () => {
                 effort: 'xhigh',
             },
             includeAppendSystemPrompt: false,
-            includeBrowserStepInstruction: false,
             includeTitleInstruction: false,
         });
 

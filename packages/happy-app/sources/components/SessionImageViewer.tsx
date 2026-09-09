@@ -6,7 +6,7 @@ import { loadEarlierSessionImages } from '@/sync/loadEarlierSessionImages';
 import { collectSessionImageGallery } from '@/sync/sessionImageGallery';
 import { releaseImageViewerImageCache } from '@/hooks/useAttachmentImage';
 
-/** Share history pagination between the root viewer and the browser-step modal. */
+/** Share history pagination between the root viewer and image attachments. */
 export function SessionImageViewer(props: {
     sources: ImageViewerSource[];
     initialIndex: number;

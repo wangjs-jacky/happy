@@ -630,14 +630,6 @@ export const en = {
             loadError: 'Could not load this folder',
             retry: 'Retry',
         },
-        browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
-            timelineTitle: 'Browser steps',
-            liveCount: ({ count }: { count: number }) => `Live · ${count} step${count === 1 ? '' : 's'}`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Step ${current} of ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -1122,11 +1114,6 @@ export const en = {
             openCamera: 'Open Camera',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Screenshot',
-            screenshotFailedTitle: 'Screenshot failed',
-            screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
-            screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
             workingDirectory: 'Working directory',
             workingDirectoryFutureHint: 'Changing it continues in a new session and affects the next and future messages. This session stays unchanged.',
             workingDirectoryInputPlaceholder: 'Enter a directory on this machine',

@@ -552,14 +552,6 @@ export const zhHant: TranslationStructure = {
             loadError: '無法載入此資料夾',
             retry: '重試',
         },
-        browserProgress: {
-            title: '瀏覽器執行過程',
-            view: '查看過程',
-            close: '關閉瀏覽器執行過程',
-            timelineTitle: '瀏覽器步驟',
-            liveCount: ({ count }: { count: number }) => `即時回顯 · ${count} 步`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `第 ${current}/${total} 步`,
-        },
         meta: {
             available: '目前會話可用',
             image: '圖片附件',
@@ -994,11 +986,6 @@ export const zhHant: TranslationStructure = {
             openCamera: '開啟相機',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: '截圖',
-            screenshotFailedTitle: '截圖失敗',
-            screenshotFailedBody: '無法擷取截圖，請再試一次。',
-            screenshotUnsupportedPlatform: '截圖目前僅支援 macOS。',
             workingDirectory: '工作目錄',
             workingDirectoryFutureHint: '切換後會在新工作階段中延續，並影響下一則及後續訊息；目前工作階段保持不變。',
             workingDirectoryInputPlaceholder: '輸入這台機器上的目錄',

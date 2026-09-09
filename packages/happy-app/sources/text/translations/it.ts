@@ -550,14 +550,6 @@ export const it: TranslationStructure = {
             loadError: 'Impossibile caricare questa cartella',
             retry: 'Riprova',
         },
-        browserProgress: {
-            title: 'Avanzamento del browser',
-            view: 'Visualizza avanzamento',
-            close: 'Chiudi avanzamento del browser',
-            timelineTitle: 'Passaggi del browser',
-            liveCount: ({ count }: { count: number }) => `In tempo reale · ${count} ${count === 1 ? 'passaggio' : 'passaggi'}`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Passaggio ${current} di ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -992,11 +984,6 @@ export const it: TranslationStructure = {
             openCamera: 'Apri fotocamera',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Screenshot',
-            screenshotFailedTitle: 'Screenshot non riuscito',
-            screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
-            screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
             workingDirectory: 'Directory di lavoro',
             workingDirectoryFutureHint: 'La modifica continua in una nuova sessione e si applica al messaggio successivo e a quelli futuri. Questa sessione resta invariata.',
             workingDirectoryInputPlaceholder: 'Inserisci una directory su questa macchina',

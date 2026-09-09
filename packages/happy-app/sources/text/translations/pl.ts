@@ -569,14 +569,6 @@ export const pl: TranslationStructure = {
             loadError: 'Nie można załadować folderu',
             retry: 'Spróbuj ponownie',
         },
-        browserProgress: {
-            title: 'Postęp przeglądarki',
-            view: 'Zobacz postęp',
-            close: 'Zamknij postęp przeglądarki',
-            timelineTitle: 'Kroki przeglądarki',
-            liveCount: ({ count }: { count: number }) => `Na żywo · ${count} ${count === 1 ? 'krok' : 'kroki'}`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Krok ${current} z ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -1010,11 +1002,6 @@ export const pl: TranslationStructure = {
             openCamera: 'Otwórz kamerę',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Zrzut ekranu',
-            screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
-            screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
-            screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
             workingDirectory: 'Katalog roboczy',
             workingDirectoryFutureHint: 'Zmiana kontynuuje pracę w nowej sesji i dotyczy następnej oraz kolejnych wiadomości. Ta sesja pozostaje bez zmian.',
             workingDirectoryInputPlaceholder: 'Wpisz katalog na tym komputerze',

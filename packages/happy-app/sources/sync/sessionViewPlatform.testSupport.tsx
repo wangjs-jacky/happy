@@ -59,7 +59,6 @@ vi.mock('expo-router', () => ({
     useRouter: () => ({ back: vi.fn(), navigate: vi.fn(), push: vi.fn() }),
 }));
 vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) }, useIsFocused: () => true }));
-vi.mock('@/sync/ops.screenshot', () => ({ requestScreenshot: vi.fn() }));
 vi.mock('@/sync/screenshotGallery', () => ({
     addScreenshotEntry: vi.fn(), saveBase64Png: vi.fn(), useHasNewScreenshots: () => ({ hasNew: false }),
 }));

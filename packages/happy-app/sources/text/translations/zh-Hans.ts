@@ -575,14 +575,6 @@ export const zhHans: TranslationStructure = {
             loadError: '无法加载此文件夹',
             retry: '重试',
         },
-        browserProgress: {
-            title: '浏览器执行过程',
-            view: '查看过程',
-            close: '关闭浏览器执行过程',
-            timelineTitle: '浏览器步骤',
-            liveCount: ({ count }: { count: number }) => `实时回显 · ${count} 步`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `第 ${current}/${total} 步`,
-        },
         meta: {
             available: '当前会话可用',
             image: '图片附件',
@@ -1017,11 +1009,6 @@ export const zhHans: TranslationStructure = {
             openCamera: '打开相机',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: '截屏',
-            screenshotFailedTitle: '截屏失败',
-            screenshotFailedBody: '无法截取屏幕，请重试。',
-            screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
             workingDirectory: '工作目录',
             workingDirectoryFutureHint: '切换后会在新会话中延续，并影响下一条及后续消息；当前会话保持不变。',
             workingDirectoryInputPlaceholder: '输入这台机器上的目录',

@@ -21,7 +21,6 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { useGlobalKeyboard } from '@/hooks/useGlobalKeyboard';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
-import { requestScreenshot } from '@/sync/ops.screenshot';
 import { imageViewer } from '@/sync/imageViewer';
 import { Modal } from '@/modal';
 import { storage, useIsDataReady, useLocalSetting, useLocalSettingMutable, useMachine, useSessionMessages, useSessionUsage, useSetting, useSettingUpdater } from '@/sync/storage';
@@ -1399,15 +1398,6 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
-/** 判断 CLI 返回的截图错误是否属于「平台不支持」（截图仅 macOS）。
- *  CLI 的 error 文案可能是中/英混合，匹配几个稳定特征词即可，无需精确解析。 */
-function isUnsupportedPlatformError(error: string | undefined): boolean {
-    if (!error) {
-        return false;
-    }
-    return /macOS|platform|仅支持/i.test(error);
-}
-
 function VerifiedSessionMessageContent({
     routeOwner,
     verifiedRouteOwnerEpoch,
@@ -1544,10 +1534,6 @@ function SessionViewLoaded({
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
     const { selectedImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
 
-    // 截图进行中标记：点相机后 RPC 往返 1-5 秒静默无反馈，用它把相机按钮切成菊花
-    const [screenshotCapturing, setScreenshotCapturing] = React.useState(false);
-    const screenshotCaptureInFlight = React.useRef(false);
-
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
         if (machineId && cliVersion) {
@@ -1592,44 +1578,6 @@ function SessionViewLoaded({
             })();
         }
     }, [composerHandleRef, sessionId, selectedImages, removeImage]);
-
-    // Manual screenshot: one click asks the CLI for a full-desktop capture and
-    // opens it immediately. No target picker or persistent screenshot gallery.
-    const handleCaptureScreenshot = React.useCallback(() => {
-        if (screenshotCaptureInFlight.current) return;
-        screenshotCaptureInFlight.current = true;
-        (async () => {
-            setScreenshotCapturing(true);
-            try {
-                const res = await requestScreenshot(sessionId);
-                if (!res.success || !res.dataBase64) {
-                    // 平台不支持（如非 macOS）时给本地化文案，否则原样回显 CLI error
-                    const body = isUnsupportedPlatformError(res.error)
-                        ? t('components.messageComposer.screenshotUnsupportedPlatform')
-                        : (res.error ?? t('components.messageComposer.screenshotFailedBody'));
-                    Modal.alert(
-                        t('components.messageComposer.screenshotFailedTitle'),
-                        body,
-                    );
-                    return;
-                }
-                const mimeType = res.mimeType ?? 'image/jpeg';
-                const extension = mimeType === 'image/png' ? 'png' : 'jpg';
-                imageViewer.open({
-                    uri: `data:${mimeType};base64,${res.dataBase64}`,
-                    filename: `screenshot-${Date.now()}.${extension}`,
-                });
-            } catch (e) {
-                Modal.alert(
-                    t('components.messageComposer.screenshotFailedTitle'),
-                    e instanceof Error ? e.message : t('components.messageComposer.screenshotFailedBody'),
-                );
-            } finally {
-                screenshotCaptureInFlight.current = false;
-                setScreenshotCapturing(false);
-            }
-        })();
-    }, [sessionId]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);
@@ -1734,8 +1682,6 @@ function SessionViewLoaded({
             onPickImages={pickAttachment}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            onCaptureScreenshot={handleCaptureScreenshot}
-            screenshotCapturing={screenshotCapturing}
             autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}

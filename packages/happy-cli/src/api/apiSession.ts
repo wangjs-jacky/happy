@@ -212,7 +212,7 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, { registerScreenshot: true });
+        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
 
         //
         // Create socket
@@ -522,7 +522,7 @@ export class ApiSessionClient extends EventEmitter {
      * falls back to a 4:3 inline render. Use role 'user' to match the proven path.
      */
     sendFileEvent(ref: string, name: string, size: number, dims?: { width: number; height: number } | null, options?: {
-        source?: 'user' | 'generated' | 'browser_step';
+        source?: 'user' | 'generated';
         kind?: 'audio' | 'video';
         mimeType?: string;
         encrypted?: boolean;
@@ -530,7 +530,6 @@ export class ApiSessionClient extends EventEmitter {
         batchId?: string;
         localPath?: string;
         motionPhoto?: MotionPhotoVideo;
-        browserStep?: { label: string; runId?: string; skillName?: 'ego-browser' | 'ego-ops' };
     }): void {
         const metadata = {
             ...(options?.source ? { source: options.source } : {}),
@@ -541,7 +540,6 @@ export class ApiSessionClient extends EventEmitter {
             ...(options?.batchId ? { batchId: options.batchId } : {}),
             ...(options?.localPath ? { localPath: options.localPath } : {}),
             ...(options?.motionPhoto ? { motionPhoto: options.motionPhoto } : {}),
-            ...(options?.browserStep ? { browserStep: options.browserStep } : {}),
         };
         const ev = dims
             ? { t: 'file' as const, ref, name, size, ...metadata, image: { width: dims.width, height: dims.height, thumbhash: '' } }

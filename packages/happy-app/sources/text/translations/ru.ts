@@ -532,14 +532,6 @@ export const ru: TranslationStructure = {
             loadError: 'Не удалось загрузить папку',
             retry: 'Повторить',
         },
-        browserProgress: {
-            title: 'Ход работы в браузере',
-            view: 'Посмотреть ход',
-            close: 'Закрыть ход работы в браузере',
-            timelineTitle: 'Шаги в браузере',
-            liveCount: ({ count }: { count: number }) => `В реальном времени · ${count} шаг`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `Шаг ${current} из ${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -929,11 +921,6 @@ export const ru: TranslationStructure = {
             openCamera: 'Открыть камеру',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'Снимок экрана',
-            screenshotFailedTitle: 'Не удалось сделать снимок экрана',
-            screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
-            screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
             workingDirectory: 'Рабочий каталог',
             workingDirectoryFutureHint: 'После изменения работа продолжится в новом сеансе; каталог будет применён к следующему и последующим сообщениям. Этот сеанс не изменится.',
             workingDirectoryInputPlaceholder: 'Введите каталог на этом компьютере',

@@ -553,14 +553,6 @@ export const ja: TranslationStructure = {
             loadError: 'このフォルダを読み込めませんでした',
             retry: '再試行',
         },
-        browserProgress: {
-            title: 'ブラウザーの進行状況',
-            view: '進行状況を表示',
-            close: 'ブラウザーの進行状況を閉じる',
-            timelineTitle: 'ブラウザーの手順',
-            liveCount: ({ count }: { count: number }) => `リアルタイム · ${count} ステップ`,
-            stepPosition: ({ current, total }: { current: number; total: number }) => `ステップ ${current}/${total}`,
-        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',
@@ -995,11 +987,6 @@ export const ja: TranslationStructure = {
             openCamera: 'カメラを開く',
         },
         messageComposer: {
-            // Used by the direct screenshot button in MessageComposer
-            screenshot: 'スクリーンショット',
-            screenshotFailedTitle: 'スクリーンショットに失敗しました',
-            screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
-            screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
             workingDirectory: '作業ディレクトリ',
             workingDirectoryFutureHint: '変更すると新しいセッションで続行し、次回以降のメッセージに適用されます。現在のセッションは変更されません。',
             workingDirectoryInputPlaceholder: 'このマシン上のディレクトリを入力',
