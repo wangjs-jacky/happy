@@ -39,6 +39,7 @@ vi.mock('@/components/ThemeTransition', () => ({
     ThemeCaptureRoot: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock('@/components/StatusBarProvider', () => ({ StatusBarProvider: () => null }));
+vi.mock('@/components/ImageViewerHost', () => ({ ImageViewerHost: 'ImageViewerHost' }));
 vi.mock('@/utils/publicSessionShareRouting', () => ({ isPublicSessionSharePath: () => true }));
 vi.mock('@/components/appRoot/appRootFonts', () => ({ loadAppRootFonts: mocks.loadFonts }));
 
@@ -66,6 +67,7 @@ describe('public share root layout', () => {
 
         expect(mocks.loadFonts).toHaveBeenCalledOnce();
         expect(renderer.root.findByType('Slot')).toBeTruthy();
+        expect(renderer.root.findByType('ImageViewerHost')).toBeTruthy();
         expect(mocks.hideSplash).toHaveBeenCalledOnce();
     });
 });
