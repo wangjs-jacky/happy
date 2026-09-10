@@ -226,7 +226,6 @@ describe('CommandPaletteProvider', () => {
                 '/Users/jacky/projects/alpha',
                 'alpha',
                 'Mac mini',
-                'Release Agent',
                 'codex',
                 'Investigate the payment timeout from the first report',
             ]),
@@ -234,9 +233,13 @@ describe('CommandPaletteProvider', () => {
                 { icon: 'chatbubble-outline', text: 'Investigate the payment timeout from the first report' },
                 { icon: 'folder-outline', text: 'alpha' },
                 { icon: 'desktop-outline', text: 'Mac mini' },
-                { icon: 'sparkles-outline', text: 'Release Agent · Codex' },
+                { icon: 'sparkles-outline', text: 'Codex' },
             ]),
         });
+        expect(byId.get('session-abc123456')?.keywords).not.toContain('Release Agent');
+        expect(byId.get('session-abc123456')?.metadata).not.toContainEqual(
+            expect.objectContaining({ text: expect.stringContaining('Release Agent') }),
+        );
         expect(byId.get('open-project-folder')).toMatchObject({
             title: '文件夹',
             subtitle: '/Users/jacky/projects/alpha',

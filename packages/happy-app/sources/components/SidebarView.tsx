@@ -11,8 +11,6 @@ import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useDrawerHaptics } from './useDrawerHaptics';
-import { useAgentSpace } from '@/hooks/useAgentSpace';
-import { AgentSpaceWorkbench } from './agents/AgentSpaceWorkbench';
 import { SidebarAccountMenu } from './SidebarAccountMenu';
 import { SidebarHelpMenu } from './SidebarHelpMenu';
 import { useCommandPaletteLauncher } from './CommandPalette/CommandPaletteProvider';
@@ -393,7 +391,6 @@ export const SidebarView = React.memo(({
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
-    const { agent: spaceAgent, exit: exitSpace } = useAgentSpace();
     const commandPaletteLauncher = useCommandPaletteLauncher();
     const { isDesktop, openSettings, openActivity } = useDesktopSettingsModal();
     const displayName = getDisplayName(profile) ?? t('settings.title');
@@ -439,11 +436,6 @@ export const SidebarView = React.memo(({
         go('/settings');
     }, [go, isDesktop, openSettings]);
 
-    const exitAgentSpace = React.useCallback(() => {
-        exitSpace();
-        go('/');
-    }, [exitSpace, go]);
-
     const openSessionSearch = React.useCallback(() => {
         if (commandPaletteLauncher?.isAvailable) {
             closeDrawer();
@@ -470,25 +462,6 @@ export const SidebarView = React.memo(({
         setPluginMarketplaceOpen(false);
         setInitialPluginId(null);
     }, []);
-
-    // 「Agent 空间模式」：进入某个 Agent 后，整个侧栏收敛为该 Agent 的专属工作台，
-    // 隐藏全局用户卡/收件箱/会话列表，只看本空间。退出空间即回落到下面的常规侧栏。
-    if (spaceAgent) {
-        return (
-            <View style={[
-                styles.container,
-                desktopDensity && styles.containerDesktop,
-                { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
-            ]}>
-                <AgentSpaceWorkbench
-                    agent={spaceAgent}
-                    onExit={exitAgentSpace}
-                    onNavigate={go}
-                    onCloseDrawer={closeDrawer}
-                />
-            </View>
-        );
-    }
 
     const primaryNavigation = (
         <View style={styles.primaryNavigation} testID="sidebar-primary-navigation">

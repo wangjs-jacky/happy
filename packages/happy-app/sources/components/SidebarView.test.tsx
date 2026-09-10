@@ -220,36 +220,30 @@ describe('SidebarView Agent space exit', () => {
 
     afterEach(() => consoleErrorSpy.mockRestore());
 
-    it('clears the Agent space, closes the drawer, and returns home', () => {
+    it('ignores a persisted Agent space and renders the regular mobile sidebar', () => {
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(<SidebarView />);
         });
 
-        const workbench = renderer.root.findByType('AgentSpaceWorkbench');
-        act(() => workbench.props.onExit());
-
-        expect(mocks.exitSpace).toHaveBeenCalledOnce();
-        expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'CLOSE_DRAWER' });
-        expect(mocks.navigate).toHaveBeenCalledWith('/');
+        expect(renderer.root.findAllByType('AgentSpaceWorkbench')).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-new-session-button' }).length).toBeGreaterThan(0);
+        expect(mocks.exitSpace).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
-    it('does not close a permanent desktop drawer before navigation', () => {
+    it('ignores a persisted Agent space and renders the regular desktop sidebar', () => {
         let renderer: any;
 
         act(() => {
             renderer = TestRenderer.create(
-                <SidebarView closeDrawerOnNavigate={false} />,
+                <SidebarView closeDrawerOnNavigate={false} desktopDensity />,
             );
         });
 
-        const workbench = renderer.root.findByType('AgentSpaceWorkbench');
-        act(() => workbench.props.onExit());
-
-        expect(mocks.exitSpace).toHaveBeenCalledOnce();
-        expect(mocks.dispatch).not.toHaveBeenCalled();
-        expect(mocks.navigate).toHaveBeenCalledWith('/');
+        expect(renderer.root.findAllByType('AgentSpaceWorkbench')).toHaveLength(0);
+        expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
+        expect(mocks.exitSpace).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 

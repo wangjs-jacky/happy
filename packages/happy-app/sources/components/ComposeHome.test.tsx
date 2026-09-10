@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
     updateModel: vi.fn(),
     updateEffort: vi.fn(),
     updateFastMode: vi.fn(),
+    routeParams: {} as { agentId?: string },
+    agents: [] as any[],
     selectedImages: [] as Array<{ id: string; uri: string }>,
     setSelectedImages: null as React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> | null,
     imagePickerGeneration: null as null | { currentDraftEpoch(): number; invalidate(): void },
@@ -94,7 +96,7 @@ vi.mock('expo-router', () => ({
         navigate: (path: string) => mocks.navigateToSession(path.replace('/session/', '')),
     }),
     useNavigation: () => ({ dispatch: vi.fn() }),
-    useLocalSearchParams: () => ({}),
+    useLocalSearchParams: () => mocks.routeParams,
 }));
 vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: vi.fn() } }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
@@ -103,7 +105,11 @@ vi.mock('react-native-keyboard-controller', () => ({ KeyboardAvoidingView: 'Keyb
 vi.mock('@/utils/responsive', () => ({ useHeaderHeight: () => 44, useIsTablet: () => false }));
 vi.mock('@/utils/isTauri', () => ({ isTauri: () => false }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), display: () => ({}), mono: () => ({}) } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/text', () => ({
+    t: (key: string, values?: { name?: string }) => key === 'composeHome.greetingAgent'
+        ? `${key}:${values?.name ?? ''}`
+        : key,
+}));
 vi.mock('@/hooks/useNewSessionDraft', () => ({
     useNewSessionDraft: Object.assign(
         (selector: (state: typeof mocks.draft) => unknown) => selector(mocks.draft),
@@ -162,7 +168,7 @@ vi.mock('@/sync/storage', () => {
         useIsDataReady: () => mocks.isDataReady,
         useProfile: () => ({ id: 'profile-1', firstName: 'Test' }),
         useAllMachines: () => [machine],
-        useLocalSetting: (key: string) => key === 'agents' ? [] : null,
+        useLocalSetting: (key: string) => key === 'agents' ? mocks.agents : null,
         useLocalSettingMutable: () => [false, vi.fn()],
         useSetting: () => ({}),
         useSettingMutable: (key: string) => key === 'pendingCustomImageStyleReferences'
@@ -218,6 +224,8 @@ describe('ComposeHome session hydration recovery', () => {
         setFirstSubmissionScope(`test-${Math.random()}`, 'http://test');
         mocks.platformOS = 'web';
         mocks.isDataReady = true;
+        mocks.routeParams = {};
+        mocks.agents = [];
         mocks.selectedImages = [
             { id: 'image-a', uri: 'file:///a.png' },
             { id: 'image-b', uri: 'file:///b.png' },
@@ -235,6 +243,31 @@ describe('ComposeHome session hydration recovery', () => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
             originalConsoleError(...values);
         });
+    });
+
+    it('keeps an existing Agent deep link readable without restoring a discovery entry point', () => {
+        mocks.routeParams = { agentId: 'legacy-agent' };
+        mocks.agents = [{
+            id: 'legacy-agent',
+            name: 'Legacy Helper',
+            machineId: 'machine-1',
+            path: '/Users/test/project',
+            kind: 'standard',
+            presets: [{ label: 'Continue plan', prompt: 'Continue the saved plan' }],
+            imageStyleIds: [],
+            imageVariantsPerStyle: 1,
+        }];
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(<ComposeHome />);
+        });
+
+        expect(renderer.root.findByProps({ testID: 'compose-home-greeting' }).props.children)
+            .toBe('composeHome.greetingAgent:Legacy Helper');
+        expect(renderer.root.findAllByType('Text').some((node: any) => node.props.children === 'Continue plan')).toBe(true);
+
+        act(() => renderer.unmount());
     });
 
     afterEach(() => {
