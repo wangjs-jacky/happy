@@ -12,7 +12,7 @@ import { ChatFooter } from './ChatFooter';
 import { ConversationTranscript } from './ConversationTranscript';
 import type { TranscriptReadingAdapter } from './transcriptReading';
 
-export const ChatList = React.memo((props: { session: Session }) => {
+export const ChatList = React.memo((props: { session: Session; followLatestRequest?: number }) => {
     const { messages, isLoaded, hasMoreOlder, isLoadingOlder, hasMoreNewer, isLoadingNewer, isAtLatest,
         olderError, newerError } = useSessionMessages(props.session.id);
     const session = useSession(props.session.id);
@@ -79,6 +79,7 @@ export const ChatList = React.memo((props: { session: Session }) => {
             reading={reading}
             groupToolCalls={groupToolCalls}
             currentTurnActive={isAtLatest && isSessionTurnActive(session)}
+            followLatestRequest={props.followLatestRequest}
             hasPendingPermission={isAtLatest && hasPendingPermission}
             onLoadOlder={handleLoadOlder}
             olderCursor={sync.getHistoryBoundarySeq(props.session.id, 'older')}

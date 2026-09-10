@@ -126,9 +126,12 @@ export function useTranscriptReading(options: {
     const userDirection = React.useRef<'older' | 'newer' | undefined>(undefined);
     const generation = React.useRef(0);
     const ownershipEpoch = React.useRef(0);
+    const latestIntent = React.useRef(0);
     const latestEpoch = React.useRef(-1);
     const deferredCapture = React.useRef(false);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const followLatestFrame = React.useRef<number | null>(null);
+    const followLatestTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastCapture = React.useRef(0);
     const mountedTarget = React.useRef<string | null>(null);
     const adapterKey = options.adapter?.key;
@@ -150,6 +153,28 @@ export function useTranscriptReading(options: {
         const adapter = current.current.adapter;
         if (ready.current && adapter && latest.current && latestEpoch.current === ownershipEpoch.current) void Promise.resolve(adapter.save({ ...latest.current,
             expandedGroupIds: current.current.expanded, followLatest: following.current && current.current.isAtLatest })).catch(() => undefined);
+    }, []);
+    const cancelFollowLatest = React.useCallback(() => {
+        if (followLatestFrame.current !== null) {
+            cancelAnimationFrame(followLatestFrame.current);
+            followLatestFrame.current = null;
+        }
+        if (followLatestTimer.current !== null) {
+            clearTimeout(followLatestTimer.current);
+            followLatestTimer.current = null;
+        }
+    }, []);
+    const scheduleFollowLatest = React.useCallback(() => {
+        if (followLatestFrame.current !== null || followLatestTimer.current !== null) return;
+        const run = () => {
+            followLatestFrame.current = null;
+            followLatestTimer.current = null;
+            const { listRef, inverted } = current.current;
+            if (inverted || current.current.followLatestOnLayout === false || !following.current || !current.current.isAtLatest) return;
+            listRef.current?.scrollToEnd?.({ animated: false });
+        };
+        if (typeof requestAnimationFrame === 'function') followLatestFrame.current = requestAnimationFrame(run);
+        else followLatestTimer.current = setTimeout(run, 0);
     }, []);
     const capture = React.useCallback(async () => {
         const { adapter } = current.current;
@@ -175,7 +200,7 @@ export function useTranscriptReading(options: {
         const { adapter, items, listRef, inverted } = current.current;
         const target = pending.current;
         if (!inverted && current.current.followLatestOnLayout !== false && !target && following.current && current.current.isAtLatest && (!adapter || ready.current)) {
-            listRef.current?.scrollToEnd?.({ animated: false });
+            scheduleFollowLatest();
             return;
         }
         if (!adapter || !target) return;
@@ -196,11 +221,12 @@ export function useTranscriptReading(options: {
         offset.current = Math.max(0, offset.current + (inverted ? -correction : correction));
         listRef.current?.scrollToOffset({ offset: offset.current, animated: false });
         pending.current = null;
-    }, [measurements]);
+    }, [measurements, scheduleFollowLatest]);
     React.useEffect(() => {
         const adapter = options.adapter;
         const owner = ++generation.current;
         const epoch = ++ownershipEpoch.current;
+        const intent = latestIntent.current;
         ready.current = false; latest.current = null; latestEpoch.current = -1; pending.current = null; mountedTarget.current = null;
         deferredCapture.current = false;
         following.current = current.current.isAtLatest;
@@ -210,7 +236,7 @@ export function useTranscriptReading(options: {
         if (adapter) void adapter.read().then(state => {
             if (owner !== generation.current) return;
             ready.current = true;
-            if (epoch === ownershipEpoch.current && state) {
+            if (epoch === ownershipEpoch.current && intent === latestIntent.current && state) {
                 latest.current = state; latestEpoch.current = epoch;
                 following.current = state.followLatest === true;
                 current.current.restoreExpanded(state.expandedGroupIds);
@@ -232,9 +258,9 @@ export function useTranscriptReading(options: {
             if (ready.current && adapter && latest.current && latestEpoch.current === ownershipEpoch.current) {
                 void Promise.resolve(adapter.save(latest.current)).catch(() => undefined);
             }
-            generation.current += 1; if (timer.current) clearTimeout(timer.current);
+            generation.current += 1; if (timer.current) clearTimeout(timer.current); cancelFollowLatest();
         };
-    }, [adapterKey, options.adapter, capture]);
+    }, [adapterKey, options.adapter, capture, cancelFollowLatest]);
     React.useEffect(() => {
         if (latest.current) latest.current.expandedGroupIds = options.expanded;
     }, [options.expanded]);
@@ -248,14 +274,26 @@ export function useTranscriptReading(options: {
         // The Web mask translates before its native scroll event is delivered.
         adjustOffset(y: number) { offset.current = y; },
         scroll(y: number, distanceFromBottom: number) {
+            const previousY = offset.current;
             offset.current = y;
-            if (current.current.inverted || userScrolling.current) following.current = current.current.isAtLatest
-                && userDirection.current !== 'older' && distanceFromBottom <= 50;
+            if (current.current.inverted || userScrolling.current) {
+                // Web can deliver a layout-induced scroll event after the user
+                // has returned to the latest edge. Keep following when the
+                // offset did not move; only a real upward user movement should
+                // take ownership away from latest-output following.
+                const transientLatestLayout = !current.current.inverted
+                    && following.current
+                    && Math.abs(y - previousY) <= 1;
+                following.current = current.current.isAtLatest
+                    && userDirection.current !== 'older'
+                    && (distanceFromBottom <= 50 || transientLatestLayout);
+            }
             if (Date.now() - lastCapture.current > 120) { lastCapture.current = Date.now(); void capture(); }
             if (timer.current) clearTimeout(timer.current);
             timer.current = setTimeout(() => { void capture(); }, 120);
         },
         cancelRestore(direction?: 'older' | 'newer') {
+            cancelFollowLatest();
             ownershipEpoch.current += 1;
             pending.current = null;
             mountedTarget.current = null;
@@ -267,7 +305,7 @@ export function useTranscriptReading(options: {
             if (current.current.synchronousAnchoring) return;
             if (latest.current && latestEpoch.current === ownershipEpoch.current && !following.current) pending.current = latest.current;
         },
-        jumpLatest() { pending.current = null; following.current = true; userScrolling.current = false;
+        jumpLatest() { latestIntent.current += 1; pending.current = null; following.current = true; userScrolling.current = false; cancelFollowLatest();
             if (latest.current) { latest.current.followLatest = true; persist(); } },
     };
 }

@@ -59,6 +59,7 @@ export type ConversationTranscriptProps = {
     reading?: TranscriptReadingAdapter;
     groupToolCalls?: boolean;
     currentTurnActive?: boolean;
+    followLatestRequest?: number;
     hasPendingPermission?: boolean;
     onLoadOlder?: (viewport?: HistoryViewportReader) => void;
     hasMoreOlder?: boolean;
@@ -605,6 +606,13 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         catch { if (sessionRef.current === session) jumpPending.current = false; }
         finally { if (jumpRequest.current === request) jumpRequest.current = null; }
     }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
+    const followLatestRequestRef = React.useRef(props.followLatestRequest ?? 0);
+    React.useEffect(() => {
+        const request = props.followLatestRequest ?? 0;
+        if (request === followLatestRequestRef.current) return;
+        followLatestRequestRef.current = request;
+        if (Platform.OS === 'web') void scrollToBottom();
+    }, [props.followLatestRequest, scrollToBottom]);
     const onContentSizeChange = React.useCallback((_width: number, height: number) => {
         const boundary = boundaryAttemptKey('older');
         const previous = contentMeasurementRef.current;
