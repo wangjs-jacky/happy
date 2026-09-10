@@ -766,11 +766,12 @@ class Sync {
     }
 
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation,
-        options: { retainCurrentWebRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean; protectedRange?: HistoryViewportRange; viewport?: HistoryViewportReader } = {}): Promise<boolean> => {
+        options: { retainCurrentWebRows?: boolean; retainCurrentRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean; protectedRange?: HistoryViewportRange; viewport?: HistoryViewportReader } = {}): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
         if (!encryption) return false;
-        const retainCurrentRows = Platform.OS === 'web' && options.retainCurrentWebRows === true;
+        const retainCurrentRows = options.retainCurrentRows === true
+            || (Platform.OS === 'web' && options.retainCurrentWebRows === true);
         const normalized: NormalizedMessage[] = [];
         const normalizedWireIds = new Map<NormalizedMessage, string>();
         let pending = window.messages;
@@ -3848,6 +3849,7 @@ class Sync {
         }
 
         const normalizedMessages: NormalizedMessage[] = [];
+        const normalizedWireIds = new Map<NormalizedMessage, string>();
         for (const decrypted of decryptedMessages) {
             if (!decrypted) continue;
             const normalized = normalizeRawMessage(
@@ -3856,7 +3858,10 @@ class Sync {
                 decrypted.createdAt,
                 decrypted.content,
             );
-            if (normalized) normalizedMessages.push(normalized);
+            if (normalized) {
+                normalizedMessages.push(normalized);
+                normalizedWireIds.set(normalized, decrypted.id);
+            }
         }
         this.retireObservedLocalMessages(sessionId, normalizedMessages);
         // Warm snapshots may contain disconnected realtime islands. Display
@@ -3866,6 +3871,16 @@ class Sync {
         const frontier = applyLatestRange(this.sessionMessageFrontiers.get(sessionId),
             this.recordFetchedMessageRange(sessionId, messages), data.hasMore);
         this.sessionMessageFrontiers.set(sessionId, frontier);
+        if (source === 'network' && (owner.history || Platform.OS === 'web')) {
+            // Establish raw-row ownership before persistence yields. Realtime
+            // events admitted during the initial archive replay can then extend
+            // this window and be retained by the final bounded projection.
+            const provisional = memoryHistoryPage(undefined, data, 'latest', historyNavigationWindowLimit());
+            this.historyWindows.set(sessionId, provisional);
+            this.historyWireProvenance.set(sessionId, new Map(normalizedMessages.map(message => [
+                message.id, normalizedWireIds.get(message)!,
+            ])));
+        }
         storage.getState().applyMessagesLoaded(sessionId);
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: frontier.hasMoreOlder,
@@ -3886,7 +3901,7 @@ class Sync {
             const disk = committed ? await owner.history?.readWindow(sessionId) : null;
             if (!owner.isCurrent()) return false;
             const window = disk && fallback.messages.every(message => disk.messages.some(row => row.id === message.id)) ? disk : fallback;
-            await this.applyHistoryWindow(sessionId, window, operation);
+            await this.applyHistoryWindow(sessionId, window, operation, { retainCurrentRows: true });
         }
         return true;
     }

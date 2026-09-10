@@ -1782,6 +1782,54 @@ describe('message visibility synchronization', () => {
         expect(await history.readWindow('failed-write', { anchorSeq: 301 })).toBeNull();
     }, 20000);
 
+    it('keeps a realtime row projected while the initial latest window is still replaying', async () => {
+        Platform.OS = 'web';
+        const replay = deferred<any[]>();
+        let decryptCall = 0;
+        const encryption = installSession('initial-live-race', async messages => {
+            const decrypted = messages.map(message => ({
+                id: message.id,
+                localId: message.localId,
+                createdAt: message.createdAt,
+                content: rawText(`fetched-${message.seq}`),
+            }));
+            decryptCall += 1;
+            return decryptCall === 2 ? replay.promise : decrypted;
+        });
+        mocks.state.currentViewingSessionId = 'initial-live-race';
+        const lease = syncForTest.sessionMessageLoadGate.enter('initial-live-race');
+        const applying = syncForTest.applyLatestMessagePage(
+            'initial-live-race',
+            { messages: [apiMessage(1)], hasMore: false },
+            syncForTest.sessionMessageLoadGate.begin(lease),
+        );
+        await vi.waitFor(() => expect(encryption.decryptMessages).toHaveBeenCalledTimes(2));
+
+        await syncForTest.handleUpdate(newMessageUpdate('initial-live-race', 2));
+        await vi.waitFor(() => {
+            expect(mocks.state.sessionMessages['initial-live-race']?.latestAppliedSeq).toBe(2);
+            expect(mocks.state.sessionMessages['initial-live-race']?.messagesMap['message-2']).toBeDefined();
+        });
+
+        replay.resolve([{
+            id: 'message-1',
+            localId: null,
+            createdAt: 10,
+            content: rawText('fetched-1'),
+        }]);
+        await applying;
+
+        const cache = mocks.state.sessionMessages['initial-live-race'];
+        expect(cache.latestAppliedSeq).toBe(2);
+        expect(cache.messages.filter((message: any) => (
+            syncForTest.getMessageWireId('initial-live-race', message.id) === 'message-2'
+        ))).toHaveLength(1);
+        expect(syncForTest.historyWindows.get('initial-live-race')).toMatchObject({
+            newestSeq: 2,
+            isAtLatest: true,
+        });
+    });
+
     it('projects accepted local receipts and remote rows while HTTP owns the message lock', async () => {
         const storage = await seedLocalProjectionSession();
         const lease = syncForTest.sessionMessageLoadGate.enter('spawned-session');
