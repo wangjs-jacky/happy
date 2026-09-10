@@ -10,10 +10,12 @@ import { PushableAsyncIterable } from "@/utils/PushableAsyncIterable";
 import { getProjectPath } from "./utils/path";
 import { awaitFileExist } from "@/modules/watcher/awaitFileExist";
 import { systemPrompt } from "./utils/systemPrompt";
+import { browserCaptureSessionInstruction } from '@/browser/browserStepReportingPrompt';
 import { PermissionResult } from "./sdk/types";
 import type { JsRuntime } from "./runClaude";
 
 export async function claudeRemote(opts: {
+    happySessionId?: string,
 
     // Fixed parameters
     sessionId: string | null,
@@ -122,6 +124,7 @@ export async function claudeRemote(opts: {
 
     // Prepare SDK options
     let mode = initial.mode;
+    const sessionSystemPrompt = systemPrompt + (opts.happySessionId ? '\n' + browserCaptureSessionInstruction(opts.happySessionId) : '');
     const sdkOptions: QueryOptions = {
         cwd: opts.path,
         resume: startFrom ?? undefined,
@@ -129,8 +132,8 @@ export async function claudeRemote(opts: {
         permissionMode: mapToClaudeMode(initial.mode.permissionMode),
         model: initial.mode.model,
         fallbackModel: initial.mode.fallbackModel,
-        customSystemPrompt: initial.mode.customSystemPrompt ? initial.mode.customSystemPrompt + '\n\n' + systemPrompt : undefined,
-        appendSystemPrompt: initial.mode.appendSystemPrompt ? initial.mode.appendSystemPrompt + '\n\n' + systemPrompt : systemPrompt,
+        customSystemPrompt: initial.mode.customSystemPrompt ? initial.mode.customSystemPrompt + '\n\n' + sessionSystemPrompt : undefined,
+        appendSystemPrompt: initial.mode.appendSystemPrompt ? initial.mode.appendSystemPrompt + '\n\n' + sessionSystemPrompt : sessionSystemPrompt,
         allowedTools: initial.mode.allowedTools ? initial.mode.allowedTools.concat(opts.allowedTools) : opts.allowedTools,
         disallowedTools: initial.mode.disallowedTools,
         effort: initial.mode.effort,

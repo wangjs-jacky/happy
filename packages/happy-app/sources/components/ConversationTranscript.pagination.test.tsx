@@ -988,6 +988,26 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('hides standalone browser evidence from the transcript before its invocation loads', async () => {
+        const invoke: Message = { kind: 'tool-call', id: 'skill', localId: null, createdAt: 1, children: [],
+            tool: { name: 'Skill', input: { skill: 'ego-browser' }, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null } };
+        const frame: Message = { ...invoke, id: 'frame', createdAt: 2, tool: { ...invoke.tool,
+            name: 'file', input: { ref: 'frame.png', name: 'frame.png', source: 'browser_step', browserStep: { label: 'Verified', runId: 'run', skillName: 'ego-browser' } } } };
+        const reference: Message = { ...frame, id: 'reference', tool: { ...frame.tool, input: { ref: 'ref.png', name: 'ref.png', source: 'user' } } };
+        let renderer: any;
+        const render = (messages: Message[], sessionId: string | undefined = 'session') => <ConversationTranscript metadata={null} sessionId={sessionId} messages={messages} groupToolCalls={false} />;
+        await act(async () => { renderer = TestRenderer.create(render([frame, reference])); });
+        const ids = () => byId(renderer, 'conversation-transcript-list').props.data.map((item: any) => item.id);
+        // A complete browser-step identity is sufficient to form a standalone
+        // Browser Steps run. Its image becomes a lightweight Skill entry while
+        // the matching invocation is still loading, keeping progress reachable.
+        expect(ids()).toEqual(['reference', 'frame']);
+        act(() => renderer.update(render([frame, reference, invoke])));
+        expect(ids()).toEqual(['skill', 'reference']);
+        act(() => renderer.update(<ConversationTranscript metadata={null} messages={[frame, reference, invoke]} groupToolCalls={false} />));
+        expect(ids()).toEqual(['skill', 'reference', 'frame']);
+        act(() => renderer.unmount());
+    });
 
     it('preserves React row keys across history replay without conflating blocks of one wire message', async () => {
         const reading = { key: 'session', read: async () => null, save: vi.fn(),

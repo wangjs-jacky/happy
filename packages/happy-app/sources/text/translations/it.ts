@@ -550,6 +550,14 @@ export const it: TranslationStructure = {
             loadError: 'Impossibile caricare questa cartella',
             retry: 'Riprova',
         },
+        browserProgress: {
+            title: 'Avanzamento del browser',
+            view: 'Visualizza avanzamento',
+            close: 'Chiudi avanzamento del browser',
+            timelineTitle: 'Passaggi del browser',
+            liveCount: ({ count }: { count: number }) => `In tempo reale · ${count} ${count === 1 ? 'passaggio' : 'passaggi'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Passaggio ${current} di ${total}`,
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

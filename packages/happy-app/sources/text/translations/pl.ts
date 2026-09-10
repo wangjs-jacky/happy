@@ -569,6 +569,14 @@ export const pl: TranslationStructure = {
             loadError: 'Nie można załadować folderu',
             retry: 'Spróbuj ponownie',
         },
+        browserProgress: {
+            title: 'Postęp przeglądarki',
+            view: 'Zobacz postęp',
+            close: 'Zamknij postęp przeglądarki',
+            timelineTitle: 'Kroki przeglądarki',
+            liveCount: ({ count }: { count: number }) => `Na żywo · ${count} ${count === 1 ? 'krok' : 'kroki'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Krok ${current} z ${total}`,
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

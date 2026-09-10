@@ -15,6 +15,12 @@ function file(id: string, createdAt: number, kind?: string): ToolCallMessage {
 }
 
 describe('session image history', () => {
+    it('keeps Ego evidence out of the ordinary chat image gallery', () => {
+        const evidence = file('step', 2, 'image');
+        evidence.tool.input.source = 'browser_step';
+        evidence.tool.input.browserStep = { label: 'Done', runId: 'ego-task', skillName: 'ego-browser' };
+        expect(collectSessionImageGallery('s1', [file('photo', 3), evidence]).map(s => s.attachmentRef)).toEqual(['photo']);
+    });
     beforeEach(() => {
         state.sessionMessages = {};
         useImageViewerStore.setState({ visible: false, sources: [], index: 0 });

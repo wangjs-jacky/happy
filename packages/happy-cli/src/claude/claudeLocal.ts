@@ -10,6 +10,7 @@ import { claudeFindLastSession } from "./utils/claudeFindLastSession";
 import { getProjectPath } from "./utils/path";
 import { projectPath } from "@/projectPath";
 import { systemPrompt } from "./utils/systemPrompt";
+import { browserCaptureSessionInstruction } from '@/browser/browserStepReportingPrompt';
 import type { SandboxConfig } from "@/persistence";
 import { initializeSandbox, wrapCommand } from "@/sandbox/manager";
 
@@ -35,6 +36,7 @@ function quoteShellArg(value: string): string {
 }
 
 export async function claudeLocal(opts: {
+    happySessionId?: string,
     abort: AbortSignal,
     sessionId: string | null,
     mcpServers?: Record<string, any>,
@@ -229,7 +231,7 @@ export async function claudeLocal(opts: {
             }
             // If hasResumeFlag && !startFrom: --resume is in claudeArgs, let Claude handle it
 
-            args.push('--append-system-prompt', systemPrompt);
+            args.push('--append-system-prompt', systemPrompt + (opts.happySessionId ? '\n' + browserCaptureSessionInstruction(opts.happySessionId) : ''));
 
             if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
                 args.push('--mcp-config', JSON.stringify({ mcpServers: opts.mcpServers }));

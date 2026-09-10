@@ -6,19 +6,21 @@ import { loadEarlierSessionImages } from '@/sync/loadEarlierSessionImages';
 import { collectSessionImageGallery } from '@/sync/sessionImageGallery';
 import { releaseImageViewerImageCache } from '@/hooks/useAttachmentImage';
 
-/** Share history pagination between the root viewer and image attachments. */
+/** Share history pagination between the root viewer and the browser-step modal. */
 export function SessionImageViewer(props: {
     sources: ImageViewerSource[];
     initialIndex: number;
     onClose: () => void;
     active?: boolean;
+    /** Task evidence is limited to its provided run, never paginated through the session. */
+    paginate?: boolean;
 }) {
-    const sessionId = props.sources[0]?.sessionId;
+    const sessionId = props.paginate === false ? undefined : props.sources[0]?.sessionId;
     const hasEarlier = storage(state => sessionId ? !!state.sessionMessages[sessionId]?.hasMoreOlder : false);
     const messages = storage(state => sessionId ? state.sessionMessages[sessionId]?.messages : undefined);
     const earliestAvailableRef = React.useMemo(() => sessionId && messages
         ? collectSessionImageGallery(sessionId, messages)[0]?.attachmentRef
         : undefined, [sessionId, messages]);
     React.useEffect(() => () => releaseImageViewerImageCache(), []);
-    return <ImageViewer {...props} hasEarlier={hasEarlier} earliestAvailableRef={earliestAvailableRef} loadEarlier={loadEarlierSessionImages} />;
+    return <ImageViewer {...props} hasEarlier={hasEarlier} earliestAvailableRef={earliestAvailableRef} loadEarlier={props.paginate === false ? undefined : loadEarlierSessionImages} />;
 }
