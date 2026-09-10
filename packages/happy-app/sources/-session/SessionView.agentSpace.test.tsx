@@ -370,6 +370,7 @@ vi.mock('@/utils/responsive', () => ({
     useIsLandscape: () => false,
     useIsTablet: () => mocks.isTablet,
 }));
+vi.mock('@/hooks/useSessionResultSyncing', () => ({ useSessionResultSyncing: () => false }));
 vi.mock('@/utils/sessionUtils', () => ({
     formatPathRelativeToHome: (path: string) => path,
     getResumeCommandBlock: () => null,

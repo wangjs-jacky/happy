@@ -383,6 +383,7 @@ export const it: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} messagg${count === 1 ? 'io' : 'i'} in coda`,
         failed: 'non riuscito',
         completed: 'completato',
+        syncingResults: 'Completato · sincronizzazione dei risultati',
         permissionRequired: 'permesso richiesto',
         permissionUnavailableOffline: 'Questa sessione è disconnessa. Riconnettila prima di rispondere a questa richiesta di conferma.',
         activeNow: 'Attivo ora',

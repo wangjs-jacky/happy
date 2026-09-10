@@ -386,6 +386,7 @@ export const ja: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count}件のメッセージが待機中`,
         failed: '失敗',
         completed: '完了',
+        syncingResults: '実行完了・結果を同期中',
         permissionRequired: '権限が必要です',
         permissionUnavailableOffline: 'このセッションは切断されています。この確認に応答する前に再接続してください。',
         activeNow: 'アクティブ',

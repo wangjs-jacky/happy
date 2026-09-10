@@ -51,9 +51,10 @@ export function resolveSessionState(session: Pick<Session, 'agentState' | 'prese
 }
 
 /** Resolve the canonical five-state outcome plus an orthogonal connection state. */
-export function useSessionStatus(session: Session): SessionStatus {
+export function useSessionStatus(session: Session, isSyncingResults = false): SessionStatus {
     const { theme } = useUnistyles();
     const resolved = resolveSessionState(session);
+    const showResultSyncing = resolved.state === 'completed' && isSyncingResults;
     const colors: Record<SessionState, string> = {
         idle: resolved.isConnected ? '#34C759' : '#999999',
         running: theme.colors.accent,
@@ -65,16 +66,18 @@ export function useSessionStatus(session: Session): SessionStatus {
         ? ''
         : ` · ${t('status.lastSeen', { time: formatLastSeen(session.activeAt, false) })}`;
     const queuedMessages = resolved.isConnected ? (session.agentState?.queuedMessages ?? 0) : 0;
+    const statusColor = showResultSyncing ? theme.colors.accent : colors[resolved.state];
+    const statusLabel = showResultSyncing ? t('status.syncingResults') : getSessionStateLabel(resolved.state);
 
     return {
         ...resolved,
         statusText: queuedMessages > 0 && resolved.state !== 'permission_required'
             ? t('status.queued', { count: queuedMessages })
-            : `${getSessionStateLabel(resolved.state)}${offlineText}`,
+            : `${statusLabel}${offlineText}`,
         shouldShowStatus: true,
-        statusColor: colors[resolved.state],
-        statusDotColor: colors[resolved.state],
-        isPulsing: resolved.state === 'running' || resolved.state === 'permission_required',
+        statusColor,
+        statusDotColor: statusColor,
+        isPulsing: resolved.state === 'running' || resolved.state === 'permission_required' || showResultSyncing,
     };
 }
 

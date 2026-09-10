@@ -142,3 +142,48 @@ describe('useSessionStatus queue label priority', () => {
         });
     });
 });
+
+describe('useSessionStatus result synchronization', () => {
+    const session = {
+        activeAt: 1,
+        presence: 'online',
+        thinking: false,
+        agentState: { turnStatus: { status: 'completed', updatedAt: 1 } },
+    } as Parameters<typeof useSessionStatus>[0];
+
+    it('shows pending results without changing the completed execution state', () => {
+        expect(useSessionStatus(session, true)).toMatchObject({
+            state: 'completed',
+            isConnected: true,
+            statusText: 'status.syncingResults',
+            statusColor: '#007aff',
+            statusDotColor: '#007aff',
+            isPulsing: true,
+        });
+        expect(useSessionStatus(session, false)).toMatchObject({
+            state: 'completed',
+            statusText: 'status.completed',
+            isPulsing: false,
+        });
+    });
+
+    it('keeps offline information while waiting for completed results', () => {
+        expect(useSessionStatus({ ...session, presence: 123 }, true)).toMatchObject({
+            state: 'completed',
+            isConnected: false,
+            statusText: 'status.syncingResults · status.lastSeen',
+        });
+    });
+
+    it.each([
+        { state: 'running', thinking: true, agentState: session.agentState, label: 'status.running' },
+        { state: 'failed', thinking: false, agentState: { turnStatus: { status: 'failed', updatedAt: 2 } }, label: 'status.failed' },
+        { state: 'permission_required', thinking: false, agentState: { ...session.agentState, requests: { permission: { tool: 'Bash', arguments: {}, createdAt: 1 } } }, label: 'status.permissionRequired' },
+        { state: 'idle', thinking: false, agentState: null, label: 'status.idle' },
+    ] as const)('preserves $state priority over result synchronization', ({ state, thinking, agentState, label }) => {
+        expect(useSessionStatus({ ...session, thinking, agentState }, true)).toMatchObject({
+            state,
+            statusText: label,
+        });
+    });
+});

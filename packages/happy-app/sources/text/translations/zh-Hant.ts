@@ -385,6 +385,7 @@ export const zhHant: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} 則訊息排隊中`,
         failed: '已失敗',
         completed: '已完成',
+        syncingResults: '執行完成，正在同步結果',
         permissionRequired: '需要權限',
         permissionUnavailableOffline: '此工作階段已中斷連線。請重新連線後再回應此確認要求。',
         activeNow: '目前活躍',

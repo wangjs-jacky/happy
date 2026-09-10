@@ -384,6 +384,7 @@ export const es: TranslationStructure = {
         queued: ({ count }: { count: number }) => `${count} mensaje${count === 1 ? '' : 's'} en cola`,
         failed: 'fallido',
         completed: 'completado',
+        syncingResults: 'Finalizado · sincronizando resultados',
         permissionRequired: 'permiso requerido',
         permissionUnavailableOffline: 'Esta sesión está desconectada. Vuelve a conectarla antes de responder a esta solicitud de confirmación.',
         activeNow: 'Activo ahora',

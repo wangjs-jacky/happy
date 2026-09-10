@@ -968,6 +968,7 @@ export const ru: TranslationStructure = {
         queued: ({ count }: { count: number }) => `В очереди: ${count}`,
         failed: 'не выполнено',
         completed: 'завершено',
+        syncingResults: 'Завершено · синхронизация результатов',
         permissionRequired: 'требуется разрешение',
         permissionUnavailableOffline: 'Эта сессия отключена. Подключитесь повторно, прежде чем отвечать на этот запрос на подтверждение.',
         activeNow: 'Активен сейчас',
