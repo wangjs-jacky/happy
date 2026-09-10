@@ -4,14 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useRealtimeStatus, useProfile, useLocalSettingMutable } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useDrawerHaptics } from './useDrawerHaptics';
-import { AgentSheet } from './agents/AgentSheet';
 import { useAgentSpace } from '@/hooks/useAgentSpace';
 import { AgentSpaceWorkbench } from './agents/AgentSpaceWorkbench';
 import { SidebarAccountMenu } from './SidebarAccountMenu';
@@ -194,78 +193,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         ...Typography.default('semiBold'),
     },
-    agentsCard: {
-        marginHorizontal: 16,
-        marginTop: 4,
-        marginBottom: 6,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-        gap: 8,
-    },
-    agentsCardPressed: {
+    navigationCardPressed: {
         backgroundColor: theme.colors.surfacePressed,
-    },
-    agentsCardDesktop: {
-        marginHorizontal: 10,
-        marginTop: 3,
-        marginBottom: 1,
-        paddingVertical: 7,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        gap: 0,
-    },
-    agentsHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    agentsTitle: {
-        flex: 1,
-        fontSize: 14,
-        fontWeight: '600',
-        color: theme.colors.text,
-        ...Typography.default('semiBold'),
-    },
-    agentsAdd: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 2,
-        paddingHorizontal: 6,
-        borderRadius: 8,
-        gap: 2,
-    },
-    agentsAddPressed: {
-        backgroundColor: theme.colors.surfacePressed,
-    },
-    agentsAddText: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        ...Typography.default('semiBold'),
-    },
-    agentsAvatars: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    agentMiniAvatar: {
-        width: 28,
-        height: 28,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    agentMiniGlyph: {
-        color: '#FFFFFF',
-        fontSize: 14,
-        ...Typography.default('semiBold'),
-    },
-    agentsEmpty: {
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-        ...Typography.default(),
     },
     pluginsButton: {
         alignItems: 'center',
@@ -459,10 +388,8 @@ export const SidebarView = React.memo(({
     const navigation = useNavigation();
     const realtimeStatus = useRealtimeStatus();
     const profile = useProfile();
-    const agents = useLocalSetting('agents');
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
     const [desktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
-    const [sheetOpen, setSheetOpen] = React.useState(false);
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
@@ -535,7 +462,6 @@ export const SidebarView = React.memo(({
     }, []);
 
     const openPluginMarketplace = React.useCallback(() => {
-        setSheetOpen(false);
         setInitialPluginId(null);
         setPluginMarketplaceOpen(true);
     }, []);
@@ -608,7 +534,7 @@ export const SidebarView = React.memo(({
                     style={({ pressed }) => [
                         styles.pluginsButton,
                         desktopDensity && styles.pluginsButtonDesktop,
-                        pressed && styles.agentsCardPressed,
+                        pressed && styles.navigationCardPressed,
                     ]}
                 >
                     <Ionicons name="extension-puzzle-outline" size={16} color={stylesheet.pluginsText.color} />
@@ -618,51 +544,12 @@ export const SidebarView = React.memo(({
         </View>
     );
 
-    const agentAndArchiveNavigation = (
+    const archiveNavigation = (
         <View style={styles.secondaryNavigation} testID="sidebar-secondary-navigation">
                 <View
                     style={styles.secondaryNavigationDivider}
                     testID="sidebar-secondary-navigation-divider"
                 />
-                {/* My Agents remains available, while its add action is a compact
-                    secondary affordance instead of another primary navigation row. */}
-                <Pressable
-                    onPress={() => setSheetOpen(true)}
-                    testID="sidebar-my-agents-button"
-                    style={({ pressed }) => [
-                        styles.agentsCard,
-                        desktopDensity && styles.agentsCardDesktop,
-                        pressed && styles.agentsCardPressed,
-                    ]}
-                >
-                    <View style={styles.agentsHeader}>
-                        <Text style={styles.agentsTitle} numberOfLines={1}>{t('agents.cardTitle')}</Text>
-                        <Pressable
-                            accessibilityLabel={t('agents.add')}
-                            accessibilityRole="button"
-                            onPress={(e) => { e.stopPropagation(); go('/settings/my-agents'); }}
-                            hitSlop={8}
-                            style={({ pressed }) => [styles.agentsAdd, pressed && styles.agentsAddPressed]}
-                            testID="sidebar-add-agent-button"
-                        >
-                            <Ionicons name="add" size={16} color={stylesheet.agentsAddText.color} />
-                            {!desktopDensity ? (
-                                <Text style={styles.agentsAddText}>{t('agents.add')}</Text>
-                            ) : null}
-                        </Pressable>
-                    </View>
-                    {!desktopDensity && agents.length > 0 ? (
-                        <View style={styles.agentsAvatars}>
-                            {agents.slice(0, 5).map((agent) => (
-                                <View key={agent.id} style={[styles.agentMiniAvatar, { backgroundColor: agent.color }]}>
-                                    <Text style={styles.agentMiniGlyph}>{agent.glyph}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    ) : !desktopDensity ? (
-                        <Text style={styles.agentsEmpty} numberOfLines={1}>{t('agents.empty')}</Text>
-                    ) : null}
-                </Pressable>
                 <Pressable
                     accessibilityRole="button"
                     accessibilityState={{ selected: desktopPrimaryNavigation && desktopSidebarMode === 'archive' }}
@@ -716,12 +603,6 @@ export const SidebarView = React.memo(({
                 }
                 go(path);
             }} />
-            <DesktopRailItem
-                icon="people-outline"
-                label={t('agents.cardTitle')}
-                onPress={() => setSheetOpen(true)}
-                testID="sidebar-my-agents-button"
-            />
             {mobileNavigation ? (
                 <DesktopRailItem
                     icon="time-outline"
@@ -809,10 +690,6 @@ export const SidebarView = React.memo(({
 
     const overlays = (
         <>
-            <AgentSheet
-                visible={sheetOpen}
-                onClose={() => setSheetOpen(false)}
-            />
             <PluginMarketplaceModal
                 initialPluginId={initialPluginId}
                 onClose={closePluginMarketplace}
@@ -879,7 +756,7 @@ export const SidebarView = React.memo(({
             ) : (
                 <>
                     {primaryNavigation}
-                    {agentAndArchiveNavigation}
+                    {archiveNavigation}
                     {pluginNavigation}
                     {voiceStatus}
                     <DesktopSidebarSessionsNavigation />

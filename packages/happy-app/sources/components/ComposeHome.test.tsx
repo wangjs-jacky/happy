@@ -206,7 +206,6 @@ vi.mock('./RightSwipePanelHost', () => ({ RightSwipePanelHost: 'RightSwipePanelH
 vi.mock('./rightPanel/SessionCapabilityHub', () => ({ SessionCapabilityHub: 'SessionCapabilityHub' }));
 vi.mock('./DesktopRightPanel', () => ({ DesktopRightPanel: 'DesktopRightPanel', DesktopRightPanelToggleButton: 'DesktopRightPanelToggleButton' }));
 vi.mock('./agents/ImageStyleGallerySheet', () => ({ ImageStyleGallerySheet: 'ImageStyleGallerySheet' }));
-vi.mock('./agents/builtinAgents', () => ({ createAppBuilderAgent: () => null }));
 
 describe('ComposeHome session hydration recovery', () => {
     const originalConsoleError = console.error;

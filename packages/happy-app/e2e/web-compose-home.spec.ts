@@ -2780,17 +2780,15 @@ test('左栏稳定导航、机器项目分组与折叠共同保持当前会话�
     const newSession = primary.getByTestId('sidebar-new-session-button');
     const inbox = primary.getByTestId('sidebar-inbox-button');
     const sessionManagement = primary.getByTestId('sidebar-command-palette-button');
-    const myAgents = page.getByTestId('sidebar-my-agents-button');
     await expect(newSession).toBeVisible();
     await expect(inbox).toBeVisible();
     await expect(sessionManagement).toBeVisible();
-    await expect(myAgents).toBeVisible();
+    await expect(page.getByTestId('sidebar-my-agents-button')).toHaveCount(0);
     const primaryOrder = await Promise.all([newSession, inbox, sessionManagement].map(async (item) => (
         await item.boundingBox()
     )?.y ?? -1));
     expect(primaryOrder[0]).toBeLessThan(primaryOrder[1]);
     expect(primaryOrder[1]).toBeLessThan(primaryOrder[2]);
-    expect((await sessionManagement.boundingBox())!.y).toBeLessThan((await myAgents.boundingBox())!.y);
 
     const atlasRow = page.getByTestId(`session-row-${atlasSessionId}`);
     await expect(atlasRow).toHaveAttribute('aria-current', 'page');
@@ -2812,7 +2810,7 @@ test('左栏稳定导航、机器项目分组与折叠共同保持当前会话�
     await expect(betaToggle).toHaveAttribute('aria-expanded', 'true');
 });
 
-test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用紧凑弹层', async ({ page }, testInfo) => {
+test('[RELATIONSHIP-ADVISOR-HISTORY] 军师插件对话写入左栏', async ({ page }, testInfo) => {
     const nestedButtonErrors: string[] = [];
     page.on('console', (message) => {
         const text = message.text();
@@ -2853,29 +2851,7 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     fs.mkdirSync(path.dirname(historyScreenshot), { recursive: true });
     await page.screenshot({ path: historyScreenshot, fullPage: true });
 
-    const myAgentsButton = page.getByTestId('sidebar-my-agents-button');
-    await myAgentsButton.click();
-    const dialog = page.getByTestId('agent-sheet-desktop-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('xpath=ancestor::*[@role="dialog"]').first()).toBeVisible();
-    const dialogBox = await dialog.boundingBox();
-    expect(dialogBox).not.toBeNull();
-    expect(dialogBox!.width).toBeLessThanOrEqual(522);
-    expect(dialogBox!.width).toBeLessThan(1280 * 0.6);
-    expect(Math.abs((dialogBox!.x + dialogBox!.width / 2) - 640)).toBeLessThanOrEqual(2);
-    expect(dialogBox!.y).toBeGreaterThan(80);
-    expect(dialogBox!.y + dialogBox!.height).toBeLessThan(820);
-    await pauseForRecordedReview(page, 1_100);
-
-    const dialogScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
-        ? path.join(process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR, 'case-2-after-agent-dialog.png')
-        : testInfo.outputPath('case-2-after-agent-dialog.png');
-    fs.mkdirSync(path.dirname(dialogScreenshot), { recursive: true });
-    await page.screenshot({ path: dialogScreenshot, fullPage: true });
-
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('role'))).not.toBe('dialog');
+    await expect(page.getByTestId('sidebar-my-agents-button')).toHaveCount(0);
 
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto(authenticatedRoute('/settings/appearance'));
@@ -2918,20 +2894,6 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     await page.screenshot({ path: darkHistoryScreenshot, fullPage: true });
     await page.mouse.up();
 
-    await page.getByTestId('sidebar-my-agents-button').click();
-    const darkDialog = page.getByTestId('agent-sheet-desktop-dialog');
-    await expect(darkDialog).toBeVisible();
-    await expect.poll(() => darkDialog.evaluate((element) => (
-        window.getComputedStyle(element).backgroundColor
-    ))).toBe('rgb(26, 35, 48)');
-    const darkDialogScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
-        ? path.join(process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR, 'case-2-after-agent-dialog-gingham-dark.png')
-        : testInfo.outputPath('case-2-after-agent-dialog-gingham-dark.png');
-    fs.mkdirSync(path.dirname(darkDialogScreenshot), { recursive: true });
-    await page.screenshot({ path: darkDialogScreenshot, fullPage: true });
-
-    await page.keyboard.press('Escape');
-    await expect(darkDialog).toHaveCount(0);
     expect(nestedButtonErrors).toEqual([]);
 });
 
@@ -4385,7 +4347,7 @@ test('桌面图片效果使用有边界的居中弹窗且支持 Escape 关闭', 
     await expect(dialog).toHaveCount(0);
 });
 
-test('手机首页抽屉、Agent 卡片与账户菜单保持全宽对齐', async ({ page, request }, testInfo) => {
+test('手机首页抽屉与账户菜单保持全宽对齐且不显示我的 Agent', async ({ page, request }, testInfo) => {
     const sessionId = await createE2ESession(request, {
         path: '/workspace/mobile-layout',
         host: 'mobile-e2e',
@@ -4414,27 +4376,22 @@ test('手机首页抽屉、Agent 卡片与账户菜单保持全宽对齐', async
     await expect.poll(async () => (await accountFooter.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
 
     const newSession = page.getByTestId('sidebar-new-session-button');
-    const myAgents = page.getByTestId('sidebar-my-agents-button');
     const accountTrigger = page.getByTestId('sidebar-account-trigger');
     const firstSession = page.getByTestId(`session-row-${sessionId}`);
     await expect(newSession).toBeVisible();
-    await expect(myAgents).toBeVisible();
+    await expect(page.getByTestId('sidebar-my-agents-button')).toHaveCount(0);
     await expect(accountTrigger).toBeVisible();
     await expect(firstSession).toBeVisible();
 
     const newSessionBox = await newSession.boundingBox();
-    const myAgentsBox = await myAgents.boundingBox();
     const accountTriggerBox = await accountTrigger.boundingBox();
     const firstSessionBox = await firstSession.boundingBox();
     expect(newSessionBox).not.toBeNull();
-    expect(myAgentsBox).not.toBeNull();
     expect(accountTriggerBox).not.toBeNull();
     expect(firstSessionBox).not.toBeNull();
-    expect(Math.abs(myAgentsBox!.x - newSessionBox!.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(myAgentsBox!.width - newSessionBox!.width)).toBeLessThanOrEqual(1);
     expect(Math.abs(accountTriggerBox!.x - newSessionBox!.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(accountTriggerBox!.width - newSessionBox!.width)).toBeLessThanOrEqual(1);
-    expect(firstSessionBox!.y).toBeGreaterThanOrEqual(myAgentsBox!.y + myAgentsBox!.height);
+    expect(firstSessionBox!.y).toBeGreaterThanOrEqual(newSessionBox!.y + newSessionBox!.height);
     await pauseForRecordedReview(page, 900);
 
     await page.screenshot({
@@ -5037,39 +4994,6 @@ test.describe('中文 Web Agent 配置语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 
-    test('新建 Agent 表单具备输入与选择语义且不保存配置', async ({ page }) => {
-        await page.setViewportSize({ width: 800, height: 900 });
-        await page.goto(authenticatedRoute('/settings/my-agent-edit'));
-
-        await expect(page.getByRole('textbox', { name: '名称' })).toHaveCount(1);
-        await expect(page.getByRole('textbox', { name: '文件夹' })).toHaveAttribute('placeholder', '文件夹路径，如 ~');
-        await expect(page.getByText('using custom path above', { exact: true })).toHaveCount(0);
-        await expect(page.getByText('Recent', { exact: true })).toHaveCount(0);
-        await expect(page.getByText('no recent projects yet', { exact: true })).toHaveCount(0);
-
-        const kindGroup = page.getByRole('radiogroup', { name: 'Agent 类型' });
-        await expect(kindGroup.getByRole('radio', { name: /标准 Agent/ })).toBeChecked();
-        await expect(kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ })).not.toBeChecked();
-
-        await kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ }).click();
-        await expect(kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ })).toBeChecked();
-        await expect(page.getByRole('checkbox', { name: '山野旅行速写手帐' })).toBeChecked();
-
-        const variants = page.getByRole('radiogroup', { name: '生成张数' });
-        await expect(variants.getByRole('radio', { name: '每种风格 1 张' })).toBeChecked();
-
-        await kindGroup.getByRole('radio', { name: /标准 Agent/ }).click();
-        const flavorGroup = page.getByRole('radiogroup', { name: '编码 Agent' });
-        await expect(flavorGroup.getByRole('radio', { name: '跟随默认' })).toBeChecked();
-
-        await page.getByRole('button', { name: '添加预设' }).click();
-        await expect(page.getByRole('textbox', { name: '标签' })).toHaveCount(1);
-        await expect(page.getByRole('textbox', { name: '指令内容' })).toHaveCount(1);
-        await page.getByRole('button', { name: '删除' }).click();
-
-        await expect(page.getByRole('button', { name: '保存' })).toBeDisabled();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
-    });
 });
 
 test.describe('中文 Web 工件与生成图片语义', () => {
