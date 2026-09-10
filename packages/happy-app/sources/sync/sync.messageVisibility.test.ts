@@ -1830,6 +1830,78 @@ describe('message visibility synchronization', () => {
         });
     });
 
+    it('keeps the first realtime row when an empty initial page fails delayed persistence', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('empty-initial-live-race');
+        const history = (await openLocalHistory('server|empty-initial-live-race'))!;
+        const persistence = deferred<boolean>();
+        vi.spyOn(history, 'commitPage').mockReturnValueOnce(persistence.promise);
+        syncForTest.localHistory = history;
+        mocks.state.currentViewingSessionId = 'empty-initial-live-race';
+        const lease = syncForTest.sessionMessageLoadGate.enter('empty-initial-live-race');
+        const applying = syncForTest.applyLatestMessagePage(
+            'empty-initial-live-race',
+            { messages: [], hasMore: false },
+            syncForTest.sessionMessageLoadGate.begin(lease),
+        );
+        await vi.waitFor(() => expect(history.commitPage).toHaveBeenCalledOnce());
+
+        await syncForTest.handleUpdate(newMessageUpdate('empty-initial-live-race', 1));
+        await vi.waitFor(() => {
+            expect(mocks.state.sessionMessages['empty-initial-live-race']?.latestAppliedSeq).toBe(1);
+            expect(mocks.state.sessionMessages['empty-initial-live-race']?.messagesMap['message-1']).toBeDefined();
+        });
+
+        persistence.resolve(false);
+        await applying;
+
+        const cache = mocks.state.sessionMessages['empty-initial-live-race'];
+        expect(cache.latestAppliedSeq).toBe(1);
+        expect(cache.messages.filter((message: any) => (
+            syncForTest.getMessageWireId('empty-initial-live-race', message.id) === 'message-1'
+        ))).toHaveLength(1);
+        expect(syncForTest.historyWindows.get('empty-initial-live-race')).toMatchObject({
+            oldestSeq: 1,
+            newestSeq: 1,
+            isAtLatest: true,
+        });
+    });
+
+    it('bounds a retained native initial replay after merging concurrent realtime rows', async () => {
+        Platform.OS = 'android';
+        installSession('native-initial-retention-bound');
+        syncForTest.historyWindows.set('native-initial-retention-bound', {
+            messages: Array.from({ length: 226 }, (_, index) => apiMessage(index + 76)),
+            oldestSeq: 76,
+            newestSeq: 301,
+            hasMoreOlder: true,
+            hasMoreNewer: false,
+            isAtLatest: true,
+        });
+        const lease = syncForTest.sessionMessageLoadGate.enter('native-initial-retention-bound');
+
+        await syncForTest.applyHistoryWindow('native-initial-retention-bound', {
+            messages: Array.from({ length: 100 }, (_, index) => apiMessage(index + 1)),
+            oldestSeq: 1,
+            newestSeq: 100,
+            hasMoreOlder: false,
+            hasMoreNewer: false,
+            isAtLatest: true,
+        }, syncForTest.sessionMessageLoadGate.begin(lease), { retainCurrentRows: true });
+
+        const window = syncForTest.historyWindows.get('native-initial-retention-bound');
+        expect(window.messages).toHaveLength(300);
+        expect(window).toMatchObject({
+            oldestSeq: 2,
+            newestSeq: 301,
+            hasMoreOlder: true,
+            hasMoreNewer: false,
+            isAtLatest: true,
+        });
+        expect(mocks.state.sessionMessages['native-initial-retention-bound'].messages).toHaveLength(300);
+    });
+
     it('projects accepted local receipts and remote rows while HTTP owns the message lock', async () => {
         const storage = await seedLocalProjectionSession();
         const lease = syncForTest.sessionMessageLoadGate.enter('spawned-session');

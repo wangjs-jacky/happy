@@ -789,7 +789,13 @@ class Sync {
                 }));
             }
             if (!retainCurrentRows) break;
-            const retained = retainMissingHistoryRows(window, this.historyWindows.get(id));
+            const current = this.historyWindows.get(id);
+            // An empty initial server page and its concurrently appended live
+            // tail have no overlap by definition. The explicit initial-replay
+            // retention contract owns that tail, so it is not a disconnected
+            // historical island.
+            const retained = options.retainCurrentRows === true && window.messages.length === 0
+                && current?.isAtLatest === true ? current : retainMissingHistoryRows(window, current);
             if (retained === window) break;
             const knownSeqs = new Set(window.messages.map(message => message.seq));
             const retainedSeqs = new Set(retained.messages.map(message => message.seq));
@@ -808,17 +814,20 @@ class Sync {
         // untouched. Sample the viewport after every asynchronous decrypt.
         if (Platform.OS === 'web') window = boundHistoryWindow(window, { ...options,
             protectedRange: options.viewport?.() ?? options.protectedRange });
+        else if (options.retainCurrentRows === true && window.messages.length > historyNavigationWindowLimit()) {
+            const messages = window.messages.slice(-historyNavigationWindowLimit());
+            window = { ...window, messages, oldestSeq: messages[0]?.seq ?? null,
+                newestSeq: messages.at(-1)?.seq ?? null, hasMoreOlder: true };
+        }
         // Flush any admitted live effects before replacing their projection;
         // the scheduled microtask must not resurrect rows evicted below.
         if (Platform.OS === 'web') this.drainQueuedMessages(id, new Set([
             ...(this.historyWireProvenance.get(id)?.keys() ?? []), ...normalized.map(message => message.id),
         ]));
         this.retireObservedLocalMessages(id, normalized);
-        if (Platform.OS === 'web') {
-            const retainedIds = new Set(window.messages.map(message => message.id));
-            for (let i = normalized.length - 1; i >= 0; i--) {
-                if (!retainedIds.has(normalizedWireIds.get(normalized[i])!)) normalized.splice(i, 1);
-            }
+        const retainedIds = new Set(window.messages.map(message => message.id));
+        for (let i = normalized.length - 1; i >= 0; i--) {
+            if (!retainedIds.has(normalizedWireIds.get(normalized[i])!)) normalized.splice(i, 1);
         }
         // A latest-window replacement contains acknowledged wire rows only.
         // Keep only unobserved local projections in the live view. Receipt
@@ -4367,7 +4376,8 @@ class Sync {
                         }
                         if (historyWindow) {
                             const messages = [...historyWindow.messages, updateData.body.message];
-                            const appended = { ...historyWindow, messages, newestSeq: incomingSeq };
+                            const appended = { ...historyWindow, messages,
+                                oldestSeq: historyWindow.oldestSeq ?? incomingSeq, newestSeq: incomingSeq };
                             if (Platform.OS === 'web' && (messages.length > WEB_HISTORY_MAX_MESSAGES
                                 || historyWindowBytes(appended) > WEB_HISTORY_MAX_BYTES)) {
                                 const sid = updateData.body.sid;
@@ -4397,7 +4407,7 @@ class Sync {
                                 if (bounded && lease) await this.applyHistoryWindow(sid, bounded, this.sessionMessageLoadGate.begin(lease));
                                 return;
                             }
-                            this.historyWindows.set(updateData.body.sid, { ...historyWindow, messages, newestSeq: incomingSeq });
+                            this.historyWindows.set(updateData.body.sid, appended);
                             this.historyWireProvenance.get(updateData.body.sid)?.set(lastMessage.id, updateData.body.message.id);
                         }
                         this.enqueueMessages(updateData.body.sid, [lastMessage], incomingSeq);
