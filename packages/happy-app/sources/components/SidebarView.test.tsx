@@ -157,7 +157,6 @@ vi.mock('./SidebarHelpMenu', async () => {
         },
     };
 });
-vi.mock('./agents/AgentSheet', () => ({ AgentSheet: 'AgentSheet' }));
 vi.mock('./plugins/PluginMarketplaceModal', () => ({ PluginMarketplaceModal: 'PluginMarketplaceModal' }));
 vi.mock('@/hooks/useAgentSpace', () => ({
     useAgentSpace: () => ({
@@ -221,36 +220,30 @@ describe('SidebarView Agent space exit', () => {
 
     afterEach(() => consoleErrorSpy.mockRestore());
 
-    it('clears the Agent space, closes the drawer, and returns home', () => {
+    it('ignores a persisted Agent space and renders the regular mobile sidebar', () => {
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(<SidebarView />);
         });
 
-        const workbench = renderer.root.findByType('AgentSpaceWorkbench');
-        act(() => workbench.props.onExit());
-
-        expect(mocks.exitSpace).toHaveBeenCalledOnce();
-        expect(mocks.dispatch).toHaveBeenCalledWith({ type: 'CLOSE_DRAWER' });
-        expect(mocks.navigate).toHaveBeenCalledWith('/');
+        expect(renderer.root.findAllByType('AgentSpaceWorkbench')).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-new-session-button' }).length).toBeGreaterThan(0);
+        expect(mocks.exitSpace).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
-    it('does not close a permanent desktop drawer before navigation', () => {
+    it('ignores a persisted Agent space and renders the regular desktop sidebar', () => {
         let renderer: any;
 
         act(() => {
             renderer = TestRenderer.create(
-                <SidebarView closeDrawerOnNavigate={false} />,
+                <SidebarView closeDrawerOnNavigate={false} desktopDensity />,
             );
         });
 
-        const workbench = renderer.root.findByType('AgentSpaceWorkbench');
-        act(() => workbench.props.onExit());
-
-        expect(mocks.exitSpace).toHaveBeenCalledOnce();
-        expect(mocks.dispatch).not.toHaveBeenCalled();
-        expect(mocks.navigate).toHaveBeenCalledWith('/');
+        expect(renderer.root.findAllByType('AgentSpaceWorkbench')).toHaveLength(0);
+        expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
+        expect(mocks.exitSpace).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
@@ -309,11 +302,13 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findAllByType('ScrollView')).toHaveLength(1);
         expect(renderer.root.findByType('SidebarAccountMenu').props.mobileRail).toBe(true);
         expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
-        for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'my-agents', 'history', 'plugin-relationship-advisor']) {
+        for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'history', 'plugin-relationship-advisor']) {
             const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === `sidebar-${entry}-button`);
             expect(button.findAllByType('Text')).toHaveLength(0);
             expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ height: 44, width: 44 }));
         }
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-add-agent-button' })).toHaveLength(0);
         const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
         const mobileNewSessionGlyph = mobileNewSession.findByProps({ testID: 'sidebar-new-session-glyph' });
         expect(mobileNewSessionGlyph.props.style).toEqual(expect.objectContaining({
@@ -327,11 +322,6 @@ describe('SidebarView Agent space exit', () => {
             color: '#FFFFFF',
             size: 20,
         });
-        expect(renderer.root.findByType('AgentSheet').props.visible).toBe(false);
-        act(() => renderer.root.findByProps({ testID: 'sidebar-my-agents-button' }).props.onPress());
-        expect(renderer.root.findByType('AgentSheet').props.visible).toBe(true);
-        expect(mocks.navigate).not.toHaveBeenCalledWith('/settings/my-agents');
-
         const pluginsButton = renderer.root.findByProps({ testID: 'sidebar-plugins-button' });
         act(() => pluginsButton.props.onPress());
         expect(renderer.root.findByType('PluginMarketplaceModal').props.visible).toBe(true);
@@ -546,11 +536,11 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-inbox-button',
             'sidebar-command-palette-button',
             'sidebar-plugins-button',
-            'sidebar-my-agents-button',
             'sidebar-plugin-relationship-advisor-button',
             'sidebar-session-list-button',
             'sidebar-archive-button',
         ]));
+        expect(primaryColumn.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' })).toHaveLength(0);

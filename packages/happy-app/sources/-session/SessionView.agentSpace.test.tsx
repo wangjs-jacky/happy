@@ -459,7 +459,7 @@ describe('SessionView Agent-space boundary', () => {
 
     afterEach(() => consoleErrorSpy.mockRestore());
 
-    it('keeps canonical Agent matching wired into the phone header and panel', () => {
+    it('ignores canonical Agent matching in the phone header and panel', () => {
         mocks.spaceAgent = makeAgent();
         let renderer: any;
 
@@ -467,15 +467,14 @@ describe('SessionView Agent-space boundary', () => {
             renderer = TestRenderer.create(<SessionView id="session-1" />);
         });
 
-        expect(mocks.useSpaceAgentForSession).toHaveBeenCalled();
-        expect(mocks.useSpaceAgentForSession.mock.calls.every(([session]) => session === mocks.session)).toBe(true);
+        expect(mocks.useSpaceAgentForSession).not.toHaveBeenCalled();
         expect(renderer.root.findAllByProps({
             accessibilityLabel: 'Use quick action: agentSpace.companion.actionSleepTitle',
-        })).toHaveLength(1);
-        expect(renderer.root.findAllByProps({ accessibilityLabel: 'Exit space' })).toHaveLength(1);
-        expect(renderer.root.findAllByType('SessionCapabilityHub')).toHaveLength(0);
+        })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ accessibilityLabel: 'Exit space' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('SessionCapabilityHub')).toHaveLength(1);
         expect(renderer.root.findByType('RightSwipePanelHost').props.panelAccessibilityLabel)
-            .toBe('agentSpace.companion.panelTitle');
+            .toBe('rightPanelCapabilityHub.title');
 
         act(() => renderer.unmount());
     });
@@ -497,7 +496,7 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
-    it('lets a long Agent session title shrink before the exit control', () => {
+    it('keeps the ordinary session header when a legacy Agent matches', () => {
         mocks.isDataReady = true;
         mocks.spaceAgent = makeAgent();
         let renderer: any;
@@ -506,12 +505,9 @@ describe('SessionView Agent-space boundary', () => {
             renderer = TestRenderer.create(<SessionView id="session-1" />);
         });
 
-        const title = renderer.root.findAllByType('Text').find((node: any) => node.props.children === 'Health session');
-        expect(title).toBeDefined();
-        expect(title.props.style).toMatchObject({ flex: 1, minWidth: 0 });
-        expect(title.parent.props.style).toMatchObject({ flex: 1, minWidth: 0 });
-        expect(renderer.root.findAllByProps({ testID: 'session-header-title' })).toHaveLength(0);
-        expect(renderer.root.findAllByProps({ testID: 'session-header-run-status' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ accessibilityLabel: 'Exit space' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('SessionCapabilityHub')).toHaveLength(1);
+        expect(renderer.root.findAllByType('SessionHeaderChip')).toHaveLength(1);
 
         act(() => renderer.unmount());
     });

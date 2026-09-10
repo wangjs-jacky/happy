@@ -1,5 +1,6 @@
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 import type { NewSessionAgentType, NewSessionSessionType } from '@/sync/persistence';
+import type { Machine } from '@/sync/storageTypes';
 
 export interface AgentPreset { label: string; prompt: string; }
 export interface AgentLauncher {
@@ -19,6 +20,13 @@ export interface AgentLauncher {
 
 export function resolveAgentTypeForLaunch(agent: AgentLauncher): NewSessionAgentType | undefined {
     return agent.agentType ?? (agent.kind === 'image-styles' ? 'codex' : undefined);
+}
+
+export function getAgentSubtitle(agent: AgentLauncher, machine: Machine | undefined, machineMissing: string): string {
+    const machineLabel = machine
+        ? machine.metadata?.displayName ?? machine.metadata?.host ?? machine.id
+        : machineMissing;
+    return `${machineLabel} · ${agent.path}`;
 }
 
 interface DraftSetters {

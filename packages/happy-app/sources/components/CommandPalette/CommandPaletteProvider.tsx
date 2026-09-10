@@ -29,13 +29,6 @@ function normalizePath(path: string): string {
     return path.replace(/[\\/]+$/, '');
 }
 
-function normalizeComparablePath(path: string, homeDir?: string): string {
-    if (homeDir && (path === '~' || path.startsWith('~/') || path.startsWith('~\\'))) {
-        return normalizePath(`${normalizePath(homeDir)}${path.slice(1)}`);
-    }
-    return normalizePath(path);
-}
-
 function projectNameFromPath(path: string): string {
     const normalized = normalizePath(path);
     return normalized.split(/[\\/]/).filter(Boolean).at(-1) ?? normalized;
@@ -77,7 +70,6 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         return summaries;
     }));
     const machines = storage(useShallow((state) => state.machines));
-    const agents = storage(useShallow((state) => state.localSettings.agents));
     const currentViewingSessionId = storage(useShallow((state) => state.currentViewingSessionId));
     const navigateToSession = useNavigateToSession();
     const paletteIsOpen = modalState.modals.some((modal) => (
@@ -189,7 +181,6 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         // the first loaded user message remains a separate searchable/displayed summary.
         recentSessions.forEach((session, index) => {
             const path = session.metadata?.path ?? '';
-            const normalizedSessionPath = normalizeComparablePath(path, session.metadata?.homeDir);
             const projectName = path ? projectNameFromPath(path) : null;
             const machineId = session.metadata?.machineId;
             const machine = machineId ? machines[machineId] : undefined;
@@ -198,17 +189,8 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 || session.metadata?.host
                 || machineId
                 || null;
-            const matchingAgentNames = agents
-                .filter((agent) => (
-                    agent.machineId === machineId
-                    && normalizeComparablePath(agent.path, session.metadata?.homeDir) === normalizedSessionPath
-                ))
-                .map((agent) => agent.name);
             const flavorName = displayAgentFlavor(session.metadata?.flavor);
-            const agentName = Array.from(new Set([
-                ...matchingAgentNames,
-                flavorName,
-            ].filter((value): value is string => Boolean(value)))).join(' · ');
+            const agentName = flavorName;
             const sessionName = session.metadata?.summary?.text
                 || session.metadata?.name
                 || `${t('machine.untitledSession')} ${session.id.slice(0, 6)}`;
@@ -229,7 +211,6 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                     firstMessageSummary,
                     projectName,
                     machineName,
-                    ...matchingAgentNames,
                     session.metadata?.flavor,
                 ].filter((value): value is string => Boolean(value)),
                 icon: 'time-outline',
@@ -266,7 +247,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         }
 
         return cmds;
-    }, [router, sessions, firstUserMessageSummaries, machines, agents, currentViewingSessionId, navigateToSession, confirmLogout, openSettings]);
+    }, [router, sessions, firstUserMessageSummaries, machines, currentViewingSessionId, navigateToSession, confirmLogout, openSettings]);
 
     const showCommandPalette = useCallback(() => {
         if (Platform.OS !== 'web' || paletteOpeningRef.current) return;
