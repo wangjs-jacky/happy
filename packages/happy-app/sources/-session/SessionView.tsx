@@ -52,8 +52,7 @@ import { isTauri } from '@/utils/isTauri';
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
-import { AgentSpaceExitButton, SessionRightPanelContent } from '@/components/agents/SessionAgentSpaceBoundary';
-import { useAgentSpace, useSpaceAgentForSession } from '@/hooks/useAgentSpace';
+import { SessionRightPanelContent } from '@/components/agents/SessionAgentSpaceBoundary';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -848,12 +847,6 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         });
     }, [sessionId, updateSidebarOrganization]);
     const constrainedDrawerHeader = compactSessionHeader && compactRightDrawerAvailable && rightDrawerOpen;
-    // 会话内「进入空间/退出空间」：进入 = 设 agentSpaceId + 拉出工作台抽屉；退出 = 清空间并回首页。
-    const { enter: enterSpace, exit: exitSpace } = useAgentSpace();
-
-    // Resolve the session's persisted Agent once through the canonical matcher,
-    // then share that identity between the header skin and the phone panel.
-    const spaceAgent = useSpaceAgentForSession(session);
     workspaceStyles.useVariants({
         agentChipDensity: constrainedDrawerHeader ? 'constrained' : 'regular',
         headerDensity: compactSessionHeader ? 'compact' : 'regular',
@@ -900,48 +893,13 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         ) : sessionHeaderChip
     ) : undefined;
 
-    // 「空间皮肤」会话顶栏（第三张图）：会话属于某空间 Agent 时，顶栏染 accent 色 + 头像 + 会话名，
-    // 左「进入空间」拉出工作台抽屉、右「退出空间」离开空间回首页。发送键/气泡保持原样。
-    const spaceTint = '#FFFFFF';
-    const enterSpaceButton = spaceAgent ? (
-        <Pressable
-            onPress={() => { enterSpace(spaceAgent.id); openSessionList(); }}
-            hitSlop={12}
-            style={{ paddingHorizontal: 8, paddingVertical: 4 }}
-        >
-            <Ionicons name="albums-outline" size={22} color={spaceTint} />
-        </Pressable>
-    ) : undefined;
-    const exitSpaceButton = spaceAgent ? (
-        <AgentSpaceExitButton
-            color={spaceTint}
-            onPress={() => { exitSpace(); router.navigate('/'); }}
-        />
-    ) : undefined;
-    const spaceTitleSlot = spaceAgent ? (
-        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 15 }}>{spaceAgent.glyph}</Text>
-            </View>
-            {isTablet ? (
-                <SessionHeaderTitle availableTags={sidebarOrganization.tags} onAddTag={addSessionTag} session={session!} tags={sessionTags} title={headerProps.title} tintColor={spaceTint} />
-            ) : (
-                <Text numberOfLines={1} ellipsizeMode="tail" style={{ flex: 1, minWidth: 0, color: spaceTint, fontSize: 15, fontWeight: '600' }}>
-                    {headerProps.title}
-                </Text>
-            )}
-        </View>
-    ) : undefined;
-
     const subagentPanelLabel = subagentSelection
         ? t('toolGroup.subagentPanelLabel', { title: subagentSelection.title ?? subagentSelection.id })
         : null;
     const desktopPanelLabel = subagentPanelLabel ?? (desktopPanelMode === 'files' && canShowFilePanel
         ? t('common.files')
         : t('rightPanelCapabilityHub.title'));
-    const compactPanelLabel = subagentPanelLabel ?? (spaceAgent
-        ? t('agentSpace.companion.panelTitle')
-        : t('rightPanelCapabilityHub.title'));
+    const compactPanelLabel = subagentPanelLabel ?? t('rightPanelCapabilityHub.title');
     const rightPanelToggleLabel = desktopRightPanelAvailable
         ? desktopPanelLabel
         : compactPanelLabel;
@@ -965,7 +923,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         />
     ) : null;
 
-    const moreButton = isTablet && !spaceAgent ? (
+    const moreButton = isTablet ? (
         <SessionHeaderMoreAction
             expanded={infoPanelOpen}
             onPress={() => setInfoPanelOpen((value) => !value)}
@@ -975,7 +933,6 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         <View style={workspaceStyles.headerActions}>
             {moreButton}
             {rightPanelToggleButton}
-            {spaceAgent ? exitSpaceButton : null}
         </View>
     );
     const overlayHeaderRightSlot = (
@@ -1041,14 +998,11 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         extraPathSegment={fileViewPath ?? undefined}
-                        backgroundColor={spaceAgent ? spaceAgent.color : undefined}
-                        tintColor={spaceAgent ? spaceTint : undefined}
                         headerContentLeftInset={persistentHeaderContentInset}
                         compactRightSlot={compactSessionHeader}
-                        leftSlot={enterSpaceButton}
-                        titleSlot={spaceAgent ? spaceTitleSlot : headerTitleSlot}
+                        titleSlot={headerTitleSlot}
                         rightSlot={(diffViewOpen || !!fileViewPath) ? overlayHeaderRightSlot : defaultHeaderRightSlot}
-                        onTitlePress={session && !spaceAgent ? () => router.push(`/session/${sessionId}/info`) : undefined}
+                        onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
                 </View>
@@ -1159,7 +1113,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             <SessionRightPanelContent
                 composerHandleRef={sessionComposerHandleRef}
                 sessionId={sessionId}
-                spaceAgent={spaceAgent}
+                spaceAgent={null}
             />
         );
         return (
@@ -1308,7 +1262,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                                 <SessionRightPanelContent
                                     composerHandleRef={sessionComposerHandleRef}
                                     sessionId={sessionId}
-                                    spaceAgent={spaceAgent}
+                                    spaceAgent={null}
                                 />
                             )}
                         </DesktopPresenceTransition>

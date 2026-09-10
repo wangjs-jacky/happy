@@ -56,7 +56,6 @@ vi.mock('./launchAgent', async () => {
     const actual = await vi.importActual<typeof import('./launchAgent')>('./launchAgent');
     return { ...actual, launchAgent: mocks.launchAgent };
 });
-vi.mock('./builtinAgents', () => ({ getAgentSubtitle: (agent: AgentLauncher) => agent.path }));
 vi.mock('@/utils/healthLog', () => ({
     isHealthCheckinSession: (path: string) => path.includes('健康打卡'),
 }));

@@ -5,9 +5,7 @@ type SettingsFeatureEntryTitleKey =
     | 'settings.voiceAssistant'
     | 'settings.askApi'
     | 'settings.publicImageGateway'
-    | 'agents.imageStyleAgent'
     | 'generatedImages.title'
-    | 'agents.title'
     | 'settings.agentDefaults'
     | 'settings.customInstructions'
     | 'settingsSkills.title'
@@ -18,9 +16,7 @@ type SettingsFeatureEntrySubtitleKey =
     | 'settings.voiceAssistantSubtitle'
     | 'settings.askApiSubtitle'
     | 'settings.publicImageGatewaySubtitle'
-    | 'agents.imageStyleAgentEntrySubtitle'
     | 'generatedImages.entrySubtitle'
-    | 'agents.entrySubtitle'
     | 'settings.agentDefaultsSubtitle'
     | 'settings.customInstructionsSubtitle'
     | 'settingsSkills.entrySubtitle'
@@ -61,22 +57,6 @@ export function getSettingsFeatureEntries(args: { experiments: boolean }): Setti
             icon: 'earth-outline',
             color: '#1F6F5B',
             route: '/settings/public-image-gateway',
-        },
-        {
-            key: 'image-style-agent',
-            titleKey: 'agents.imageStyleAgent',
-            subtitleKey: 'agents.imageStyleAgentEntrySubtitle',
-            icon: 'images-outline',
-            color: '#AF52DE',
-            route: '/settings/my-agent-edit?kind=image-styles',
-        },
-        {
-            key: 'my-agents',
-            titleKey: 'agents.title',
-            subtitleKey: 'agents.entrySubtitle',
-            icon: 'people-outline',
-            color: '#FF9500',
-            route: '/settings/my-agents',
         },
         {
             key: 'agent-defaults',

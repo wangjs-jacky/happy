@@ -15,8 +15,7 @@ async function installPrivacyGuards(page: Page): Promise<void> {
             style.id = 'advisor-e2e-privacy-style';
             style.textContent = `
                 [data-testid="sidebar-account-footer"],
-                [data-testid^="session-row-"],
-                [data-testid^="agent-sheet-agent-"] {
+                [data-testid^="session-row-"] {
                     filter: blur(16px) !important;
                 }
             `;
@@ -352,20 +351,19 @@ test('狗头军师 Mobile Web 真实文本、图片、停止、重试与本地�
     console.log('[advisor-e2e] 首页已就绪，开始证据段');
     await dismissPrivacyCurtain(page);
     await showStep(page, markdownOnly
-        ? '1 / 3  从「我的 Agent」进入狗头军师'
-        : '1 / 7  从「我的 Agent」进入狗头军师');
+        ? '1 / 3  从插件入口进入狗头军师'
+        : '1 / 7  从插件入口进入狗头军师');
     console.log('[advisor-e2e] 打开手机侧栏');
     await clickWithRealMouse(page, page.getByTestId('compose-home-drawer-button'));
-    const myAgentsButton = page.getByTestId('sidebar-my-agents-button');
-    await expect(myAgentsButton).toBeVisible({ timeout: 15_000 });
-    console.log('[advisor-e2e] 打开我的 Agent');
-    await myAgentsButton.click();
-    const advisorEntry = page.getByTestId('agent-sheet-relationship-advisor');
+    await expect(page.getByTestId('sidebar-my-agents-button')).toHaveCount(0);
+    const advisorEntry = page.getByTestId('sidebar-plugin-relationship-advisor-button');
     await expect(advisorEntry).toBeVisible({ timeout: 15_000 });
-    console.log('[advisor-e2e] 点击狗头军师');
+    console.log('[advisor-e2e] 点击狗头军师插件入口');
     await advisorEntry.click();
+    await expect(page.getByTestId('relationship-advisor-sidebar-history')).toBeVisible();
+    await page.getByTestId('relationship-advisor-new-conversation').click();
 
-    await expect(page).toHaveURL(/\/relationship-advisor$/);
+    await expect(page).toHaveURL(/\/relationship-advisor\?conversationId=/);
     await expect(page.getByTestId('relationship-advisor-empty-state')).toBeVisible();
     await showStep(page, markdownOnly ? '2 / 3  空态与输入区就绪' : '2 / 7  空态与输入区就绪');
     await screenshot(page, testInfo, '01-empty-state-mobile-web.png');

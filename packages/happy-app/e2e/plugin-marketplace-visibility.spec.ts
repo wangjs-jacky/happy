@@ -107,7 +107,7 @@ const evidenceMode = Boolean(
 );
 test.setTimeout(evidenceMode ? 600_000 : 120_000);
 
-test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不进入我的 Agent', async ({ page }, testInfo) => {
+test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录独立于已下线的我的 Agent', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await installDevelopmentRefreshIndicatorSuppression(page);
     let baselineCatalogMode: 'missing' | 'uninstalled' | 'installed' = 'missing';
@@ -178,21 +178,21 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
         await page.getByTestId('plugin-marketplace-close').click();
         await expect(marketplace).toHaveCount(0);
 
-        await page.getByTestId('sidebar-my-agents-button').click();
-        const agentDialog = page.getByTestId('agent-sheet-desktop-dialog');
-        await expect(agentDialog).toBeVisible();
-        const relationshipAdvisor = page.getByTestId('agent-sheet-relationship-advisor');
         if (evidencePhase === 'before') {
-            await expect(relationshipAdvisor).toBeVisible();
+            await page.getByTestId('sidebar-my-agents-button').click();
+            await expect(page.getByTestId('agent-sheet-relationship-advisor')).toBeVisible();
         } else {
-            await expect(relationshipAdvisor).toHaveCount(0);
+            await expect(page.getByTestId('sidebar-my-agents-button')).toHaveCount(0);
+            await expect(page.getByTestId('sidebar-plugin-relationship-advisor-button')).toHaveCount(0);
         }
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 2), fullPage: true });
         if (evidencePhase === 'before') baselineCatalogMode = 'installed';
 
-        await page.keyboard.press('Escape');
-        await expect(agentDialog).toHaveCount(0);
+        if (evidencePhase === 'before') {
+            await page.keyboard.press('Escape');
+            await expect(page.getByTestId('agent-sheet-desktop-dialog')).toHaveCount(0);
+        }
 
         if (evidencePhase === 'after') {
             await page.route('**/v1/plugins', async (route) => {

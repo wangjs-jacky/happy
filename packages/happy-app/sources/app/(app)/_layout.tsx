@@ -71,7 +71,6 @@ export default function RootLayout() {
             <Stack.Screen name="settings/custom-instructions" options={{ headerTitle: t('settings.customInstructions') }} />
             <Stack.Screen name="settings/features" options={{ headerTitle: t('settings.features') }} />
             <Stack.Screen name="settings/language" options={{ headerTitle: t('settings.language') }} />
-            <Stack.Screen name="settings/my-agents" options={{ headerTitle: t('agents.title') }} />
             <Stack.Screen name="settings/profile" options={{ headerTitle: t('settingsAccount.editProfile') }} />
             <Stack.Screen name="settings/public-image-gateway" options={{ headerTitle: t('settings.publicImageGateway') }} />
             <Stack.Screen name="settings/relationship-advisor" options={{ headerTitle: t('relationshipAdvisor.title') }} />

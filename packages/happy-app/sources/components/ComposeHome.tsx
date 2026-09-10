@@ -61,7 +61,6 @@ import {
 } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
-import { createAppBuilderAgent } from './agents/builtinAgents';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
 import type { UserImageStyle } from './agents/imageStyleTypes';
@@ -180,8 +179,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
-    // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
-    // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
+    // 兼容已经存在的 Agent 深链接：路由带 ?agentId=<id> 时仍可读取本地数据，
+    // 用于显示个性化问候 + 预设提示词；当前 UI 不再提供创建或进入入口。
     const { agentId, mode, sidebarListId } = useLocalSearchParams<{ agentId?: string; mode?: string; sidebarListId?: string }>();
     const agents = useLocalSetting('agents');
     const { status: generatedImagesPluginStatus } = useGeneratedImagesPlugin();
@@ -339,18 +338,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         () => machines.find((m) => m.id === selectedMachineId),
         [machines, selectedMachineId],
     );
-    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
-        machines,
-        preferredMachineId: selectedMachineId,
-        preferredPath: selectedPath,
-        title: t('agents.appBuilderTitle'),
-        presetBuildLabel: t('agents.appBuilderPresetBuild'),
-        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
-    }), [machines, selectedMachineId, selectedPath]);
     const displayAgent = React.useMemo(() => {
         if (!agentId) return null;
-        return agents.find((a) => a.id === agentId) ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
-    }, [agentId, agents, builtinAppAgent]);
+        return agents.find((a) => a.id === agentId) ?? null;
+    }, [agentId, agents]);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const headerModeSwitchExperience = React.useMemo(
         () => getHeaderModeSwitchExperience({
