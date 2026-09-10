@@ -82,11 +82,21 @@ async function connectSessionAgent(sessionId: string): Promise<() => void> {
     return () => { clearInterval(keepAlive); socket.close(); };
 }
 
-async function transcriptGeometry(page: Page): Promise<{ scrollTop: number; maxScroll: number; distanceFromBottom: number }> {
+async function transcriptGeometry(page: Page): Promise<{
+    scrollTop: number;
+    scrollHeight: number;
+    maxScroll: number;
+    distanceFromBottom: number;
+}> {
     return page.getByTestId('conversation-transcript-list').evaluate((element) => {
         const node = element as HTMLElement;
         const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight);
-        return { scrollTop: node.scrollTop, maxScroll, distanceFromBottom: Math.max(0, maxScroll - node.scrollTop) };
+        return {
+            scrollTop: node.scrollTop,
+            scrollHeight: node.scrollHeight,
+            maxScroll,
+            distanceFromBottom: Math.max(0, maxScroll - node.scrollTop),
+        };
     });
 }
 
