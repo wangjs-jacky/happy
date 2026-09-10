@@ -1193,6 +1193,10 @@ describe('CodexAppServerClient sandbox integration', () => {
             deferGoalContinuation: true,
         });
         const read = await client.readThread({ threadId: forked.threadId, includeTurns: true });
+        await client.forkThread({ threadId: 'thread-source', beforeTurnId: 'turn-first', deferGoalContinuation: true });
+        const beforeFork = requests.filter((msg) => msg.method === 'thread/fork').at(-1)?.params;
+        expect(beforeFork).toEqual(expect.objectContaining({ beforeTurnId: 'turn-first', deferGoalContinuation: true }));
+        expect(beforeFork).not.toHaveProperty('lastTurnId');
         const rolledBack = await client.rollbackThread({ threadId: forked.threadId, numTurns: 2 });
         const injected = await client.injectItems({
             threadId: forked.threadId,
@@ -1530,11 +1534,26 @@ describe('CodexAppServerClient sandbox integration', () => {
         });
 
         await client.connect();
-        await expect(client.startReviewAndWait({
+        let settled = false;
+        const review = client.startReviewAndWait({
             threadId: 'thread-review-inline',
             target: { type: 'uncommittedChanges' },
             delivery: 'inline',
-        })).resolves.toEqual({ aborted: false });
+        }).then((result) => {
+            settled = true;
+            return result;
+        });
+        await waitFor(() => events.some((event) => event.item_id === 'review-item-1'));
+        expect(settled).toBe(false);
+        expect(events.filter((event) => event.type === 'task_complete')).toEqual([]);
+        pushJsonLine(proc.stdout, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-review-inline',
+                turn: { id: 'turn-review-inline', items: [], status: 'completed', error: null },
+            },
+        });
+        await expect(review).resolves.toEqual({ aborted: false });
 
         expect(events).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'agent_message', message: 'Findings: none.', item_id: 'review-item-1', turn_id: 'turn-review-inline' }),
@@ -2457,6 +2476,13 @@ describe('CodexAppServerClient sandbox integration', () => {
                                 },
                             },
                         });
+                        pushJsonLine(stdout, {
+                            method: 'turn/completed',
+                            params: {
+                                threadId: 'thread-raw-3',
+                                turn: { id: 'turn-raw-3', items: [], status: 'completed', error: null },
+                            },
+                        });
                     }, 0);
                 }
             },
@@ -2592,7 +2618,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('falls back to final answer completion when raw turn/completed is missing', async () => {
+    it.each(['completed', 'interrupted', 'missing'] as const)('keeps working after an async question marked final_answer until turn completion is %s', async (status) => {
         const proc = createMockProcess({
             pid: 3002,
             onRequest: (msg, stdout) => {
@@ -2635,8 +2661,8 @@ describe('CodexAppServerClient sandbox integration', () => {
                                 turnId: 'turn-raw-2',
                                 item: {
                                     type: 'agentMessage',
-                                    id: 'msg-2',
-                                    text: 'still works',
+                                    id: 'call-async-question',
+                                    text: 'Which session should I inspect? I will keep investigating meanwhile.',
                                     phase: 'final_answer',
                                 },
                             },
@@ -2663,12 +2689,46 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'danger-full-access',
         });
 
-        await expect(client.sendTurnAndWait('say hi')).resolves.toEqual({ aborted: false });
+        let settled = false;
+        const turn = client.sendTurnAndWait('investigate', { turnTimeoutMs: 250 }).then((result) => {
+            settled = true;
+            return result;
+        });
+        await waitFor(() => events.some((event) => event.item_id === 'call-async-question'));
+        expect(settled).toBe(false);
+        expect(client.turnId).toBe('turn-raw-2');
+        expect(events.filter((event) => event.type === 'task_complete' || event.type === 'turn_aborted')).toEqual([]);
+
+        pushJsonLine(proc.stdout, {
+            method: 'item/completed',
+            params: {
+                threadId: 'thread-raw-2', turnId: 'turn-raw-2',
+                item: { type: 'agentMessage', id: 'progress-2', text: 'Continuing the repair.', phase: 'commentary' },
+            },
+        });
+        await waitFor(() => events.some((event) => event.item_id === 'progress-2'));
+        expect(settled).toBe(false);
+        expect(client.turnId).toBe('turn-raw-2');
+
+        if (status !== 'missing') {
+            pushJsonLine(proc.stdout, {
+                method: 'turn/completed',
+                params: {
+                    threadId: 'thread-raw-2',
+                    turn: { id: 'turn-raw-2', items: [], status, error: null },
+                },
+            });
+        }
+        await expect(turn).resolves.toEqual({ aborted: status !== 'completed' });
         expect(events).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'task_started', turn_id: 'turn-raw-2' }),
-            expect.objectContaining({ type: 'agent_message', message: 'still works' }),
-            expect.objectContaining({ type: 'task_complete', turn_id: 'turn-raw-2' }),
+            expect.objectContaining({ type: 'agent_message', message: 'Continuing the repair.' }),
+            expect.objectContaining({ type: status === 'completed' ? 'task_complete' : 'turn_aborted', turn_id: 'turn-raw-2' }),
         ]));
+        expect(events.filter((event) => event.type === 'task_complete')).toHaveLength(status === 'completed' ? 1 : 0);
+        if (status === 'missing') {
+            expect(events).toContainEqual(expect.objectContaining({ type: 'turn_aborted', reason: 'timeout' }));
+        }
 
         await client.disconnect();
     });

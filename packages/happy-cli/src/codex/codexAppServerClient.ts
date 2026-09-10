@@ -611,8 +611,7 @@ export class CodexAppServerClient {
 
         if (method === 'thread/status/changed') {
             // A parent thread may become idle while spawned agents are still running.
-            // Only turn/completed (or a root final answer fallback) is authoritative
-            // enough to close the Happy turn.
+            // Only turn/completed is authoritative enough to close the Happy turn.
             return true;
         }
 
@@ -837,14 +836,10 @@ export class CodexAppServerClient {
                 });
             }
 
-            if (this.isRootThreadNotification(params) && item.phase === 'final_answer' && this.pendingTurnCompletion) {
-                this.emitRawTurnCompletion(
-                    turnId,
-                    'completed',
-                    null,
-                    `${method}:final_answer`,
-                );
-            }
+            // Item completion only closes this message. Codex can label an async
+            // user-input question final_answer and continue the same turn after
+            // it. Keep the turn, inactivity watchdog, and interrupt target alive
+            // until turn/completed supplies the actual terminal status.
             return true;
         }
 
@@ -862,14 +857,7 @@ export class CodexAppServerClient {
                 });
             }
 
-            if (this.isRootThreadNotification(params) && this.pendingTurnCompletion) {
-                this.emitRawTurnCompletion(
-                    turnId,
-                    'completed',
-                    null,
-                    `${method}:exitedReviewMode`,
-                );
-            }
+            // Review output is an item too; wait for the enclosing turn to end.
             return true;
         }
 
@@ -1292,6 +1280,7 @@ export class CodexAppServerClient {
     async forkThread(opts: {
         threadId: string;
         lastTurnId?: string;
+        beforeTurnId?: string;
         model?: string;
         cwd?: string;
         approvalPolicy?: ApprovalPolicy;
@@ -1303,6 +1292,7 @@ export class CodexAppServerClient {
         const params: ForkConversationParams = {
             threadId: opts.threadId,
             ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
+            ...(opts.beforeTurnId ? { beforeTurnId: opts.beforeTurnId } : {}),
             model: opts.model ?? defaults.model ?? null,
             modelProvider: null,
             cwd: opts.cwd ?? defaults.cwd ?? process.cwd(),

@@ -1,8 +1,63 @@
 import * as React from 'react';
 import { View } from 'react-native';
+import { acquireStreamingVideo } from './streamingVideoCache';
 import type { MediaAttachmentPlayerProps } from './MediaAttachmentPlayer.types';
 
 export function MediaAttachmentPlayer(props: MediaAttachmentPlayerProps) {
+    if (props.kind === 'video' && props.reuseKey && Object.keys(props.headers).length === 0 && /^https?:\/\//i.test(props.uri)) {
+        return <ReusableStreamingVideo key={props.reuseKey} {...props} reuseKey={props.reuseKey} />;
+    }
+    return <UncachedMediaAttachmentPlayer {...props} />;
+}
+
+function ReusableStreamingVideo(props: MediaAttachmentPlayerProps & { reuseKey: string }) {
+    const host = React.useRef<HTMLDivElement>(null);
+    const retried = React.useRef(false);
+    const [refreshed, setRefreshed] = React.useState<{ original: string; uri: string } | null>(null);
+    const uri = refreshed?.original === props.uri ? refreshed.uri : props.uri;
+    const latest = React.useRef(props);
+    latest.current = props;
+    React.useLayoutEffect(() => {
+        if (props.isSourceCurrent?.() === false) return;
+        const lease = acquireStreamingVideo(props.reuseKey, uri);
+        const video = lease.video;
+        let cancelled = false;
+        video.controls = true;
+        video.playsInline = true;
+        video.autoplay = false;
+        Object.assign(video.style, { width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000', borderRadius: '12px' });
+        host.current!.appendChild(video);
+        const onError = () => {
+            const refresh = latest.current.refreshSource;
+            if (!refresh || retried.current) return;
+            retried.current = true;
+            void refresh().then(source => {
+                if (!cancelled && latest.current.isSourceCurrent?.() !== false && Object.keys(source.headers).length === 0 && /^https?:\/\//i.test(source.uri)) {
+                    setRefreshed({ original: props.uri, uri: source.uri });
+                }
+            }).catch(() => { /* Leave native error controls available after one recovery attempt. */ });
+        };
+        video.addEventListener('error', onError);
+        return () => {
+            cancelled = true;
+            video.removeEventListener('error', onError);
+            lease.release();
+        };
+    }, [props.reuseKey, props.uri, props.isSourceCurrent, refreshed]);
+    React.useLayoutEffect(() => {
+        const video = host.current?.querySelector('video');
+        if (!video) return;
+        video.title = props.title;
+        if (props.posterUri) video.poster = props.posterUri;
+        else video.removeAttribute('poster');
+    }, [props.title, props.posterUri, uri]);
+    return <View testID={props.testID} style={{ width: '100%', maxWidth: 960,
+        aspectRatio: props.aspectRatio ?? 16 / 9, backgroundColor: '#000', position: 'relative', borderRadius: 12, overflow: 'hidden' }}>
+        <div ref={host} style={{ width: '100%', height: '100%' }} />
+    </View>;
+}
+
+function UncachedMediaAttachmentPlayer(props: MediaAttachmentPlayerProps) {
     const [source, setSource] = React.useState(() => (
         Object.keys(props.headers).length === 0 ? props.uri : null
     ));

@@ -1,5 +1,4 @@
 import type { PermissionMode } from '@/api/types';
-import { BROWSER_STEP_REPORTING_INSTRUCTION } from '@/browser/browserStepReportingPrompt';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import { hashObject } from '@/utils/deterministicJson';
 
@@ -95,7 +94,6 @@ export function buildCodexTurnPrompt(opts: {
     message: string;
     mode: Pick<CodexEnhancedMode, 'appendSystemPrompt' | 'model' | 'effort' | 'fast'>;
     includeAppendSystemPrompt: boolean;
-    includeBrowserStepInstruction: boolean;
     includeSkillPathResolutionInstruction?: boolean;
     includeTitleInstruction: boolean;
 }): string {
@@ -105,14 +103,6 @@ export function buildCodexTurnPrompt(opts: {
         parts.push(
             CODEX_HAPPY_SYSTEM_PROMPT_START,
             opts.mode.appendSystemPrompt,
-            CODEX_HAPPY_SYSTEM_PROMPT_END,
-        );
-    }
-
-    if (opts.includeBrowserStepInstruction) {
-        parts.push(
-            CODEX_HAPPY_SYSTEM_PROMPT_START,
-            BROWSER_STEP_REPORTING_INSTRUCTION,
             CODEX_HAPPY_SYSTEM_PROMPT_END,
         );
     }

@@ -19,13 +19,8 @@ vi.mock('react-native', async () => {
         }));
         return ReactModule.createElement('Pressable', props, props.children);
     });
-    const Modal = (props: any) => props.visible
-        ? ReactModule.createElement('Modal', props, props.children)
-        : null;
-
     return {
         ActivityIndicator: 'ActivityIndicator',
-        Modal,
         Platform: {
             OS: 'ios',
             select: (values: Record<string, unknown>) => values.ios ?? values.default,
@@ -112,7 +107,7 @@ vi.mock('react-native-unistyles', () => {
 
 import { MessageComposer } from './MessageComposer';
 
-describe('MessageComposer screenshot action', () => {
+describe('MessageComposer capture controls', () => {
     let renderer: any;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -128,50 +123,19 @@ describe('MessageComposer screenshot action', () => {
         consoleErrorSpy.mockRestore();
     });
 
-    it('captures immediately when the camera button is pressed and never opens a target menu', () => {
-        const onCaptureScreenshot = vi.fn();
+    it('does not render the removed screenshot button', () => {
         act(() => {
-            renderer = TestRenderer.create(
-                <MessageComposer
-                    mode="session"
-                    initialValue=""
-                    placeholder="Message"
-                    onSend={vi.fn()}
-                    onCaptureScreenshot={onCaptureScreenshot}
-                />,
-            );
+            renderer = TestRenderer.create(React.createElement(MessageComposer, {
+                mode: 'session',
+                initialValue: '',
+                placeholder: 'Message',
+                onSend: vi.fn(),
+                onCaptureScreenshot: vi.fn(),
+            } as any));
         });
 
-        const cameraButton = renderer.root.findByProps({
+        expect(renderer.root.findAllByProps({
             accessibilityLabel: 'components.messageComposer.screenshot',
-        });
-        act(() => cameraButton.props.onPress());
-
-        expect(onCaptureScreenshot).toHaveBeenCalledOnce();
-        expect(onCaptureScreenshot).toHaveBeenCalledWith();
-        expect(renderer.root.findAllByType('Modal')).toHaveLength(0);
-    });
-
-    it('disables capture while a screenshot request is already in flight', () => {
-        const onCaptureScreenshot = vi.fn();
-        act(() => {
-            renderer = TestRenderer.create(
-                <MessageComposer
-                    mode="session"
-                    initialValue=""
-                    placeholder="Message"
-                    onSend={vi.fn()}
-                    onCaptureScreenshot={onCaptureScreenshot}
-                    screenshotCapturing
-                />,
-            );
-        });
-
-        const cameraButton = renderer.root.findByProps({
-            accessibilityLabel: 'components.messageComposer.screenshot',
-        });
-        expect(cameraButton.props.disabled).toBe(true);
-        act(() => cameraButton.props.onPress());
-        expect(onCaptureScreenshot).not.toHaveBeenCalled();
+        })).toHaveLength(0);
     });
 });

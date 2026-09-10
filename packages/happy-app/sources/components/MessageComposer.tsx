@@ -105,14 +105,6 @@ interface MessageComposerProps {
     onPickImages?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
-    /** Captures the full desktop immediately when the camera button is pressed. */
-    onCaptureScreenshot?: () => void;
-    /**
-     * True while a screenshot capture RPC is in flight (1-5s round-trip). When
-     * set, the camera button swaps its icon for a spinner so the tap isn't a
-     * silent wait with no feedback.
-     */
-    screenshotCapturing?: boolean;
 }
 
 const MAX_CONTEXT_SIZE = 190000;
@@ -501,12 +493,6 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
 
     const agentInputEnterToSend = useSetting('agentInputEnterToSend');
 
-
-    const handleCaptureScreenshot = React.useCallback(() => {
-        if (props.screenshotCapturing) return;
-        hapticsLight();
-        props.onCaptureScreenshot?.();
-    }, [props.onCaptureScreenshot, props.screenshotCapturing]);
 
     // Abort button state
     const [isAborting, setIsAborting] = React.useState(false);
@@ -933,39 +919,6 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                 ? theme.colors.radio.active
                                                 : theme.colors.button.secondary.tint}
                                         />
-                                    </Pressable>
-                                )}
-
-                                {/* Full-desktop screenshot button */}
-                                {props.onCaptureScreenshot && (
-                                    <Pressable
-                                        accessibilityLabel={t('components.messageComposer.screenshot')}
-                                        onPress={handleCaptureScreenshot}
-                                        disabled={props.screenshotCapturing}
-                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                        style={(p) => ({
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            borderRadius: Platform.select({ default: 16, android: 20 }),
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 6,
-                                            justifyContent: 'center',
-                                            height: 32,
-                                            opacity: props.screenshotCapturing ? 0.6 : (p.pressed ? 0.7 : 1),
-                                        })}
-                                    >
-                                        {props.screenshotCapturing ? (
-                                            <ActivityIndicator
-                                                size="small"
-                                                color={theme.colors.button.secondary.tint}
-                                            />
-                                        ) : (
-                                            <Ionicons
-                                                name="camera-outline"
-                                                size={16}
-                                                color={theme.colors.button.secondary.tint}
-                                            />
-                                        )}
                                     </Pressable>
                                 )}
 

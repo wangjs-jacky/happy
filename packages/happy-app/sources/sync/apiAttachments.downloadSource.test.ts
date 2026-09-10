@@ -1,10 +1,10 @@
 import type { AuthCredentials } from '@/auth/tokenStorage';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { requestAttachmentDownloadSource } from './apiAttachments';
+import { invalidateLocalHistorySession } from './localHistoryStore';
 
-vi.mock('./serverConfig', () => ({
-    getServerUrl: () => 'https://api.test',
-}));
+const server = vi.hoisted(() => ({ url: 'https://api.test' }));
+vi.mock('./serverConfig', () => ({ getServerUrl: () => server.url }));
 vi.mock('@/auth/tokenStorage', () => ({}));
 vi.mock('./uploadFormFile', () => ({ appendFormFile: vi.fn() }));
 
@@ -31,7 +31,12 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe('requestAttachmentDownloadSource', () => {
+    beforeEach(() => {
+        server.url = 'https://api.test';
+        invalidateLocalHistorySession('descriptor-tests', 'reset');
+    });
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
@@ -52,6 +57,17 @@ describe('requestAttachmentDownloadSource', () => {
         ]);
     });
 
+    it('bypasses a cached descriptor when the media reports a playback error', async () => {
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/old' }))
+            .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/fresh' }));
+        vi.stubGlobal('fetch', fetchMock);
+        await requestAttachmentDownloadSource(credentials, 'session-1', 'file-1');
+        const refreshed = await requestAttachmentDownloadSource(credentials, 'session-1', 'file-1', { forceRefresh: true });
+        expect(refreshed.uri).toBe('https://objects.test/fresh');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('removes a rejected request so a later retry fetches again', async () => {
         const fetchMock = vi.fn<typeof fetch>()
             .mockRejectedValueOnce(new Error('temporary failure'))
@@ -65,7 +81,7 @@ describe('requestAttachmentDownloadSource', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('fetches again for a sequential request after the first one succeeds', async () => {
+    it('reuses a successful descriptor for sequential consumers within its short TTL', async () => {
         const fetchMock = vi.fn<typeof fetch>()
             .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/file-1' }))
             .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/file-1' }));
@@ -74,7 +90,7 @@ describe('requestAttachmentDownloadSource', () => {
         await requestAttachmentDownloadSource(credentials, 'session-1', 'file-1');
         await requestAttachmentDownloadSource(credentials, 'session-1', 'file-1');
 
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('does not coalesce distinct session and ref tuples that share a delimiter', async () => {
@@ -165,9 +181,102 @@ describe('requestAttachmentDownloadSource', () => {
         });
         firstResponse.resolve(jsonResponse({ downloadUrl: 'https://api.test/first' }));
         secondResponse.resolve(jsonResponse({ downloadUrl: 'https://api.test/second' }));
-        await expect(Promise.all([first, second])).resolves.toEqual([
-            { uri: 'https://api.test/first', headers: { Authorization: 'Bearer old-token' } },
-            { uri: 'https://api.test/second', headers: { Authorization: 'Bearer new-token' } },
-        ]);
+        await expect(first).rejects.toThrow('Attachment context expired');
+        await expect(second).resolves.toEqual({ uri: 'https://api.test/second', headers: { Authorization: 'Bearer new-token' } });
     });
+    it('refreshes after 60 seconds and keeps server contexts separate', async () => {
+        vi.useFakeTimers();
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ downloadUrl: 'https://objects.test/ttl' }));
+        vi.stubGlobal('fetch', fetchMock);
+        await requestAttachmentDownloadSource(credentials, 'ttl', 'ref');
+        await requestAttachmentDownloadSource(credentials, 'ttl', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(60_001);
+        await requestAttachmentDownloadSource(credentials, 'ttl', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        server.url = 'https://api.test/alternate';
+        await requestAttachmentDownloadSource(credentials, 'ttl', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        server.url = 'https://other.test';
+        await requestAttachmentDownloadSource(credentials, 'ttl', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it.each([
+        'https://objects.test/signed?X-Amz-Date=20260909T000000Z&X-Amz-Expires=20',
+        'https://objects.test/signed?x-oss-date=20260909T000000Z&x-oss-expires=20',
+        'https://objects.test/signed?Expires=1788912020',
+    ])('stops reusing signed descriptors before actual expiry: %s', async uri => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-09-09T00:00:00Z'));
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ downloadUrl: uri }));
+        vi.stubGlobal('fetch', fetchMock);
+        await requestAttachmentDownloadSource(credentials, 'expiry', 'ref');
+        await requestAttachmentDownloadSource(credentials, 'expiry', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        vi.advanceTimersByTime(16_000);
+        await requestAttachmentDownloadSource(credentials, 'expiry', 'ref');
+        await requestAttachmentDownloadSource(credentials, 'expiry', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+        'https://objects.test/signed?X-Amz-Date=20260908T000000Z&X-Amz-Expires=20',
+        'https://objects.test/signed?X-Amz-Date=invalid&X-Amz-Expires=20',
+    ])('does not cache expired or malformed signature deadlines: %s', async uri => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-09-09T00:00:00Z'));
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ downloadUrl: uri }));
+        vi.stubGlobal('fetch', fetchMock);
+        await requestAttachmentDownloadSource(credentials, 'expired', 'ref');
+        await requestAttachmentDownloadSource(credentials, 'expired', 'ref');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('evicts least recently used descriptors after 64 entries', async () => {
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ downloadUrl: 'https://objects.test/lru' }));
+        vi.stubGlobal('fetch', fetchMock);
+        for (let i = 0; i < 64; i++) await requestAttachmentDownloadSource(credentials, 'lru', String(i));
+        await requestAttachmentDownloadSource(credentials, 'lru', '0');
+        await requestAttachmentDownloadSource(credentials, 'lru', '64');
+        expect(fetchMock).toHaveBeenCalledTimes(65);
+        await requestAttachmentDownloadSource(credentials, 'lru', '0');
+        expect(fetchMock).toHaveBeenCalledTimes(65);
+        await requestAttachmentDownloadSource(credentials, 'lru', '1');
+        expect(fetchMock).toHaveBeenCalledTimes(66);
+    });
+
+    it('invalidates successful descriptors and rejects late responses after ownership invalidation', async () => {
+        const pending = deferred<Response>();
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/first' }))
+            .mockReturnValueOnce(pending.promise)
+            .mockResolvedValueOnce(jsonResponse({ downloadUrl: 'https://objects.test/fresh' }));
+        vi.stubGlobal('fetch', fetchMock);
+        await requestAttachmentDownloadSource(credentials, 'invalidate', 'ref');
+        invalidateLocalHistorySession('descriptor-tests', 'invalidate');
+        const stale = requestAttachmentDownloadSource(credentials, 'invalidate', 'ref');
+        invalidateLocalHistorySession('descriptor-tests', 'invalidate');
+        pending.resolve(jsonResponse({ downloadUrl: 'https://objects.test/stale' }));
+        await expect(stale).rejects.toThrow('Attachment context expired');
+        await expect(requestAttachmentDownloadSource(credentials, 'invalidate', 'ref'))
+            .resolves.toEqual({ uri: 'https://objects.test/fresh', headers: {} });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('checks each coalesced consumer ownership after credential rotation', async () => {
+        const response = deferred<Response>();
+        const owner = { token: 'shared-token', secret: 'secret' };
+        const rotated = { ...owner };
+        const fetchMock = vi.fn<typeof fetch>().mockReturnValue(response.promise);
+        vi.stubGlobal('fetch', fetchMock);
+        const first = requestAttachmentDownloadSource(owner, 'consumer', 'ref');
+        const second = requestAttachmentDownloadSource(rotated, 'consumer', 'ref');
+        rotated.token = 'new-token';
+        response.resolve(jsonResponse({ downloadUrl: 'https://objects.test/shared' }));
+        await expect(first).resolves.toEqual({ uri: 'https://objects.test/shared', headers: {} });
+        await expect(second).rejects.toThrow('Attachment context expired');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
 });

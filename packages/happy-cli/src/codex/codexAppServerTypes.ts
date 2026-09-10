@@ -135,6 +135,7 @@ export type Thread = {
 export type ForkConversationParams = {
     threadId: ThreadId;
     lastTurnId?: string | null;
+    beforeTurnId?: string | null;
     model?: string | null;
     modelProvider?: string | null;
     cwd?: string | null;

@@ -29,6 +29,10 @@ import {
 } from '@/components/agents/imageStyleOptions';
 import { MAX_IMAGE_AGENT_VARIANTS_PER_STYLE } from '@/components/agents/imageAgentPrompt';
 import { CodeBlockCopyButton } from './CodeBlockCopyButton';
+import {
+    getMarkdownTypography,
+    type MarkdownTypographyMode,
+} from './markdownTypography';
 
 // Option type for callback
 export type Option = {
@@ -37,10 +41,21 @@ export type Option = {
 
 export type MarkdownViewVariant = 'default' | 'foldedPrompt';
 
+const MarkdownTypographyContext = React.createContext<MarkdownTypographyMode>('default');
+
+function useMarkdownTypographyMode(): MarkdownTypographyMode {
+    return React.useContext(MarkdownTypographyContext);
+}
+
+function useMarkdownTypography() {
+    return getMarkdownTypography(useMarkdownTypographyMode());
+}
+
 export const MarkdownView = React.memo((props: { 
     markdown: string;
     onOptionPress?: (option: Option) => void;
     sessionId?: string;
+    typography?: MarkdownTypographyMode;
     variant?: MarkdownViewVariant;
 }) => {
     const blocks = React.useMemo(() => parseMarkdown(props.markdown), [props.markdown]);
@@ -74,8 +89,9 @@ export const MarkdownView = React.memo((props: {
     }, [props.markdown, router]);
     const renderContent = () => {
         return (
-            <View style={{ width: '100%' }}>
-                {blocks.map((block, index) => {
+            <MarkdownTypographyContext.Provider value={props.typography ?? 'default'}>
+                <View style={{ width: '100%' }}>
+                    {blocks.map((block, index) => {
                     if (block.type === 'text') {
                         return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} variant={variant} />;
                     } else if (block.type === 'header') {
@@ -89,7 +105,7 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'code-block') {
                         return <RenderCodeBlock content={block.content} language={block.language} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} variant={variant} />;
                     } else if (block.type === 'mermaid') {
-                        return <MermaidRenderer content={block.content} key={index} />;
+                        return <MermaidRenderer content={block.content} key={index} typography={props.typography} />;
                     } else if (block.type === 'options') {
                         return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} variant={variant} />;
                     } else if (block.type === 'table') {
@@ -103,8 +119,9 @@ export const MarkdownView = React.memo((props: {
                     } else {
                         return null;
                     }
-                })}
-            </View>
+                    })}
+                </View>
+            </MarkdownTypographyContext.Provider>
         );
     }
 
@@ -145,21 +162,25 @@ type RenderSpanProps = {
 
 function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
     const textStyle = getTextStyle(props.variant);
-    return <Text selectable={props.selectable} style={[textStyle, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={textStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>;
+    const typography = useMarkdownTypography();
+    const resolvedTextStyle = [textStyle, typography.body];
+    return <Text selectable={props.selectable} style={[resolvedTextStyle, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={resolvedTextStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>;
 }
 
 function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
+    const typography = useMarkdownTypography();
     const s = (style as any)[`header${props.level}`];
     const headerStyle = props.variant === 'foldedPrompt'
-        ? [style.foldedHeader, props.first && style.first, props.last && style.last]
-        : [style.header, s, props.first && style.first, props.last && style.last];
+        ? [style.foldedHeader, typography.strong, props.first && style.first, props.last && style.last]
+        : [style.header, s, typography.strong, props.first && style.first, props.last && style.last];
     return <Text selectable={props.selectable} style={headerStyle}><RenderSpans spans={props.spans} baseStyle={headerStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>;
 }
 
 const BULLETS = ['•', '◦', '▪'] as const;
 
 function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
-    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList];
+    const typography = useMarkdownTypography();
+    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList, typography.body];
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
@@ -173,7 +194,8 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
 }
 
 function RenderNumberedListBlock(props: { items: { number: number, depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
-    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList];
+    const typography = useMarkdownTypography();
+    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList, typography.body];
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
@@ -188,6 +210,8 @@ function RenderNumberedListBlock(props: { items: { number: number, depth: number
 
 function RenderCodeBlock(props: { content: string, language: string | null, first: boolean, last: boolean, selectable: boolean, variant: MarkdownViewVariant }) {
     const { theme } = useUnistyles();
+    const typographyMode = useMarkdownTypographyMode();
+    const typography = getMarkdownTypography(typographyMode);
     const [isHovered, setIsHovered] = React.useState(false);
     const foldedPrompt = props.variant === 'foldedPrompt';
 
@@ -199,7 +223,7 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
             // @ts-ignore - Web only events
             onMouseLeave={() => setIsHovered(false)}
         >
-            {props.language && <Text selectable={props.selectable} style={style.codeLanguage}>{props.language}</Text>}
+            {props.language && <Text selectable={props.selectable} style={[style.codeLanguage, typography.inlineCode]}>{props.language}</Text>}
             <HorizontalScrollView
                 contentContainerStyle={foldedPrompt ? style.foldedCodeContent : style.codeContent}
                 testID="markdown-code-scroll"
@@ -210,11 +234,13 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
                     selectable={props.selectable}
                     textStyle={foldedPrompt ? style.foldedCodeText : undefined}
                     monochromeColor={foldedPrompt ? theme.colors.textSecondary : undefined}
+                    typography={typographyMode}
                 />
             </HorizontalScrollView>
             <CodeBlockCopyButton
                 content={props.content}
                 visible={Platform.OS !== 'web' || isHovered}
+                typography={typographyMode}
             />
         </View>
     );
@@ -222,6 +248,7 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
 
 function RenderImageBlock(props: { url: string, alt: string, first: boolean, last: boolean }) {
     const accessibleLabel = props.alt || 'Markdown image';
+    const typography = useMarkdownTypography();
 
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
@@ -239,7 +266,7 @@ function RenderImageBlock(props: { url: string, alt: string, first: boolean, las
                 />
             </Pressable>
             {props.alt ? (
-                <Text style={style.imageCaption}>{props.alt}</Text>
+                <Text style={[style.imageCaption, typography.body]}>{props.alt}</Text>
             ) : null}
         </View>
     );
@@ -270,6 +297,7 @@ function RenderOptionsBlock(props: {
     variant: MarkdownViewVariant,
 }) {
     const { theme } = useUnistyles();
+    const typography = useMarkdownTypography();
     const imageStyleOptions = React.useMemo(() => parseImageStyleOptions(props.items), [props.items]);
 
     if (props.onOptionPress && imageStyleOptions.length > 0) {
@@ -315,13 +343,13 @@ function RenderOptionsBlock(props: {
                             ]}
                             onPress={() => props.onOptionPress?.({ title: item })}
                         >
-                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{item}</Text>
+                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText, typography.body]}>{item}</Text>
                         </Pressable>
                     );
                 } else {
                     return (
                         <View key={index} style={[style.optionItem, props.variant === 'foldedPrompt' && style.foldedOptionItem]}>
-                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{item}</Text>
+                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText, typography.body]}>{item}</Text>
                         </View>
                     );
                 }
@@ -331,7 +359,7 @@ function RenderOptionsBlock(props: {
                     <View style={style.optionCustomRow}>
                         <TextInput
                             ref={inputRef}
-                            style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput]}
+                            style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput, typography.body]}
                             value={customText}
                             onChangeText={setCustomText}
                             placeholder={t('agentInput.customOptionPlaceholder')}
@@ -365,7 +393,7 @@ function RenderOptionsBlock(props: {
                         onPress={() => setCustomMode(true)}
                     >
                         <Ionicons name="create-outline" size={16} color={theme.colors.textSecondary} />
-                        <Text style={[style.optionText, style.optionOtherText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{t('agentInput.customOption')}</Text>
+                        <Text style={[style.optionText, style.optionOtherText, props.variant === 'foldedPrompt' && style.foldedOptionText, typography.body]}>{t('agentInput.customOption')}</Text>
                     </Pressable>
                 )
             ) : null}
@@ -380,6 +408,7 @@ function RenderImageStyleOptionsBlock(props: {
     onOptionPress: (option: Option) => void;
     variant: MarkdownViewVariant;
 }) {
+    const typography = useMarkdownTypography();
     const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
     const [drawCount, setDrawCount] = React.useState(1);
     const selectedStyles = React.useMemo(() => {
@@ -429,6 +458,7 @@ function RenderImageStyleOptionsBlock(props: {
                                     style.imageStyleOptionText,
                                     props.variant === 'foldedPrompt' && style.foldedImageStyleOptionText,
                                     selected && style.imageStyleOptionTextSelected,
+                                    typography.strong,
                                 ]}
                                 numberOfLines={2}
                             >
@@ -444,7 +474,7 @@ function RenderImageStyleOptionsBlock(props: {
             <View style={style.imageStyleDrawRow}>
                 <View style={style.imageStyleDrawLabel}>
                     <Ionicons name="dice-outline" size={15} color={style.imageStyleDrawLabelText.color} />
-                    <Text style={style.imageStyleDrawLabelText} numberOfLines={1}>
+                    <Text style={[style.imageStyleDrawLabelText, typography.strong]} numberOfLines={1}>
                         {t('agents.imageVariantsPerStyle', { count: drawCount })}
                     </Text>
                 </View>
@@ -461,7 +491,7 @@ function RenderImageStyleOptionsBlock(props: {
                                     pressed && style.optionItemPressed,
                                 ]}
                             >
-                                <Text style={[style.imageStyleDrawOptionText, selected && style.imageStyleDrawOptionTextSelected]}>
+                                <Text style={[style.imageStyleDrawOptionText, selected && style.imageStyleDrawOptionTextSelected, typography.strong]}>
                                     {count}
                                 </Text>
                             </Pressable>
@@ -479,7 +509,7 @@ function RenderImageStyleOptionsBlock(props: {
                 disabled={selectedCount === 0}
                 onPress={submit}
             >
-                <Text style={style.imageStyleOptionSendText}>
+                <Text style={[style.imageStyleOptionSendText, typography.strong]}>
                     {t('common.continue')} · {selectedCount}/{MAX_IMAGE_STYLE_OPTION_COUNT}
                 </Text>
                 <Ionicons name="arrow-up" size={16} color={style.imageStyleOptionSendIcon.color} />
@@ -490,6 +520,7 @@ function RenderImageStyleOptionsBlock(props: {
 
 function RenderSpans(props: RenderSpanProps) {
     const variant = props.variant ?? 'default';
+    const typography = useMarkdownTypography();
     return (<>
         {props.spans.map((span, index) => {
             if (span.url) {
@@ -499,7 +530,7 @@ function RenderSpans(props: RenderSpanProps) {
                         key={index}
                         selectable={props.selectable}
                         accessibilityRole={isExternalLink ? 'link' : undefined}
-                        style={[props.baseStyle, isExternalLink && getLinkStyle(variant), span.styles.map(s => getSpanStyle(s, variant))]}
+                        style={[props.baseStyle, isExternalLink && getLinkStyle(variant), isExternalLink && typography.body, span.styles.map(s => [getSpanStyle(s, variant), getSpanTypographyStyle(s, typography)])]}
                         {...(isExternalLink && Platform.OS === 'web' ? { onClick: () => props.onLinkPress(span.url!) } as any : {})}
                         onPress={isExternalLink && Platform.OS !== 'web'
                             ? () => props.onLinkPress(span.url!)
@@ -509,7 +540,7 @@ function RenderSpans(props: RenderSpanProps) {
                     </Text>
                 );
             } else {
-                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => getSpanStyle(s, variant))]}>{span.text}</Text>
+                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => [getSpanStyle(s, variant), getSpanTypographyStyle(s, typography)])]}>{span.text}</Text>
             }
         })}
     </>)
@@ -528,6 +559,16 @@ function getSpanStyle(spanStyle: MarkdownSpan['styles'][number], variant: Markdo
         return style.foldedCode;
     }
     return style[spanStyle];
+}
+
+function getSpanTypographyStyle(
+    spanStyle: MarkdownSpan['styles'][number],
+    typography: ReturnType<typeof getMarkdownTypography>,
+) {
+    if (spanStyle === 'code') return typography.inlineCode;
+    if (spanStyle === 'italic') return typography.italic;
+    if (spanStyle === 'bold' || spanStyle === 'semibold') return typography.strong;
+    return undefined;
 }
 
 // Plain-text length of a span array — used to estimate column widths.
@@ -560,15 +601,18 @@ function RenderTableBlock(props: {
     last: boolean,
     variant: MarkdownViewVariant,
 }) {
+    const typography = useMarkdownTypography();
     const columnCount = props.headers.length;
     const rowCount = props.rows.length;
     const isLastCol = (colIndex: number) => colIndex === columnCount - 1;
     const isLastRow = (rowIndex: number) => rowIndex === rowCount - 1;
     const foldedPrompt = props.variant === 'foldedPrompt';
     const headerTextStyle = foldedPrompt
-        ? [style.tableHeaderText, style.foldedTableText, style.foldedTableHeaderText]
-        : style.tableHeaderText;
-    const cellTextStyle = foldedPrompt ? [style.tableCellText, style.foldedTableText] : style.tableCellText;
+        ? [style.tableHeaderText, style.foldedTableText, style.foldedTableHeaderText, typography.strong]
+        : [style.tableHeaderText, typography.strong];
+    const cellTextStyle = foldedPrompt
+        ? [style.tableCellText, style.foldedTableText, typography.body]
+        : [style.tableCellText, typography.body];
 
     const columnWidths = React.useMemo(() => {
         const widths = new Array(columnCount).fill(0);

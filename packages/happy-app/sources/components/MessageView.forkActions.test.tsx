@@ -8,6 +8,11 @@ import TestRenderer from 'react-test-renderer';
 
 import { MessageView } from './MessageView';
 
+const autoFold = vi.hoisted(() => ({
+    getBody: vi.fn<(args: unknown) => any>(() => ({ kind: 'preview-text', text: 'preview' })),
+    getInfo: vi.fn<(text: string) => any>(() => null),
+}));
+
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
     Platform: { OS: 'web', select: (options: Record<string, unknown>) => options.web ?? options.default },
@@ -26,8 +31,8 @@ vi.mock('./layout', () => ({ layout: { maxWidth: 900 } }));
 vi.mock('@/sync/sync', () => ({ sync: { sendMessage: vi.fn() } }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/utils/autoFoldPrompt', () => ({
-    getAutoFoldPromptBodyRenderState: () => ({ collapsed: false }),
-    getAutoFoldPromptInfo: () => null,
+    getAutoFoldPromptBodyRenderState: autoFold.getBody,
+    getAutoFoldPromptInfo: autoFold.getInfo,
 }));
 vi.mock('@/text', () => ({
     t: (key: string) => ({
@@ -74,10 +79,41 @@ describe('MessageView fork action feedback', () => {
 
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        autoFold.getBody.mockReset().mockReturnValue({ kind: 'preview-text', text: 'preview' });
+        autoFold.getInfo.mockReset().mockReturnValue(null);
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('selects chat typography for user, agent, and expanded folded Markdown', () => {
+        let renderer: any;
+        const userMessage = {
+            kind: 'user-text' as const,
+            id: 'user-1',
+            localId: null,
+            createdAt: 1,
+            text: 'Use `pnpm test`.',
+        };
+
+        act(() => {
+            renderer = TestRenderer.create(<MessageView message={userMessage} metadata={null} />);
+        });
+        expect(renderer.root.findByType('MarkdownView').props.typography).toBe('chatMono');
+
+        act(() => renderer.update(<MessageView message={agentMessage} metadata={null} />));
+        expect(renderer.root.findByType('MarkdownView').props.typography).toBe('chatMono');
+
+        autoFold.getInfo.mockReturnValue({ charCount: 2000, lineCount: 20, preview: 'preview' });
+        autoFold.getBody.mockReturnValue({ kind: 'markdown', text: agentMessage.text, markdownVariant: 'foldedPrompt' });
+        act(() => renderer.update(<MessageView message={{ ...agentMessage, text: `${agentMessage.text} folded` }} metadata={null} />));
+        expect(renderer.root.findByType('MarkdownView').props).toMatchObject({
+            typography: 'chatMono',
+            variant: 'foldedPrompt',
+        });
+
+        act(() => renderer.unmount());
+    });
 
     it('uses the inline Skills activity for standalone Ego calls without hiding pending permission', () => {
         const message: any = { kind: 'tool-call', id: 'ego', localId: null, createdAt: 1, children: [],

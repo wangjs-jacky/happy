@@ -10,7 +10,6 @@ import {
     SkillConversationActivity,
 } from '@/utils/conversationActivity';
 import { useSubagentInspector } from './subagent/SubagentInspectorContext';
-import { SkillBrowserProgress } from './SkillBrowserProgress';
 
 export const ConversationActivitySuppressedContext = React.createContext(false);
 
@@ -39,7 +38,7 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
         <View style={[styles.container, props.nested && styles.nestedContainer]}>
             {orderedActivities.map((activity) => activity.kind === 'skill' ? (
                     <SkillActivityRow
-                        key={`skill-${activity.order}-${activity.name}`}
+                        key={`skill-${activity.id}`}
                         activity={activity}
                     />
                 ) : inspector ? (
@@ -138,7 +137,6 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
             <View style={rowStyle} testID={`activity-skill-${activity.name}`}>
                 <View style={styles.skillLine}>
                     <View style={styles.skillCopy}>{content}</View>
-                    <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
                 </View>
             </View>
         );
@@ -160,7 +158,6 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
         >
             {content}
         </Pressable>
-        <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
         </View>
     );
 }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
 import { TranscriptGroupExpansionContext } from './transcriptReading';
-const grouping = vi.hoisted(() => ({ nested: [] as any[] }));
+const grouping = vi.hoisted(() => ({ nested: [] as any[], messageRenders: [] as string[] }));
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
@@ -23,7 +23,10 @@ vi.mock('@/hooks/useGroupedMessages', () => ({
 vi.mock('@/hooks/useElapsedTime', () => ({ useElapsedTime: () => 1 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock('./MessageView', () => ({ MessageView: 'MessageView' }));
+vi.mock('./MessageView', () => ({ MessageView: (props: any) => {
+    grouping.messageRenders.push(props.message.id);
+    return React.createElement('MessageView', props);
+} }));
 vi.mock('./layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('./tools/views/MCPToolView', () => ({ formatMCPTitle: (name: string) => name }));
 vi.mock('./ConversationActivityStrip', () => ({
@@ -49,6 +52,7 @@ import { AgentWorkGroupView } from './ToolGroupView';
 describe('AgentWorkGroupView', () => {
     beforeEach(() => {
         grouping.nested = [];
+        grouping.messageRenders = [];
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     });
 
@@ -86,6 +90,22 @@ describe('AgentWorkGroupView', () => {
         expect(toggle.findByProps({ testID: 'conversation-tool-summary-icon' }).findByType('Octicons').props.name).toBe('eye');
         expect(toggle.findByProps({ testID: 'conversation-collapse-chevron' }).props.name).toBe('chevron-forward');
 
+        act(() => renderer.unmount());
+    });
+
+    it('never mounts closed nested tool output during history discovery', () => {
+        const messages = ['one', 'two'].map(id => ({ id, kind: 'agent-text', text: id, createdAt: 1, localId: null }));
+        const render = () => <AgentWorkGroupView group={{ type: 'agent-work-group', id: 'work',
+            messages: [...messages] as any, hasRunning: false, hasPendingPermission: false,
+            startedAt: 1, completedAt: 2 }} metadata={null} expanded onToggle={() => {}} />;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(render()); });
+        grouping.nested = [{ type: 'tool-group', id: 'historical-tools', messages,
+            hasRunning: false, hasPendingPermission: false }];
+        act(() => renderer.update(render()));
+        expect(grouping.messageRenders).toEqual([]);
+        act(() => renderer.root.findByProps({ testID: 'conversation-tool-group-toggle' }).props.onPress());
+        expect(renderer.root.findAllByType('MessageView')).toHaveLength(2);
         act(() => renderer.unmount());
     });
 

@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
-import { BROWSER_STEP_TOOL_DESCRIPTION } from '@/browser/browserStepReportingPrompt';
 import {
     HAPPY_MCP_BRIDGE_TOOL_NAMES,
     registerHappyBridgeTools,
@@ -50,6 +49,7 @@ describe('registerHappyBridgeTools', () => {
 
         expect(registrations.map((registration) => registration.name)).toEqual([...HAPPY_MCP_BRIDGE_TOOL_NAMES]);
         expect(HAPPY_MCP_BRIDGE_TOOL_NAMES).toContain('finance_chart');
+        expect(HAPPY_MCP_BRIDGE_TOOL_NAMES).not.toContain('report_browser_step');
         expect(registrations.find((registration) => registration.name === 'send_image')?.config).toMatchObject({
             title: 'Send Image To Chat',
         });
@@ -106,36 +106,6 @@ describe('registerHappyBridgeTools', () => {
         });
         expect(result).toMatchObject({
             content: [{ type: 'text', text: 'ok send_image' }],
-            isError: false,
-        });
-    });
-
-    it('forwards browser step screenshots without using the chat image tool', async () => {
-        const { server, registrations } = createServerMock();
-        const callTool = vi.fn(async (params: { name: string; arguments?: Record<string, unknown> }) => ({
-            content: [{ type: 'text' as const, text: `ok ${params.name}` }],
-            isError: false,
-        }));
-        registerHappyBridgeTools(server, async () => ({ callTool }) as unknown as Client);
-
-        expect(HAPPY_MCP_BRIDGE_TOOL_NAMES).toContain('report_browser_step');
-        const reportBrowserStep = registrations.find((registration) => registration.name === 'report_browser_step');
-        expect(reportBrowserStep).toBeDefined();
-        expect(reportBrowserStep?.config.description).toBe(BROWSER_STEP_TOOL_DESCRIPTION);
-
-        const result = await reportBrowserStep?.handler({
-            path: '/tmp/ego-step.png',
-            label: '已打开订单详情',
-            runId: 'ego-task-42',
-            skillName: 'ego-ops',
-        });
-
-        expect(callTool).toHaveBeenCalledWith({
-            name: 'report_browser_step',
-            arguments: { path: '/tmp/ego-step.png', label: '已打开订单详情', runId: 'ego-task-42', skillName: 'ego-ops' },
-        });
-        expect(result).toMatchObject({
-            content: [{ type: 'text', text: 'ok report_browser_step' }],
             isError: false,
         });
     });

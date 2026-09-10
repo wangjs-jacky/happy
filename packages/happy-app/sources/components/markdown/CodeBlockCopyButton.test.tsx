@@ -8,6 +8,7 @@ import TestRenderer from 'react-test-renderer';
 const clipboard = vi.hoisted(() => ({ setStringAsync: vi.fn() }));
 
 vi.mock('react-native', () => ({
+    Platform: { OS: 'web' },
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
@@ -84,6 +85,22 @@ describe('CodeBlockCopyButton', () => {
         expect(button.props.accessibilityLabel).toBe('common.copy');
         expect(button.findByType('Ionicons').props.name).toBe('copy-outline');
         expect(renderer.root.findAllByProps({ testID: 'markdown-code-copy-feedback' })).toHaveLength(0);
+
+        act(() => renderer.unmount());
+    });
+
+    it('uses Maple Mono for copy feedback only in chat typography mode', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<CodeBlockCopyButton content="pnpm test" visible typography="chatMono" />);
+        });
+
+        const label = renderer.root.findByProps({ children: 'common.copy' });
+        expect(Object.assign({}, ...label.props.style.filter(Boolean)).fontFamily).toBe('MapleMonoNL-Regular');
+
+        act(() => renderer.update(<CodeBlockCopyButton content="pnpm test" visible />));
+        const defaultLabel = renderer.root.findByProps({ children: 'common.copy' });
+        expect(Object.assign({}, ...defaultLabel.props.style.filter(Boolean)).fontFamily).toBeUndefined();
 
         act(() => renderer.unmount());
     });

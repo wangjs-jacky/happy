@@ -334,6 +334,12 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             },
         });
         codexClientMethods.rollbackThread.mockResolvedValue({ thread: { id: 'thread-forked', turns: [] } });
+        codexClientMethods.readThread.mockResolvedValueOnce({
+            thread: { id: 'thread-source', turns: [
+                { id: 'turn-1', items: [{ id: 'user-1', type: 'userMessage', content: [{ type: 'text', text: 'one' }] }] },
+                { id: 'turn-2', items: [{ id: 'user-2', type: 'userMessage', content: [{ type: 'text', text: 'two' }] }] },
+            ] },
+        }).mockResolvedValueOnce({ thread: { id: 'thread-forked', turns: [{ id: 'turn-1', items: [] }] } });
         codexClientMethods.injectItems.mockResolvedValue({});
 
         const client = new ApiMachineClient('token', machineClient());
@@ -351,10 +357,8 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         });
 
         expect(result).toEqual({ type: 'success', newCodexThreadId: 'thread-forked' });
-        expect(codexClientMethods.rollbackThread).toHaveBeenCalledWith({
-            threadId: 'thread-forked',
-            numTurns: 1,
-        });
+        expect(codexClientMethods.forkThread).toHaveBeenCalledWith({ threadId: 'thread-source', cwd: '/tmp/project', lastTurnId: 'turn-1', deferGoalContinuation: true });
+        expect(codexClientMethods.rollbackThread).not.toHaveBeenCalled();
         expect(codexClientMethods.injectItems).not.toHaveBeenCalled();
     });
 });

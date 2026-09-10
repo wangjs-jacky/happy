@@ -1391,6 +1391,55 @@ describe('message visibility synchronization', () => {
         expect(after).toMatchObject({ hasMoreOlder: true, hasMoreNewer: false, isAtLatest: true });
     }, 20000);
 
+    it('reads the current viewport after a delayed history decrypt before committing the window', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        const encrypted = installSession('moving-viewport');
+        const history = await openLocalHistory('server|moving-viewport');
+        await history!.commitPage('moving-viewport', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 1000 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('moving-viewport');
+        const initial = await history!.readWindow('moving-viewport', { anchorSeq: 250, limit: 500 });
+        await syncForTest.applyHistoryWindow('moving-viewport', initial, syncForTest.sessionMessageLoadGate.begin(lease));
+        const started = deferred<void>(); const release = deferred<void>();
+        encrypted.decryptMessages.mockImplementationOnce(async (messages: ApiMessage[]) => {
+            started.resolve(); await release.promise;
+            return messages.map(message => ({ id: message.id, localId: message.localId, createdAt: message.createdAt,
+                content: rawText(`fetched-${message.seq}`) }));
+        });
+        let visible = { firstSeq: 450, lastSeq: 490 };
+        const loading = syncForTest.loadNewerMessages('moving-viewport', () => visible);
+        await started.promise;
+        visible = { firstSeq: 10, lastSeq: 500 };
+        release.resolve(); await loading;
+        const window = syncForTest.historyWindows.get('moving-viewport');
+        expect(window.oldestSeq).toBeLessThanOrEqual(10);
+        expect(window.newestSeq).toBeGreaterThan(500);
+        expect(window.messages.length).toBeLessThanOrEqual(5000);
+    }, 20000);
+
+    it('keeps the existing projection on capacity deferral and advances on explicit continuation', async () => {
+        globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web'; installSession('viewport-capacity');
+        const history = await openLocalHistory('server|viewport-capacity');
+        const first = apiMessage(1, 'x'.repeat(4 * 1024 * 1024));
+        await history!.commitPage('viewport-capacity', { direction: 'older', boundary: 2147483647,
+            messages: [first, apiMessage(2)], hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('viewport-capacity');
+        await syncForTest.applyHistoryWindow('viewport-capacity', { messages: [first], oldestSeq: 1, newestSeq: 1,
+            hasMoreOlder: false, hasMoreNewer: true, isAtLatest: false }, syncForTest.sessionMessageLoadGate.begin(lease));
+        const before = mocks.state.sessionMessages['viewport-capacity'].messages;
+        await syncForTest.loadNewerMessages('viewport-capacity', () => ({ firstSeq: 1, lastSeq: 1 }));
+        expect(mocks.state.sessionMessages['viewport-capacity'].messages).toBe(before);
+        expect(mocks.state.sessionMessages['viewport-capacity'].newerError).toBe('history-window-capacity');
+        expect(syncForTest.historyWindows.get('viewport-capacity').newestSeq).toBe(1);
+        await syncForTest.loadNewerMessages('viewport-capacity');
+        expect(syncForTest.historyWindows.get('viewport-capacity').newestSeq).toBe(2);
+        expect(mocks.state.sessionMessages['viewport-capacity'].newerError).toBeFalsy();
+    }, 20000);
+
     it('moves past a stale restored anchor with bounded pagination and reloads it on newer navigation', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;

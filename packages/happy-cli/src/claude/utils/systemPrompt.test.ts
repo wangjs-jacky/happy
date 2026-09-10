@@ -7,22 +7,11 @@ describe('systemPrompt', () => {
         expect(systemPrompt).not.toMatch(/\bcommit(?:s|ting)?\b/i);
     });
 
-    it('requires completed Ego browser rounds to be reported to the browser-steps panel', () => {
-        expect(systemPrompt).toContain('`ego-browser`');
-        expect(systemPrompt).toContain('`ego-ops`');
-        expect(systemPrompt).toContain('mcp__happy__report_browser_step');
+    it('keeps the remaining preview tools in the shared prompt', () => {
         expect(systemPrompt).toContain('mcp__happy__create_preview');
         expect(systemPrompt).toContain('mcp__happy__publish_preview');
         expect(systemPrompt).toContain('All previews use Cloudflare');
         expect(systemPrompt).toContain('do not launch a separate tunnel');
-        expect(systemPrompt).toMatch(/meaningful completed and verified browser round/i);
-        expect(systemPrompt).toMatch(/before starting the next Ego browser round/i);
-        expect(systemPrompt).toMatch(/final verified browser state/i);
-        expect(systemPrompt).toMatch(/Do not report waits, retries, tiny scrolls/i);
-        expect(systemPrompt).toMatch(/one newly generated stable runId for each Ego invocation/i);
-        expect(systemPrompt).not.toMatch(/invocation or task/i);
-        expect(systemPrompt).toMatch(/reuse it for every reported frame/i);
-        expect(systemPrompt).toContain('skillName');
-        expect(systemPrompt.match(/mcp__happy__report_browser_step/g)).toHaveLength(1);
+        expect(systemPrompt).not.toContain('mcp__happy__report_browser_step');
     });
 });

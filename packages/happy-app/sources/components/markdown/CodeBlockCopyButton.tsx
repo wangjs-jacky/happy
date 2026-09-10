@@ -4,11 +4,21 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
+import { getMarkdownTypography, type MarkdownTypographyMode } from './markdownTypography';
 
 const COPY_FEEDBACK_DURATION_MS = 1_800;
 
-export function CodeBlockCopyButton({ content, visible }: { content: string; visible: boolean }) {
+export function CodeBlockCopyButton({
+    content,
+    visible,
+    typography = 'default',
+}: {
+    content: string;
+    visible: boolean;
+    typography?: MarkdownTypographyMode;
+}) {
     const { theme } = useUnistyles();
+    const typographyStyles = getMarkdownTypography(typography);
     const [status, setStatus] = React.useState<'idle' | 'copied' | 'failed'>('idle');
     const [isFocused, setIsFocused] = React.useState(false);
     const resetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,12 +87,13 @@ export function CodeBlockCopyButton({ content, visible }: { content: string; vis
                     styles.label,
                     status === 'copied' && styles.labelCopied,
                     status === 'failed' && styles.labelFailed,
+                    typographyStyles.body,
                 ]}>{label}</Text>
                 {status !== 'idle' ? (
                     <Text
                         testID="markdown-code-copy-feedback"
                         accessibilityLiveRegion="polite"
-                        style={styles.srFeedback}
+                        style={[styles.srFeedback, typographyStyles.body]}
                     >
                         {label}
                     </Text>

@@ -147,6 +147,9 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
         }
         return initial;
     });
+    const knownToolGroupsRef = React.useRef(new Set(
+        nestedItemsNewestFirst.filter(item => item.type === 'tool-group').map(item => item.id),
+    ));
     const manuallyCollapsedToolGroupsRef = React.useRef<Set<string>>(new Set());
 
     React.useEffect(() => {
@@ -157,6 +160,7 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
                 if (item.type !== 'tool-group') {
                     continue;
                 }
+                knownToolGroupsRef.current.add(item.id);
                 if (item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedToolGroupsRef.current.has(item.id)) {
                     next.delete(item.id);
                     changed = true;
@@ -193,7 +197,9 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
                     group={item}
                     metadata={metadata}
                     sessionId={sessionId}
-                    expanded={durableExpansion ? durableExpansion.isExpanded(item) : !collapsedToolGroups.has(item.id)}
+                    expanded={durableExpansion ? durableExpansion.isExpanded(item)
+                        : (item.hasPendingPermission && !manuallyCollapsedToolGroupsRef.current.has(item.id))
+                            || (knownToolGroupsRef.current.has(item.id) && !collapsedToolGroups.has(item.id))}
                     onToggle={() => durableExpansion ? durableExpansion.toggle(item) : handleToggleNestedGroup(item.id)}
                     nested
                     hideSingleToolChildren

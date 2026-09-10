@@ -4,8 +4,6 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { SubagentInspectorProvider, useSubagentInspector } from './subagent/SubagentInspectorContext';
 import { ConversationActivityStrip } from './ConversationActivityStrip';
-import { BrowserProgressContext } from './BrowserProgressContext';
-import { getBrowserStepRuns } from './rightPanel/browserStepRunsModel';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface below.
@@ -18,7 +16,6 @@ vi.mock('react-native', () => ({
     Text: 'Text',
     View: 'View',
 }));
-vi.mock('./rightPanel/BrowserStepsPopover', () => ({ BrowserStepsPopover: 'BrowserStepsPopover' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
@@ -70,33 +67,6 @@ function toolMessage(id: string, name: string, input: Record<string, unknown>, c
 }
 
 describe('ConversationActivityStrip', () => {
-    it('opens each repeated Ego invocation from the inline Skills row and receives later frames', () => {
-        const first = toolMessage('1', 'Skill', { skill: 'ego-browser' });
-        const second = toolMessage('3', 'Skill', { skillNames: ['ego-browser'] });
-        const frame = (id: string, runId: string) => toolMessage(id, 'file', {
-            source: 'browser_step', ref: `attachment://${id}`, name: `${id}.png`,
-            browserStep: { label: `Verified ${id}`, runId, skillName: 'ego-browser' },
-        });
-        const messages = [first, frame('2', 'run-a'), second, frame('4', 'run-b')];
-        let renderer: any;
-        const render = (all: Message[], sessionId = 's1') => <BrowserProgressContext.Provider value={{ sessionId, runs: getBrowserStepRuns(all) }}>
-            <ConversationActivityStrip messages={[first, second]} />
-        </BrowserProgressContext.Provider>;
-        act(() => { renderer = TestRenderer.create(render(messages)); });
-        const row = renderer.root.findByProps({ testID: 'activity-skill-ego-browser' });
-        expect(row.findAllByType('Pressable')).toHaveLength(2);
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-a' }).props.onPress());
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2']);
-        act(() => renderer.update(render([...messages, frame('5', 'run-a')])));
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2', '5']);
-        act(() => renderer.root.findByType('BrowserStepsPopover').props.onClose());
-        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-b' }).props.onPress());
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['4']);
-        act(() => renderer.update(render(messages, 's2')));
-        expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-        act(() => renderer.unmount());
-    });
     beforeAll(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     });

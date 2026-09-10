@@ -9,7 +9,6 @@ import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
 import { validatePath, validateReadPath } from './pathSecurity';
-import { registerScreenshotHandler } from './registerScreenshotHandler';
 import { browseHomeDirectory } from './browseHomeDirectory';
 
 const execAsync = promisify(exec);
@@ -171,12 +170,7 @@ export type SpawnSessionResult =
 export function registerCommonHandlers(
     rpcHandlerManager: RpcHandlerManager,
     workingDirectory: string,
-    options: { registerScreenshot?: boolean } = {},
 ) {
-    if (options.registerScreenshot) {
-        registerScreenshotHandler(rpcHandlerManager);
-    }
-
     // Shell command handler - executes commands in the default shell
     rpcHandlerManager.registerHandler<BashRequest, BashResponse>('bash', async (data) => {
         logger.debug('Shell command request:', data.command);

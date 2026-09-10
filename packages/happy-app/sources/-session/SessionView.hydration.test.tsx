@@ -126,10 +126,6 @@ vi.mock('@/sync/sync', () => ({
 }));
 vi.mock('@/sync/gitStatusSync', () => ({ gitStatusSync: { getSync: vi.fn() } }));
 vi.mock('@/sync/ops', () => ({ sessionAbort: vi.fn() }));
-vi.mock('@/sync/ops.screenshot', () => ({ requestScreenshot: vi.fn() }));
-vi.mock('@/sync/screenshotGallery', () => ({
-    addScreenshotEntry: vi.fn(), saveBase64Png: vi.fn(), useHasNewScreenshots: () => ({ hasNew: false }),
-}));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), show: vi.fn() } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));

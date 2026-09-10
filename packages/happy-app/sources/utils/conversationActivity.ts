@@ -5,6 +5,7 @@ export type ConversationActivityStatus = 'running' | 'completed' | 'failed' | 'c
 
 export type SkillConversationActivity = {
     kind: 'skill';
+    id: string;
     name: string;
     isBatch?: boolean;
     status: ConversationActivityStatus;
@@ -184,8 +185,11 @@ export function collectConversationActivities(
             if (skillNames.length > 0) {
                 const isBatch = skillNames.length > 1;
                 const name = skillNames.join(', ');
+                const key = JSON.stringify([ownerPath, isBatch ? 'batch' : 'skill',
+                    isBatch ? message.tool.callId ?? message.id : name]);
                 const next: SkillConversationActivity = {
                     kind: 'skill',
+                    id: key,
                     name,
                     ...(isBatch ? { isBatch: true } : {}),
                     status: toolStatus(message.tool),
@@ -195,7 +199,6 @@ export function collectConversationActivities(
                     order: sequence,
                     invocationMessageIds: [message.id],
                 };
-                const key = JSON.stringify([ownerPath, isBatch ? 'batch' : 'skill', isBatch ? message.id : name]);
                 const existing = skillActivities.get(key);
                 if (!existing || next.status === 'running' || next.updatedAt >= existing.updatedAt) {
                     skillActivities.set(key, existing ? {
