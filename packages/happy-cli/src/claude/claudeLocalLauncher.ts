@@ -102,6 +102,7 @@ export async function claudeLocalLauncher(session: Session): Promise<LauncherRes
             logger.debug('[local]: launch');
             try {
                 await claudeLocal({
+                    happySessionId: session.client.sessionId,
                     path: session.path,
                     sessionId: session.sessionId,
                     onSessionFound: handleSessionStart,
