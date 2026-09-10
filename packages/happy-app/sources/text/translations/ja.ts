@@ -553,6 +553,14 @@ export const ja: TranslationStructure = {
             loadError: 'このフォルダを読み込めませんでした',
             retry: '再試行',
         },
+        browserProgress: {
+            title: 'ブラウザーの進行状況',
+            view: '進行状況を表示',
+            close: 'ブラウザーの進行状況を閉じる',
+            timelineTitle: 'ブラウザーの手順',
+            liveCount: ({ count }: { count: number }) => `リアルタイム · ${count} ステップ`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `ステップ ${current}/${total}`,
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

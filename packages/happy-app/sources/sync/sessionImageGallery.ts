@@ -17,6 +17,7 @@ export function collectSessionImageGallery(sessionId: string, messages: readonly
     for (const message of files) {
         if (message.kind !== 'tool-call') continue;
         const input = message.tool.input;
+        if (input?.source === 'browser_step') continue;
         if (!input || typeof input.ref !== 'string' || !input.ref || typeof input.name !== 'string') continue;
         if (input.kind !== undefined && input.kind !== 'image') continue;
         if (seen.has(input.ref)) continue;

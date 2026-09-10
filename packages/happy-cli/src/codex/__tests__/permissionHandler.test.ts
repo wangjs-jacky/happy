@@ -112,6 +112,25 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
+    it('auto-approves the first-party browser-step reporter', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const result = await handler.handleToolCall(
+            'call_report_browser_step_123',
+            'mcp__happy__report_browser_step',
+            { path: '/tmp/ego-step.png', label: '打开订单详情' },
+        );
+
+        expect(result).toEqual({ decision: 'approved' });
+        expect(getState().completedRequests.call_report_browser_step_123).toMatchObject({
+            tool: 'mcp__happy__report_browser_step',
+            arguments: { path: '/tmp/ego-step.png', label: '打开订单详情' },
+            status: 'approved',
+            decision: 'approved',
+        });
+    });
+
     it.each(['mcp__happy__create_preview', 'mcp__happy__publish_preview'])('auto-approves exact managed preview tool %s', async (toolName) => {
         const { session } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);

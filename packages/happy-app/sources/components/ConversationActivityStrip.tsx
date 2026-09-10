@@ -10,6 +10,7 @@ import {
     SkillConversationActivity,
 } from '@/utils/conversationActivity';
 import { useSubagentInspector } from './subagent/SubagentInspectorContext';
+import { SkillBrowserProgress } from './SkillBrowserProgress';
 
 export const ConversationActivitySuppressedContext = React.createContext(false);
 
@@ -137,6 +138,7 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
             <View style={rowStyle} testID={`activity-skill-${activity.name}`}>
                 <View style={styles.skillLine}>
                     <View style={styles.skillCopy}>{content}</View>
+                    <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
                 </View>
             </View>
         );
@@ -158,6 +160,7 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
         >
             {content}
         </Pressable>
+        <SkillBrowserProgress invocationMessageIds={activity.invocationMessageIds} />
         </View>
     );
 }

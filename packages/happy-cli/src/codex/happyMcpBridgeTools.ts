@@ -10,7 +10,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview'] as const;
+import { BROWSER_STEP_TOOL_DESCRIPTION } from '@/browser/browserStepReportingPrompt';
+
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview'] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -95,6 +97,31 @@ export function registerHappyBridgeTools(
       },
       ensureHttpClient,
       'Failed to send file'
+    )
+  );
+
+  server.registerTool(
+    'report_browser_step',
+    {
+      description: BROWSER_STEP_TOOL_DESCRIPTION,
+      title: 'Report Browser Step',
+      inputSchema: {
+        path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
+        label: z.string().trim().min(1).describe('Short description of the browser operation that just completed'),
+        runId: z.string().trim().min(1).max(128).describe('Unique task identifier reused across Ego commands in this session'),
+        skillName: z.enum(['ego-browser', 'ego-ops']).describe('Ego skill associated with this browser task'),
+      },
+    },
+    async (args) => forwardHappyToolCall(
+      'report_browser_step',
+      {
+        path: args.path,
+        label: args.label,
+        ...(args.runId ? { runId: args.runId } : {}),
+        ...(args.skillName ? { skillName: args.skillName } : {}),
+      },
+      ensureHttpClient,
+      'Failed to report browser step'
     )
   );
 

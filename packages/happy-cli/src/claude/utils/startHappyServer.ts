@@ -17,15 +17,20 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { tmpdir } from 'node:os';
+import { readBrowserStepEvidence } from '@/browser/browserStepEvidence';
+import { BROWSER_STEP_TOOL_DESCRIPTION, BROWSER_STEP_CAPTURE_MODULE_URL, browserCaptureSessionInstruction } from "@/browser/browserStepReportingPrompt";
 import { configuration } from "@/configuration";
 import { fetchFinanceChart } from "@/finance/financeChart";
 import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
 import { startCloudflarePreview, type CloudflarePreview } from '@/previews/cloudflarePreview';
 
 type HappyMcpHandlers = {
+    browserSessionId: string;
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (input: SendImageInput) => Promise<{ success: boolean; error?: string }>;
     sendFile: (input: SendFileInput) => Promise<{ success: boolean; error?: string }>;
+    reportBrowserStep: (input: BrowserStepInput) => Promise<{ success: boolean; error?: string }>;
     archiveSession: (reason?: string) => Promise<{ success: boolean; error?: string }>;
     financeChart: (input: {
         query: string;
@@ -46,6 +51,81 @@ type SendFileInput = {
     path: string;
     mimeType?: string;
 };
+
+export type BrowserStepInput = {
+    path: string;
+    label: string;
+    runId: string;
+    skillName: 'ego-browser' | 'ego-ops';
+};
+
+type BrowserStepReporter = (input: BrowserStepInput) => Promise<{ success: boolean; error?: string }>;
+
+export function registerBrowserStepTool(mcp: McpServer, reportBrowserStep: BrowserStepReporter, sessionId?: string): void {
+    mcp.registerTool('report_browser_step', {
+        description: BROWSER_STEP_TOOL_DESCRIPTION + (sessionId ? '\n' + browserCaptureSessionInstruction(sessionId) : ''),
+        title: 'Report Browser Step',
+        inputSchema: {
+            path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
+            label: z.string().trim().min(1).describe('Short description of the operation that just completed'),
+            runId: z.string().trim().min(1).max(128).describe('Unique task identifier reused across Ego commands in this session'),
+            skillName: z.enum(['ego-browser', 'ego-ops']).describe('Ego skill associated with this browser task'),
+        },
+    }, async (args) => {
+        const response = await reportBrowserStep({
+            path: args.path,
+            label: args.label,
+            runId: args.runId,
+            skillName: args.skillName,
+        });
+        logger.debug('[happyMCP] Response:', response);
+        return response.success
+            ? { content: [{ type: 'text', text: `Reported browser step: ${args.label}` }], isError: false }
+            : { content: [{ type: 'text', text: `Failed to report browser step: ${response.error || 'Unknown error'}` }], isError: true };
+    });
+}
+
+export function createBrowserStepReporter(client: Pick<ApiSessionClient, 'sessionId' | 'uploadImageAttachment' | 'sendFileEvent'>): BrowserStepReporter {
+    const taskByRun = new Map<string, string>();
+    const reportedPaths = new Set<string>();
+    return async (input) => {
+        logger.debug('[happyMCP] Reporting browser step:', input.label, input.path);
+        let uploadDirectory: string | undefined;
+        let reserved = false;
+        try {
+            if (/^ego-browser-shot-\d+-\d+\.(png|jpe?g)$/i.test(basename(input.path))) {
+                throw new Error('Shared Ego screenshot files can be overwritten by another task. Recapture with captureVerifiedBrowserStep from ' + BROWSER_STEP_CAPTURE_MODULE_URL + ' inside the same Ego round; report its unique path. Do not rename or copy the shared file.');
+            }
+            const { bytes, evidence } = await readBrowserStepEvidence(input, client.sessionId);
+            const taskKey = JSON.stringify([evidence.taskSpaceId, evidence.skillName]);
+            const existing = taskByRun.get(input.runId);
+            if (existing && existing !== taskKey) throw new Error('This runId is already bound to another Ego task space');
+            if (reportedPaths.has(input.path)) throw new Error('This browser frame was already reported; capture a new key step');
+            taskByRun.set(input.runId, taskKey);
+            reportedPaths.add(input.path);
+            reserved = true;
+            // Upload the verified bytes, never re-open an agent-controlled path after validation.
+            uploadDirectory = await fs.mkdtemp(join(tmpdir(), 'paws-browser-upload-'));
+            const uploadPath = join(uploadDirectory, 'screenshot.png');
+            await fs.writeFile(uploadPath, bytes, { flag: 'wx', mode: 0o600 });
+            const uploaded = await client.uploadImageAttachment(uploadPath);
+            client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
+                source: 'browser_step',
+                browserStep: {
+                    label: input.label.trim(),
+                    ...(input.runId ? { runId: input.runId } : {}),
+                    ...(input.skillName ? { skillName: input.skillName } : {}),
+                },
+            });
+            return { success: true };
+        } catch (error) {
+            if (reserved) reportedPaths.delete(input.path);
+            return { success: false, error: String(error) };
+        } finally {
+            if (uploadDirectory) await fs.rm(uploadDirectory, { recursive: true, force: true });
+        }
+    };
+}
 
 function createMcpServer(handlers: HappyMcpHandlers): McpServer {
     const mcp = new McpServer({
@@ -148,6 +228,8 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
                 isError: true,
             };
     });
+
+    registerBrowserStepTool(mcp, handlers.reportBrowserStep, handlers.browserSessionId);
 
     mcp.registerTool('archive_session', {
         description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
@@ -321,6 +403,8 @@ export async function startHappyServer(
                 return { success: false, error: String(error) };
             }
         },
+        browserSessionId: client.sessionId,
+        reportBrowserStep: createBrowserStepReporter(client),
         archiveSession: async (reason?: string) => {
             logger.debug('[happyMCP] Archiving current session:', reason);
             if (!options?.archiveSession) {
@@ -429,6 +513,7 @@ export async function startHappyServer(
             'change_title',
             'send_image',
             'send_file',
+            'report_browser_step',
             'archive_session',
             'finance_chart',
             'create_preview',

@@ -370,6 +370,7 @@ export async function claudeRemoteLauncher(session: Session, onProcessorReady?: 
             let modeHash: string | null = null;
             try {
                 const remoteResult = await claudeRemote({
+                    happySessionId: session.client.sessionId,
                     sessionId: session.sessionId,
                     path: session.path,
                     allowedTools: session.allowedTools ?? [],

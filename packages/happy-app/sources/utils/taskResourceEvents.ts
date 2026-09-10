@@ -216,8 +216,8 @@ function fileAttachmentCandidate(message: ToolCallMessage): Candidate | null {
     if (!ref) return null;
     const name = nonEmptyString(message.tool.input.name) ?? 'Image';
     const source = message.tool.input.source;
-    // Legacy browser-step frames are still parseable, but no longer have an
-    // active producer or dedicated presentation in the app.
+    // Browser operation frames have their own, chronological visual surface.
+    // Keep them out of the generic task-resource/image galleries.
     if (source === 'browser_step') return null;
     const image = isRecord(message.tool.input.image) ? message.tool.input.image : null;
     const explicitKind = nonEmptyString(message.tool.input.kind)?.toLowerCase();
