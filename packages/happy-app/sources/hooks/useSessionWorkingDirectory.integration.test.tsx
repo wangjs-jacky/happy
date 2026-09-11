@@ -9,6 +9,8 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     machineRPC: vi.fn(),
+    getCredentials: vi.fn(),
+    createCodexSessionGrant: vi.fn(),
     ensureSessionHydrated: vi.fn(),
     refreshSessions: vi.fn(),
     navigateToSession: vi.fn(),
@@ -20,6 +22,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/sync/apiSocket', () => ({
     apiSocket: { machineRPC: mocks.machineRPC },
+}));
+vi.mock('@/auth/tokenStorage', () => ({
+    TokenStorage: { getCredentials: mocks.getCredentials },
+}));
+vi.mock('@/sync/apiCodexAccounts', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/sync/apiCodexAccounts')>(),
+    createCodexSessionGrant: mocks.createCodexSessionGrant,
 }));
 vi.mock('@/sync/sync', () => ({
     sync: {
@@ -116,6 +125,12 @@ describe('working-directory continuation hydration integration', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.getCredentials.mockResolvedValue({ token: 'paws-token', secret: 'paws-secret' });
+        mocks.createCodexSessionGrant.mockResolvedValue({
+            grant: 'a'.repeat(43),
+            expiresAt: '2026-09-11T00:01:00Z',
+            profile: { id: '00000000-0000-4000-8000-000000000001', displayName: 'Codex · A7F2', credentialVersion: 1 },
+        });
         mocks.ensureSessionHydrated.mockResolvedValue(false);
         mocks.machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'browseDirectory') {
