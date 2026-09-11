@@ -14,6 +14,13 @@ vi.mock('./sync', () => ({
     sync: { ensureSessionHydrated, refreshSessions },
 }));
 
+vi.mock('@/auth/tokenStorage', () => ({ TokenStorage: { getCredentials: async () => ({ token: 'bearer', secret: 'secret' }) } }));
+vi.mock('./apiCodexAccounts', async (importOriginal) => ({
+    ...await importOriginal<typeof import('./apiCodexAccounts')>(),
+    createCodexSessionGrant: async () => ({ grant: 'a'.repeat(43), expiresAt: '2026-09-11T00:01:00Z',
+        profile: { id: '00000000-0000-4000-8000-000000000001', displayName: 'Work', credentialVersion: 1 } }),
+}));
+
 describe('codex fork ops', () => {
     beforeEach(() => {
         machineRPC.mockReset();
@@ -30,6 +37,7 @@ describe('codex fork ops', () => {
         const result = await machineResumeSession({
             machineId: 'machine-1',
             sessionId: 'happy-source',
+            agent: 'claude',
             model: 'gpt-5.5',
             permissionMode: 'yolo',
             effort: 'xhigh',
@@ -122,6 +130,7 @@ describe('codex fork ops', () => {
         const result = await machineResumeSession({
             machineId: 'machine-1',
             sessionId: 'happy-source',
+            agent: 'claude',
         });
 
         expect(result).toEqual({
@@ -155,7 +164,7 @@ describe('codex fork ops', () => {
             1,
             'machine-1',
             'codex-fork-thread',
-            { directory: '/tmp/project', codexThreadId: 'thread-source' },
+            { directory: '/tmp/project', sourceSessionId: 'happy-source', codexThreadId: 'thread-source' },
         );
         expect(machineRPC).toHaveBeenNthCalledWith(
             2,
@@ -198,7 +207,7 @@ describe('codex fork ops', () => {
             1,
             'machine-1',
             'codex-fork-thread',
-            { directory: '/tmp/new-project', codexThreadId: 'thread-source' },
+            { directory: '/tmp/new-project', sourceSessionId: 'happy-source', codexThreadId: 'thread-source' },
         );
         expect(machineRPC).toHaveBeenNthCalledWith(
             2,
@@ -354,7 +363,7 @@ describe('codex fork ops', () => {
             1,
             'machine-1',
             'codex-duplicate-thread',
-            { directory: '/tmp/project', codexThreadId: 'thread-source', cutAfterItemId: 'user-item-2' },
+            { directory: '/tmp/project', sourceSessionId: 'happy-source', codexThreadId: 'thread-source', cutAfterItemId: 'user-item-2' },
         );
         expect(machineRPC).toHaveBeenNthCalledWith(
             2,
@@ -376,6 +385,7 @@ describe('codex fork ops', () => {
         const result = await machineResumeSession({
             machineId: 'machine-1',
             sessionId: 'happy-source',
+            agent: 'claude',
             model: 'gpt-5.4',
             permissionMode: 'yolo',
             effort: 'xhigh',

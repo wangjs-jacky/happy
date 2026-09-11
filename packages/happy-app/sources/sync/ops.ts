@@ -9,6 +9,7 @@ import { ensureSessionHydratedWithRetry } from './ensureSessionHydratedWithRetry
 import type { MachineMetadata, Metadata, Session } from './storageTypes';
 import { markSessionArchiveRequested, markSessionRestored } from '@/utils/sessionLifecycle';
 import { updateEncryptedSessionMetadata } from './sessionMetadata';
+import { CodexAccountError, createCodexSessionGrant } from './apiCodexAccounts';
 
 export const SESSION_START_RPC_TIMEOUT_MS = 140_000;
 
@@ -259,6 +260,8 @@ export type ClaudeListRewindPointsResult =
 
 export interface CodexForkThreadOptions {
     machineId: string;
+    /** Paws session whose daemon audit owns the source native history. */
+    sourceSessionId: string;
     /** Working directory of the source session, passed to Codex thread/fork. */
     directory: string;
     /** Source Codex app-server thread id (Session.metadata.codexThreadId). */
@@ -282,6 +285,8 @@ export type CodexListRewindPointsResult =
 export interface ResumeSessionOptions {
     machineId: string;
     sessionId: string;
+    /** Source session flavor; required so Codex never silently skips authorization. */
+    agent: string;
 }
 
 // Exported session operation functions
@@ -290,34 +295,43 @@ export interface ResumeSessionOptions {
  * Spawn a new remote session on a specific machine
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
-
     const { machineId, directory, traceId, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
+    return machineStartSession(machineId, 'spawn-happy-session', agent === 'codex', {
+        type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation,
+        ...(agent === 'codex' ? {} : { token }), agent, environmentVariables,
+        resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId,
+    });
+}
 
+/** Every final process launch goes through here; grants never enter persisted App state. */
+async function machineStartSession(
+    machineId: string,
+    method: 'spawn-happy-session' | 'resume-happy-session' | 'codex-attach-candidate',
+    isCodex: boolean,
+    parameters: Record<string, unknown>,
+): Promise<SpawnSessionResult> {
+    let grant: string | undefined;
+    const redact = (message: string) => grant ? message.replaceAll(grant, '[redacted]') : message;
     try {
-        const result = await apiSocket.machineRPC<SpawnSessionResult, {
-            type: 'spawn-in-directory'
-            directory: string
-            traceId?: string,
-            approvedNewDirectoryCreation?: boolean,
-            token?: string,
-            agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw',
-            environmentVariables?: Record<string, string>,
-            resumeClaudeSessionId?: string,
-            resumeCodexThreadId?: string,
-            parentSessionId?: string,
-            forkedFromMessageId?: string,
-        }>(
-            machineId,
-            'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId },
+        if (isCodex) {
+            const { TokenStorage } = await import('@/auth/tokenStorage');
+            const credentials = await TokenStorage.getCredentials().catch(() => null);
+            if (!credentials) throw new CodexAccountError('authentication-required');
+            grant = (await createCodexSessionGrant(credentials, machineId)).grant;
+        }
+        const result = normalizeSpawnSessionResult(await apiSocket.machineRPC<SpawnSessionResult, Record<string, unknown>>(
+            machineId, method,
+            { ...parameters, ...(grant ? { codexSessionGrant: grant } : {}) },
             { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
-        );
-        return normalizeSpawnSessionResult(result);
+        ));
+        return result.type === 'error' ? { ...result, errorMessage: redact(result.errorMessage) } as SpawnSessionResult : result;
     } catch (error) {
-        // Handle RPC errors
+        const message = error instanceof Error ? error.message : 'Failed to start session';
         return {
             type: 'error',
-            errorMessage: error instanceof Error ? error.message : 'Failed to spawn session'
+            errorMessage: error instanceof CodexAccountError
+                ? `${message} (machine: ${machineId}; RPC: ${method}; ${error.code}${error.status ? `; HTTP ${error.status}` : ''})`
+                : redact(message),
         };
     }
 }
@@ -408,15 +422,16 @@ export async function claudeDuplicateSession(
 }
 
 export async function codexForkThread(options: CodexForkThreadOptions): Promise<CodexForkThreadResult> {
-    const { machineId, directory, codexThreadId } = options;
+    const { machineId, directory, sourceSessionId, codexThreadId } = options;
     try {
         const result = await apiSocket.machineRPC<CodexForkThreadResult, {
             directory: string;
+            sourceSessionId: string;
             codexThreadId: string;
         }>(
             machineId,
             'codex-fork-thread',
-            { directory, codexThreadId },
+            { directory, sourceSessionId, codexThreadId },
         );
         return result;
     } catch (error) {
@@ -430,10 +445,11 @@ export async function codexForkThread(options: CodexForkThreadOptions): Promise<
 export async function codexDuplicateThread(
     options: CodexForkThreadOptions & { cutAfterItemId: string; retainSelectedTurn?: boolean },
 ): Promise<CodexForkThreadResult> {
-    const { machineId, directory, codexThreadId, cutAfterItemId, retainSelectedTurn } = options;
+    const { machineId, directory, sourceSessionId, codexThreadId, cutAfterItemId, retainSelectedTurn } = options;
     try {
         const result = await apiSocket.machineRPC<CodexForkThreadResult, {
             directory: string;
+            sourceSessionId: string;
             codexThreadId: string;
             cutAfterItemId: string;
             retainSelectedTurn?: boolean;
@@ -442,6 +458,7 @@ export async function codexDuplicateThread(
             'codex-duplicate-thread',
             {
                 directory,
+                sourceSessionId,
                 codexThreadId,
                 cutAfterItemId,
                 ...(retainSelectedTurn ? { retainSelectedTurn: true } : {}),
@@ -459,15 +476,16 @@ export async function codexDuplicateThread(
 export async function codexListRewindPoints(
     options: CodexForkThreadOptions,
 ): Promise<CodexListRewindPointsResult> {
-    const { machineId, directory, codexThreadId } = options;
+    const { machineId, directory, sourceSessionId, codexThreadId } = options;
     try {
         const result = await apiSocket.machineRPC<CodexListRewindPointsResult, {
             directory: string;
+            sourceSessionId: string;
             codexThreadId: string;
         }>(
             machineId,
             'codex-list-rewind-points',
-            { directory, codexThreadId },
+            { directory, sourceSessionId, codexThreadId },
         );
         return result;
     } catch (error) {
@@ -481,22 +499,18 @@ export async function codexListRewindPoints(
 export async function machineResumeSession(
     options: ResumeSessionOptions & { model?: string; permissionMode?: string; effort?: string | null },
 ): Promise<SpawnSessionResult> {
-    const { machineId, sessionId, model, permissionMode, effort } = options;
+    const { machineId, sessionId, agent, model, permissionMode, effort } = options;
+    return machineStartSession(machineId, 'resume-happy-session', agent === 'codex', { sessionId, model, permissionMode, effort });
+}
 
-    try {
-        const result = await apiSocket.machineRPC<SpawnSessionResult, { sessionId: string; model?: string; permissionMode?: string; effort?: string | null }>(
-            machineId,
-            'resume-happy-session',
-            { sessionId, model, permissionMode, effort },
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
-        );
-        return normalizeSpawnSessionResult(result);
-    } catch (error) {
-        return {
-            type: 'error',
-            errorMessage: error instanceof Error ? error.message : 'Failed to resume session',
-        };
+export async function machineAttachCodexCandidate(options: {
+    machineId: string; threadId: string; sourceSessionId?: string;
+}): Promise<SpawnSessionResult> {
+    const { machineId, threadId, sourceSessionId } = options;
+    if (!sourceSessionId?.trim()) {
+        return { type: 'error', errorMessage: 'Codex source history is unavailable. Only sessions with a Paws account history audit can be attached.' };
     }
+    return machineStartSession(machineId, 'codex-attach-candidate', true, { threadId, sourceSessionId });
 }
 
 /**
@@ -1026,6 +1040,7 @@ export async function forkAndSpawn(
         const forkResult = opts.cutAfterItemId
             ? await codexDuplicateThread({
                 machineId: source.machineId,
+                sourceSessionId: source.sessionId,
                 directory: spawnDirectory,
                 codexThreadId: source.codexThreadId,
                 cutAfterItemId: opts.cutAfterItemId,
@@ -1033,6 +1048,7 @@ export async function forkAndSpawn(
             })
             : await codexForkThread({
                 machineId: source.machineId,
+                sourceSessionId: source.sessionId,
                 directory: spawnDirectory,
                 codexThreadId: source.codexThreadId,
             });
