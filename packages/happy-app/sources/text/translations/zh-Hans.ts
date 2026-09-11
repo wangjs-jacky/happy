@@ -579,6 +579,7 @@ export const zhHans: TranslationStructure = {
         browserProgress: {
             title: '浏览器执行过程',
             view: '查看过程',
+            viewCount: ({ count }: { count: number }) => `查看过程 · ${count} 张`,
             close: '关闭浏览器执行过程',
             timelineTitle: '浏览器步骤',
             liveCount: ({ count }: { count: number }) => `实时回显 · ${count} 步`,

@@ -556,6 +556,7 @@ export const ca: TranslationStructure = {
         browserProgress: {
             title: 'Progrés del navegador',
             view: 'Mostra el progrés',
+            viewCount: ({ count }: { count: number }) => `Mostra el progrés · ${count}`,
             close: 'Tanca el progrés del navegador',
             timelineTitle: 'Passos del navegador',
             liveCount: ({ count }: { count: number }) => `En directe · ${count} ${count === 1 ? 'pas' : 'passos'}`,

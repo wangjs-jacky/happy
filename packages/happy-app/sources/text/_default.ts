@@ -634,6 +634,7 @@ export const en = {
         browserProgress: {
             title: 'Browser progress',
             view: 'View progress',
+            viewCount: ({ count }: { count: number }) => `View progress · ${count} image${count === 1 ? '' : 's'}`,
             close: 'Close browser progress',
             timelineTitle: 'Browser steps',
             liveCount: ({ count }: { count: number }) => `Live · ${count} step${count === 1 ? '' : 's'}`,
