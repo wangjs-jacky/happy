@@ -1,6 +1,7 @@
 import { MMKV } from 'react-native-mmkv';
 import { Platform } from 'react-native';
 import { randomUUID } from 'expo-crypto';
+import { router } from 'expo-router';
 import { FirstSubmissionOwner } from './firstSubmission';
 import { getFirstSubmissionScope, subscribeFirstSubmissionScope } from './firstSubmissionScope';
 import { getServerUrl } from './serverConfig';
@@ -45,7 +46,15 @@ export const firstSubmission = new FirstSubmissionOwner({
             if (result.type === 'error') {
                 // Launch errors are already sanitized by ops. Show the actionable
                 // detail transiently; the durable recovery record keeps only state.
-                Modal.alert(t('common.error'), result.errorMessage.trim() || t('newSession.submissionFailed'));
+                const code = 'codexAccountErrorCode' in result ? result.codexAccountErrorCode : undefined;
+                if (code && ['codex-account-unbound', 'codex-account-unavailable', 'profile-not-found', 'binding-version-conflict'].includes(code)) {
+                    const open = await Modal.confirm(t('common.error'),
+                        t(code === 'codex-account-unbound' ? 'codexAccounts.launchUnbound' : 'codexAccounts.launchUnavailable'),
+                        { cancelText: t('common.cancel'), confirmText: t('codexAccounts.openDeviceEnvironment') });
+                    if (open && current()) router.push('/settings/device-environment');
+                } else {
+                    Modal.alert(t('common.error'), result.errorMessage.trim() || t('newSession.submissionFailed'));
+                }
                 return { type: 'error' };
             }
             approved = await Modal.confirm(t('composeHome.createDirectoryTitle'),

@@ -9,7 +9,7 @@ import { ensureSessionHydratedWithRetry } from './ensureSessionHydratedWithRetry
 import type { MachineMetadata, Metadata, Session } from './storageTypes';
 import { markSessionArchiveRequested, markSessionRestored } from '@/utils/sessionLifecycle';
 import { updateEncryptedSessionMetadata } from './sessionMetadata';
-import { CodexAccountError, createCodexSessionGrant } from './apiCodexAccounts';
+import { CodexAccountError, createCodexSessionGrant, type CodexAccountErrorCode } from './apiCodexAccounts';
 
 export const SESSION_START_RPC_TIMEOUT_MS = 140_000;
 
@@ -180,7 +180,7 @@ export type SpawnSessionHydrationError = {
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
-    | { type: 'error'; errorMessage: string }
+    | { type: 'error'; errorMessage: string; codexAccountErrorCode?: CodexAccountErrorCode }
     | SpawnSessionHydrationError;
 
 function normalizeSpawnSessionResult(result: unknown): SpawnSessionResult {
@@ -329,6 +329,7 @@ async function machineStartSession(
         const message = error instanceof Error ? error.message : 'Failed to start session';
         return {
             type: 'error',
+            ...(error instanceof CodexAccountError ? { codexAccountErrorCode: error.code } : {}),
             errorMessage: error instanceof CodexAccountError
                 ? `${message} (machine: ${machineId}; RPC: ${method}; ${error.code}${error.status ? `; HTTP ${error.status}` : ''})`
                 : redact(message),

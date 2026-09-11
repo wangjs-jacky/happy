@@ -74,6 +74,7 @@ import type { SandboxConfig } from '@/persistence';
 import { initializeSandbox, wrapForMcpTransport } from '@/sandbox/manager';
 import packageJson from '../../package.json';
 import { CodexMcpAppAdapter } from './mcpApps/CodexMcpAppAdapter';
+import { assertCodexAccountConfig, CODEX_ACCOUNT_CONFIG, CODEX_ACCOUNT_CONFIG_ERROR, CODEX_ACCOUNT_UNSET_ENV } from './codexAccountConfig';
 
 type PendingRequest = {
     resolve: (result: unknown) => void;
@@ -242,6 +243,7 @@ function buildCodexProcessEnv(base: NodeJS.ProcessEnv = process.env): Record<str
         env.all_proxy = codexProxy;
     }
 
+    if (base.HAPPY_CODEX_ACCOUNT_PROFILE_ID) for (const key of CODEX_ACCOUNT_UNSET_ENV) delete env[key];
     return env;
 }
 
@@ -886,6 +888,7 @@ export class CodexAppServerClient {
 
         try {
             await this.connectWithCapabilityFallback(codexCommand);
+            if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) await this.assertAccountConfig();
         } catch (error) {
             await this.disconnectInternal({ preserveThreadState: this._threadId !== null });
             throw error;
@@ -908,6 +911,7 @@ export class CodexAppServerClient {
 
     private async openTransport(codexCommand?: string): Promise<void> {
         if (this.connection.type === 'unixSocket') {
+            if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) throw new Error(CODEX_ACCOUNT_CONFIG_ERROR);
             await this.connectUnixSocket(this.connection);
             return;
         }
@@ -918,7 +922,9 @@ export class CodexAppServerClient {
     private async openLocalProcessTransport(codexCommand: string): Promise<void> {
         let command = codexCommand;
         let args = ['app-server', '--listen', 'stdio://', '-c', `service_tier=\"${this.serviceTier}\"`];
-        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) args.push('-c', 'cli_auth_credentials_store="file"');
+        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) {
+            for (const [key, value] of Object.entries(CODEX_ACCOUNT_CONFIG)) args.push('-c', `${key}=${JSON.stringify(value)}`);
+        }
         this.sandboxEnabled = false;
 
         if (this.sandboxConfig?.enabled && process.platform !== 'win32') {
@@ -1174,7 +1180,17 @@ export class CodexAppServerClient {
     }
 
     private buildThreadConfig(mcpServers?: Record<string, unknown>): Record<string, unknown> | null {
-        return mcpServers ? { mcp_servers: mcpServers } : null;
+        const config = { ...(mcpServers ? { mcp_servers: mcpServers } : {}),
+            ...(this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID ? CODEX_ACCOUNT_CONFIG : {}) };
+        return Object.keys(config).length ? config : null;
+    }
+
+    private async assertAccountConfig(cwd?: string): Promise<void> {
+        if (!this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) return;
+        try {
+            const result = await this.request('config/read', { includeLayers: false, cwd: cwd ?? process.cwd() }) as { config?: unknown };
+            assertCodexAccountConfig(result?.config);
+        } catch { throw new Error(CODEX_ACCOUNT_CONFIG_ERROR); }
     }
 
     private rememberThreadDefaults(opts: {
@@ -1211,9 +1227,10 @@ export class CodexAppServerClient {
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
     }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
+        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) await this.assertAccountConfig(opts.cwd);
         const params: NewConversationParams = {
             model: opts.model ?? null,
-            modelProvider: null,
+            modelProvider: this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID ? 'openai' : null,
             profile: null,
             cwd: opts.cwd ?? process.cwd(),
             approvalPolicy: opts.approvalPolicy ?? null,
@@ -1252,10 +1269,11 @@ export class CodexAppServerClient {
         }
 
         const defaults = this.threadDefaults ?? {};
+        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) await this.assertAccountConfig(opts?.cwd ?? defaults.cwd);
         const params: ResumeConversationParams = {
             threadId,
             model: opts?.model ?? defaults.model ?? null,
-            modelProvider: null,
+            modelProvider: this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID ? 'openai' : null,
             cwd: opts?.cwd ?? defaults.cwd ?? process.cwd(),
             approvalPolicy: opts?.approvalPolicy ?? defaults.approvalPolicy ?? null,
             sandbox: opts?.sandbox ?? defaults.sandbox ?? null,
@@ -1291,12 +1309,13 @@ export class CodexAppServerClient {
         deferGoalContinuation?: boolean;
     }): Promise<{ threadId: string; model: string; thread: Thread }> {
         const defaults = this.threadDefaults ?? {};
+        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) await this.assertAccountConfig(opts.cwd ?? defaults.cwd);
         const params: ForkConversationParams = {
             threadId: opts.threadId,
             ...(opts.lastTurnId ? { lastTurnId: opts.lastTurnId } : {}),
             ...(opts.beforeTurnId ? { beforeTurnId: opts.beforeTurnId } : {}),
             model: opts.model ?? defaults.model ?? null,
-            modelProvider: null,
+            modelProvider: this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID ? 'openai' : null,
             cwd: opts.cwd ?? defaults.cwd ?? process.cwd(),
             approvalPolicy: opts.approvalPolicy ?? defaults.approvalPolicy ?? null,
             sandbox: opts.sandbox ?? defaults.sandbox ?? null,

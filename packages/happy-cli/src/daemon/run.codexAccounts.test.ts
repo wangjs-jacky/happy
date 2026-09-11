@@ -29,6 +29,7 @@ vi.mock('@/utils/spawnHappyCLI', () => ({ resolveHappyCLIEntrypoint: () => '/fak
 import { startDaemon } from './run';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
+import { startCodexAccountWorkerObserver } from '@/codex/codexAccountWorker';
 
 let sourceHome: string; let daemon: Promise<void>; let savedHome: string | undefined;
 let signalListeners: Map<string, Function[]>;
@@ -52,7 +53,12 @@ beforeEach(async () => {
   await vi.waitFor(() => expect(state.handlers).toBeTruthy());
 });
 afterEach(async () => {
-  state.control?.requestShutdown(); await vi.advanceTimersByTimeAsync(150); await daemon;
+  state.control?.requestShutdown();
+  let stopped = false;
+  void daemon.then(() => { stopped = true; });
+  // A surviving launch adds real filesystem checkpoint work before the
+  // daemon's 100ms shutdown delay. Keep advancing until that delay is scheduled.
+  await vi.waitFor(async () => { await vi.advanceTimersByTimeAsync(150); expect(stopped).toBe(true); });
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks();
   for (const [signal, previous] of signalListeners) for (const listener of process.listeners(signal as NodeJS.Signals)) if (!previous.includes(listener)) process.removeListener(signal, listener as any);
   if (savedHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = savedHome;
@@ -60,6 +66,40 @@ afterEach(async () => {
   await rm(sourceHome, { recursive: true, force: true });
 });
 describe('real daemon Codex spawn paths', () => {
+  it('keeps worker rotation observation and final cleanup after bundle replacement while the session stays alive', async () => {
+    state.tmux = false;
+    const spawning = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    state.control.onHappySessionWebhook('surviving-session', { hostPid: 987601, flavor: 'codex', startedBy: 'daemon' });
+    await spawning;
+    const launchHome = state.spawned[0].CODEX_HOME;
+    state.bundleMtime = 2;
+    await vi.advanceTimersByTimeAsync(61_500);
+    await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0));
+    // The fake process exit above cannot cancel timers; emulate the departed
+    // daemon's process boundary before running the surviving worker's timer.
+    vi.clearAllTimers();
+    const observer = startCodexAccountWorkerObserver(state.api, launchHome);
+    const auth = JSON.parse(await readFile(join(launchHome, 'auth.json'), 'utf8'));
+    state.api.updateCodexAccountCredential.mockResolvedValue({ profile: { credentialVersion: 2 } });
+    await writeFile(join(launchHome, 'auth.json'), JSON.stringify({ ...auth, tokens: { ...auth.tokens, refresh_token: 'post-replacement-refresh' } }));
+    vi.mocked(process.kill).mockImplementation((pid) => {
+      if (pid === process.pid) throw Object.assign(new Error('original daemon exited'), { code: 'ESRCH' });
+      return true;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.waitFor(() => expect(state.api.updateCodexAccountCredential).toHaveBeenCalledOnce());
+      expect(state.api.updateCodexAccountCredential.mock.calls[0][1]).toMatchObject({ launchId: 'launch-1', expectedVersion: 1, auth: { tokens: { refresh_token: 'post-replacement-refresh' } } });
+      expect((await stat(launchHome)).isDirectory()).toBe(true);
+      state.api.updateCodexAccountCredential.mockResolvedValue({ profile: { credentialVersion: 3 } });
+      await writeFile(join(launchHome, 'auth.json'), JSON.stringify({ ...auth, tokens: { ...auth.tokens, refresh_token: 'exit-refresh' } }));
+      await observer.finish();
+      expect(state.api.updateCodexAccountCredential.mock.calls[1][1]).toMatchObject({ launchId: 'launch-1', expectedVersion: 2, auth: { tokens: { refresh_token: 'exit-refresh' } } });
+      await expect(stat(launchHome)).rejects.toThrow();
+      expect(await readFile(join(sourceHome, 'auth.json'), 'utf8')).toBe('global-auth');
+    } finally { await observer.finish(); }
+  });
   it.each(['shutdown', 'bundle replacement'])('drains exited-child finalizers before %s, even beyond the startup fallback timeout', async mode => {
     state.tmux = false;
     const spawning = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43) });

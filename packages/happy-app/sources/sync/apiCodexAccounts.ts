@@ -32,11 +32,11 @@ export type ListCodexAccountsResponse = z.infer<typeof listSchema>;
 export type CodexSessionGrant = z.infer<typeof grantSchema>;
 
 const errorMessages = {
-    'codex-account-unbound': 'Bind a Codex account to this machine in Settings → Codex accounts before starting a session.',
-    'codex-account-unavailable': 'The bound Codex account needs attention. Refresh the login and run paws codex account upload, or bind another account.',
-    'binding-version-conflict': 'This machine’s Codex binding changed. Refresh the account list and try again.',
+    'codex-account-unbound': 'Bind a Codex account to this machine in Settings → Device Environment before starting a session.',
+    'codex-account-unavailable': 'The bound Codex account needs attention. Refresh the login and run paws codex account upload, or bind another account in Settings → Device Environment.',
+    'binding-version-conflict': 'This machine’s Codex binding changed. Review the binding in Settings → Device Environment and try again.',
     'display-name-conflict': 'This Codex account name is already in use. Choose another name.',
-    'profile-not-found': 'This Codex account was removed. Refresh the account list and bind an available account.',
+    'profile-not-found': 'This Codex account was removed. Bind an available account in Settings → Device Environment.',
     'machine-not-found': 'This machine is no longer available. Refresh the machine list.',
     'invalid-request': 'The Codex account request is invalid. Check the entered values.',
     'grant-unavailable': 'The Codex session authorization expired or the binding changed. Start the session again.',

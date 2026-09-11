@@ -17,6 +17,9 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 export const en = {
     codexAccounts: {
         title: 'Codex accounts',
+        openDeviceEnvironment: 'Open Device Environment',
+        launchUnbound: 'Bind a Codex account to this machine in Settings → Device Environment before starting a session.',
+        launchUnavailable: 'Check the bound account in Settings → Device Environment. Refresh the login and run paws codex account upload, or bind an available account.',
         description: 'Upload a Codex login from your terminal, then choose a default account for each device.',
         empty: 'No Codex accounts yet. Upload a Codex login with the command above.',
         available: 'Available', needsRefresh: 'Needs update', invalid: 'Account invalid',

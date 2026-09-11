@@ -73,7 +73,7 @@ import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
 import { mergeReconnectMetadata } from './reconnectMetadata';
 import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
-import { cleanupOrphanedCodexAccountHome, codexAccountSessionMetadata } from './codexAccountWorker';
+import { startCodexAccountWorkerObserver, codexAccountSessionMetadata } from './codexAccountWorker';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -348,6 +348,7 @@ export async function runCodex(opts: {
     connectionState.setBackend('Codex');
 
     const api = await ApiClient.create(opts.credentials, opts.startupLifecycle);
+    const accountObserver = startCodexAccountWorkerObserver(api);
 
     // Log startup options
     logger.debug(`[codex] Starting with options: startedBy=${opts.startedBy || 'terminal'}`);
@@ -857,14 +858,14 @@ export async function runCodex(opts: {
             // Stop Happy MCP server
             happyServer.stop();
             await cleanupAllStagedMediaAttachments();
-            await cleanupOrphanedCodexAccountHome();
+            await accountObserver.finish();
 
             logger.debug('[Codex] Session termination complete, exiting');
             process.exit(0);
         } catch (error) {
             logger.debug('[Codex] Error during session termination:', error);
             await cleanupAllStagedMediaAttachments();
-            await cleanupOrphanedCodexAccountHome();
+            await accountObserver.finish();
             process.exit(1);
         }
     };
@@ -1847,7 +1848,7 @@ export async function runCodex(opts: {
         }
         logger.debug('[codex]: client.disconnect begin');
         await client.disconnect();
-        await cleanupOrphanedCodexAccountHome();
+        await accountObserver.finish();
         logger.debug('[codex]: client.disconnect done');
         // Stop Happy MCP server
         logger.debug('[codex]: happyServer.stop');

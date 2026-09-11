@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { CodexAccountLaunch, withCodexAccountLaunch } from './codexAccountLaunch';
 import { CodexAccountRequestError } from '@/api/codexAccountTypes';
 import { configuration } from '@/configuration';
+import { cleanupOrphanedCodexAccountHome } from '@/codex/codexAccountWorker';
+import { restoreCodexAccountHistory } from '@/codex/codexAccountHistory';
 
 const auth = { tokens: { id_token: 'id-secret', access_token: 'access-secret', refresh_token: 'refresh-secret', account_id: 'account-secret' } };
 const dirs: string[] = [];
@@ -22,6 +24,35 @@ function api() {
   };
 }
 describe('Codex account launch lifecycle', () => {
+  it('preserves orphan-exit rotation and immutable final quota attribution before cleanup', async () => {
+    const a = api(); const sourceHome = await home();
+    const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome });
+    await launch.attach('session-1');
+    await writeFile(join(launch.home, 'auth.json'), JSON.stringify({ ...auth, last_refresh: new Date().toISOString() }));
+    await launch.sync();
+    const marker = await readFile(join(launch.home, '.paws-account-launch.json'), 'utf8');
+    expect((await stat(join(launch.home, '.paws-account-launch.json'))).mode & 0o777).toBe(0o600);
+    for (const secret of Object.values(auth.tokens)) expect(marker).not.toContain(secret);
+    expect(marker).not.toContain('g'.repeat(43));
+    a.updateCodexAccountCredential.mockClear();
+    a.updateCodexAccountCredential.mockResolvedValue({ profile: { id: 'profile-1', displayName: 'Codex · ABCD', credentialVersion: 5, status: 'available' } });
+    const rotated = { tokens: { ...auth.tokens, access_token: 'rotated-after-daemon', refresh_token: 'latest-refresh' } };
+    await writeFile(join(launch.home, 'auth.json'), JSON.stringify(rotated));
+    const observed = new Date().toISOString(); const reset = Math.floor(Date.now() / 1000) + 86400;
+    await mkdir(join(launch.home, 'sessions'), { recursive: true });
+    await writeFile(join(launch.home, 'sessions', 'rollout-thread.jsonl'), JSON.stringify({ timestamp: observed, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 2 } }, rate_limits: { secondary: { used_percent: 42, resets_at: reset, window_minutes: 10080 } } } }) + '\n');
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('dead'), { code: 'ESRCH' }); });
+    try {
+      await cleanupOrphanedCodexAccountHome(launch.home, a);
+      expect(a.updateCodexAccountCredential).toHaveBeenCalledWith('profile-1', { machineId: 'machine-1', launchId: 'launch-1', expectedVersion: 4, auth: rotated });
+      expect(a.reportCodexAccountQuota).toHaveBeenCalledWith('profile-1', expect.objectContaining({ sourceSessionId: 'session-1', launchId: 'launch-1', credentialVersion: 3, weeklyUsedPercent: 42 }));
+      await expect(stat(launch.home)).rejects.toThrow();
+      const restored = await home();
+      await restoreCodexAccountHistory(join(configuration.happyHomeDir, 'codex-session-cache'), 'profile-1', restored);
+      expect(await readFile(join(restored, 'sessions', 'rollout-thread.jsonl'), 'utf8')).toContain('rate_limits');
+      await expect(stat(join(restored, 'auth.json'))).rejects.toThrow();
+    } finally { kill.mockRestore(); await launch.finish(); }
+  });
   it('waits for an in-flight attachment before deleting its home and never resurrects its timer', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const a = api(); const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome: await home() });

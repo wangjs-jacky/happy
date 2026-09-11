@@ -18,6 +18,9 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     codexAccounts: {
+        openDeviceEnvironment: '前往设备环境',
+        launchUnbound: '请先前往「设置 → 设备环境」，为此设备绑定一个 Codex 账号，再启动会话。',
+        launchUnavailable: '请前往「设置 → 设备环境」检查绑定。重新登录并执行 paws codex account upload，或绑定其他可用账号。',
         title: 'Codex 账号', description: '在设备终端上传 Codex 登录，然后为每台设备选择默认账号。',
         empty: '暂无 Codex 账号，请在终端执行上方命令上传当前登录。',
         available: '可用', needsRefresh: '需更新', invalid: '账号已失效', reupload: '需要重新上传，请在终端执行上方命令。',

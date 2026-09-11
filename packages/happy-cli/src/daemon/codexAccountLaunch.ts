@@ -1,19 +1,22 @@
 import { createHash } from 'node:crypto';
-import { rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ApiClient } from '@/api/api';
-import { CodexAccountRequestError, type CodexGrantRedemption } from '@/api/codexAccountTypes';
+import { CodexAccountRequestError } from '@/api/codexAccountTypes';
 import { codexAccountAuthSchema, readCodexAccountAuth, type CodexAccountAuth } from '@/codex/codexAccountAuth';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot } from '@/codex/codexUsage';
 import { retainCodexAccountHistory, restoreCodexAccountHistory, rememberCodexAccountSession, copyCodexSourceThread, CodexSourceHistoryUnavailableError } from '@/codex/codexAccountHistory';
 import { configuration } from '@/configuration';
 import type { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
+import { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
+import { writeCodexAccountLaunchState, type CodexAccountLaunchState } from '@/codex/codexAccountLaunchState';
+export { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
 
-type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>;
+export type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>;
 type PrepareOptions = NonNullable<Parameters<typeof prepareCodexHomeWithAuth>[1]> & { historyRoot?: string; sourceSessionId?: string; sourceThreadId?: string };
 const fingerprint = (auth: CodexAccountAuth) => createHash('sha256').update(JSON.stringify(auth)).digest('hex');
-export const CODEX_ACCOUNT_UNSET_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'HAPPY_CODEX_APP_SERVER_SOCKET'] as const;
+const identityFingerprint = (launchId: string, accountId: string) => createHash('sha256').update(`${launchId}\0${accountId}`).digest('hex');
 
 /** One redeemed launch owns one home and immutable quota attribution. */
 export class CodexAccountLaunch {
@@ -22,7 +25,7 @@ export class CodexAccountLaunch {
   readonly credentialVersion: number;
   private currentVersion: number;
   private authFingerprint: string;
-  private readonly accountId: string;
+  private readonly accountFingerprint: string;
   private sourceSessionId?: string;
   private timer?: NodeJS.Timeout;
   private pending: Promise<void> = Promise.resolve();
@@ -31,17 +34,36 @@ export class CodexAccountLaunch {
   private writeDisabled = false;
   private lastQuota?: string;
   private pid?: number;
-  private readonly startedAt = Date.now();
+  private readonly startedAt: number;
+  private readonly daemonPid: number;
   private identityInvalid = false;
 
-  private constructor(private readonly api: AccountApi, private readonly machineId: string, readonly home: string, grant: CodexGrantRedemption, private readonly historyRoot: string) {
-    this.profileId = grant.profile.id; this.launchId = grant.launchId;
-    this.credentialVersion = this.currentVersion = grant.profile.credentialVersion;
-    this.authFingerprint = fingerprint(grant.auth); this.accountId = grant.auth.tokens.account_id;
+  private constructor(private readonly api: AccountApi, private readonly machineId: string, readonly home: string, state: CodexAccountLaunchState, private readonly historyRoot: string) {
+    this.profileId = state.profileId; this.launchId = state.launchId;
+    this.credentialVersion = state.credentialVersion; this.currentVersion = state.currentVersion;
+    this.authFingerprint = state.authFingerprint; this.accountFingerprint = state.accountFingerprint;
+    this.startedAt = state.startedAt; this.daemonPid = state.daemonPid;
+    this.sourceSessionId = state.sourceSessionId; this.writeDisabled = state.writeDisabled;
+    this.identityInvalid = state.identityInvalid; this.lastQuota = state.lastQuota;
+  }
+
+  /** Only the surviving worker may recover this observer, after daemon death. */
+  static recover(api: AccountApi, home: string, state: CodexAccountLaunchState): CodexAccountLaunch {
+    return new CodexAccountLaunch(api, state.machineId, home, state, state.historyRoot);
+  }
+
+  private checkpoint(): Promise<void> {
+    return writeCodexAccountLaunchState(this.home, {
+      schemaVersion: 1, daemonPid: this.daemonPid, machineId: this.machineId,
+      profileId: this.profileId, launchId: this.launchId, credentialVersion: this.credentialVersion,
+      currentVersion: this.currentVersion, authFingerprint: this.authFingerprint, accountFingerprint: this.accountFingerprint,
+      sourceSessionId: this.sourceSessionId, historyRoot: this.historyRoot, startedAt: this.startedAt,
+      writeDisabled: this.writeDisabled, identityInvalid: this.identityInvalid, lastQuota: this.lastQuota,
+    });
   }
 
   static async prepare(api: AccountApi, machineId: string, grant: string | undefined, options?: PrepareOptions): Promise<CodexAccountLaunch> {
-    if (typeof grant !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(grant)) throw new Error('A fresh Codex session grant is required. Check the device Codex account binding.');
+    if (typeof grant !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(grant)) throw new Error('A fresh Codex session grant is required. Check the binding in Settings → Device Environment.');
     const redeemed = await api.redeemCodexSessionGrant({ machineId, grant });
     const parsed = codexAccountAuthSchema.safeParse(redeemed.auth);
     if (!parsed.success || !redeemed.launchId || !redeemed.profile?.id || !Number.isInteger(redeemed.profile.credentialVersion) || redeemed.profile.credentialVersion < 1) {
@@ -52,10 +74,16 @@ export class CodexAccountLaunch {
     try {
       await restoreCodexAccountHistory(historyRoot, redeemed.profile.id, home);
       if (options?.sourceThreadId) await copyCodexSourceThread(historyRoot, options.sourceSessionId ?? '', options.sourceThreadId, home);
-      await writeFile(join(home, '.paws-account-launch.json'), JSON.stringify({ daemonPid: process.pid, profileId: redeemed.profile.id, historyRoot }), { mode: 0o600, flag: 'wx' });
+      const launch = new CodexAccountLaunch(api, machineId, home, {
+        schemaVersion: 1, daemonPid: process.pid, machineId, profileId: redeemed.profile.id, launchId: redeemed.launchId,
+        credentialVersion: redeemed.profile.credentialVersion, currentVersion: redeemed.profile.credentialVersion,
+        authFingerprint: fingerprint(parsed.data), accountFingerprint: identityFingerprint(redeemed.launchId, parsed.data.tokens.account_id),
+        historyRoot, startedAt: Date.now(), writeDisabled: false, identityInvalid: false,
+      }, historyRoot);
+      await launch.checkpoint();
+      return launch;
     }
     catch (error) { await rm(home, { recursive: true, force: true }); throw error instanceof CodexSourceHistoryUnavailableError ? error : new Error('Unable to restore Codex session history'); }
-    return new CodexAccountLaunch(api, machineId, home, { ...redeemed, auth: parsed.data }, historyRoot);
   }
 
   environment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -76,6 +104,8 @@ export class CodexAccountLaunch {
       await rememberCodexAccountSession(this.historyRoot, sourceSessionId, this.profileId, this.home);
       if (this.finishing) throw new Error('Codex process exited before session attachment');
       this.sourceSessionId = sourceSessionId;
+      await this.checkpoint();
+      if (this.finishing) throw new Error('Codex process exited before session attachment');
       this.timer = setInterval(() => { void this.sync(); }, 60_000);
       this.timer.unref();
     })();
@@ -91,7 +121,7 @@ export class CodexAccountLaunch {
 
   sync(): Promise<void> {
     if (this.finishing) return this.finishing;
-    this.pending = this.pending.then(() => this.syncOnce()).catch(() => undefined);
+    this.pending = this.pending.then(async () => { await this.syncOnce(); await this.checkpoint(); }).catch(() => undefined);
     return this.pending;
   }
 
@@ -102,7 +132,7 @@ export class CodexAccountLaunch {
     let auth: CodexAccountAuth | undefined;
     try { auth = await readCodexAccountAuth(this.home); }
     catch { await this.reportStatus('needs-refresh'); }
-    if (auth && auth.tokens.account_id !== this.accountId) {
+    if (auth && identityFingerprint(this.launchId, auth.tokens.account_id) !== this.accountFingerprint) {
       await this.reportStatus('invalid'); this.writeDisabled = true; this.identityInvalid = true;
     } else if (!this.writeDisabled && auth && fingerprint(auth) !== this.authFingerprint) {
       try {
@@ -169,6 +199,6 @@ export async function withCodexAccountLaunch(
     return result;
   } catch (error) {
     await launch?.abort().catch(() => undefined);
-    return { type: 'error', errorMessage: error instanceof CodexSourceHistoryUnavailableError ? error.message : 'Codex account launch failed. Check the device account binding and request a fresh session grant.' };
+    return { type: 'error', errorMessage: error instanceof CodexSourceHistoryUnavailableError ? error.message : 'Codex account launch failed. Check the account binding in Settings → Device Environment and start the session again.' };
   }
 }

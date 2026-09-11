@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { machineRPC, alert } = vi.hoisted(() => ({ machineRPC: vi.fn(), alert: vi.fn() }));
+const { machineRPC, alert, confirm, push } = vi.hoisted(() => ({ machineRPC: vi.fn(), alert: vi.fn(), confirm: vi.fn(), push: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000002' }));
 vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC }, getHappyClientId: () => 'web' }));
@@ -8,8 +8,10 @@ vi.mock('./serverConfig', () => ({ getServerUrl: () => 'https://test' }));
 vi.mock('@/auth/tokenStorage', () => ({ TokenStorage: { getCredentials: async () => ({ token: 'bearer', secret: 'secret' }) } }));
 vi.mock('./sync', () => ({ sync: {} }));
 vi.mock('@/hooks/useSpawnSession', () => ({ configureSpawnedSession: vi.fn() }));
-vi.mock('@/modal', () => ({ Modal: { alert, confirm: vi.fn() } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/modal', () => ({ Modal: { alert, confirm } }));
+vi.mock('expo-router', () => ({ router: { push } }));
+vi.mock('@/text', async () => { const { en } = await import('@/text/_default'); return { t: (key: string) => key.startsWith('codexAccounts.')
+    ? key.split('.').reduce((value: any, part) => value?.[part], en) : key }; });
 vi.mock('./sessionStartupTrace', () => ({ traceStartup: vi.fn() }));
 vi.mock('./sessionStartupTraceRuntime', () => ({ sessionStartupTraceRuntime: { begin: vi.fn(), bindSession: vi.fn() } }));
 
@@ -25,7 +27,8 @@ beforeEach(() => {
         getItem: (key: string) => saved.get(key) ?? null,
         setItem: (key: string, value: string) => saved.set(key, value),
     });
-    machineRPC.mockReset(); alert.mockReset();
+    machineRPC.mockReset(); alert.mockReset(); confirm.mockReset(); push.mockReset();
+    confirm.mockResolvedValue(true);
     setFirstSubmissionScope('account/server', 'https://test');
 });
 afterEach(() => { clearFirstSubmissionScope(); vi.unstubAllGlobals(); });
@@ -40,14 +43,31 @@ describe('first submission launch errors', () => {
         expect(await firstSubmission.submit(input, { images: [] })).toBe(false);
 
         expect(firstSubmission.getSnapshot()).toMatchObject({ phase: 'failed', failure: 'spawn', text: 'hello' });
-        expect(alert).toHaveBeenCalledWith('common.error', expect.stringMatching(instruction));
-        expect(alert.mock.calls[0][1]).toContain('machine-1');
-        expect(alert.mock.calls[0][1]).toContain('spawn-happy-session');
-        expect(alert.mock.calls[0][1]).not.toContain('must-not-escape');
+        expect(confirm).toHaveBeenCalledWith('common.error', expect.stringMatching(instruction), { cancelText: 'common.cancel', confirmText: 'Open Device Environment' });
+        expect(confirm.mock.calls[0][1]).toContain('Device Environment');
+        expect(confirm.mock.calls[0][1]).not.toContain('must-not-escape');
+        expect(push).toHaveBeenCalledWith('/settings/device-environment');
+        expect(alert).not.toHaveBeenCalled();
         expect(machineRPC).not.toHaveBeenCalled();
         expect([...saved.values()].join('')).not.toContain(error);
         expect([...saved.values()].join('')).not.toContain('must-not-escape');
         expect(JSON.stringify(firstSubmission.getSnapshot())).not.toContain(error);
+    });
+
+    it('keeps the failed submission when account recovery is cancelled', async () => {
+        confirm.mockResolvedValue(false);
+        vi.stubGlobal('fetch', async () => Response.json({ error: 'codex-account-unbound' }, { status: 409 }));
+        expect(await firstSubmission.submit(input, { images: [] })).toBe(false);
+        expect(confirm).toHaveBeenCalledOnce();
+        expect(push).not.toHaveBeenCalled();
+        expect(firstSubmission.getSnapshot()).toMatchObject({ phase: 'failed', text: 'hello' });
+    });
+
+    it('ignores a recovery confirmation after its account scope changes', async () => {
+        confirm.mockImplementation(async () => { setFirstSubmissionScope('new-account/server', 'https://test'); return true; });
+        vi.stubGlobal('fetch', async () => Response.json({ error: 'codex-account-unavailable' }, { status: 409 }));
+        expect(await firstSubmission.submit(input, { images: [] })).toBe(false);
+        expect(confirm).toHaveBeenCalledOnce(); expect(push).not.toHaveBeenCalled();
     });
 
     it('shows the generic fallback for an empty launch error and never persists the grant', async () => {
@@ -58,6 +78,7 @@ describe('first submission launch errors', () => {
         expect(await firstSubmission.submit(input, { images: [] })).toBe(false);
 
         expect(alert).toHaveBeenCalledWith('common.error', 'newSession.submissionFailed');
+        expect(confirm).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled();
         expect(firstSubmission.getSnapshot()).toMatchObject({ phase: 'failed', failure: 'spawn' });
         expect([...saved.values()].join('')).not.toContain('a'.repeat(43));
         expect(JSON.stringify(firstSubmission.getSnapshot())).not.toContain('a'.repeat(43));

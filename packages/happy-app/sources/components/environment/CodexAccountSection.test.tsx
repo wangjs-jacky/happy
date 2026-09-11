@@ -167,6 +167,23 @@ describe('Codex account UI with real metadata API and controller', () => {
     it('loads when the parent publishes initial authentication after child effects', async () => {
         mocks.authReady = false; await render(); expect(textOf(card())).toContain('Codex · A7F2');
     });
+    it('deduplicates StrictMode initial reads so a replay cannot overwrite a later rename', async () => {
+        await act(async () => { renderer = TestRenderer.create(<React.StrictMode><Harness /></React.StrictMode>); });
+        expect(requests.filter(request => request.method === 'GET')).toHaveLength(1);
+        mocks.prompt.mockResolvedValue('Newest name'); await press(`codex-account-rename-${id}`);
+        expect(textOf(card())).toContain('Newest name');
+        expect(requests.filter(request => request.method === 'GET')).toHaveLength(1);
+    });
+    it('rejects an old scope response that arrives after the new scope metadata', async () => {
+        const complete: ((response: Response) => void)[] = [];
+        vi.stubGlobal('fetch', () => new Promise<Response>(resolve => complete.push(resolve)));
+        await render();
+        mocks.server = 'https://other';
+        await act(async () => { renderer.update(<Harness />); });
+        await act(async () => { complete[1](Response.json({ ...data, profiles: [profile({ displayName: 'New scope' })] })); });
+        await act(async () => { complete[0](Response.json(data)); });
+        expect(textOf(card())).toContain('New scope'); expect(textOf(card())).not.toContain('Codex · A7F2');
+    });
     it('does not apply a confirmation from an old server scope', async () => {
         await render(); mocks.prompt.mockImplementation(async () => { mocks.server = 'https://other'; return 'Changed'; });
         await press(`codex-account-rename-${id}`); expect(requests).toHaveLength(1);
