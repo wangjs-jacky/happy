@@ -42,7 +42,12 @@ export const firstSubmission = new FirstSubmissionOwner({
                 if (trace) sessionStartupTraceRuntime.bindSession(trace.handle, result.sessionId);
                 return result;
             }
-            if (result.type === 'error') return { type: 'error' };
+            if (result.type === 'error') {
+                // Launch errors are already sanitized by ops. Show the actionable
+                // detail transiently; the durable recovery record keeps only state.
+                Modal.alert(t('common.error'), result.errorMessage.trim() || t('newSession.submissionFailed'));
+                return { type: 'error' };
+            }
             approved = await Modal.confirm(t('composeHome.createDirectoryTitle'),
                 t('composeHome.createDirectoryMessage', { path: result.directory }),
                 { cancelText: t('common.cancel'), confirmText: t('common.create') });
