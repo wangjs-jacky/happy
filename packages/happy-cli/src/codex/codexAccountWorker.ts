@@ -11,7 +11,13 @@ async function recoverOrphanedObserver(home: string | undefined, api: AccountApi
   // writing its checkpoint; ESRCH guarantees its final CAS cannot race ours.
   try { process.kill(state.daemonPid, 0); return; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return; }
-  return CodexAccountLaunch.recover(api, home, state);
+  // The daemon may have completed its last CAS after our first read. Only the
+  // checkpoint read after confirmed death carries its final successful version.
+  const finalState = await readCodexAccountLaunchState(home);
+  const attribution = ['daemonPid', 'launchId', 'machineId', 'profileId', 'sourceSessionId',
+    'credentialVersion', 'accountFingerprint', 'startedAt', 'historyRoot'] as const;
+  if (attribution.some(key => finalState[key] !== state[key]) || finalState.currentVersion < state.currentVersion) return;
+  return CodexAccountLaunch.recover(api, home, finalState);
 }
 
 /** Survives daemon replacement because the observer runs in the session worker. */
