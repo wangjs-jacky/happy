@@ -23,7 +23,9 @@ import { sessionUpdateHandler } from '../socket/sessionUpdateHandler';
 describe('durable session changes against migrated PostgreSQL (PGlite)', () => {
     let pg: PGlite;
     let app: Fastify;
-    const createAccount = (id: string) => state.database.account.create({ data: { id, publicKey: id } });
+    // This helper also seeds a historical schema before later migrations run.
+    // Do not ask the current Prisma client to return fields not introduced yet.
+    const createAccount = (id: string) => state.database.account.create({ data: { id, publicKey: id }, select: { id: true } });
     const createSession = (id: string, accountId: string) => state.database.session.create({ data: { id, accountId, tag: id, metadata: 'private metadata' } });
     const append = (sessionId: string, seq: number) => state.database.sessionMessage.create({ data: { sessionId, seq, localId: `local-${seq}`, content: { t: 'encrypted', c: 'private body' } } });
     const changes = async (account: string, cursor?: string, limit = 200) => app.inject({
