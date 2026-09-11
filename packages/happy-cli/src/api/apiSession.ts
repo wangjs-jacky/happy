@@ -153,9 +153,8 @@ export class ApiSessionClient extends EventEmitter {
     private agentState: AgentState | null;
     private agentStateVersion: number;
     private socket: Socket<ServerToClientEvents, ClientToServerEvents>;
-    private pendingMessages: UserMessage[] = [];
+    private pendingInputMessages: Array<{ type: 'user'; message: UserMessage } | { type: 'file'; message: FileEventMessage }> = [];
     private pendingMessageCallback: ((message: UserMessage) => void) | null = null;
-    private pendingFileEvents: FileEventMessage[] = [];
     private pendingFileEventCallback: ((data: FileEventMessage) => void) | null = null;
     private blobKey: Uint8Array | null = null;
     /**
@@ -340,17 +339,26 @@ export class ApiSessionClient extends EventEmitter {
         return this.startupLifecycle?.processorReady(this.sessionId, this.metadata?.machineId) ?? false;
     }
 
-    onUserMessage(callback: (data: UserMessage) => void) {
+    // Supplying both handlers installs them atomically before startup messages
+    // replay, preserving file/text order and therefore attachment ownership.
+    onUserMessage(callback: (data: UserMessage) => void, onFileEvent?: (data: FileEventMessage) => void) {
         this.pendingMessageCallback = callback;
-        while (this.pendingMessages.length > 0) {
-            callback(this.pendingMessages.shift()!);
-        }
+        if (onFileEvent) this.pendingFileEventCallback = onFileEvent;
+        this.flushPendingInputMessages();
     }
 
     onFileEvent(callback: (data: FileEventMessage) => void) {
         this.pendingFileEventCallback = callback;
-        while (this.pendingFileEvents.length > 0) {
-            callback(this.pendingFileEvents.shift()!);
+        this.flushPendingInputMessages();
+    }
+
+    private flushPendingInputMessages() {
+        const pending = this.pendingInputMessages;
+        this.pendingInputMessages = [];
+        for (const item of pending) {
+            if (item.type === 'user' && this.pendingMessageCallback) this.pendingMessageCallback(item.message);
+            else if (item.type === 'file' && this.pendingFileEventCallback) this.pendingFileEventCallback(item.message);
+            else this.pendingInputMessages.push(item);
         }
     }
 
@@ -587,7 +595,7 @@ export class ApiSessionClient extends EventEmitter {
             if (this.pendingMessageCallback) {
                 this.pendingMessageCallback(userResult.data);
             } else {
-                this.pendingMessages.push(userResult.data);
+                this.pendingInputMessages.push({ type: 'user', message: userResult.data });
             }
             return;
         }
@@ -599,7 +607,7 @@ export class ApiSessionClient extends EventEmitter {
             if (this.pendingFileEventCallback) {
                 this.pendingFileEventCallback(fileResult.data);
             } else {
-                this.pendingFileEvents.push(fileResult.data);
+                this.pendingInputMessages.push({ type: 'file', message: fileResult.data });
             }
             return;
         }

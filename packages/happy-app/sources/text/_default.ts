@@ -773,7 +773,7 @@ export const en = {
             ? 'One image could not be uploaded and was not sent.'
             : `${count} images could not be uploaded and were not sent.`,
         notSupportedTitle: 'Images Not Supported',
-        notSupportedMessage: 'This agent does not support image attachments. Only the text was sent.',
+        notSupportedMessage: 'This agent does not support these attachments. Your message was not sent.',
         normalizeFailedTitle: 'Image Not Readable',
         normalizeFailedMessage: ({ count }: { count: number }) => count === 1 ? 'One image could not be processed and was skipped.' : `${count} images could not be processed and were skipped.`,
         viewAvatar: 'View profile picture',

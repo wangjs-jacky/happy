@@ -2383,7 +2383,7 @@ export const zhHans: TranslationStructure = {
             ? '一张图片上传失败，未发送。'
             : `${count} 张图片上传失败，未发送。`,
         notSupportedTitle: '不支持图片',
-        notSupportedMessage: '该代理不支持图片附件。仅发送了文本。',
+        notSupportedMessage: '该代理不支持这些附件，消息尚未发送。',
         normalizeFailedTitle: '图片无法处理',
         normalizeFailedMessage: ({ count }: { count: number }) => `${count} 张图片无法处理，已跳过。`,
         viewAvatar: '查看头像',

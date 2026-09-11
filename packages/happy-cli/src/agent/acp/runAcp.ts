@@ -8,7 +8,9 @@ import { DefaultTransport } from '@/agent/transport';
 import { AcpSessionManager } from './AcpSessionManager';
 import type { SessionEnvelope } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { MessageQueue2, createSerializedTaskRunner, isMediaAttachment, type ImageAttachment } from '@/utils/MessageQueue2';
+import { AcpImagePromptError } from './imagePromptError';
+import { detectCodexImage } from '@/codex/codexImageInput';
 import { hashObject } from '@/utils/deterministicJson';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
@@ -21,7 +23,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
-import type { AgentState } from '@/api/types';
+import type { AgentState, FileEventMessage } from '@/api/types';
 import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 import {
   extractConfigOptionsFromPayload,
@@ -270,6 +272,8 @@ function formatEnvelopeForServerLog(agentName: string, envelope: SessionEnvelope
 }
 
 type AcpSwitchMode = {
+  attachmentError?: string;
+  imageBatchId?: string;
   permissionMode?: string;
   model?: string | null;
 };
@@ -532,6 +536,7 @@ export async function runAcp(opts: {
 
   let session: ApiSessionClient;
   let permissionHandler: GenericAcpPermissionHandler;
+  let bindInputHandlers: (() => void) | undefined;
   const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
     api,
     sessionTag,
@@ -540,6 +545,7 @@ export async function runAcp(opts: {
     response,
     onSessionSwap: (newSession) => {
       session = newSession;
+      bindInputHandlers?.();
       if (permissionHandler) {
         permissionHandler.updateSession(newSession);
       }
@@ -891,26 +897,61 @@ export async function runAcp(opts: {
 
   backend.onMessage(onBackendMessage);
 
-  session.onUserMessage((message) => {
-    if (!message.content.text) {
-      return;
-    }
+  type ImageDownload = { image: ImageAttachment } | { error: string };
+  let pendingImages: Array<Promise<ImageDownload>> = [];
+  const processUserMessage = createSerializedTaskRunner(error => {
+    logger.debug(`[${opts.agentName}] Could not queue user message:`, error);
+  });
+
+  const handleFileEvent = (fileEvent: FileEventMessage) => {
+    if (shouldExit) return;
+    const ev = fileEvent.content.data.ev;
+    // Start downloading immediately, but retain both success and failure until
+    // the next text claims this exact bucket. No rejected background promises.
+    pendingImages.push((async (): Promise<ImageDownload> => {
+      try {
+        if (ev.kind && ev.kind !== 'image') {
+          return { error: 'OpenCode currently accepts image attachments only. Your message was not sent.' };
+        }
+        const data = await session.downloadAndDecryptAttachment(ev.ref);
+        if (!data?.length) throw new Error('empty image');
+        const detected = detectCodexImage(data);
+        if (!detected) return { error: 'This image format is not supported. Please use PNG, JPEG, GIF, or WebP and retry.' };
+        return { image: { data, mimeType: detected.mime, name: ev.name } };
+      } catch {
+        return { error: 'The image could not be downloaded or decrypted. Your message was not sent. Please attach it again and retry.' };
+      }
+    })());
+  };
+  const handleUserMessage: Parameters<ApiSessionClient['onUserMessage']>[0] = (message) => {
+    const claimedImages = pendingImages;
+    pendingImages = [];
+    if (!message.content.text && !claimedImages.length) return;
 
     if (typeof message.meta?.permissionMode === 'string') {
       currentPermissionMode = message.meta.permissionMode;
       logger.debug(`[${opts.agentName}] Requested ACP permission mode: ${currentPermissionMode}`);
     }
-
     if (message.meta && Object.prototype.hasOwnProperty.call(message.meta, 'model')) {
       currentModel = message.meta.model ?? null;
       logger.debug(`[${opts.agentName}] Requested ACP model: ${currentModel ?? 'null'}`);
     }
-
-    messageQueue.push(message.content.text, {
-      permissionMode: currentPermissionMode,
-      model: currentModel,
+    const mode: AcpSwitchMode = { permissionMode: currentPermissionMode, model: currentModel,
+      ...(claimedImages.length ? { imageBatchId: randomUUID() } : {}) };
+    void processUserMessage(async () => {
+      const results = await Promise.all(claimedImages);
+      if (shouldExit) return;
+      const failed = results.find((result): result is { error: string } => 'error' in result);
+      messageQueue.push(message.content.text || 'Please describe the attached image.',
+        failed ? { ...mode, attachmentError: failed.error } : mode,
+        failed ? [] : results.flatMap(result => 'image' in result ? [result.image] : []));
     });
-  });
+  };
+  bindInputHandlers = () => {
+    pendingImages = [];
+    session.onUserMessage(handleUserMessage, opts.agentName === 'opencode' ? handleFileEvent : undefined);
+  };
+  bindInputHandlers();
   session.keepAlive(thinking, 'remote');
 
   const keepAliveInterval = setInterval(() => {
@@ -986,7 +1027,15 @@ export async function runAcp(opts: {
 
       logAcp('incoming', `Incoming prompt: ${formatUnknownForConsole(batch.message, ACP_EVENT_PREVIEW_CHARS)}`);
       sendEnvelopes(sessionManager.startTurn());
+      if (batch.mode.attachmentError) {
+        sendEnvelopes(sessionManager.mapMessage({ type: 'model-output', textDelta: batch.mode.attachmentError }));
+        sendEnvelopes(sessionManager.endTurn('failed'));
+        session.sendSessionEvent({ type: 'ready' });
+        continue;
+      }
       const turnEnded = waitForTurnEnd();
+      // Backend errors can settle the turn before sendPrompt rejects.
+      void turnEnded.catch(() => {});
       try {
         if (typeof batch.mode.permissionMode === 'string' && batch.mode.permissionMode.length > 0) {
           await switchPermissionModeIfRequested(batch.mode.permissionMode);
@@ -994,7 +1043,9 @@ export async function runAcp(opts: {
         if (typeof batch.mode.model === 'string' && batch.mode.model.length > 0) {
           await switchModelIfRequested(batch.mode.model);
         }
-        await backend.sendPrompt(acpSessionId, batch.message);
+        const images = (batch.attachments ?? []).filter((a): a is ImageAttachment => !isMediaAttachment(a));
+        if (images.length) await backend.sendPrompt(acpSessionId, batch.message, images);
+        else await backend.sendPrompt(acpSessionId, batch.message);
         await turnEnded;
         sendEnvelopes(sessionManager.endTurn('completed'));
         session.sendSessionEvent({ type: 'ready' });
@@ -1002,6 +1053,18 @@ export async function runAcp(opts: {
           logAcp('muted', `Outgoing prompt completion from ${opts.agentName}`);
         }
       } catch (error) {
+        if (error instanceof AcpImagePromptError) {
+          sendEnvelopes(sessionManager.mapMessage({ type: 'model-output', textDelta: error.message }));
+          sendEnvelopes(sessionManager.endTurn('failed'));
+          clearPendingTurn();
+          thinking = false;
+          session.keepAlive(false, 'remote');
+          session.sendSessionEvent({ type: 'ready' });
+          continue;
+        }
+        if (batch.attachments?.length) {
+          sendEnvelopes(sessionManager.mapMessage({ type: 'model-output', textDelta: 'OpenCode could not process this image message. Please retry.' }));
+        }
         sendEnvelopes(sessionManager.endTurn('failed'));
         session.sendSessionEvent({ type: 'ready' });
         logAcp('error', `Prompt error from ${opts.agentName}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1010,6 +1073,8 @@ export async function runAcp(opts: {
       }
     }
   } finally {
+    shouldExit = true;
+    pendingImages = [];
     clearInterval(keepAliveInterval);
     reconnectionHandle?.cancel();
     clearPendingTurn(new Error('ACP runner shutting down'));

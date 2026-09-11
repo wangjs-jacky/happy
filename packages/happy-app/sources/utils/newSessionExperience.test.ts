@@ -38,6 +38,12 @@ describe('new session experience', () => {
         });
     });
 
+    it('allows OpenCode image input in the shared home and new-session composer', () => {
+        expect(getComposeHomeExperience({
+            agentType: 'opencode', activeImageAgent: false, imagePluginInstalled: false,
+        }).canAttach).toBe(true);
+    });
+
     it('preserves image-agent routing as a Codex image task', () => {
         expect(getComposeHomeExperience({ agentType: 'ask', activeImageAgent: true, imagePluginInstalled: true })).toEqual({
             displayAgentType: 'codex',

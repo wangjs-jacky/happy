@@ -281,10 +281,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }
     }, [activeImageAgent, agentType, setAgentType]);
 
-    // Inline image attachments (claude / codex). 图片上传已转正：Claude、Codex 会话默认
-    // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
-    // supportsAttachments），其余 runner（gemini / openclaw）会静默丢弃，故不显示。
-    // compact horizontal strip keeps the footprint to one row.
+    // Claude/Codex accept images and staged files; OpenCode accepts images via ACP.
     const composeExperience = React.useMemo(
         () => getComposeHomeExperience({ agentType, activeImageAgent, imagePluginInstalled }),
         [activeImageAgent, agentType, imagePluginInstalled],
@@ -1144,7 +1141,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         // Image agent needs images only; the normal composer
                         // offers the photo/audio-video chooser.
-                        onPickImages={canAttach ? (activeImageAgent ? pickImages : pickAttachment) : undefined}
+                        onPickImages={canAttach ? (activeImageAgent || agentType === 'opencode' ? pickImages : pickAttachment) : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
                         onAddImages={canAttach ? addImages : undefined}
                         leadingControls={composerConfigControls}
