@@ -30,6 +30,7 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * - New translation keys must be added to ALL language files
  */
 export const en: TranslationStructure = {
+    codexAccounts: baseEn.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: 'Previous inspection result',
         fleetDisconnected: ({ total }: { total: number }) => `${total} devices · disconnected`,

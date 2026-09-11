@@ -15,6 +15,7 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * Must match the exact structure of the English translations
  */
 export const it: TranslationStructure = {
+    codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: 'Risultato del controllo precedente',
         fleetDisconnected: ({ total }: { total: number }) => `${total} dispositivi · connessione interrotta`,

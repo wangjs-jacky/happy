@@ -18,6 +18,7 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const ja: TranslationStructure = {
+    codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: '前回の確認結果',
         fleetDisconnected: ({ total }: { total: number }) => `デバイス ${total} 台 · 接続が切れています`,

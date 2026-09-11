@@ -17,6 +17,7 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHant: TranslationStructure = {
+    codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: '上次檢查結果',
         fleetDisconnected: ({ total }: { total: number }) => `${total} 台裝置 · 連線已中斷`,
