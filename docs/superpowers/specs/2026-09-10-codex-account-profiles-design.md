@@ -15,6 +15,7 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 - Paws 的设备环境页面展示账号库，并允许逐台设备设置默认 Codex 账号。
 - 新建、恢复和分叉 Codex 进程时不出现账号选择项，直接使用设备当时的绑定。
 - 账号不可用时失败关闭，不自动消耗其他账号额度，也不退回设备本地账号。
+- 账号库显示最近一次由 Paws Codex 会话观测到的 7d 剩余额度和重置时间，不为刷新额度额外启动 Codex 请求。
 
 ## 2. 已确认的产品决策
 
@@ -32,6 +33,7 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 7. 新建会话页面不显示账号选择器，也不支持单次会话覆盖。
 8. 修改设备绑定只影响之后创建、恢复或分叉出的新进程，不切换已经运行的进程。
 9. 无绑定、账号失效或账号删除时阻止进程启动，不自动选择备用账号，也不使用设备全局账号。
+10. 账号卡片显示 `7d 剩余百分比 + 重置时间`；额度仅随 Paws 发起的 Codex 会话被动更新，不主动轮询或启动隐藏请求。
 
 ## 3. 当前系统与可复用能力
 
@@ -52,6 +54,7 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 - 设备环境中的账号库和逐台设备默认账号绑定。
 - 新建、恢复与分叉进程的自动凭据授权与临时注入。
 - 单次短时授权、凭据刷新回写、乐观并发保护和脱敏审计。
+- 每个账号最近一次 7d 额度快照、重置时间、观测时间和过期状态。
 - 旧版单一 OpenAI 凭据的兼容迁移。
 - PC Web 和移动端一致的账号与绑定语义。
 
@@ -59,7 +62,7 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 
 - 批量设置设备、设备组或账号自动下发。
 - 新建会话时选择或临时覆盖账号。
-- 自动轮换、额度均衡、故障切换、余额或消费统计。
+- 自动轮换、额度均衡、故障切换、历史消费统计或主动额度刷新。
 - 读取后覆盖设备全局 `auth.json`，或把账号持久复制到设备。
 - Paws 页面内的 OpenAI OAuth 登录。
 - Claude、Gemini 或其他供应商的多账号能力。
@@ -90,7 +93,30 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 - 加密路径包含 Paws 用户 ID 和 profile ID，防止跨用户或跨 profile 密文替换。
 - 列表接口绝不返回 `credential`、完整 OpenAI Account ID、邮箱或 JWT claims。
 
-### 5.2 Machine Codex Binding
+### 5.2 CodexQuotaSnapshot
+
+每个 profile 最多保存一份最近额度快照。它是运行观测值，不是账单或实时查询结果。
+
+| 字段 | 含义 |
+|---|---|
+| `codexAccountProfileId` | 所属 profile |
+| `weeklyUsedPercent` | Codex 7d 窗口返回的已使用百分比，范围 `0...100` |
+| `weeklyResetsAt` | 7d 窗口重置时间 |
+| `observedAt` | daemon 从 rate-limit 事件观测到该值的时间 |
+| `credentialVersion` | 产生该快照的会话启动时使用的凭据版本 |
+| `sourceSessionId` | 对应 Paws 会话，仅供归属校验与审计，不返回前端 |
+
+前端以 `100 - weeklyUsedPercent` 计算并取整显示剩余百分比。更新时，Server 必须验证 `sourceSessionId` 的审计快照与 profile、设备及 `credentialVersion` 匹配；只有 `observedAt` 更新的合法观测才能覆盖现有快照，防止任意机器的“最新 usage”串到其他账号。
+
+展示规则：
+
+- 有有效快照：`7d 剩余 68% · 周日 10:30 重置`；时间按用户本地时区格式化。
+- 从未收到快照：`7d 额度未知`。
+- `observedAt` 超过 24 小时：保留最后数值并追加“可能已过期”。
+- `weeklyResetsAt` 已经过期：不沿用上一窗口百分比，显示 `7d 额度未知 · 等待下次 Paws 会话更新`。
+- profile 失效：保留最后一次额度用于辨识，同时优先显示“账号已失效”，不得把失效误报为额度耗尽。
+
+### 5.3 Machine Codex Binding
 
 每台设备保存一个可空的 `defaultCodexAccountProfileId`。它属于 Paws 账号侧的设备配置，而不是 daemon 本地配置，因此离线设备也能被设置。
 
@@ -102,7 +128,7 @@ Paws 允许同一个 Paws 用户安全维护多个 Codex OAuth 账号，并为�
 
 设备列表只返回 profile ID 与脱敏展示信息，不返回凭据。
 
-### 5.3 Session Audit Snapshot
+### 5.4 Session Audit Snapshot
 
 会话元数据只记录实际启动使用的 `codexAccountProfileId`、当时的脱敏名称快照与 `credentialVersion`。这用于问题定位和审计，不用于后续取凭据，也不包含 secret。
 
@@ -137,6 +163,8 @@ paws codex account upload
 
 - 空状态显示用途说明、上传命令和复制按钮。
 - 非空状态显示账号名称、`可用 / 需更新 / 已失效` 状态、更新时间，以及重命名和删除入口。
+- 每个账号显示最近一次 `7d 剩余百分比 + 重置时间`；未知或超过 24 小时的数据按快照规则明确标记。
+- 不提供“刷新额度”按钮，也不在后台轮询；用户正常使用该账号启动 Paws Codex 会话后自动更新。
 - 账号列表只使用脱敏示例，不显示邮箱和 Account ID。
 - 复制成功给出短暂的就地反馈，不弹出阻断式对话框。
 - 上传账号不会自动修改任何设备绑定。
@@ -170,6 +198,7 @@ paws codex account upload
 5. daemon 使用自己的 Paws 身份兑换 grant；Server 原子标记已兑换并返回解密后的 auth JSON。
 6. daemon 调用 `prepareCodexHomeWithAuth()` 创建临时目录，将该目录作为新 Codex 进程的 `CODEX_HOME`。
 7. daemon 把实际使用的 profile ID 和 credentialVersion 作为脱敏结果写入会话元数据。
+8. Codex 返回新的 rate-limit 事件时，daemon 只提取 7d `usedPercent`、`resetsAt` 和观测时间，连同会话归属回写对应 profile 的额度快照。
 
 grant 必须满足：
 
@@ -226,6 +255,7 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 - `POST /v1/codex-session-grants`：按设备绑定签发单次授权。
 - `POST /v1/codex-session-grants/:grant/redeem`：绑定 daemon 兑换。
 - `PUT /v1/codex-accounts/:id/credential`：daemon 用版本条件回写刷新凭据。
+- `PUT /v1/codex-accounts/:id/quota-snapshot`：daemon 按已启动会话归属回写最新 7d 额度快照。
 
 所有请求使用严格 Zod schema、字段上限和未知字段拒绝。secret API 不与列表 API 复用响应类型。
 
@@ -242,6 +272,9 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 | 绑定在签发后改变 | 旧 grant 失效，不静默切换 |
 | 刷新版本冲突 | 保留服务端较新版本，旧会话不覆盖 |
 | 删除仍被引用的 profile | 二次确认并列出受影响设备 |
+| 尚无 7d 额度事件 | 显示“7d 额度未知”；不为探测额度启动 Codex 请求 |
+| 额度快照超过 24 小时 | 保留最后数值并标记“可能已过期” |
+| 额度窗口已经重置 | 不显示上一窗口剩余值，等待下一次 Paws 会话被动更新 |
 
 ## 13. 安全与隐私要求
 
@@ -250,6 +283,7 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 - 账号指纹使用服务端 keyed hash，不能直接保存 OpenAI Account ID 的普通哈希。
 - grant 使用高熵随机值，数据库只存摘要，并限制生命周期、用途、用户和设备。
 - 上传、重命名、删除、绑定、授权签发、兑换与刷新只记录 profile ID、machine ID、版本、结果和时间。
+- 额度回写只接受已归属 Paws 会话的 7d 数值与时间字段；不上传 prompt、response、Token 或完整 Codex 事件。
 - 公开 HTML 标注稿使用脱敏设备名与示例账号，不嵌入生产截图或真实环境数据。
 
 ## 14. 验收标准
@@ -263,6 +297,9 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 - 修改绑定不影响运行中进程；之后的新建、恢复和分叉进程使用新绑定。
 - 离线设备可以设置绑定，恢复在线后下一次启动生效。
 - profile 删除后相关设备显示未绑定，不能再创建新的 Codex 进程。
+- Paws Codex 会话收到 7d rate-limit 事件后，只更新实际使用 profile 的额度卡片，并显示剩余百分比和本地化重置时间。
+- 没有额度事件、快照超过 24 小时、窗口已重置和账号失效时分别显示已定义的未知、过期与失效状态。
+- 打开设备环境、点击重新检测或等待后台轮询都不会为刷新额度启动 Codex 请求。
 
 ### 14.2 隔离与安全
 
@@ -276,8 +313,8 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 
 - Server：模型约束、加密路径、去重、迁移、grant 原子兑换、删除事务与刷新 CAS 测试。
 - CLI：路径解析、文件防护、schema、交互确认、脱敏输出和上传幂等测试。
-- App：账号库、复制指令、逐台绑定、离线设备、失效状态和启动阻断测试。
-- 集成：两 profile / 两设备启动、恢复、分叉，以及全局 `auth.json` 不变测试。
+- App：账号库、复制指令、逐台绑定、离线设备、7d 额度新鲜度、失效状态和启动阻断测试。
+- 集成：两 profile / 两设备启动、恢复、分叉、额度快照不串号，以及全局 `auth.json` 不变测试。
 - Ego Browser：在生产 Paws 页面确认真实设备环境视觉基线；标注稿完成后在同一 Ego 任务空间验证桌面布局、交互与无外部依赖。
 - HTML：单文件、自包含、响应式、键盘可用、支持 reduced motion，并明确标注所有新增界面位置。
 
@@ -295,9 +332,10 @@ Codex 可能在临时 `auth.json` 中轮换 access token 或 refresh token。dae
 1. 开发工具矩阵上方的 Codex 账号库；
 2. 无参数命令及一键复制按钮；
 3. 逐台设备 Codex 默认账号行；
-4. 未绑定和账号失效的失败关闭状态。
+4. 未绑定和账号失效的失败关闭状态；
+5. 账号卡片中的 7d 剩余额度、重置时间，以及未知和过期状态。
 
-标注稿只使用公开、脱敏的示例数据，并提供正常、未绑定和账号失效三种可切换状态。
+标注稿只使用公开、脱敏的示例数据，并提供正常、未绑定、额度过期和账号失效四种可切换状态。示例百分比与时间必须明确属于设计演示，不代表真实账号数据。
 
 ## 16. 发布边界
 

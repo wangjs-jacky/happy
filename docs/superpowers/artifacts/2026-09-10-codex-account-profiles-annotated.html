@@ -280,7 +280,7 @@
       min-width: 0;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
+      align-items: start;
       gap: var(--sp-3);
       padding: var(--sp-4);
     }
@@ -298,8 +298,56 @@
       background: var(--surface-2);
     }
 
+    .account-copy { min-width: 0; }
     .account-name { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
     .account-meta { color: var(--text-3); font-size: var(--fs-xs); }
+
+    .quota {
+      position: relative;
+      margin-top: var(--sp-3);
+      padding: var(--sp-2) var(--sp-3);
+      border-radius: var(--r-sm);
+      color: var(--text-2);
+      background: var(--surface-2);
+      font-size: var(--fs-xs);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .quota.annotated { outline-width: 1.5px; outline-offset: 3px; box-shadow: 0 0 0 5px var(--mark-soft); }
+
+    .quota-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+    }
+
+    .quota-value { color: var(--text-1); font-weight: 700; }
+    .quota-reset { color: var(--text-3); white-space: nowrap; }
+
+    .quota-track {
+      height: 4px;
+      margin-top: 7px;
+      overflow: hidden;
+      border-radius: var(--r-pill);
+      background: var(--surface-3);
+    }
+
+    .quota-fill {
+      width: var(--quota, 0%);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+      transition: transform var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out);
+      transform-origin: left;
+    }
+
+    .quota-note { margin-top: 5px; color: var(--warn); }
+    .quota-note:empty { display: none; }
+    .quota[data-state="unknown"] .quota-fill { opacity: 0; }
+    .quota[data-state="stale"] .quota-fill,
+    .quota[data-state="invalid"] .quota-fill { background: var(--warn); opacity: 0.68; }
+    .quota[data-state="invalid"] .quota-note { color: var(--danger); }
 
     .pill {
       display: inline-flex;
@@ -529,6 +577,7 @@
       .statusbar, .vault-header, .footer-status { align-items: flex-start; flex-direction: column; }
       .command { grid-template-columns: 1fr; }
       .copy-button { width: 100%; }
+      .quota-head { align-items: flex-start; flex-direction: column; gap: 2px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -546,9 +595,10 @@
         <span class="eyebrow">交互标注稿 · 示例数据已脱敏</span>
       </span>
     </div>
-    <div class="scenario-switcher" role="group" aria-label="切换账号绑定示例状态">
+    <div class="scenario-switcher" role="group" aria-label="切换账号与额度示例状态">
       <button type="button" data-scenario="normal" aria-pressed="true">正常态</button>
       <button type="button" data-scenario="unbound" aria-pressed="false">未绑定</button>
+      <button type="button" data-scenario="stale" aria-pressed="false">额度过期</button>
       <button type="button" data-scenario="invalid" aria-pressed="false">账号失效</button>
     </div>
   </header>
@@ -585,19 +635,30 @@
         </div>
 
         <div class="accounts" aria-label="Codex 账号列表示例">
-          <article class="account">
+          <article class="account" id="primary-account">
             <span class="account-icon" aria-hidden="true">◎</span>
-            <div>
+            <div class="account-copy">
               <div class="account-name">Codex · A7F2</div>
               <div class="account-meta"><span class="pill">可用</span> · 更新于今天 18:32</div>
+              <div class="quota annotated" id="change-5" data-quota="primary" data-state="fresh" style="--quota: 68%">
+                <span class="marker marker-top" aria-hidden="true">5</span>
+                <div class="quota-head"><span class="quota-value">7d 剩余 68%</span><span class="quota-reset">周日 10:30 重置</span></div>
+                <div class="quota-track" aria-hidden="true"><div class="quota-fill"></div></div>
+                <div class="quota-note"></div>
+              </div>
             </div>
             <button class="account-menu" type="button" aria-label="管理 Codex A7F2">•••</button>
           </article>
           <article class="account" id="secondary-account">
             <span class="account-icon" aria-hidden="true">◎</span>
-            <div>
+            <div class="account-copy">
               <div class="account-name">Codex · 91BC</div>
               <div class="account-meta"><span class="pill">可用</span> · 更新于昨天 09:18</div>
+              <div class="quota" data-quota="secondary" data-state="fresh" style="--quota: 41%">
+                <div class="quota-head"><span class="quota-value">7d 剩余 41%</span><span class="quota-reset">周一 09:18 重置</span></div>
+                <div class="quota-track" aria-hidden="true"><div class="quota-fill"></div></div>
+                <div class="quota-note"></div>
+              </div>
             </div>
             <button class="account-menu" type="button" aria-label="管理 Codex 91BC">•••</button>
           </article>
@@ -680,7 +741,7 @@
 
       <article class="note reveal" tabindex="0" data-target="change-1">
         <span class="note-number">1</span>
-        <div><h3>新增账号库</h3><p>放在检测摘要与开发工具矩阵之间。只展示脱敏名称、状态和更新时间。</p></div>
+        <div><h3>新增账号库</h3><p>放在检测摘要与开发工具矩阵之间。展示脱敏名称、账号状态和最近更新时间。</p></div>
       </article>
       <article class="note reveal" tabindex="0" data-target="change-2">
         <span class="note-number">2</span>
@@ -695,7 +756,12 @@
         <div><h3>失败关闭状态</h3><p>切换顶部场景查看未绑定与账号失效。新会话不自动切换账号，也不回退本地账号。</p></div>
       </article>
 
-      <div class="legend">新建会话页面没有账号选择器；设备绑定是唯一的账号选择入口。</div>
+      <article class="note reveal" tabindex="0" data-target="change-5">
+        <span class="note-number">5</span>
+        <div><h3>显示 7d 剩余额度</h3><p>展示剩余百分比与重置时间。数据只随 Paws Codex 会话被动更新；未知或超过 24 小时会明确提示。</p></div>
+      </article>
+
+      <div class="legend">新建会话页面没有账号选择器；设备绑定是唯一的账号选择入口。示例额度仅用于设计演示，不代表真实账号数据。</div>
     </aside>
   </main>
 
@@ -734,19 +800,51 @@
       const scenarios = {
         normal: {
           first: ['Codex · A7F2', '之后的 Paws 会话自动使用', 'ok'],
+          primaryAccount: ['可用', '更新于今天 18:32', 'ok'],
           secondAccount: ['可用', '更新于昨天 09:18', 'ok'],
+          primaryQuota: ['fresh', '7d 剩余 68%', '周日 10:30 重置', '', '68%'],
+          secondaryQuota: ['fresh', '7d 剩余 41%', '周一 09:18 重置', '', '41%'],
           summary: ['所有设备都已绑定可用的 Codex 账号', '新建会话无需再选择账号；不会覆盖设备本地 Codex 登录。']
         },
         unbound: {
           first: ['未绑定', '新建 Codex 会话将被阻止', 'warn'],
+          primaryAccount: ['可用', '更新于今天 18:32', 'ok'],
           secondAccount: ['可用', '更新于昨天 09:18', 'ok'],
+          primaryQuota: ['fresh', '7d 剩余 68%', '周日 10:30 重置', '', '68%'],
+          secondaryQuota: ['unknown', '7d 额度未知', '首次用于 Paws 会话后显示', '', '0%'],
           summary: ['1 台设备尚未绑定 Codex 账号', '新会话失败关闭，并引导用户回到设备环境设置。']
+        },
+        stale: {
+          first: ['Codex · A7F2', '之后的 Paws 会话自动使用', 'ok'],
+          primaryAccount: ['可用', '更新于今天 18:32', 'ok'],
+          secondAccount: ['可用', '更新于 2 天前', 'ok'],
+          primaryQuota: ['fresh', '7d 剩余 68%', '周日 10:30 重置', '', '68%'],
+          secondaryQuota: ['stale', '7d 剩余 24%', '周一 09:18 重置', '可能已过期 · 来自 2 天前的 Paws 会话', '24%'],
+          summary: ['1 个 Codex 账号的额度数据可能已过期', '不会主动请求刷新；下次使用该账号的 Paws 会话会自动更新。']
         },
         invalid: {
           first: ['Codex · A7F2', '账号已失效 · 请重新上传', 'error'],
-          secondAccount: ['已失效', '需要重新上传', 'error'],
+          primaryAccount: ['已失效', '需要重新上传', 'error'],
+          secondAccount: ['可用', '更新于昨天 09:18', 'ok'],
+          primaryQuota: ['invalid', '7d 剩余 68%', '上次有效数据', '账号失效 · 额度可能已过期', '68%'],
+          secondaryQuota: ['fresh', '7d 剩余 41%', '周一 09:18 重置', '', '41%'],
           summary: ['1 个 Codex 账号需要重新上传', '不会自动切换至其他账号，也不会使用设备本地账号。']
         }
+      };
+
+      const updateAccount = (name, data) => {
+        const accountMeta = document.querySelector(`#${name}-account .account-meta`);
+        accountMeta.innerHTML = `<span class="pill">${data[0]}</span> · ${data[1]}`;
+        accountMeta.querySelector('.pill').style.color = data[2] === 'error' ? 'var(--danger)' : 'var(--ok)';
+      };
+
+      const updateQuota = (name, data) => {
+        const quota = document.querySelector(`[data-quota="${name}"]`);
+        quota.dataset.state = data[0];
+        quota.querySelector('.quota-value').textContent = data[1];
+        quota.querySelector('.quota-reset').textContent = data[2];
+        quota.querySelector('.quota-note').textContent = data[3];
+        quota.style.setProperty('--quota', data[4]);
       };
 
       const applyScenario = (name) => {
@@ -761,10 +859,11 @@
         firstStatus.textContent = state.first[1];
         firstStatus.className = `binding-status ${state.first[2]}`;
 
-        const accountMeta = document.querySelector('#secondary-account .account-meta');
-        accountMeta.innerHTML = `<span class="pill">${state.secondAccount[0]}</span> · ${state.secondAccount[1]}`;
-        const accountPill = accountMeta.querySelector('.pill');
-        accountPill.style.color = state.secondAccount[2] === 'error' ? 'var(--danger)' : 'var(--ok)';
+        updateAccount('primary', state.primaryAccount);
+        updateAccount('secondary', state.secondAccount);
+
+        updateQuota('primary', state.primaryQuota);
+        updateQuota('secondary', state.secondaryQuota);
 
         document.getElementById('summary-main').textContent = state.summary[0];
         document.getElementById('summary-sub').textContent = state.summary[1];
