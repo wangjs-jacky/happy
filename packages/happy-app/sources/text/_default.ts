@@ -15,6 +15,33 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const en = {
+    codexAccounts: {
+        title: 'Codex accounts',
+        openDeviceEnvironment: 'Open Device Environment',
+        launchUnbound: 'Bind a Codex account to this machine in Settings → Device Environment before starting a session.',
+        launchUnavailable: 'Check the bound account in Settings → Device Environment. Refresh the login and run paws codex account upload, or bind an available account.',
+        description: 'Upload a Codex login from your terminal, then choose a default account for each device.',
+        empty: 'No Codex accounts yet. Upload a Codex login with the command above.',
+        available: 'Available', needsRefresh: 'Needs update', invalid: 'Account invalid',
+        reupload: 'Upload your Codex login again with the command above.',
+        updated: ({ time }: { time: string }) => `Updated ${time}`,
+        quotaRemaining: ({ percent }: { percent: number }) => `7d remaining ${percent}%`,
+        quotaReset: ({ time }: { time: string }) => `Resets ${time}`,
+        quotaUnknown: '7d quota unknown', quotaWaiting: 'Waiting for the next Paws session', quotaStale: 'May be outdated',
+        passiveHint: 'Quota updates during Paws Codex sessions. It is the last observation, not a live balance.',
+        copyFailed: 'Copy failed. Select the command to copy it manually.',
+        rename: 'Rename', nameHint: 'Choose a name (1–80 characters). Avoid private account details.',
+        delete: 'Delete account',
+        deleteConfirm: ({ name, devices }: { name: string; devices: string }) => `Delete ${name}? This clears its default account on: ${devices}. Running sessions continue; new processes require an available account.`,
+        noBindings: 'No devices', defaultAccount: 'Codex default account',
+        unbound: 'Unbound', removed: 'Account removed', bindingRequired: 'Choose an account before starting Codex', bindingUnknown: 'Binding unavailable',
+        nextProcess: 'Applies to the next new, resumed or forked process.',
+        bindingConflict: 'Binding changed on another client. The latest configuration was requested; review it and choose again.',
+        nameConflict: 'This account name is already in use. Choose another name.',
+        signIn: 'Sign in to Paws to manage Codex accounts.', httpsRequired: 'Codex accounts require an HTTPS server connection.',
+        serverUpdate: 'Unable to read accounts. Check the server version.', networkError: 'Unable to reach accounts. Check your connection and reopen Device Environment.',
+        operationFailed: 'Unable to update Codex accounts. Check your connection and try again.',
+    },
     deviceEnvironmentDashboard: {
         previousResult: 'Previous inspection result',
         fleetDisconnected: ({ total }: { total: number }) => `${total} devices · disconnected`,

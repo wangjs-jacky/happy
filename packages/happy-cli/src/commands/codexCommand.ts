@@ -47,6 +47,7 @@ type CodexWorkerCommandOptions = {
   loadAuthenticationDependencies?: typeof loadAuthenticationDependencies
   loadRuntimeDependencies?: typeof loadRuntimeDependencies
   loadUsageDependencies?: typeof loadUsageDependencies
+  loadAccountDependencies?: () => Promise<Pick<typeof import('./codexAccountUpload'), 'uploadCurrentCodexAccount'>>
 }
 
 function formatTokens(value: number | undefined | null): string {
@@ -72,6 +73,13 @@ export async function runCodexWorkerCommand(args: string[], options: CodexWorker
   // The daemon preserves the full CLI arguments when choosing its internal entry.
   if (args[0] === 'codex') args = args.slice(1)
   const startupLifecycle = options.startupLifecycle ?? createWorkerSessionStartupLifecycleFromEnvironment()
+
+  if (args[0] === 'account') {
+    if (args.length !== 2 || args[1] !== 'upload') throw new Error('Usage: paws codex account upload (no arguments)')
+    const { uploadCurrentCodexAccount } = await (options.loadAccountDependencies ?? (() => import('./codexAccountUpload')))()
+    await uploadCurrentCodexAccount()
+    return
+  }
 
   if (args[0] === 'usage') {
     const { collectCodexUsageSnapshot } = await (options.loadUsageDependencies ?? loadUsageDependencies)()

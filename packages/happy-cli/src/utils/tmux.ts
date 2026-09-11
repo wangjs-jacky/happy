@@ -206,6 +206,8 @@ export interface TmuxSpawnOptions extends Omit<SpawnOptions, 'env'> {
     createWindow?: boolean;
     /** Window name for new windows */
     windowName?: string;
+    /** Variables to remove at the worker boundary, including inherited server values. */
+    unsetEnvironmentVariables?: readonly string[];
     // Note: env is intentionally excluded from this interface.
     // It's passed as a separate parameter to spawnInTmux() for clarity
     // and efficiency - only variables that differ from the tmux server
@@ -783,7 +785,14 @@ export class TmuxUtilities {
             await this.ensureSessionExists(sessionName);
 
             // Build command to execute in the new window
-            const fullCommand = args.join(' ');
+            const unsetVariables = options.unsetEnvironmentVariables ?? [];
+            if (unsetVariables.some(key => !/^[A-Z_][A-Z0-9_]*$/i.test(key))) {
+                throw new Error('Invalid environment variable name to unset');
+            }
+            // Omitting -e cannot remove credentials inherited from an existing
+            // tmux server. Use env rather than a shell-specific unset builtin,
+            // and exec so the pane PID remains the worker PID.
+            const fullCommand = `${unsetVariables.length ? `exec /usr/bin/env ${unsetVariables.map(key => `-u ${key}`).join(' ')} ` : ''}${args.join(' ')}`;
 
             // Create new window in session with command and environment variables
             // IMPORTANT: Don't manually add -t here - executeTmuxCommand handles it via parameters

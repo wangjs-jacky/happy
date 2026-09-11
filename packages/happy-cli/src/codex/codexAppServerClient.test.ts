@@ -212,6 +212,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         mockSpawn.mockReset();
         process.env.RUST_LOG = originalRustLog;
         restoreProxyEnv();
+        delete process.env.HAPPY_CODEX_PATH;
         mockExecFileSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
@@ -430,6 +431,59 @@ describe('CodexAppServerClient sandbox integration', () => {
         expect(client.sandboxEnabled).toBe(true);
 
         await client.disconnect();
+    });
+
+    it('forces file-only OAuth credentials for a Paws profile launch', async () => {
+        const saved = process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID;
+        process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID = 'profile-a';
+        mockSpawn.mockImplementation(() => createMockProcess({ onRequest: (message, stdout) => {
+            if (message.method === 'config/read') pushJsonLine(stdout, { id: message.id, result: { config: {
+                model_provider: 'openai', cli_auth_credentials_store: 'file', forced_login_method: 'chatgpt', chatgpt_base_url: 'https://chatgpt.com/backend-api',
+            } } });
+        } }));
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+            await client.connect();
+            expect(mockSpawn.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['cli_auth_credentials_store="file"']));
+            await client.disconnect();
+        } finally {
+            if (saved === undefined) delete process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID; else process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID = saved;
+        }
+    });
+
+    it.each(['start', 'resume', 'fork'] as const)('pins OAuth routing and rejects provider overrides before account thread %s', async operation => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const requests: MockRpcMessage[] = [];
+        let unsafe = false;
+        mockSpawn.mockImplementation(() => createMockProcess({ onRequest: (message, stdout) => {
+            requests.push(message);
+            if (message.method === 'config/read') pushJsonLine(stdout, { id: message.id, result: { config: {
+                model_provider: 'openai', cli_auth_credentials_store: 'file', forced_login_method: 'chatgpt',
+                chatgpt_base_url: 'https://chatgpt.com/backend-api',
+                model_providers: unsafe ? { openai: { env_key: 'CUSTOM_PROVIDER_KEY', base_url: 'https://wrong.invalid' } }
+                    : { custom: { env_key: 'CUSTOM_PROVIDER_KEY', base_url: 'https://wrong.invalid' } },
+            } } });
+            if (message.method?.startsWith('thread/')) pushJsonLine(stdout, { id: message.id, result: { thread: { id: 'thread-a' }, model: 'gpt-5.5', reasoningEffort: null } });
+        } }));
+        const client = new CodexAppServerClient(undefined, { type: 'spawn' }, {
+            HAPPY_CODEX_ACCOUNT_PROFILE_ID: 'profile-a', CUSTOM_PROVIDER_KEY: 'synthetic-secret',
+            OPENAI_API_KEY: 'synthetic-secret', OPENAI_BASE_URL: 'https://wrong.invalid', CODEX_API_KEY: 'synthetic-secret',
+        });
+        const call = () => operation === 'start' ? client.startThread({ model: 'gpt-5.5', cwd: '/work', mcpServers: { safe: {} } })
+            : operation === 'resume' ? client.resumeThread({ threadId: 'thread-a', cwd: '/work' })
+                : client.forkThread({ threadId: 'thread-a', cwd: '/work' });
+        try {
+            await client.connect();
+            expect(mockSpawn.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['model_provider="openai"', 'forced_login_method="chatgpt"', 'chatgpt_base_url="https://chatgpt.com/backend-api"']));
+            expect(mockSpawn.mock.calls.at(-1)?.[2].env.OPENAI_API_KEY).toBeUndefined();
+            expect(mockSpawn.mock.calls.at(-1)?.[2].env.OPENAI_BASE_URL).toBeUndefined();
+            await call();
+            expect(requests.find(r => r.method === `thread/${operation}`)?.params).toMatchObject({ modelProvider: 'openai' });
+            unsafe = true;
+            await expect(call()).rejects.toThrow('Device Environment');
+            expect(requests.filter(r => r.method === `thread/${operation}`)).toHaveLength(1);
+        } finally { await client.disconnect(); }
     });
 
     it('falls back to non-sandbox transport when sandbox initialization fails', async () => {

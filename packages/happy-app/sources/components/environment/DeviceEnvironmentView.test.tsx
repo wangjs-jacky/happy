@@ -9,7 +9,10 @@ import type { EnvironmentDashboardController } from '@/hooks/useEnvironmentDashb
 import type { EnvironmentRow } from '@/environment/environmentDashboard';
 import { describeEnvironmentCell } from '@/environment/environmentDashboard';
 
-const mocks = vi.hoisted(() => ({ confirm: vi.fn(), hook: vi.fn(), width: 1365 }));
+const mocks = vi.hoisted(() => ({ confirm: vi.fn(), hook: vi.fn(), width: 1365,
+    accounts: { profiles: [], bindings: ['a', 'b', 'c'].map(machineId => ({ machineId, profileId: null, version: 1 })), migration: 'none', loading: false, busy: false, error: null, rename: vi.fn(), remove: vi.fn(), bind: vi.fn() } }));
+vi.mock('@/hooks/useCodexAccounts', () => ({ useCodexAccounts: () => mocks.accounts }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }));
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView', ActivityIndicator: 'ActivityIndicator',
     Platform: { OS: 'web', select: (options: any) => options.web ?? options.default }, useWindowDimensions: () => ({ width: mocks.width, height: 768 }) }));
 vi.mock('react-native-unistyles', async () => { const { appThemes } = await import('@/themePacks'); return {
@@ -101,6 +104,20 @@ describe('DeviceEnvironment matrix', () => {
         mocks.width = 390; render(controller());
         const columns = renderer.root.findByProps({ testID: 'environment-device-columns' });
         expect(columns.props.horizontal).toBe(true); expect(columns.findAllByProps({ testID: 'environment-tool-github-cli' })).toHaveLength(0);
+    });
+    it('places account cards above the matrix and aligns the default account cells inside each device column', () => {
+        mocks.width = 390; render(controller());
+        const scroller = renderer.root.findAllByType('ScrollView').find((node: any) => !node.props.horizontal);
+        expect(scroller.children[0].findByProps({ testID: 'codex-account-section' })).toBeDefined();
+        const columns = renderer.root.findByProps({ testID: 'environment-device-columns' });
+        for (const id of ['a', 'b', 'c']) {
+            const cell = columns.findByProps({ testID: `codex-binding-cell-${id}` });
+            const widthOf = (node: any) => Object.assign({}, ...node.props.style).width;
+            expect(widthOf(cell)).toBe(widthOf(columns.findByProps({ testID: `environment-device-${id}` })));
+        }
+        expect(columns.findAllByProps({ testID: 'environment-codex-account-label' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'codex-binding-c' }).props.disabled).toBe(false);
+        expect(mocks.accounts.bind).not.toHaveBeenCalled();
     });
     it('uses the non-default theme for selected and interactive surfaces', async () => {
         const { appThemes } = await import('@/themePacks'); render(controller());

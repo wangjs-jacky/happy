@@ -1,11 +1,12 @@
 /**
  * Unit tests for tmux utilities
  *
- * NOTE: These are pure unit tests that test parsing and validation logic.
+ * NOTE: Parsing tests are pure; worker-isolation tests execute a local shell.
  * They do NOT require tmux to be installed on the system.
- * All tests mock environment variables and test string parsing only.
+ * No test connects to or changes an existing tmux server.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
     parseTmuxSessionIdentifier,
     formatTmuxSessionIdentifier,
@@ -15,6 +16,29 @@ import {
     TmuxUtilities,
     type TmuxSessionIdentifier,
 } from './tmux';
+
+describe('tmux worker environment isolation', () => {
+    it('unsets conflicting inherited tmux server credentials at actual worker execution', async () => {
+        const tmux = new TmuxUtilities();
+        let workerOutput = '';
+        vi.spyOn(tmux, 'executeTmuxCommand').mockImplementation(async args => {
+            if (args[0] === 'new-window') {
+                const command = args[args.indexOf('-P') - 1];
+                workerOutput = execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8', env: {
+                    ...process.env, OPENAI_API_KEY: 'server-secret', CODEX_API_KEY: 'other-server-secret',
+                    HAPPY_CODEX_APP_SERVER_SOCKET: '/wrong/server.sock', CODEX_HOME: '/private/grant-home',
+                } });
+            }
+            return { returncode: 0, stdout: '12345', stderr: '', command: args };
+        });
+        const worker = `${JSON.stringify(process.execPath)} -e 'process.stdout.write(JSON.stringify({home:process.env.CODEX_HOME,key:process.env.OPENAI_API_KEY,codexKey:process.env.CODEX_API_KEY,socket:process.env.HAPPY_CODEX_APP_SERVER_SOCKET}))'`;
+        const result = await tmux.spawnInTmux([worker], {
+            sessionName: 'test', unsetEnvironmentVariables: ['OPENAI_API_KEY', 'CODEX_API_KEY', 'HAPPY_CODEX_APP_SERVER_SOCKET'],
+        });
+        expect(result.success).toBe(true);
+        expect(JSON.parse(workerOutput)).toEqual({ home: '/private/grant-home' });
+    });
+});
 
 describe('parseTmuxSessionIdentifier', () => {
     it('should parse session-only identifier', () => {

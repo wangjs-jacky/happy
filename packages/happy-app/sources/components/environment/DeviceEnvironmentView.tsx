@@ -12,6 +12,8 @@ import { useHappyAction } from '@/hooks/useHappyAction';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { environmentComponentName, environmentIcons, environmentReason } from './environmentLabels';
+import { useCodexAccounts } from '@/hooks/useCodexAccounts';
+import { CodexAccountSection, CodexAccountBindingCell } from './CodexAccountSection';
 
 const machineName = (row: EnvironmentRow) => row.machine.metadata?.displayName || row.machine.metadata?.host || row.machine.id;
 const working = (cell: EnvironmentCell) => ['checking', 'queued', 'preparing', 'updating'].includes(cell.phase);
@@ -60,6 +62,7 @@ const Action = React.memo(({ title, label, testID, onPress, disabled, primary, i
 });
 
 const EnvironmentContent = React.memo(({ controller }: { controller: EnvironmentDashboardController }) => {
+    const accounts = useCodexAccounts();
     const { theme } = useUnistyles();
     const { width } = useWindowDimensions();
     const [contentWidth, setContentWidth] = React.useState(Math.min(width, 1040));
@@ -150,11 +153,13 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
                 disabled={busy || !controller.rows.length} onPress={() => { void controller.scan(); }} />
         </View>
         <ScrollView ref={scroll} style={styles.scroller} contentContainerStyle={styles.scrollContent}>
+            <CodexAccountSection controller={accounts} machines={controller.rows.map(row => ({ id: row.machine.id, name: machineName(row) }))} />
             {!controller.rows.length ? <Text style={styles.empty}>{t('deviceEnvironment.emptyFleet')}</Text> : <>
                 {narrow ? <Text style={styles.hint}>{t('deviceEnvironmentDashboard.horizontalHint')}</Text> : null}
                 <View style={styles.matrix} testID="environment-matrix">
                     <View style={{ width: labelWidth }}>
                         <View style={styles.columnHeader}><Text style={styles.secondary}>{t('deviceEnvironmentDashboard.tools')}</Text></View>
+                        <View style={styles.accountLabel} testID="environment-codex-account-label"><Text style={styles.toolText}>{t('codexAccounts.defaultAccount')}</Text></View>
                         {FLEET_COMPONENT_IDS.map(componentId => {
                             const count = controller.getCandidates({ componentId }).length;
                             return <View key={componentId} style={styles.toolHeader} testID={`environment-tool-${componentId}`}>
@@ -171,6 +176,8 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
                                 <Text numberOfLines={1} style={styles.deviceName}>{machineName(row)}</Text>
                                 <Text style={[styles.secondary, connected && row.machine.active && styles.ready]}>{t(!connected ? 'deviceEnvironmentDashboard.previousResult' : row.machine.active ? 'deviceEnvironmentDashboard.online' : 'deviceEnvironmentDashboard.offline')}</Text>
                             </View>)}</View>
+                            <View style={[styles.tableRow, styles.accountRow]}>{controller.rows.map(row => <CodexAccountBindingCell key={row.machine.id}
+                                controller={accounts} machine={{ id: row.machine.id, name: machineName(row) }} width={cellWidth} />)}</View>
                             {FLEET_COMPONENT_IDS.map(componentId => <View key={componentId} style={styles.tableRow}>{controller.rows.map(row => renderCell(row, componentId))}</View>)}
                         </View>
                     </ScrollView>
@@ -217,7 +224,9 @@ const styles = StyleSheet.create(theme => ({
     summary: { flex: 1, gap: 3 }, summaryText: { color: theme.colors.text, fontSize: 13, lineHeight: 19, ...Typography.default() },
     secondary: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18, ...Typography.default() },
     scroller: { flex: 1, minHeight: 0 }, scrollContent: { paddingHorizontal: 16, paddingBottom: 8 },
-    matrix: { flexDirection: 'row', alignItems: 'flex-start' }, deviceScroller: { flex: 1 }, devices: { flexGrow: 1 }, tableRow: { flexDirection: 'row' },
+    matrix: { flexDirection: 'row', alignItems: 'flex-start', minWidth: 0 }, deviceScroller: { flex: 1, minWidth: 0 }, devices: { flexGrow: 1 }, tableRow: { flexDirection: 'row' },
+    accountRow: { zIndex: 10 },
+    accountLabel: { height: 88, paddingRight: 8, paddingVertical: 18, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     columnHeader: { height: 64, paddingHorizontal: 10, justifyContent: 'center', gap: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     deviceName: { color: theme.colors.text, fontSize: 14, lineHeight: 20, ...Typography.default('semiBold') },
     toolHeader: { height: 76, paddingVertical: 8, paddingRight: 8, justifyContent: 'center', gap: 3, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },

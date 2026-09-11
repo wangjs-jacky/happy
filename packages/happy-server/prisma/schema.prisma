@@ -53,6 +53,10 @@ model Account {
     Machine             Machine[]
     UploadedFile        UploadedFile[]
     ServiceAccountToken ServiceAccountToken[]
+    CodexAccountProfile CodexAccountProfile[]
+    CodexSessionGrant CodexSessionGrant[]
+    CodexAccountAudit CodexAccountAudit[]
+    codexAccountsMigratedAt DateTime?
     RelationshipsFrom   UserRelationship[]    @relation("RelationshipsFrom")
     RelationshipsTo     UserRelationship[]    @relation("RelationshipsTo")
     Artifact            Artifact[]
@@ -363,6 +367,9 @@ model Machine {
     createdAt          DateTime    @default(now())
     updatedAt          DateTime    @updatedAt
     accessKeys         AccessKey[]
+    defaultCodexAccountProfileId String?
+    defaultCodexAccountProfile CodexAccountProfile? @relation(fields: [defaultCodexAccountProfileId], references: [id], onDelete: SetNull)
+    codexAccountBindingVersion Int @default(0)
 
     @@unique([accountId, id])
     @@index([accountId])
@@ -397,6 +404,70 @@ model ServiceAccountToken {
 
     @@unique([accountId, vendor])
     @@index([accountId])
+}
+
+model CodexAccountProfile {
+    id String @id @default(uuid())
+    accountId String
+    account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    displayName String
+    externalAccountFingerprint String
+    credential Bytes
+    credentialVersion Int @default(1)
+    status String @default("available")
+    lastValidatedAt DateTime?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    machines Machine[]
+    quota CodexQuotaSnapshot?
+
+    @@unique([accountId, externalAccountFingerprint])
+    @@unique([accountId, displayName])
+}
+
+model CodexQuotaSnapshot {
+    codexAccountProfileId String @id
+    profile CodexAccountProfile @relation(fields: [codexAccountProfileId], references: [id], onDelete: Cascade)
+    weeklyUsedPercent Float
+    weeklyResetsAt DateTime
+    observedAt DateTime
+    credentialVersion Int
+    sourceSessionId String
+}
+
+// Redeemed grants retain only non-secret launch audit data after profile deletion.
+// The grant value itself is never stored; only its SHA-256 digest is persisted.
+model CodexSessionGrant {
+    id String @id @default(uuid())
+    accountId String
+    account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    machineId String
+    codexAccountProfileId String
+    displayNameSnapshot String
+    credentialVersion Int
+    lastCredentialVersion Int
+    bindingVersion Int
+    digest String @unique
+    expiresAt DateTime
+    redeemedAt DateTime?
+    sourceSessionId String?
+    createdAt DateTime @default(now())
+
+    @@index([accountId, codexAccountProfileId])
+    @@index([expiresAt])
+}
+
+model CodexAccountAudit {
+    id String @id @default(uuid())
+    accountId String
+    account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    action String
+    profileId String?
+    machineId String?
+    credentialVersion Int?
+    createdAt DateTime @default(now())
+
+    @@index([accountId, createdAt])
 }
 
 //

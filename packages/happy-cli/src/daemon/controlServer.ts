@@ -133,6 +133,7 @@ export function startDaemonControlServer({
           environmentVariables: z.record(z.string(), z.string()).optional(),
           resumeClaudeSessionId: z.string().optional(),
           resumeCodexThreadId: z.string().optional(),
+          codexSessionGrant: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
         }),
         response: {
           200: z.object({
@@ -153,7 +154,7 @@ export function startDaemonControlServer({
         }
       }
     }, async (request, reply) => {
-      const { directory, sessionId, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId } = request.body;
+      const { directory, sessionId, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, codexSessionGrant } = request.body;
 
       logger.debug(`[CONTROL SERVER] Spawn session request: dir=${directory}, sessionId=${sessionId || 'new'}, agent=${agent || 'default'}`);
       const result = await spawnSession({
@@ -163,6 +164,7 @@ export function startDaemonControlServer({
         environmentVariables,
         resumeClaudeSessionId,
         resumeCodexThreadId,
+        codexSessionGrant,
       });
 
       switch (result.type) {

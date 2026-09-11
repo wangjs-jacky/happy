@@ -29,7 +29,7 @@ import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
-import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
+import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
 import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
 import { AsyncLock } from '@/utils/lock';
 import {
@@ -163,18 +163,20 @@ export async function startDaemon(): Promise<void> {
   // In case the setup malfunctions - our signal handlers will not properly
   // shut down. We will force exit the process with code 1.
   let requestShutdown: (source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string) => void;
+  let startupShutdownFallback: NodeJS.Timeout | undefined;
+  let properCleanupStarted = false;
   let resolvesWhenShutdownRequested = new Promise<({ source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string })>((resolve) => {
     requestShutdown = (source, errorMessage) => {
       logger.debug(`[DAEMON RUN] Requesting shutdown (source: ${source}, errorMessage: ${errorMessage})`);
 
       // Fallback - in case startup malfunctions - we will force exit the process with code 1
-      setTimeout(async () => {
+      if (!properCleanupStarted && !startupShutdownFallback) startupShutdownFallback = setTimeout(async () => {
         logger.debug('[DAEMON RUN] Startup malfunctioned, forcing exit with code 1');
 
         // Give time for logs to be flushed
         await new Promise(resolve => setTimeout(resolve, 100))
 
-        process.exit(1);
+        if (!properCleanupStarted) process.exit(1);
       }, 1_000);
 
       // Start graceful shutdown
@@ -254,10 +256,18 @@ export async function startDaemon(): Promise<void> {
 
     // Ensure auth and machine registration BEFORE anything else
     const { credentials, machineId } = await authAndSetupMachineIfNeeded();
+    const api = await ApiClient.create(credentials);
     logger.debug('[DAEMON RUN] Auth and machine setup complete');
 
     // Setup state - key by PID
     const pidToTrackedSession = new Map<number, TrackedSession>();
+    const codexLaunches = new Map<number, CodexAccountLaunch>();
+    // Exited children leave the live map immediately, but their asynchronous
+    // final credential sync/history retention/home removal still blocks exit.
+    const codexFinalizers = new Set<Promise<void>>();
+    const drainCodexFinalizers = async () => {
+      while (codexFinalizers.size) await Promise.allSettled([...codexFinalizers]);
+    };
 
     // Retain session data after process exits so resume can still find it.
     // Pre-populate from disk so sessions survive daemon restarts.
@@ -350,7 +360,7 @@ export async function startDaemon(): Promise<void> {
     const spawnSession = async (options: TracedSpawnSessionOptions): Promise<SpawnSessionResult> => {
       const trace = startupIntegration.requestReceived(options);
 
-      const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
+      const { directory, sessionId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
 
       try {
@@ -396,6 +406,7 @@ export async function startDaemon(): Promise<void> {
         }
       }
 
+      return withCodexAccountLaunch(options, api, machineId, async (codexLaunch) => {
       try {
 
         // Build environment variables for session spawning
@@ -404,9 +415,7 @@ export async function startDaemon(): Promise<void> {
         // Resolve authentication token if provided
         const authEnv: Record<string, string> = {};
         if (options.token) {
-          if (options.agent === 'codex') {
-            authEnv.CODEX_HOME = await prepareCodexHomeWithAuth(options.token);
-          } else { // Assuming claude
+          if (options.agent !== 'codex') { // Preserve Claude's token path.
             authEnv.CLAUDE_CODE_OAUTH_TOKEN = options.token;
           }
         }
@@ -518,7 +527,7 @@ export async function startDaemon(): Promise<void> {
           const tmuxEnv = startupIntegration.buildWorkerEnvironment(
             'tmux', process.env, extraEnv, trace?.traceId,
           ) as Record<string, string>;
-          const sessionEnv = agent === 'codex' ? applyCodexNetworkEnv(tmuxEnv) : tmuxEnv;
+          const sessionEnv = (codexLaunch ? codexLaunch.environment(applyCodexNetworkEnv(tmuxEnv)) : tmuxEnv) as Record<string, string>;
           if (agent === 'codex' && sessionEnv.HTTP_PROXY) {
             logger.debug(`[DAEMON RUN] Applied Codex network proxy from HAPPY_CODEX_PROXY_URL/CODEX_PROXY_URL`);
           }
@@ -526,6 +535,7 @@ export async function startDaemon(): Promise<void> {
           const tmuxResult = await tmux.spawnInTmux([fullCommand], {
             sessionName: tmuxSessionName,
             windowName: windowName,
+            unsetEnvironmentVariables: codexLaunch ? CODEX_ACCOUNT_UNSET_ENV : undefined,
             cwd: directory
           }, sessionEnv);  // Pass complete environment for tmux session
 
@@ -550,6 +560,10 @@ export async function startDaemon(): Promise<void> {
 
             // Add to tracking map so webhook can find it later
             pidToTrackedSession.set(tmuxResult.pid, trackedSession);
+            if (codexLaunch) {
+              codexLaunch.trackProcess(tmuxResult.pid);
+              codexLaunches.set(tmuxResult.pid, codexLaunch);
+            }
             startupIntegration.childStarted(tmuxResult.pid, trace);
 
             // Wait for webhook to populate session with happySessionId (exact same as regular flow)
@@ -643,11 +657,12 @@ export async function startDaemon(): Promise<void> {
               const workerEnv = startupIntegration.buildWorkerEnvironment(
                 'regular', process.env, extraEnv, trace?.traceId,
               );
-              return agentCommand === 'codex' ? applyCodexNetworkEnv(workerEnv) : workerEnv;
+              return codexLaunch ? codexLaunch.environment(applyCodexNetworkEnv(workerEnv)) : workerEnv;
             })(),
             directoryCreated,
             message: directoryCreated ? `The path '${directory}' did not exist. We created a new folder and spawned a new session there.` : undefined,
             trace,
+            codexLaunch,
           });
         }
 
@@ -668,6 +683,7 @@ export async function startDaemon(): Promise<void> {
           errorMessage: `Failed to spawn session: ${errorMessage}`
         };
       }
+      }, { sourceSessionId: options.parentSessionId, sourceThreadId: options.resumeCodexThreadId });
     };
 
     const spawnTrackedHappyProcess = ({
@@ -678,6 +694,7 @@ export async function startDaemon(): Promise<void> {
       directoryCreated = false,
       message,
       trace,
+      codexLaunch,
     }: {
       agent: SpawnSessionOptions['agent'];
       args: string[];
@@ -686,6 +703,7 @@ export async function startDaemon(): Promise<void> {
       directoryCreated?: boolean;
       message?: string;
       trace?: DaemonStartupTraceContext;
+      codexLaunch?: CodexAccountLaunch;
     }): Promise<SpawnSessionResult> => {
       const happyProcess = startupIntegration.spawnWorker(agent, args, {
         cwd,
@@ -717,6 +735,10 @@ export async function startDaemon(): Promise<void> {
       };
 
       pidToTrackedSession.set(happyProcess.pid, trackedSession);
+      if (codexLaunch) {
+        codexLaunch.trackProcess(happyProcess.pid);
+        codexLaunches.set(happyProcess.pid, codexLaunch);
+      }
       startupIntegration.childStarted(happyProcess.pid, trace);
 
       happyProcess.on('exit', (code, signal) => {
@@ -795,7 +817,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -862,21 +884,26 @@ export async function startDaemon(): Promise<void> {
 
         await fs.access(launch.cwd);
 
-        return spawnTrackedHappyProcess({
-          agent: metadata?.flavor === 'codex' || metadata?.codexThreadId ? 'codex' : 'claude',
-          args: launch.args,
-          cwd: launch.cwd,
-          env: {
+        const agent = metadata?.flavor === 'codex' || metadata?.codexThreadId ? 'codex' : 'claude';
+        return withCodexAccountLaunch({ agent, codexSessionGrant: options?.codexSessionGrant }, api, machineId, async (codexLaunch) => {
+        const env = {
             ...process.env,
             HAPPY_RECONNECT_SESSION_ID: happySessionId,
-            HAPPY_RECONNECT_ENCRYPTION_KEY: encodeBase64(tracked.encryption.encryptionKey),
-            HAPPY_RECONNECT_ENCRYPTION_VARIANT: tracked.encryption.encryptionVariant,
-            HAPPY_RECONNECT_SEQ: String(tracked.encryption.seq),
-            HAPPY_RECONNECT_METADATA_VERSION: String(tracked.encryption.metadataVersion),
-            HAPPY_RECONNECT_AGENT_STATE_VERSION: String(tracked.encryption.agentStateVersion),
+            HAPPY_RECONNECT_ENCRYPTION_KEY: encodeBase64(tracked.encryption!.encryptionKey),
+            HAPPY_RECONNECT_ENCRYPTION_VARIANT: tracked.encryption!.encryptionVariant,
+            HAPPY_RECONNECT_SEQ: String(tracked.encryption!.seq),
+            HAPPY_RECONNECT_METADATA_VERSION: String(tracked.encryption!.metadataVersion),
+            HAPPY_RECONNECT_AGENT_STATE_VERSION: String(tracked.encryption!.agentStateVersion),
             HAPPY_RECONNECT_METADATA_JSON: JSON.stringify(metadata),
-          },
+        };
+        return spawnTrackedHappyProcess({
+          agent,
+          args: launch.args,
+          cwd: launch.cwd,
+          env: codexLaunch ? codexLaunch.environment(applyCodexNetworkEnv(env)) : env,
+          codexLaunch,
         });
+        }, { sourceSessionId: happySessionId, sourceThreadId: metadata.codexThreadId });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : (error && typeof error === 'object' ? JSON.stringify(error) : String(error));
         logger.debug(`[DAEMON RUN] Failed to resume session: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
@@ -926,6 +953,14 @@ export async function startDaemon(): Promise<void> {
 
     // Handle child process exit — preserve session data for resume
     const onChildExited = (pid: number) => {
+      const codexLaunch = codexLaunches.get(pid);
+      codexLaunches.delete(pid);
+      if (codexLaunch) {
+        const finalizer = codexLaunch.finish()
+          .catch(() => logger.debug('[DAEMON RUN] Codex account home cleanup incomplete', { errorCode: 'codex-home-cleanup-failed' }))
+          .finally(() => { codexFinalizers.delete(finalizer); });
+        codexFinalizers.add(finalizer);
+      }
       const session = pidToTrackedSession.get(pid);
       if (session?.happySessionId && session.encryption) {
         sessionIdToFinishedSession.set(session.happySessionId, session);
@@ -980,9 +1015,6 @@ export async function startDaemon(): Promise<void> {
       httpPort: controlPort,
       startedAt: Date.now()
     };
-
-    // Create API client
-    const api = await ApiClient.create(credentials);
 
     // Get or create machine
     const machine = await api.getOrCreateMachine({
@@ -1095,8 +1127,7 @@ export async function startDaemon(): Promise<void> {
         } catch (error) {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
-          pidToTrackedSession.delete(pid);
-          startupIntegration.staleProcessPruned(pid);
+          onChildExited(pid);
         }
       }
 
@@ -1113,6 +1144,8 @@ export async function startDaemon(): Promise<void> {
         }
       }
       if (bundleReplaced) {
+        properCleanupStarted = true;
+        clearTimeout(startupShutdownFallback);
         // TODO: We probably do not want to keep this in-process self-restart logic long-term.
         // A native service manager would make startup and upgrades much simpler: the CLI would
         // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.
@@ -1124,11 +1157,14 @@ export async function startDaemon(): Promise<void> {
         // `happy daemon start` reads our still-present daemon.state.json, sees
         // isDaemonRunningCurrentlyInstalledHappyVersion() === true, and exits —
         // leaving nothing running once we also exit.
+        await Promise.allSettled(Array.from(codexLaunches.values(), launch => launch.sync()));
+        await drainCodexFinalizers();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
         await releaseDaemonLock(daemonLockHandle);
         await stopCaffeinate();
+        await drainCodexFinalizers();
 
         try {
           spawnHappyCLI(['daemon', 'start'], {
@@ -1170,11 +1206,18 @@ export async function startDaemon(): Promise<void> {
 
       await syncCodexUsage(false);
 
+      // Stopped tmux sessions may already be absent from the regular tracking map.
+      for (const pid of codexLaunches.keys()) {
+        try { process.kill(pid, 0); } catch { onChildExited(pid); }
+      }
+
       heartbeatRunning = false;
     }, heartbeatIntervalMs); // Every 60 seconds in production
 
     // Setup signal handlers
     const cleanupAndShutdown = async (source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string) => {
+      properCleanupStarted = true;
+      clearTimeout(startupShutdownFallback);
       logger.debug(`[DAEMON RUN] Starting proper cleanup (source: ${source}, errorMessage: ${errorMessage})...`);
 
       // Clear health check interval
@@ -1183,6 +1226,8 @@ export async function startDaemon(): Promise<void> {
         logger.debug('[DAEMON RUN] Health check interval cleared');
       }
       clearTimeout(initialCodexUsageTimer);
+      await Promise.allSettled(Array.from(codexLaunches.values(), launch => launch.sync()));
+      await drainCodexFinalizers();
 
       // Update daemon state before shutting down
       await apiMachine.updateDaemonState((state: DaemonState | null) => ({
@@ -1200,6 +1245,7 @@ export async function startDaemon(): Promise<void> {
       await cleanupDaemonState();
       await stopCaffeinate();
       await releaseDaemonLock(daemonLockHandle);
+      await drainCodexFinalizers();
 
       logger.debug('[DAEMON RUN] Cleanup completed, exiting process');
       process.exit(0);

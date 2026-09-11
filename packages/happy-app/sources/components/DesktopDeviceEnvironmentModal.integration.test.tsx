@@ -97,6 +97,10 @@ vi.mock('react-native-unistyles', () => ({
     } } }),
 }));
 vi.mock('@/hooks/useEnvironmentDashboard', () => ({ useEnvironmentDashboard: vi.fn() }));
+vi.mock('@/hooks/useCodexAccounts', () => ({ useCodexAccounts: () => ({
+    profiles: [], bindings: [], migration: 'none', loading: false, busy: false, error: null,
+    rename: vi.fn(), remove: vi.fn(), bind: vi.fn(),
+}) }));
 vi.mock('@/hooks/useHappyAction', () => ({ useHappyAction: (action: unknown) => [false, action] }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('@/sync/apiGithub', () => ({ disconnectGitHub: vi.fn(), getGitHubOAuthParams: vi.fn() }));

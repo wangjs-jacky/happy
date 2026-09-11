@@ -1,5 +1,6 @@
 import { apiSocket } from './apiSocket';
 import { sync } from './sync';
+import { machineAttachCodexCandidate } from './ops';
 
 export type CodexAttachCandidate = {
     threadId: string;
@@ -7,6 +8,8 @@ export type CodexAttachCandidate = {
     directory: string;
     createdAt: number;
     updatedAt: number;
+    /** Explicit Paws history audit, absent for unmapped Desktop/legacy threads. */
+    sourceSessionId?: string;
 };
 
 export type MachineCodexAttachCandidate = CodexAttachCandidate & {
@@ -31,12 +34,12 @@ export async function listCodexAttachCandidates(
 export async function attachCodexCandidate(
     machineId: string,
     threadId: string,
+    sourceSessionId?: string,
 ): Promise<{ type: 'success'; sessionId: string }> {
-    const result = await apiSocket.machineRPC<{ type: 'success'; sessionId: string }, { threadId: string }>(
-        machineId,
-        'codex-attach-candidate',
-        { threadId },
-    );
+    const result = await machineAttachCodexCandidate({ machineId, threadId, sourceSessionId });
+    if (result.type !== 'success') {
+        throw new Error(result.type === 'error' ? result.errorMessage : 'Unable to attach this Codex session.');
+    }
     await sync.refreshSessions();
     return result;
 }

@@ -92,6 +92,7 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
             const result = source.kind === 'codex'
                 ? await codexListRewindPoints({
                     machineId: source.machineId,
+                    sourceSessionId: source.sessionId,
                     directory: source.directory,
                     codexThreadId: source.codexThreadId,
                 })

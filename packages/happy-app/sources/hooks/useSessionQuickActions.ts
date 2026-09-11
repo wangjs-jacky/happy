@@ -196,6 +196,7 @@ export function useSessionQuickActions(
         const result = await machineResumeSession({
             machineId,
             sessionId: session.id,
+            agent: session.metadata?.flavor ?? 'claude',
             model: modeMeta.model ?? undefined,
             permissionMode: modeMeta.permissionMode,
             effort: modeMeta.effort,
@@ -430,6 +431,7 @@ export function useSessionQuickActions(
         if (forkSource.kind === 'codex' && !target.rewindPointId) {
             const rewindPointsResult = await codexListRewindPoints({
                 machineId: forkSource.machineId,
+                sourceSessionId: forkSource.sessionId,
                 directory: forkSource.directory,
                 codexThreadId: forkSource.codexThreadId,
             });

@@ -264,6 +264,22 @@ describe('handleCodexCommand', () => {
     consoleLog.mockRestore()
   })
 
+  it('routes the exact account upload command without loading a Codex worker', async () => {
+    const uploadCurrentCodexAccount = vi.fn(async () => undefined)
+    const loadRuntimeDependencies = vi.fn()
+    await runCodexWorkerCommand(['codex', 'account', 'upload'], {
+      loadAccountDependencies: async () => ({ uploadCurrentCodexAccount }), loadRuntimeDependencies,
+    })
+    expect(uploadCurrentCodexAccount).toHaveBeenCalledOnce()
+    expect(loadRuntimeDependencies).not.toHaveBeenCalled()
+    expect(mocks.mockAuthAndSetupMachineIfNeeded).not.toHaveBeenCalled()
+  })
+
+  it.each([['account'], ['account', 'upload', '--yes'], ['account', 'upload', '/tmp/auth.json'], ['account', 'rename']])('rejects unsupported account command arguments %j', async (...args) => {
+    await expect(runCodexWorkerCommand(args)).rejects.toThrow('paws codex account upload')
+    expect(mocks.mockRunCodex).not.toHaveBeenCalled()
+  })
+
   it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {
     await handleCodexCommand(['--started-by', 'terminal'])
 

@@ -10,6 +10,8 @@ import chalk from 'chalk';
 import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
 import type { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
+import type { CodexAccountAuth } from '@/codex/codexAccountAuth';
+import { codexAccountServerUrl, CodexAccountRequestError, type CodexAccountProfile, type CodexGrantRedemption, type CodexLaunchAttribution, type CodexQuotaReport } from './codexAccountTypes';
 
 export class ApiClient {
 
@@ -291,6 +293,44 @@ export class ApiClient {
 
   push(): PushNotificationClient {
     return this.pushClient;
+  }
+
+  private async codexAccountRequest<T>(method: 'POST' | 'PUT', path: string, data: unknown): Promise<T> {
+    const serverUrl = codexAccountServerUrl(configuration.serverUrl);
+    try {
+      const response = await axios.request<T>({
+        method, url: `${serverUrl}/v1/${path}`, data,
+        headers: { Authorization: `Bearer ${this.credential.token}`, 'Content-Type': 'application/json' },
+        timeout: 10_000, maxRedirects: 0, maxBodyLength: 70 * 1024, maxContentLength: 70 * 1024,
+      });
+      return response.data;
+    } catch (error) {
+      // Never expose Axios config/body, provider text or unreviewed server errors.
+      const code = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+      const safeCodes = ['invalid-request', 'credential-identity-mismatch', 'profile-not-found', 'machine-not-found',
+        'credential-version-conflict', 'grant-unavailable', 'launch-unavailable', 'session-unavailable',
+        'quota-attribution-mismatch', 'status-attribution-mismatch', 'invalid-quota-time'];
+      throw new CodexAccountRequestError(safeCodes.includes(code) ? code : 'codex-account-request-failed');
+    }
+  }
+
+  uploadCodexAccount(auth: CodexAccountAuth): Promise<{ profile: CodexAccountProfile }> {
+    return this.codexAccountRequest('POST', 'codex-accounts/upload', { auth });
+  }
+  redeemCodexSessionGrant(request: { machineId: string; grant: string }): Promise<CodexGrantRedemption> {
+    return this.codexAccountRequest('POST', 'codex-session-grants/redeem', request);
+  }
+  attachCodexSession(launchId: string, request: { machineId: string; sourceSessionId: string }): Promise<{ success: true }> {
+    return this.codexAccountRequest('POST', `codex-session-grants/${encodeURIComponent(launchId)}/session`, request);
+  }
+  updateCodexAccountCredential(profileId: string, request: CodexLaunchAttribution & { expectedVersion: number; auth: CodexAccountAuth }): Promise<{ profile: CodexAccountProfile }> {
+    return this.codexAccountRequest('PUT', `codex-accounts/${encodeURIComponent(profileId)}/credential`, request);
+  }
+  reportCodexAccountQuota(profileId: string, request: CodexQuotaReport): Promise<{ accepted: boolean }> {
+    return this.codexAccountRequest('PUT', `codex-accounts/${encodeURIComponent(profileId)}/quota-snapshot`, request);
+  }
+  reportCodexAccountStatus(profileId: string, request: CodexLaunchAttribution & { credentialVersion: number; status: 'needs-refresh' | 'invalid' }): Promise<{ profile: CodexAccountProfile }> {
+    return this.codexAccountRequest('PUT', `codex-accounts/${encodeURIComponent(profileId)}/status`, request);
   }
 
   /**

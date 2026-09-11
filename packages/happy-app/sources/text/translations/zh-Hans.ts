@@ -17,6 +17,27 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHans: TranslationStructure = {
+    codexAccounts: {
+        openDeviceEnvironment: '前往设备环境',
+        launchUnbound: '请先前往「设置 → 设备环境」，为此设备绑定一个 Codex 账号，再启动会话。',
+        launchUnavailable: '请前往「设置 → 设备环境」检查绑定。重新登录并执行 paws codex account upload，或绑定其他可用账号。',
+        title: 'Codex 账号', description: '在设备终端上传 Codex 登录，然后为每台设备选择默认账号。',
+        empty: '暂无 Codex 账号，请在终端执行上方命令上传当前登录。',
+        available: '可用', needsRefresh: '需更新', invalid: '账号已失效', reupload: '需要重新上传，请在终端执行上方命令。',
+        updated: ({ time }: { time: string }) => `更新于 ${time}`,
+        quotaRemaining: ({ percent }: { percent: number }) => `7d 剩余 ${percent}%`,
+        quotaReset: ({ time }: { time: string }) => `${time} 重置`,
+        quotaUnknown: '7d 额度未知', quotaWaiting: '等待下次 Paws 会话更新', quotaStale: '可能已过期',
+        passiveHint: '额度随 Paws Codex 会话被动更新，显示最近一次观测值，并非实时余额。',
+        copyFailed: '复制失败，请选中命令手动复制。', rename: '重命名', nameHint: '输入 1–80 个字符的名称，请勿填写私人账号信息。', delete: '删除账号',
+        deleteConfirm: ({ name, devices }: { name: string; devices: string }) => `确定删除「${name}」？以下设备的默认账号将被清除：${devices}。运行中的会话不受影响，新进程需要绑定可用账号。`,
+        noBindings: '暂无绑定设备', defaultAccount: 'Codex 默认账号', unbound: '未绑定', removed: '账号已删除',
+        bindingRequired: '启动 Codex 前请选择账号', bindingUnknown: '无法获取绑定', nextProcess: '对之后新建、恢复或分叉的进程生效。',
+        bindingConflict: '其他客户端已修改绑定。已请求最新配置，请核对后重新选择。', nameConflict: '该账号名称已被使用，请换一个名称。',
+        signIn: '请先登录 Paws 再管理 Codex 账号。', httpsRequired: 'Codex 账号需要 HTTPS 服务连接。',
+        serverUpdate: '无法读取账号，请检查服务端版本。', networkError: '无法连接账号服务，请检查网络并重新打开设备环境。',
+        operationFailed: '无法更新 Codex 账号，请检查网络后重试。',
+    },
     deviceEnvironmentDashboard: {
         previousResult: '上次检测结果',
         fleetDisconnected: ({ total }: { total: number }) => `${total} 台设备 · 连接已断开`,

@@ -356,6 +356,7 @@ describe('ApiMachineClient socket reconnection', () => {
             agent: 'codex',
             traceId: '00000000-0000-4000-8000-000000000001',
             token: 'token-canary',
+            codexSessionGrant: 'grant-canary',
             prompt: 'prompt-canary',
         });
 
@@ -364,6 +365,7 @@ describe('ApiMachineClient socket reconnection', () => {
             agent: 'codex',
             traceId: '00000000-0000-4000-8000-000000000001',
             machineId: 'test-machine-id',
+            codexSessionGrant: 'grant-canary',
         }));
         expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('canary');
     });

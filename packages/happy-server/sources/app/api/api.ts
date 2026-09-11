@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/authRoutes";
 import { pushRoutes } from "./routes/pushRoutes";
 import { sessionRoutes } from "./routes/sessionRoutes";
 import { connectRoutes } from "./routes/connectRoutes";
+import { codexAccountRoutes } from "./routes/codexAccountRoutes";
 import { accountRoutes } from "./routes/accountRoutes";
 import { startSocket } from "./socket";
 import { machinesRoutes } from "./routes/machinesRoutes";
@@ -115,7 +116,7 @@ export async function createApiApp(opts: StartApiOptions = {}): Promise<Fastify>
     app.register(import('@fastify/cors'), {
         origin: '*',
         allowedHeaders: '*',
-        methods: ['GET', 'POST', 'PUT', 'DELETE']
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
     });
 
     // Required for local-mode attachment uploads (PUT /v1/sessions/:id/attachments/:file).
@@ -152,6 +153,7 @@ export async function createApiApp(opts: StartApiOptions = {}): Promise<Fastify>
     sessionRoutes(typed);
     accountRoutes(typed);
     connectRoutes(typed);
+    codexAccountRoutes(typed);
     cloudflareConnectRoutes(typed);
     interactivePreviewRoutes(typed);
     machinesRoutes(typed);

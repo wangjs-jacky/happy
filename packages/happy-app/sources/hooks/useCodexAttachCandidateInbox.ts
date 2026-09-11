@@ -70,7 +70,7 @@ const useCandidateInboxStore = create<CandidateInboxState>((set) => ({
     attach: async (candidate) => {
         set({ busyThreadId: candidate.threadId, error: null });
         try {
-            const result = await attachCodexCandidate(candidate.machineId, candidate.threadId);
+            const result = await attachCodexCandidate(candidate.machineId, candidate.threadId, candidate.sourceSessionId);
             set((state) => ({
                 candidates: state.candidates.filter((item) => item.threadId !== candidate.threadId),
                 busyThreadId: null,
