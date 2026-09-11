@@ -63,7 +63,7 @@ export function getComposeHomeExperience(args: {
     const displayAgentType = activeImageAgent ? 'codex' : agentType;
     return {
         displayAgentType,
-        canAttach: activeImageAgent || agentType === 'claude' || agentType === 'codex',
+        canAttach: activeImageAgent || agentType === 'claude' || agentType === 'codex' || agentType === 'opencode',
         showCreationRail: imagePluginInstalled && !activeImageAgent && agentType !== 'ask',
     };
 }

@@ -1490,7 +1490,7 @@ function SessionViewLoaded({
 
     // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
-    const { selectedImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -1638,7 +1638,7 @@ function SessionViewLoaded({
             showAbortButton={sessionStatus.state === 'running'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}
             selectedImages={selectedImages}
-            onPickImages={pickAttachment}
+            onPickImages={session.metadata?.flavor === 'opencode' ? pickImages : pickAttachment}
             onRemoveImage={removeImage}
             onAddImages={addImages}
             autocompletePrefixes={autocompletePrefixes}

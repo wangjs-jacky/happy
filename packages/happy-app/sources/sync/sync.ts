@@ -1759,12 +1759,11 @@ class Sync {
         const modeMeta = resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
         const { displayText, editedFromMessageId, source = 'chat', attachments } = options ?? {};
 
-        // Image attachments are wired into the Claude and Codex pipelines; both
-        // runners drain file events and forward the images to the model. Other
-        // runners (Gemini / OpenClaw) read message.content.text and ignore file
-        // events, so reject the submission instead of silently dropping files.
+        // OpenCode's ACP runner accepts images; Claude/Codex also stage media files.
+        // Reject unsupported submissions as a whole, never silently drop attachments.
         const flavor = session.metadata?.flavor;
-        const supportsAttachments = !flavor || flavor === 'claude' || flavor === 'codex';
+        const supportsAttachments = !flavor || flavor === 'claude' || flavor === 'codex'
+            || (flavor === 'opencode' && (attachments ?? []).every(a => !a.kind || a.kind === 'image'));
         const effectiveAttachments = supportsAttachments ? attachments : undefined;
 
         if (attachments && attachments.length > 0 && !supportsAttachments) {

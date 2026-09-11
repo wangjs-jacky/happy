@@ -979,6 +979,24 @@ describe('ApiSessionClient v3 messages API migration', () => {
         });
     });
 
+    it('atomically replays buffered image and text events in their original order', async () => {
+        const client = new ApiSessionClient('fake-token', session);
+        const body = (name: string, file: boolean) => file ? {
+            role: 'session', content: { type: 'session', data: { id: name, time: 1, role: 'user',
+                ev: { t: 'file', ref: name, name: name + '.png', size: 4 } } },
+        } : { role: 'user', content: { type: 'text', text: name } };
+        const sequence = [body('a', true), body('a', false), body('b', true), body('b', false)];
+        mockAxiosGet.mockResolvedValueOnce({ data: { messages: sequence.map((item, index) => ({
+            id: String(index), seq: index + 1, content: { t: 'encrypted', c: encryptContent(session, item) },
+            localId: null, createdAt: 1, updatedAt: 1,
+        })), hasMore: false } });
+        await (client as any).fetchMessages();
+        const seen: string[] = [];
+        client.onUserMessage(message => seen.push('text:' + message.content.text),
+            file => seen.push('file:' + file.content.data.ev.ref));
+        expect(seen).toEqual(['file:a', 'text:a', 'file:b', 'text:b']);
+    });
+
     it('fetchMessages uses after_seq=0 initially and routes user messages to callback', async () => {
         const client = new ApiSessionClient('fake-token', session);
         const onUserMessage = vi.fn();

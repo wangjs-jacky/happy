@@ -5,9 +5,13 @@ const mocks = vi.hoisted(() => {
   let userMessageHandler: ((message: any) => void) | null = null;
   let killHandler: (() => Promise<void>) | null = null;
 
+  let fileHandler: ((message: any) => void) | null = null;
   const mockSession = {
-    onUserMessage: vi.fn((handler: (message: any) => void) => {
+    onFileEvent: vi.fn((handler: (message: any) => void) => { fileHandler = handler; }),
+    downloadAndDecryptAttachment: vi.fn(async (_ref: string) => new Uint8Array([137, 80, 78, 71])),
+    onUserMessage: vi.fn((handler: (message: any) => void, onFile?: (message: any) => void) => {
       userMessageHandler = handler;
+      if (onFile) mockSession.onFileEvent(onFile);
     }),
     keepAlive: vi.fn(),
     sendSessionProtocolMessage: vi.fn(),
@@ -30,12 +34,14 @@ const mocks = vi.hoisted(() => {
 
   const backendState = {
     listeners: [] as Array<(message: any) => void>,
-    prompts: [] as Array<{ sessionId: string; prompt: string }>,
+    prompts: [] as Array<{ sessionId: string; prompt: string; images?: unknown[] }>,
     setConfigOptionCalls: [] as Array<{ configId: string; value: string }>,
     setModeCalls: [] as string[],
     setModelCalls: [] as string[],
     startSessionMessages: [] as any[],
     startSessionCalls: 0,
+    promptError: null as Error | null,
+    holdPrompt: null as Promise<void> | null,
     cancelCalls: [] as string[],
     disposeCalls: 0,
     constructorArgs: null as any,
@@ -66,6 +72,7 @@ const mocks = vi.hoisted(() => {
       killHandler = handler;
     },
     mockSession,
+    getFileHandler: () => fileHandler,
     backendState,
   };
 });
@@ -144,8 +151,10 @@ vi.mock('./AcpBackend', () => ({
       return { sessionId: 'acp-session-1' };
     }
 
-    async sendPrompt(sessionId: string, prompt: string) {
-      mocks.backendState.prompts.push({ sessionId, prompt });
+    async sendPrompt(sessionId: string, prompt: string, images?: unknown[]) {
+      if (images?.length && mocks.backendState.promptError) throw mocks.backendState.promptError;
+      mocks.backendState.prompts.push({ sessionId, prompt, ...(images?.length ? { images } : {}) });
+      if (prompt === 'busy') await mocks.backendState.holdPrompt;
       for (const listener of mocks.backendState.listeners) {
         listener({ type: 'status', status: 'running' });
         listener({ type: 'model-output', textDelta: 'hello' });
@@ -184,6 +193,8 @@ vi.mock('./AcpBackend', () => ({
 }));
 
 import { runAcp } from './runAcp';
+import { AcpImagePromptError } from './imagePromptError';
+import { createOfflineSessionStub } from '@/utils/offlineSessionStub';
 
 describe('runAcp', () => {
   const stripAnsi = (line: string) => line.replace(/\u001b\[[0-9;]*m/g, '');
@@ -195,6 +206,7 @@ describe('runAcp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.sessionHandlers.clear();
+    mocks.mockSession.downloadAndDecryptAttachment.mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
     mocks.setUserMessageHandler(null);
     mocks.setKillHandler(null);
     mocks.backendState.listeners = [];
@@ -204,6 +216,8 @@ describe('runAcp', () => {
     mocks.backendState.setModelCalls = [];
     mocks.backendState.startSessionMessages = [];
     mocks.backendState.startSessionCalls = 0;
+    mocks.backendState.promptError = null;
+    mocks.backendState.holdPrompt = null;
     mocks.backendState.cancelCalls = [];
     mocks.backendState.disposeCalls = 0;
     mocks.backendState.constructorArgs = null;
@@ -243,6 +257,120 @@ describe('runAcp', () => {
 
     await mocks.getKillHandler()!();
     await runPromise;
+  });
+
+  const imageEvent = (ref: string) => ({ content: { data: { ev: {
+    t: 'file', ref, name: ref + '.png', size: 3, mimeType: 'image/png', image: { width: 1, height: 1 },
+  } } } });
+  const startImages = () => runAcp({
+    credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+    agentName: 'opencode', command: 'opencode', args: ['acp'],
+  });
+
+  it('forwards decrypted images with their owning text despite out-of-order downloads', async () => {
+    let finishFirst!: (value: Uint8Array<ArrayBuffer>) => void;
+    mocks.mockSession.downloadAndDecryptAttachment.mockImplementation(ref => ref === 'first'
+      ? new Promise(resolve => { finishFirst = resolve; }) : Promise.resolve(new Uint8Array([137, 80, 78, 71, 2])));
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.mockSession.onFileEvent).toHaveBeenCalled());
+      mocks.getFileHandler()!(imageEvent('first'));
+      mocks.getUserMessageHandler()!({ content: { text: 'first text' }, meta: { model: 'a' } });
+      mocks.getFileHandler()!(imageEvent('second'));
+      mocks.getUserMessageHandler()!({ content: { text: 'second text' }, meta: { model: 'b' } });
+      await Promise.resolve();
+      expect(mocks.backendState.prompts).toHaveLength(0);
+      finishFirst(new Uint8Array([137, 80, 78, 71, 1]));
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(2));
+      expect(mocks.backendState.prompts.map(p => [p.prompt, p.images])).toEqual([
+        ['first text', [{ data: new Uint8Array([137, 80, 78, 71, 1]), mimeType: 'image/png', name: 'first.png' }]],
+        ['second text', [{ data: new Uint8Array([137, 80, 78, 71, 2]), mimeType: 'image/png', name: 'second.png' }]],
+      ]);
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('reports a failed image without sending its text and accepts the next message', async () => {
+    mocks.mockSession.downloadAndDecryptAttachment.mockRejectedValueOnce(new Error('download failed'));
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.mockSession.onFileEvent).toHaveBeenCalled());
+      mocks.getFileHandler()!(imageEvent('failed'));
+      mocks.getUserMessageHandler()!({ content: { text: 'do not send without image' } });
+      await vi.waitFor(() => expect(mocks.mockSession.sendSessionProtocolMessage.mock.calls
+        .some(([e]) => e.ev.t === 'text' && /image/i.test(e.ev.text))).toBe(true));
+      expect(mocks.backendState.prompts).toHaveLength(0);
+      mocks.getUserMessageHandler()!({ content: { text: 'next text' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      expect(mocks.backendState.prompts[0].prompt).toBe('next text');
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('shows an unsupported-model error and keeps the session usable', async () => {
+    mocks.backendState.promptError = new AcpImagePromptError('Selected model does not support image input');
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.mockSession.onFileEvent).toHaveBeenCalled());
+      mocks.getFileHandler()!(imageEvent('picture'));
+      mocks.getUserMessageHandler()!({ content: { text: 'describe picture' } });
+      await vi.waitFor(() => expect(mocks.mockSession.sendSessionProtocolMessage.mock.calls
+        .some(([e]) => e.ev.t === 'text' && /Selected model does not support image input/.test(e.ev.text))).toBe(true));
+      expect(mocks.backendState.disposeCalls).toBe(0);
+      mocks.getUserMessageHandler()!({ content: { text: 'next text' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      expect(mocks.backendState.prompts[0].prompt).toBe('next text');
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('does not discard queued plain text when a same-model image turn is rejected', async () => {
+    let release!: () => void;
+    mocks.backendState.holdPrompt = new Promise<void>(resolve => { release = resolve; });
+    mocks.backendState.promptError = new AcpImagePromptError('Image unsupported');
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.getUserMessageHandler()).toBeTypeOf('function'));
+      mocks.getUserMessageHandler()!({ content: { text: 'busy' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      mocks.getFileHandler()!(imageEvent('picture'));
+      mocks.getUserMessageHandler()!({ content: { text: 'picture text' } });
+      mocks.getUserMessageHandler()!({ content: { text: 'plain text must survive' } });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      release();
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(2));
+      expect(mocks.backendState.prompts[1].prompt).toBe('plain text must survive');
+    } finally { release(); await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('detects JPEG bytes when a historical image event has no MIME', async () => {
+    const jpeg = new Uint8Array([255, 216, 255, 224]);
+    mocks.mockSession.downloadAndDecryptAttachment.mockResolvedValueOnce(jpeg);
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.getUserMessageHandler()).toBeTypeOf('function'));
+      const event = imageEvent('photo');
+      delete (event.content.data.ev as any).mimeType;
+      mocks.getFileHandler()!(event);
+      mocks.getUserMessageHandler()!({ content: { text: 'describe photo' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      expect(mocks.backendState.prompts[0].images).toEqual([{ data: jpeg, mimeType: 'image/jpeg', name: 'photo.png' }]);
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('starts offline and binds image handlers after the real session reconnects', async () => {
+    mocks.mockSetupOfflineReconnection.mockReturnValueOnce({
+      session: createOfflineSessionStub('offline-image-test'),
+      reconnectionHandle: { cancel: vi.fn() }, isOffline: true,
+    });
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.backendState.startSessionCalls).toBe(1));
+      const swap = mocks.mockSetupOfflineReconnection.mock.calls[0][0].onSessionSwap;
+      swap(mocks.mockSession);
+      expect(mocks.mockSession.onUserMessage).toHaveBeenCalledWith(expect.any(Function), expect.any(Function));
+      mocks.getFileHandler()!(imageEvent('after-reconnect'));
+      mocks.getUserMessageHandler()!({ content: { text: 'reconnected image' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      expect(mocks.backendState.prompts[0].images).toHaveLength(1);
+    } finally { await mocks.getKillHandler()!(); await run; }
   });
 
   it('wires backend messages through mapper into session envelopes', async () => {

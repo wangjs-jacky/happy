@@ -23,6 +23,8 @@ import {
   type ContentBlock,
 } from '@agentclientprotocol/sdk';
 import { randomUUID } from 'node:crypto';
+import type { ImageAttachment } from '@/utils/MessageQueue2';
+import { AcpImagePromptError } from './imagePromptError';
 import type {
   AgentBackend,
   AgentMessage,
@@ -353,6 +355,7 @@ export class AcpBackend implements AgentBackend {
   private connection: ClientSideConnection | null = null;
   private acpSessionId: string | null = null;
   private disposed = false;
+  private acceptsImages = false;
   /** Track active tool calls to prevent duplicate events */
   private activeToolCalls = new Set<string>();
   private toolCallTimeouts = new Map<string, NodeJS.Timeout>();
@@ -794,6 +797,7 @@ export class AcpBackend implements AgentBackend {
           shouldRetry: (error) => !isNonRetryableStartupError(error),
         }
       );
+      this.acceptsImages = initializeResponse.agentCapabilities?.promptCapabilities?.image === true;
       logger.debug(`[AcpBackend] Initialize completed`);
       if (this.options.verbose) {
         logAcpBackendMuted(
@@ -1061,7 +1065,7 @@ export class AcpBackend implements AgentBackend {
   private idleResolver: (() => void) | null = null;
   private waitingForResponse = false;
 
-  async sendPrompt(sessionId: SessionId, prompt: string): Promise<void> {
+  async sendPrompt(sessionId: SessionId, prompt: string, images: readonly ImageAttachment[] = []): Promise<void> {
     // Check if prompt contains change_title instruction (via optional callback)
     const promptHasChangeTitle = this.options.hasChangeTitleInstruction?.(prompt) ?? false;
 
@@ -1080,6 +1084,13 @@ export class AcpBackend implements AgentBackend {
       throw new Error('Session not started');
     }
 
+    if (images.length && !this.acceptsImages) {
+      throw new AcpImagePromptError('This ACP agent does not support image input. Update OpenCode or switch to an agent with image support, then retry.');
+    }
+    if (images.some(image => !image.mimeType.startsWith('image/') || image.data.length === 0)) {
+      throw new AcpImagePromptError('The image could not be read. Paste or select the image again and retry.');
+    }
+
     this.emit({ type: 'status', status: 'running' });
     this.waitingForResponse = true;
 
@@ -1094,10 +1105,14 @@ export class AcpBackend implements AgentBackend {
 
       const promptRequest: PromptRequest = {
         sessionId: this.acpSessionId,
-        prompt: [contentBlock],
+        prompt: [contentBlock, ...images.map((image): ContentBlock => ({
+          type: 'image',
+          data: Buffer.from(image.data).toString('base64'),
+          mimeType: image.mimeType,
+        }))],
       };
 
-      logger.debug(`[AcpBackend] Prompt request:`, JSON.stringify(promptRequest, null, 2));
+      logger.debug(`[AcpBackend] Prompt request: text length=${prompt.length}, images=${images.length}`);
       await this.connection.prompt(promptRequest);
       logger.debug('[AcpBackend] Prompt request sent to ACP connection');
       
@@ -1127,6 +1142,11 @@ export class AcpBackend implements AgentBackend {
         errorDetail = String(error);
       }
       
+      if (images.length) {
+        // The ACP agent can accept images while its selected model cannot.
+        // Keep that turn failed and visible; never retry as text-only.
+        throw new AcpImagePromptError(`OpenCode could not process the image. Select a model with image support and retry. ${errorDetail}`);
+      }
       this.emit({ 
         type: 'status', 
         status: 'error', 

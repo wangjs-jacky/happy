@@ -582,6 +582,23 @@ describe('real session writer composition', () => {
         expect(receipt).toMatchObject({ type: 'queued', sessionId: 'writer-session' });
         expect(subject.pendingOutbox.get('writer-session').length).toBe(2);
     });
+    it('queues an OpenCode image and its text together instead of rejecting the agent', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const current = storage.getState().sessions['writer-session'];
+        storage.setState({ sessions: { ...storage.getState().sessions,
+            'writer-session': { ...current, metadata: { ...current.metadata!, flavor: 'opencode' } },
+        } });
+        vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+        vi.spyOn(subject, 'uploadAttachmentsForSession').mockResolvedValue({
+            uploaded: [{ ref: 'image-ref', name: 'image.png', size: 1, width: 1, height: 1 }], failed: 0,
+        });
+        const receipt = await sync.sendMessage('writer-session', 'describe this image', {
+            attachments: [{ id: 'image', kind: 'image', mimeType: 'image/png' }] as any,
+        });
+        expect(receipt).toMatchObject({ type: 'queued', sessionId: 'writer-session' });
+        expect(subject.pendingOutbox.get('writer-session')).toHaveLength(2);
+    });
+
     it.each(['active', 'history', 'single', 'event', 'full'] as const)(
     'does not resurrect store or encryption when deletion wins pending %s decryption', async source => {
         const gate = deferred<any>();

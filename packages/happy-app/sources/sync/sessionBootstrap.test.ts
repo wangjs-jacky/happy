@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
             isLoaded: boolean;
             hasMoreOlder: boolean;
             isLoadingOlder: boolean;
+            latestAppliedSeq?: number;
         }>,
         readyCount: 0,
         settings: { expImageUpload: false },
@@ -1495,6 +1496,7 @@ describe('deep-link session opening', () => {
             isLoaded: true,
             hasMoreOlder: false,
             isLoadingOlder: false,
+            latestAppliedSeq: 44,
         };
         syncForTest.sessionMessageFrontiers.set('refused-session', { latestSeq: 44, olderBeforeSeq: 33, hasMoreOlder: false });
         preparation.resolve({
@@ -1508,6 +1510,7 @@ describe('deep-link session opening', () => {
         expect(mocks.state.sessions['refused-session']).toBe(winningSession);
         expect(syncForTest.getSessionLastMessageSeq('refused-session')).toBe(44);
         expect(syncForTest.sessionMessageFrontiers.get('refused-session')?.olderBeforeSeq).toBe(33);
+        expect(winningEncryption.decryptMessages).not.toHaveBeenCalled();
         expect(mocks.state.sessionMessages['refused-session']).toMatchObject({
             isLoaded: true,
             hasMoreOlder: false,
