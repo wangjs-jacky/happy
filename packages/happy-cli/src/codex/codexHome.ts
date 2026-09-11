@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join, resolve } from 'node:path';
 import * as tmp from 'tmp';
@@ -71,19 +71,25 @@ export async function prepareCodexHomeWithAuth(authJson: string, opts: {
 } = {}): Promise<string> {
     const sourceHome = opts.sourceHome ?? resolveCodexHome({ env: opts.env, homeDir: opts.homeDir });
     const tempHome = opts.createTempDir?.() ?? tmp.dirSync({ prefix: 'happy-codex-home-' }).name;
+    if (resolve(tempHome) === resolve(sourceHome)) throw new Error('Codex home must be isolated');
+    try {
+        await mkdir(tempHome, { recursive: true, mode: 0o700 });
+        await chmod(tempHome, 0o700);
 
-    await mkdir(tempHome, { recursive: true });
-
-    if (await sourceExists(sourceHome)) {
-        const entries = await readdir(sourceHome, { withFileTypes: true });
-        for (const entry of entries) {
-            if (entry.name === 'auth.json' || !shouldInheritCodexHomeEntry(entry.name)) {
-                continue;
+        if (await sourceExists(sourceHome)) {
+            const entries = await readdir(sourceHome, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.name === 'auth.json' || !shouldInheritCodexHomeEntry(entry.name)) {
+                    continue;
+                }
+                await inheritCodexHomeEntry(join(sourceHome, entry.name), join(tempHome, entry.name));
             }
-            await inheritCodexHomeEntry(join(sourceHome, entry.name), join(tempHome, entry.name));
         }
-    }
 
-    await writeFile(join(tempHome, 'auth.json'), authJson, { mode: 0o600 });
-    return tempHome;
+        await writeFile(join(tempHome, 'auth.json'), authJson, { mode: 0o600, flag: 'wx' });
+        return tempHome;
+    } catch {
+        await rm(tempHome, { recursive: true, force: true });
+        throw new Error('Unable to prepare private Codex home');
+    }
 }

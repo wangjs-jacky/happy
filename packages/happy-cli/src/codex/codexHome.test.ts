@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +25,17 @@ describe('resolveCodexHome', () => {
 });
 
 describe('prepareCodexHomeWithAuth', () => {
+    it('writes private auth without overwriting a pre-existing auth symlink', async () => {
+        const sourceHome = await makeTempDir('codex-source-');
+        await writeFile(join(sourceHome, 'auth.json'), 'global-original');
+        const tempHome = await makeTempDir('codex-private-');
+        await symlink(join(sourceHome, 'auth.json'), join(tempHome, 'auth.json'));
+        await expect(prepareCodexHomeWithAuth('secret', { sourceHome, createTempDir: () => tempHome })).rejects.toThrow();
+        expect(await readFile(join(sourceHome, 'auth.json'), 'utf8')).toBe('global-original');
+        const safe = await prepareCodexHomeWithAuth('secret', { sourceHome });
+        expect((await stat(join(safe, 'auth.json'))).mode & 0o777).toBe(0o600);
+        expect((await stat(safe)).mode & 0o777).toBe(0o700);
+    });
     it('inherits Codex configuration entries while isolating auth.json', async () => {
         const sourceHome = await makeTempDir('codex-source-');
         const tempHome = await makeTempDir('codex-temp-');

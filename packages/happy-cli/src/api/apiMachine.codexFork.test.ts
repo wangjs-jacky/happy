@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { configuration } from '@/configuration';
+import { retainCodexAccountHistory, rememberCodexAccountSession } from '@/codex/codexAccountHistory';
 
 const { codexAttachCandidateMethods, codexClientMethods } = vi.hoisted(() => ({
     codexAttachCandidateMethods: {
@@ -41,7 +46,15 @@ function handlersFrom(client: any): Map<string, (params: any) => Promise<any>> {
 }
 
 describe('ApiMachineClient Codex fork RPCs', () => {
-    beforeEach(() => {
+    let root: string;
+    const savedHappyHome = configuration.happyHomeDir;
+    beforeEach(async () => {
+        root = await mkdtemp(join(tmpdir(), 'codex-fork-rpc-test-'));
+        (configuration as { happyHomeDir: string }).happyHomeDir = root;
+        const source = join(root, 'native'); await mkdir(join(source, 'sessions'), { recursive: true });
+        for (const id of ['thread-source', 'thread-desktop', 'thread-takeover-fork']) await writeFile(join(source, 'sessions', `rollout-${id}.jsonl`), 'native-thread');
+        await retainCodexAccountHistory(join(root, 'codex-session-cache'), 'profile-a', source);
+        await rememberCodexAccountSession(join(root, 'codex-session-cache'), 'source-session', 'profile-a');
         for (const method of Object.values(codexClientMethods)) {
             method.mockReset();
         }
@@ -51,6 +64,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         codexClientMethods.connect.mockResolvedValue(undefined);
         codexClientMethods.disconnect.mockResolvedValue(undefined);
     });
+    afterEach(async () => { (configuration as { happyHomeDir: string }).happyHomeDir = savedHappyHome; await rm(root, { recursive: true, force: true }); });
 
     it('takes over a Codex Desktop candidate through a private fork so the source can keep its active writer', async () => {
         codexAttachCandidateMethods.list.mockResolvedValue([{
@@ -87,6 +101,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
 
         const result = await handlersFrom(client).get('machine-1:codex-attach-candidate')?.({
             threadId: 'thread-desktop',
+            sourceSessionId: 'source-session',
         });
 
         expect(result).toEqual({ type: 'success', sessionId: 'happy-attached' });
@@ -102,6 +117,8 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             directory: '/tmp/project',
             agent: 'codex',
             resumeCodexThreadId: 'thread-takeover-fork',
+            parentSessionId: 'source-session',
+            codexSessionGrant: undefined,
             environmentVariables: {
                 HAPPY_IMPORTED_SESSION_TITLE: 'Existing desktop conversation',
             },
@@ -134,6 +151,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
 
         await expect(handlersFrom(client).get('machine-1:codex-attach-candidate')?.({
             threadId: 'thread-desktop',
+            sourceSessionId: 'source-session',
         })).rejects.toThrow('Codex Desktop thread is still running');
 
         expect(codexClientMethods.forkThread).not.toHaveBeenCalled();
@@ -175,6 +193,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
 
         await expect(handlersFrom(client).get('machine-1:codex-attach-candidate')?.({
             threadId: 'thread-desktop',
+            sourceSessionId: 'source-session',
         })).rejects.toThrow('Session webhook timeout');
 
         expect(codexClientMethods.deleteThread).toHaveBeenCalledWith({
@@ -199,6 +218,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         const result = await handlersFrom(client).get('machine-1:codex-fork-thread')?.({
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
+            sourceSessionId: 'source-session',
         });
 
         expect(result).toEqual({ type: 'success', newCodexThreadId: 'thread-forked' });
@@ -206,6 +226,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         expect(codexClientMethods.forkThread).toHaveBeenCalledWith({
             threadId: 'thread-source',
             cwd: '/tmp/project',
+            deferGoalContinuation: true,
         });
         expect(codexClientMethods.disconnect).toHaveBeenCalledOnce();
     });
@@ -225,6 +246,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             agent: 'codex',
             resumeCodexThreadId: 'thread-forked',
             parentSessionId: 'happy-source',
+            codexSessionGrant: 'grant-for-fork',
         });
 
         expect(result).toEqual({ type: 'success', sessionId: 'happy-forked' });
@@ -233,6 +255,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             agent: 'codex',
             resumeCodexThreadId: 'thread-forked',
             parentSessionId: 'happy-source',
+            codexSessionGrant: 'grant-for-fork',
         }));
     });
 
@@ -276,6 +299,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             model: 'gpt-5.5',
             permissionMode: 'yolo',
             effort: 'xhigh',
+            codexSessionGrant: 'grant-for-resume',
         });
 
         expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
@@ -283,6 +307,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
             model: 'gpt-5.5',
             permissionMode: 'yolo',
             effort: 'xhigh',
+            codexSessionGrant: 'grant-for-resume',
         });
     });
 
@@ -310,6 +335,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         const result = await handlersFrom(client).get('machine-1:codex-list-rewind-points')?.({
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
+            sourceSessionId: 'source-session',
         });
 
         expect(result).toEqual({
@@ -352,6 +378,7 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         const result = await handlersFrom(client).get('machine-1:codex-duplicate-thread')?.({
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
+            sourceSessionId: 'source-session',
             cutAfterItemId: 'user-1',
             retainSelectedTurn: true,
         });
@@ -360,5 +387,11 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         expect(codexClientMethods.forkThread).toHaveBeenCalledWith({ threadId: 'thread-source', cwd: '/tmp/project', lastTurnId: 'turn-1', deferGoalContinuation: true });
         expect(codexClientMethods.rollbackThread).not.toHaveBeenCalled();
         expect(codexClientMethods.injectItems).not.toHaveBeenCalled();
+    });
+    it.each(['codex-fork-thread', 'codex-duplicate-thread', 'codex-list-rewind-points'])('rejects unmapped native history before opening app-server (%s)', async method => {
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({ spawnSession: vi.fn(), stopSession: vi.fn(), requestShutdown: vi.fn() });
+        await expect(handlersFrom(client).get(`machine-1:${method}`)?.({ directory: '/tmp/project', codexThreadId: 'thread-source', cutAfterItemId: 'user-1', sourceSessionId: 'legacy-unmapped' })).rejects.toThrow('unavailable');
+        expect(codexClientMethods.connect).not.toHaveBeenCalled();
     });
 });

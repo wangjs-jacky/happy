@@ -140,6 +140,8 @@ export interface SpawnSessionOptions {
     agent?: 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
     environmentVariables?: Record<string, string>;
     token?: string;
+    /** Opaque, single-use server grant. Required for every daemon Codex launch. */
+    codexSessionGrant?: string;
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
      * Happy session continues from an existing Claude conversation file.

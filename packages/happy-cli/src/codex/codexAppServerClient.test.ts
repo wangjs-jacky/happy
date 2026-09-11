@@ -212,6 +212,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         mockSpawn.mockReset();
         process.env.RUST_LOG = originalRustLog;
         restoreProxyEnv();
+        delete process.env.HAPPY_CODEX_PATH;
         mockExecFileSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
@@ -430,6 +431,20 @@ describe('CodexAppServerClient sandbox integration', () => {
         expect(client.sandboxEnabled).toBe(true);
 
         await client.disconnect();
+    });
+
+    it('forces file-only OAuth credentials for a Paws profile launch', async () => {
+        const saved = process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID;
+        process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID = 'profile-a';
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+            await client.connect();
+            expect(mockSpawn.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['cli_auth_credentials_store="file"']));
+            await client.disconnect();
+        } finally {
+            if (saved === undefined) delete process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID; else process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID = saved;
+        }
     });
 
     it('falls back to non-sandbox transport when sandbox initialization fails', async () => {

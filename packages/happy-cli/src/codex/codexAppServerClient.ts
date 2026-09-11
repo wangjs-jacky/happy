@@ -224,9 +224,9 @@ export function isAppServerAvailable(command: string): boolean {
     }
 }
 
-function buildCodexProcessEnv(): Record<string, string> {
+function buildCodexProcessEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
     const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
+    for (const [key, value] of Object.entries(base)) {
         if (typeof value === 'string' && !key.startsWith('HAPPY_RECONNECT_')) {
             env[key] = value;
         }
@@ -381,6 +381,7 @@ export class CodexAppServerClient {
     constructor(
         sandboxConfig?: SandboxConfig,
         private readonly connection: CodexAppServerConnection = { type: 'spawn' },
+        private readonly processEnv: NodeJS.ProcessEnv = process.env,
     ) {
         this.sandboxConfig = sandboxConfig;
     }
@@ -911,12 +912,13 @@ export class CodexAppServerClient {
             return;
         }
 
-        await this.openLocalProcessTransport(codexCommand ?? resolveCodexExecutablePath());
+        await this.openLocalProcessTransport(codexCommand ?? resolveCodexExecutablePath(this.processEnv));
     }
 
     private async openLocalProcessTransport(codexCommand: string): Promise<void> {
         let command = codexCommand;
         let args = ['app-server', '--listen', 'stdio://', '-c', `service_tier=\"${this.serviceTier}\"`];
+        if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) args.push('-c', 'cli_auth_credentials_store="file"');
         this.sandboxEnabled = false;
 
         if (this.sandboxConfig?.enabled && process.platform !== 'win32') {
@@ -934,7 +936,7 @@ export class CodexAppServerClient {
         }
 
         // Build env — same filtering as the old MCP client, with Codex-specific proxy isolation.
-        const env = buildCodexProcessEnv();
+        const env = buildCodexProcessEnv(this.processEnv);
         // Mute noisy rollout list logging
         const filter = 'codex_core::rollout::list=off';
         if (!env.RUST_LOG) {

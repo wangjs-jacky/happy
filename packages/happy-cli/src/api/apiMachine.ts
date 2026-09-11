@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { access, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { logger } from '@/ui/logger';
+import { withCodexAccountThread } from '@/codex/codexAccountThread';
 import { configuration } from '@/configuration';
 import { MachineMetadata, DaemonState, Machine, Update, UpdateMachineBody } from './types';
 import { registerCommonHandlers, SpawnSessionOptions, SpawnSessionResult } from '../modules/common/registerCommonHandlers';
@@ -110,7 +111,7 @@ interface DaemonToServerEvents {
 
 type MachineRpcHandlers = {
     spawnSession: (options: TracedSpawnSessionOptions) => Promise<SpawnSessionResult>;
-    resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>;
+    resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string }) => Promise<SpawnSessionResult>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
     refreshCodexUsage?: () => Promise<void>;
@@ -121,16 +122,6 @@ function requireNonEmptyString(value: unknown, name: string): string {
         throw new Error(`${name} is required`);
     }
     return value;
-}
-
-async function withCodexAppServerClient<T>(handler: (client: CodexAppServerClient) => Promise<T>): Promise<T> {
-    const client = new CodexAppServerClient();
-    await client.connect();
-    try {
-        return await handler(client);
-    } finally {
-        await client.disconnect();
-    }
 }
 
 async function withSharedCodexAppServerClient<T>(handler: (client: CodexAppServerClient) => Promise<T>): Promise<T> {
@@ -148,9 +139,9 @@ async function withSharedCodexAppServerClient<T>(handler: (client: CodexAppServe
     }
 }
 
-async function deleteFailedCodexTakeoverFork(threadId: string): Promise<void> {
+async function deleteFailedCodexTakeoverFork(threadId: string, sourceSessionId: string): Promise<void> {
     try {
-        await withCodexAppServerClient((client) => client.deleteThread({ threadId }));
+        await withCodexAccountThread({ sourceSessionId, codexThreadId: threadId }, (client) => client.deleteThread({ threadId }));
     } catch (error) {
         logger.debug('[API MACHINE] Failed to delete unused Codex takeover fork', error);
     }
@@ -162,7 +153,7 @@ export class ApiMachineClient {
     private lastKnownCLIAvailability: CLIAvailability | null = null;
     private lastKnownResumeSupport: ResumeSupport | null = null;
     private rpcHandlerManager: RpcHandlerManager;
-    private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>) | null = null;
+    private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string }) => Promise<SpawnSessionResult>) | null = null;
     private reconnectInterval: NodeJS.Timeout | null = null;
     private readonly codexAttachCandidates = createCodexAttachCandidateService({
         statePath: join(configuration.happyHomeDir, 'codex-attach-candidates.json'),
@@ -233,7 +224,7 @@ export class ApiMachineClient {
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, codexSessionGrant, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
             const traceId = traceIdFromParams(params?.traceId);
 
             if (!directory) {
@@ -248,6 +239,7 @@ export class ApiMachineClient {
                 agent,
                 environmentVariables,
                 token,
+                codexSessionGrant,
                 resumeClaudeSessionId,
                 resumeCodexThreadId,
                 parentSessionId,
@@ -315,6 +307,7 @@ export class ApiMachineClient {
         });
 
         this.rpcHandlerManager.registerHandler('codex-attach-candidate', async (params: any) => {
+            const sourceSessionId = requireNonEmptyString(params?.sourceSessionId, 'sourceSessionId (Codex source history unavailable)');
             const threadId = requireNonEmptyString(params?.threadId, 'threadId');
             const candidates = await this.codexAttachCandidates.list({ existingThreadIds: [] });
             const candidate = candidates.find((item) => item.threadId === threadId);
@@ -322,7 +315,7 @@ export class ApiMachineClient {
                 throw new Error('Codex Desktop thread is no longer available for attachment');
             }
 
-            const forked = await withCodexAppServerClient(async (client) => {
+            const forked = await withCodexAccountThread({ sourceSessionId, codexThreadId: candidate.threadId }, async (client) => {
                 const { thread } = await client.readThread({
                     threadId: candidate.threadId,
                     includeTurns: true,
@@ -344,6 +337,8 @@ export class ApiMachineClient {
                 result = await spawnSession({
                     directory: candidate.directory,
                     agent: 'codex',
+                    codexSessionGrant: params?.codexSessionGrant,
+                    parentSessionId: sourceSessionId,
                     resumeCodexThreadId: forked.newCodexThreadId,
                     environmentVariables: {
                         // Resume the fork through the normal private app-server.
@@ -353,7 +348,7 @@ export class ApiMachineClient {
                     },
                 });
             } catch (error) {
-                await deleteFailedCodexTakeoverFork(forked.newCodexThreadId);
+                await deleteFailedCodexTakeoverFork(forked.newCodexThreadId, sourceSessionId);
                 throw error;
             }
 
@@ -361,7 +356,7 @@ export class ApiMachineClient {
                 await this.codexAttachCandidates.markAttached(threadId);
                 return result;
             }
-            await deleteFailedCodexTakeoverFork(forked.newCodexThreadId);
+                await deleteFailedCodexTakeoverFork(forked.newCodexThreadId, sourceSessionId);
             if (result.type === 'requestToApproveDirectoryCreation') {
                 throw new Error('Codex Desktop thread directory is no longer available');
             }
@@ -459,9 +454,11 @@ export class ApiMachineClient {
             const directory = requireNonEmptyString(params?.directory, 'directory');
             const codexThreadId = requireNonEmptyString(params?.codexThreadId, 'codexThreadId');
 
-            const result = await withCodexAppServerClient((client) => forkCodexThread(client, {
+            const sourceSessionId = requireNonEmptyString(params?.sourceSessionId, 'sourceSessionId (Codex source history unavailable)');
+            const result = await withCodexAccountThread({ sourceSessionId, codexThreadId }, (client) => forkCodexThread(client, {
                 threadId: codexThreadId,
                 cwd: directory,
+                deferGoalContinuation: true,
             }));
             return result;
         });
@@ -469,7 +466,8 @@ export class ApiMachineClient {
         this.rpcHandlerManager.registerHandler('codex-list-rewind-points', async (params: any) => {
             const codexThreadId = requireNonEmptyString(params?.codexThreadId, 'codexThreadId');
 
-            return withCodexAppServerClient(async (client) => {
+            const sourceSessionId = requireNonEmptyString(params?.sourceSessionId, 'sourceSessionId (Codex source history unavailable)');
+            return withCodexAccountThread({ sourceSessionId, codexThreadId }, async (client) => {
                 const { thread } = await client.readThread({
                     threadId: codexThreadId,
                     includeTurns: true,
@@ -488,11 +486,13 @@ export class ApiMachineClient {
             const retainSelectedTurn = params?.retainSelectedTurn === true;
 
             try {
-                return await withCodexAppServerClient((client) => forkCodexThread(client, {
+                const sourceSessionId = requireNonEmptyString(params?.sourceSessionId, 'sourceSessionId (Codex source history unavailable)');
+                return await withCodexAccountThread({ sourceSessionId, codexThreadId }, (client) => forkCodexThread(client, {
                     threadId: codexThreadId,
                     cwd: directory,
                     cutAfterItemId,
                     retainSelectedTurn,
+                    deferGoalContinuation: true,
                 }));
             } catch (error) {
                 if (error instanceof CodexForkRewindPointNotFoundError) {
@@ -524,7 +524,7 @@ export class ApiMachineClient {
         if (this.resumeSessionHandler) {
             if (!this.rpcHandlerManager.hasHandler(method)) {
                 this.rpcHandlerManager.registerHandler(method, async (params: any) => {
-                    const { sessionId, model, permissionMode, effort } = params || {};
+                    const { sessionId, model, permissionMode, effort, codexSessionGrant } = params || {};
 
                     if (!sessionId || typeof sessionId !== 'string') {
                         throw new Error('Session ID is required');
@@ -535,7 +535,7 @@ export class ApiMachineClient {
                         throw new Error('Resume session handler not available');
                     }
 
-                    const result = await handler(sessionId, { model, permissionMode, effort });
+                    const result = await handler(sessionId, { model, permissionMode, effort, ...(codexSessionGrant !== undefined ? { codexSessionGrant } : {}) });
                     switch (result.type) {
                         case 'success':
                             return { type: 'success', sessionId: result.sessionId };
