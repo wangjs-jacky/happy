@@ -12,6 +12,17 @@ function dependencies() {
   };
 }
 describe('uploadCurrentCodexAccount', () => {
+  it('confirms the effective HTTPS account API origin for the legacy default', async () => {
+    const d = dependencies(); d.serverUrl = 'http://47.115.228.20:3005';
+    await uploadCurrentCodexAccount(d);
+    expect(d.output.mock.calls[0]?.[0]).toContain('https://47.115.228.20:8443');
+    expect(d.output.mock.calls[0]?.[0]).not.toContain('http://');
+  });
+  it('rejects unsafe remote origins before reading credentials to upload or confirming', async () => {
+    const d = dependencies(); d.serverUrl = 'http://paws.example';
+    await expect(uploadCurrentCodexAccount(d)).rejects.toThrow();
+    expect(d.readAuth).not.toHaveBeenCalled(); expect(d.confirm).not.toHaveBeenCalled(); expect(d.upload).not.toHaveBeenCalled();
+  });
   it('requires confirmation and uploads the local record using the signed-in Paws identity without printing secrets', async () => {
     const d = dependencies(); await uploadCurrentCodexAccount(d);
     expect(d.upload).toHaveBeenCalledWith(await d.readCredentials(), auth);

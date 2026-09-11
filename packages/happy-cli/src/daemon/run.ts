@@ -29,7 +29,7 @@ import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
-import { withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
+import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
 import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
 import { AsyncLock } from '@/utils/lock';
 import {
@@ -163,18 +163,20 @@ export async function startDaemon(): Promise<void> {
   // In case the setup malfunctions - our signal handlers will not properly
   // shut down. We will force exit the process with code 1.
   let requestShutdown: (source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string) => void;
+  let startupShutdownFallback: NodeJS.Timeout | undefined;
+  let properCleanupStarted = false;
   let resolvesWhenShutdownRequested = new Promise<({ source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string })>((resolve) => {
     requestShutdown = (source, errorMessage) => {
       logger.debug(`[DAEMON RUN] Requesting shutdown (source: ${source}, errorMessage: ${errorMessage})`);
 
       // Fallback - in case startup malfunctions - we will force exit the process with code 1
-      setTimeout(async () => {
+      if (!properCleanupStarted && !startupShutdownFallback) startupShutdownFallback = setTimeout(async () => {
         logger.debug('[DAEMON RUN] Startup malfunctioned, forcing exit with code 1');
 
         // Give time for logs to be flushed
         await new Promise(resolve => setTimeout(resolve, 100))
 
-        process.exit(1);
+        if (!properCleanupStarted) process.exit(1);
       }, 1_000);
 
       // Start graceful shutdown
@@ -260,6 +262,12 @@ export async function startDaemon(): Promise<void> {
     // Setup state - key by PID
     const pidToTrackedSession = new Map<number, TrackedSession>();
     const codexLaunches = new Map<number, CodexAccountLaunch>();
+    // Exited children leave the live map immediately, but their asynchronous
+    // final credential sync/history retention/home removal still blocks exit.
+    const codexFinalizers = new Set<Promise<void>>();
+    const drainCodexFinalizers = async () => {
+      while (codexFinalizers.size) await Promise.allSettled([...codexFinalizers]);
+    };
 
     // Retain session data after process exits so resume can still find it.
     // Pre-populate from disk so sessions survive daemon restarts.
@@ -527,6 +535,7 @@ export async function startDaemon(): Promise<void> {
           const tmuxResult = await tmux.spawnInTmux([fullCommand], {
             sessionName: tmuxSessionName,
             windowName: windowName,
+            unsetEnvironmentVariables: codexLaunch ? CODEX_ACCOUNT_UNSET_ENV : undefined,
             cwd: directory
           }, sessionEnv);  // Pass complete environment for tmux session
 
@@ -946,7 +955,12 @@ export async function startDaemon(): Promise<void> {
     const onChildExited = (pid: number) => {
       const codexLaunch = codexLaunches.get(pid);
       codexLaunches.delete(pid);
-      void codexLaunch?.finish().catch(() => logger.debug('[DAEMON RUN] Codex account home cleanup incomplete', { errorCode: 'codex-home-cleanup-failed' }));
+      if (codexLaunch) {
+        const finalizer = codexLaunch.finish()
+          .catch(() => logger.debug('[DAEMON RUN] Codex account home cleanup incomplete', { errorCode: 'codex-home-cleanup-failed' }))
+          .finally(() => { codexFinalizers.delete(finalizer); });
+        codexFinalizers.add(finalizer);
+      }
       const session = pidToTrackedSession.get(pid);
       if (session?.happySessionId && session.encryption) {
         sessionIdToFinishedSession.set(session.happySessionId, session);
@@ -1130,6 +1144,8 @@ export async function startDaemon(): Promise<void> {
         }
       }
       if (bundleReplaced) {
+        properCleanupStarted = true;
+        clearTimeout(startupShutdownFallback);
         // TODO: We probably do not want to keep this in-process self-restart logic long-term.
         // A native service manager would make startup and upgrades much simpler: the CLI would
         // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.
@@ -1142,11 +1158,13 @@ export async function startDaemon(): Promise<void> {
         // isDaemonRunningCurrentlyInstalledHappyVersion() === true, and exits —
         // leaving nothing running once we also exit.
         await Promise.allSettled(Array.from(codexLaunches.values(), launch => launch.sync()));
+        await drainCodexFinalizers();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
         await releaseDaemonLock(daemonLockHandle);
         await stopCaffeinate();
+        await drainCodexFinalizers();
 
         try {
           spawnHappyCLI(['daemon', 'start'], {
@@ -1198,6 +1216,8 @@ export async function startDaemon(): Promise<void> {
 
     // Setup signal handlers
     const cleanupAndShutdown = async (source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string) => {
+      properCleanupStarted = true;
+      clearTimeout(startupShutdownFallback);
       logger.debug(`[DAEMON RUN] Starting proper cleanup (source: ${source}, errorMessage: ${errorMessage})...`);
 
       // Clear health check interval
@@ -1207,6 +1227,7 @@ export async function startDaemon(): Promise<void> {
       }
       clearTimeout(initialCodexUsageTimer);
       await Promise.allSettled(Array.from(codexLaunches.values(), launch => launch.sync()));
+      await drainCodexFinalizers();
 
       // Update daemon state before shutting down
       await apiMachine.updateDaemonState((state: DaemonState | null) => ({
@@ -1224,6 +1245,7 @@ export async function startDaemon(): Promise<void> {
       await cleanupDaemonState();
       await stopCaffeinate();
       await releaseDaemonLock(daemonLockHandle);
+      await drainCodexFinalizers();
 
       logger.debug('[DAEMON RUN] Cleanup completed, exiting process');
       process.exit(0);

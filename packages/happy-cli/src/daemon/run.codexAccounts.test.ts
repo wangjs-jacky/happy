@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
-const state = vi.hoisted(() => ({ control: null as any, handlers: null as any, tmux: false, spawned: [] as any[], children: [] as any[], rejectGrant: false, api: null as any }));
+const state = vi.hoisted(() => ({ control: null as any, handlers: null as any, tmux: false, spawned: [] as any[], children: [] as any[], rejectGrant: false, api: null as any, bundleMtime: 1, tmuxOptions: null as any }));
+vi.mock('node:fs', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return { ...fs, statSync: (...args: any[]) => String(args[0]).endsWith('/dist/index.mjs') ? { mtimeMs: state.bundleMtime } : (fs.statSync as any)(...args) };
+});
 vi.mock('axios', () => ({ default: { get: vi.fn(async () => ({ data: { sessions: [] } })) } }));
 vi.mock('@/ui/auth', () => ({ authAndSetupMachineIfNeeded: async () => ({ credentials: { token: 'fake', encryption: { type: 'legacy', secret: new Uint8Array(32) } }, machineId: 'machine-1' }) }));
 vi.mock('@/persistence', () => ({ writeDaemonState: vi.fn(), readDaemonState: async () => null, acquireDaemonLock: async () => ({}), releaseDaemonLock: async () => {}, readPersistedSessions: () => ({}), persistSession: vi.fn() }));
@@ -16,7 +20,7 @@ vi.mock('@/resume/localHappyAgentAuth', () => ({ detectResumeSupport: () => ({})
 vi.mock('@/ui/logger', () => ({ logger: { debug: vi.fn(), debugLargeJson: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/api/api', () => ({ ApiClient: { create: async () => state.api } }));
 vi.mock('@/utils/tmux', () => ({ isTmuxAvailable: async () => state.tmux,
-  getTmuxUtilities: () => ({ spawnInTmux: async (_args: any, _options: any, env: any) => { state.spawned.push(env); return { success: true, pid: 987602, sessionId: 'test:1' }; } }),
+  getTmuxUtilities: () => ({ spawnInTmux: async (_args: any, options: any, env: any) => { state.tmuxOptions = options; state.spawned.push(env); return { success: true, pid: 987602, sessionId: 'test:1' }; } }),
   parseTmuxSessionIdentifier: vi.fn(), formatTmuxSessionIdentifier: vi.fn(),
 }));
 vi.mock('@/utils/spawnHappyCLI', () => ({ resolveHappyCLIEntrypoint: () => '/fake/entry.mjs', spawnHappyCLI: (_args: any, options: any) => {
@@ -34,7 +38,7 @@ beforeEach(async () => {
   vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
   vi.spyOn(process, 'kill').mockImplementation(() => true);
   signalListeners = new Map(['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection', 'exit', 'beforeExit'].map(s => [s, process.listeners(s as NodeJS.Signals)]));
-  state.control = null; state.handlers = null; state.spawned = []; state.children = []; state.rejectGrant = false;
+  state.control = null; state.handlers = null; state.spawned = []; state.children = []; state.rejectGrant = false; state.bundleMtime = 1; state.tmuxOptions = null;
   sourceHome = await mkdtemp(join(tmpdir(), 'daemon-codex-test-')); await writeFile(join(sourceHome, 'auth.json'), 'global-auth');
   (configuration as { happyHomeDir: string }).happyHomeDir = sourceHome;
   savedHome = process.env.CODEX_HOME; process.env.CODEX_HOME = sourceHome;
@@ -56,6 +60,31 @@ afterEach(async () => {
   await rm(sourceHome, { recursive: true, force: true });
 });
 describe('real daemon Codex spawn paths', () => {
+  it.each(['shutdown', 'bundle replacement'])('drains exited-child finalizers before %s, even beyond the startup fallback timeout', async mode => {
+    state.tmux = false;
+    const spawning = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    state.control.onHappySessionWebhook('actual-session', { hostPid: 987601, flavor: 'codex', startedBy: 'daemon' });
+    await spawning;
+    const launchHome = state.spawned[0].CODEX_HOME;
+    const auth = JSON.parse(await readFile(join(launchHome, 'auth.json'), 'utf8'));
+    await writeFile(join(launchHome, 'auth.json'), JSON.stringify({ ...auth, last_refresh: new Date().toISOString() }));
+    let resolveUpdate!: () => void;
+    state.api.updateCodexAccountCredential.mockImplementation(() => new Promise(resolve => {
+      resolveUpdate = () => resolve({ profile: { credentialVersion: 2 } });
+    }));
+    state.children[0].emit('exit', 0);
+    await vi.waitFor(() => expect(state.api.updateCodexAccountCredential).toHaveBeenCalledOnce());
+    try {
+      if (mode === 'shutdown') state.control.requestShutdown();
+      else state.bundleMtime = 2;
+      await vi.advanceTimersByTimeAsync(mode === 'shutdown' ? 1500 : 61_500);
+      expect(process.exit).not.toHaveBeenCalled();
+      expect((await stat(launchHome)).isDirectory()).toBe(true);
+    } finally { resolveUpdate(); }
+    await vi.waitFor(async () => { await expect(stat(launchHome)).rejects.toThrow(); });
+    await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0));
+  });
   it('resumes an audited session under the newly bound profile and retains only its source thread', async () => {
     state.tmux = false;
     const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
@@ -86,6 +115,7 @@ describe('real daemon Codex spawn paths', () => {
     const result = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43), environmentVariables: { TMUX_SESSION_NAME: 'test', CODEX_HOME: sourceHome, OPENAI_API_KEY: 'caller-secret' } });
     await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
     const env = state.spawned[0]; expect(env.CODEX_HOME).not.toBe(sourceHome); expect(env.OPENAI_API_KEY).toBeUndefined();
+    if (tmux) expect(state.tmuxOptions.unsetEnvironmentVariables).toEqual(expect.arrayContaining(['OPENAI_API_KEY', 'CODEX_API_KEY', 'HAPPY_CODEX_APP_SERVER_SOCKET']));
     const pid = tmux ? 987602 : 987601;
     state.control.onHappySessionWebhook('actual-session', { hostPid: pid, flavor: 'codex', startedBy: 'daemon' });
     expect(await result).toEqual({ type: 'success', sessionId: 'actual-session' });

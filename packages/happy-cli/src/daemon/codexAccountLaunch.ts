@@ -13,6 +13,7 @@ import type { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/r
 type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>;
 type PrepareOptions = NonNullable<Parameters<typeof prepareCodexHomeWithAuth>[1]> & { historyRoot?: string; sourceSessionId?: string; sourceThreadId?: string };
 const fingerprint = (auth: CodexAccountAuth) => createHash('sha256').update(JSON.stringify(auth)).digest('hex');
+export const CODEX_ACCOUNT_UNSET_ENV = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'HAPPY_CODEX_APP_SERVER_SOCKET'] as const;
 
 /** One redeemed launch owns one home and immutable quota attribution. */
 export class CodexAccountLaunch {
@@ -26,6 +27,7 @@ export class CodexAccountLaunch {
   private timer?: NodeJS.Timeout;
   private pending: Promise<void> = Promise.resolve();
   private finishing?: Promise<void>;
+  private attaching?: Promise<void>;
   private writeDisabled = false;
   private lastQuota?: string;
   private pid?: number;
@@ -60,7 +62,7 @@ export class CodexAccountLaunch {
     const env: NodeJS.ProcessEnv = { ...base, CODEX_HOME: this.home, HAPPY_CODEX_APP_SERVER_MODE: 'spawn',
       HAPPY_CODEX_ACCOUNT_PROFILE_ID: this.profileId, HAPPY_CODEX_ACCOUNT_CREDENTIAL_VERSION: String(this.credentialVersion),
     };
-    delete env.OPENAI_API_KEY; delete env.CODEX_API_KEY; delete env.HAPPY_CODEX_APP_SERVER_SOCKET;
+    for (const key of CODEX_ACCOUNT_UNSET_ENV) delete env[key];
     return env;
   }
 
@@ -68,11 +70,16 @@ export class CodexAccountLaunch {
 
   async attach(sourceSessionId: string): Promise<void> {
     if (this.finishing) throw new Error('Codex process exited before session attachment');
-    await this.api.attachCodexSession(this.launchId, { machineId: this.machineId, sourceSessionId });
-    await rememberCodexAccountSession(this.historyRoot, sourceSessionId, this.profileId, this.home);
-    this.sourceSessionId = sourceSessionId;
-    this.timer = setInterval(() => { void this.sync(); }, 60_000);
-    this.timer.unref();
+    if (!this.attaching) this.attaching = (async () => {
+      await this.api.attachCodexSession(this.launchId, { machineId: this.machineId, sourceSessionId });
+      if (this.finishing) throw new Error('Codex process exited before session attachment');
+      await rememberCodexAccountSession(this.historyRoot, sourceSessionId, this.profileId, this.home);
+      if (this.finishing) throw new Error('Codex process exited before session attachment');
+      this.sourceSessionId = sourceSessionId;
+      this.timer = setInterval(() => { void this.sync(); }, 60_000);
+      this.timer.unref();
+    })();
+    await this.attaching;
   }
 
   async reportStatus(status: 'needs-refresh' | 'invalid'): Promise<void> {
@@ -90,20 +97,20 @@ export class CodexAccountLaunch {
 
   private async syncOnce(): Promise<void> {
     if (!this.sourceSessionId) return;
-    if (!this.writeDisabled) {
-      let auth: CodexAccountAuth | undefined;
-      try { auth = await readCodexAccountAuth(this.home); }
-      catch { await this.reportStatus('needs-refresh'); }
-      if (auth && auth.tokens.account_id !== this.accountId) {
-        await this.reportStatus('invalid'); this.writeDisabled = true; this.identityInvalid = true;
-      } else if (auth && fingerprint(auth) !== this.authFingerprint) {
-        try {
-          const result = await this.api.updateCodexAccountCredential(this.profileId, { machineId: this.machineId, launchId: this.launchId, expectedVersion: this.currentVersion, auth });
-          this.currentVersion = result.profile.credentialVersion;
-          this.authFingerprint = fingerprint(auth);
-        } catch (error) {
-          if (error instanceof CodexAccountRequestError && ['credential-version-conflict', 'profile-not-found', 'launch-unavailable', 'credential-identity-mismatch'].includes(error.code)) this.writeDisabled = true;
-        }
+    // A stale writer still owns quota observations, so identity validation must
+    // continue independently of whether it is allowed to update credentials.
+    let auth: CodexAccountAuth | undefined;
+    try { auth = await readCodexAccountAuth(this.home); }
+    catch { await this.reportStatus('needs-refresh'); }
+    if (auth && auth.tokens.account_id !== this.accountId) {
+      await this.reportStatus('invalid'); this.writeDisabled = true; this.identityInvalid = true;
+    } else if (!this.writeDisabled && auth && fingerprint(auth) !== this.authFingerprint) {
+      try {
+        const result = await this.api.updateCodexAccountCredential(this.profileId, { machineId: this.machineId, launchId: this.launchId, expectedVersion: this.currentVersion, auth });
+        this.currentVersion = result.profile.credentialVersion;
+        this.authFingerprint = fingerprint(auth);
+      } catch (error) {
+        if (error instanceof CodexAccountRequestError && ['credential-version-conflict', 'profile-not-found', 'launch-unavailable', 'credential-identity-mismatch'].includes(error.code)) this.writeDisabled = true;
       }
     }
     if (this.identityInvalid) return;
@@ -131,7 +138,7 @@ export class CodexAccountLaunch {
   finish(): Promise<void> {
     if (!this.finishing) {
       clearInterval(this.timer);
-      this.finishing = this.pending.then(() => this.syncOnce()).catch(() => undefined)
+      this.finishing = Promise.allSettled([this.pending, this.attaching]).then(() => this.syncOnce()).catch(() => undefined)
         .then(async () => {
           try { if (this.sourceSessionId && !this.identityInvalid) await retainCodexAccountHistory(this.historyRoot, this.profileId, this.home); }
           finally { await rm(this.home, { recursive: true, force: true }); }

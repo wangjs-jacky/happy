@@ -22,6 +22,40 @@ function api() {
   };
 }
 describe('Codex account launch lifecycle', () => {
+  it('waits for an in-flight attachment before deleting its home and never resurrects its timer', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const a = api(); const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome: await home() });
+    let resolveAttach!: () => void;
+    a.attachCodexSession.mockImplementation(() => new Promise(resolve => { resolveAttach = () => resolve({ success: true }); }));
+    const attaching = launch.attach('session-1');
+    const attachmentRejected = expect(attaching).rejects.toThrow('exited');
+    let finished = false;
+    const finishing = launch.finish().then(() => { finished = true; });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(finished).toBe(false);
+      expect((await stat(launch.home)).isDirectory()).toBe(true);
+    } finally { resolveAttach(); await Promise.allSettled([attaching, finishing, attachmentRejected]); }
+    await attachmentRejected;
+    await expect(stat(launch.home)).rejects.toThrow();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('continues checking identity after CAS conflict and suppresses quota from a different account', async () => {
+    const a = api(); const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome: await home() });
+    await launch.attach('session-1');
+    a.updateCodexAccountCredential.mockRejectedValue(new CodexAccountRequestError('credential-version-conflict'));
+    await writeFile(join(launch.home, 'auth.json'), JSON.stringify({ ...auth, last_refresh: new Date().toISOString() }));
+    await launch.sync(); expect(a.updateCodexAccountCredential).toHaveBeenCalledOnce();
+    await writeFile(join(launch.home, 'auth.json'), JSON.stringify({ tokens: { ...auth.tokens, account_id: 'different-account' } }));
+    const observed = new Date().toISOString(); const reset = Math.floor(Date.now() / 1000) + 86400;
+    await mkdir(join(launch.home, 'sessions'), { recursive: true });
+    await writeFile(join(launch.home, 'sessions', 'usage.jsonl'), JSON.stringify({ timestamp: observed, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }, rate_limits: { secondary: { used_percent: 23, resets_at: reset, window_minutes: 10080 } } } }) + '\n');
+    try {
+      await launch.sync();
+      expect(a.reportCodexAccountQuota).not.toHaveBeenCalled();
+      expect(a.updateCodexAccountCredential).toHaveBeenCalledOnce();
+    } finally { await launch.finish(); }
+  });
   it.each(['regular', 'tmux'] as const)('gates the %s spawn callback with redemption, overrides caller credentials, and attaches the actual session', async mode => {
     const a = api(); const sourceHome = await home(); await writeFile(join(sourceHome, 'auth.json'), 'global');
     let launched: CodexAccountLaunch | undefined;
