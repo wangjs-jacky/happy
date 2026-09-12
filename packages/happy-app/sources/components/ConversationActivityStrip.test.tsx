@@ -47,7 +47,9 @@ vi.mock('react-native-unistyles', () => ({
     }),
 }));
 vi.mock('@/text', () => ({
-    t: (key: string, values?: { title?: string }) => values?.title ? `${key}:${values.title}` : key,
+    t: (key: string, values?: { count?: number; title?: string }) => values?.title
+        ? `${key}:${values.title}`
+        : values?.count === undefined ? key : `${key}:${values.count}`,
 }));
 
 function toolMessage(id: string, name: string, input: Record<string, unknown>, children: Message[] = []): ToolCallMessage {
@@ -81,14 +83,14 @@ describe('ConversationActivityStrip', () => {
         </BrowserProgressContext.Provider>;
         let renderer: any;
         act(() => { renderer = TestRenderer.create(render([skill])); });
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-stable-run' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger' }).props.onPress());
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(1);
         act(() => renderer.update(render([older, skill])));
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(1);
         act(() => renderer.unmount());
     });
 
-    it('opens each repeated Ego invocation from the inline Skills row and receives later frames', () => {
+    it('opens repeated Ego invocations as one gallery and receives later frames', () => {
         const first = toolMessage('1', 'Skill', { skill: 'ego-browser' });
         const second = toolMessage('3', 'Skill', { skillNames: ['ego-browser'] });
         const frame = (id: string, runId: string) => toolMessage(id, 'file', {
@@ -102,15 +104,17 @@ describe('ConversationActivityStrip', () => {
         </BrowserProgressContext.Provider>;
         act(() => { renderer = TestRenderer.create(render(messages)); });
         const row = renderer.root.findByProps({ testID: 'activity-skill-ego-browser' });
-        expect(row.findAllByType('Pressable')).toHaveLength(2);
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-a' }).props.onPress());
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2']);
+        expect(row.findAllByType('Pressable')).toHaveLength(1);
+        const trigger = renderer.root.findByProps({ testID: 'browser-progress-trigger' });
+        expect(trigger.props.accessibilityLabel).toBe('rightPanelCapabilityHub.browserProgress.viewCount:2');
+        act(() => trigger.props.onPress());
+        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2', '4']);
         act(() => renderer.update(render([...messages, frame('5', 'run-a')])));
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2', '5']);
+        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['2', '4', '5']);
+        expect(renderer.root.findByProps({ testID: 'browser-progress-trigger' }).props.accessibilityLabel)
+            .toBe('rightPanelCapabilityHub.browserProgress.viewCount:3');
         act(() => renderer.root.findByType('BrowserStepsPopover').props.onClose());
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-        act(() => renderer.root.findByProps({ testID: 'browser-progress-trigger-run-b' }).props.onPress());
-        expect(renderer.root.findByType('BrowserStepsPopover').props.steps.map((s: any) => s.id)).toEqual(['4']);
         act(() => renderer.update(render(messages, 's2')));
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
         act(() => renderer.unmount());

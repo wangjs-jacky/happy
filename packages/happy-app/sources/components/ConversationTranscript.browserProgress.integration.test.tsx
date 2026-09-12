@@ -72,7 +72,7 @@ describe('inline browser evidence through the real transcript rendering chain', 
             ref: 'attachment://second', browserStep: { ...frame.tool.input.browserStep, label: 'Final result' } });
         await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
             sessionId="session-a" messages={[final, second, frame]} groupToolCalls={groupToolCalls} />); });
-        const triggers = renderer.root.findAll((node: any) => node.type === 'Pressable' && node.props.testID === 'browser-progress-trigger-run-a');
+        const triggers = renderer.root.findAll((node: any) => node.type === 'Pressable' && node.props.testID === 'browser-progress-trigger');
         expect(triggers).toHaveLength(1);
         act(() => triggers[0].props.onPress());
         const popover = renderer.root.findByType('BrowserStepsPopover');
@@ -84,19 +84,19 @@ describe('inline browser evidence through the real transcript rendering chain', 
     it('clears the open progress view when switching sessions, even with identical run and message IDs', async () => {
         await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
             sessionId="session-a" messages={[final, frame, skill]} />); });
-        act(() => byId('browser-progress-trigger-run-a').props.onPress());
+        act(() => byId('browser-progress-trigger').props.onPress());
         expect(renderer.root.findByType('BrowserStepsPopover').props.sessionId).toBe('session-a');
         const other = { ...frame, tool: { ...frame.tool, input: { ...frame.tool.input, ref: 'attachment://session-b' } } };
         await act(async () => renderer.update(<ConversationTranscript metadata={null}
             sessionId="session-b" messages={[final, other, skill]} />));
         expect(renderer.root.findAllByType('BrowserStepsPopover')).toHaveLength(0);
-        act(() => byId('browser-progress-trigger-run-a').props.onPress());
+        act(() => byId('browser-progress-trigger').props.onPress());
         const popover = renderer.root.findByType('BrowserStepsPopover');
         expect(popover.props.sessionId).toBe('session-b');
         expect(popover.props.steps[0].ref).toBe('attachment://session-b');
     });
     const triggers = () => renderer.root.findAll((node: any) => node.type === 'Pressable'
-        && node.props.testID === 'browser-progress-trigger-run-a');
+        && node.props.testID === 'browser-progress-trigger');
     const assertEvidenceAccessible = () => {
         expect(triggers()).toHaveLength(1);
         expect(renderer.root.findAllByType('AttachmentGalleryView')).toHaveLength(0);
