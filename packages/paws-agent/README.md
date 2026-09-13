@@ -205,6 +205,36 @@ machine RPC. The daemon resolves symlinks, rejects paths outside the canonical
 home directory, and returns directories only; it does not expose file contents
 or command execution through this SDK method.
 
+### 源码新增：SDK 图片输入（尚未发布）
+
+`messages.send` 接收原始 `Uint8Array`，不依赖 React、DOM、文件选择器或平台文件路径。
+前端只负责选图与预览，SDK 负责验证、加密、上传和消息协议，后续更换前端无需重写传输层。
+
+```ts
+import type { PawsAgentClient, ImageAttachmentInput } from '@wangjs-jacky/paws-agent';
+
+async function sendImage(client: PawsAgentClient, sessionId: string, image: ImageAttachmentInput, signal?: AbortSignal) {
+  return client.messages.send({
+    sessionId,
+    text: '请分析这张图片', // 仅发图片时传空字符串
+    images: [image],
+    signal,
+  });
+}
+```
+
+- `image` 包含 `name`、`mimeType`、`bytes`；可选 `width` 和 `height` 必须同时提供且为正整数。
+- 每次最多 4 张 PNG/JPEG/WebP，每张原始字节不超过 10 MiB；调用开始时复制字节，隔离调用方后续修改。
+- 图片沿用 `Happy Blobs` 派生密钥和 NaCl secretbox；服务器及对象存储只接收图片密文，图片名称和密文大小仍会出现在上传申请中。
+- 所有图片上传成功后，将文件事件与正文按顺序提交到同一批次；仅图片也保留空正文，供 CLI 领取附件并触发本轮处理。
+- 上传失败时不会发送部分附件或正文，但此前已上传的未引用密文不会自动删除。重试可复用同一个 `localId` 来去重消息；重试仍可能产生未引用的上传对象。
+- `signal` 可中断图片上传与最终消息请求，`client.dispose()` 也会终止传输；单个图片上传最多等待 15 秒。服务器已经接受的消息不能通过取消撤回。
+- Codex `sessions.spawn` 会按 `machineId` 申请新的会话授权，不缓存、不复用；授权失败会直接返回错误，不回退为未授权启动。
+
+这次只修改 SDK 源码，不新增 CLI 选图参数、不修改 Happy 服务端、不发布 npm。
+Chrome 插件 0.0.8 仍使用已发布 beta.2 的补丁；新版 SDK 正式发布并由插件完成集成验证后再移除补丁。
+本地协议测试不等于线上模型识图验收。
+
 ## Release status
 
 Registry availability is established by `npm view @wangjs-jacky/paws-agent@0.1.0-beta.2 version`, not by a source tag or a green preparation run. Before the first successful publication, use workspace linking or an exact verified tarball. Publication runs in GitHub Actions using the repository's `NPM_TOKEN` when available; otherwise npm trusted publishing must already be configured. A local npm login is not required for this workflow.

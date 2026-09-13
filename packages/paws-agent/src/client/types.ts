@@ -118,11 +118,24 @@ export type ResumeSessionInput = {
     sessionId: string;
 };
 
+export type ImageAttachmentInput = {
+    name: string;
+    mimeType: string;
+    /** 原始图片字节；SDK 在上传前加密，不依赖 DOM 或本地文件路径。 */
+    bytes: Uint8Array;
+    width?: number;
+    height?: number;
+};
+
 export type SendMessageInput = {
     sessionId: string;
     text: string;
     localId?: string;
     meta?: Record<string, unknown>;
+    /** 最多四张 PNG/JPEG/WebP，每张不超过 10 MiB。 */
+    images?: ImageAttachmentInput[];
+    /** 取消尚未完成的上传和消息提交；已被服务器接受的消息无法撤回。 */
+    signal?: AbortSignal;
 };
 
 export type SendMessageReceipt = {
