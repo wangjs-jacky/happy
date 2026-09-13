@@ -23,6 +23,7 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
     };
     const messages = [];
     let linkPublicKey = null;
+    const grants = new Set();
 
     const server = createServer(async (request, response) => {
         setCorsHeaders(request, response);
@@ -71,6 +72,14 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
             }
 
             requireAuthorization(request);
+            if (url.pathname === '/v1/codex-session-grants' && request.method === 'POST') {
+                const body = await readJson(request);
+                if (body.machineId !== MACHINE_ID) throw new Error('unknown machine');
+                const grant = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+                grants.add(grant);
+                sendJson(response, { grant });
+                return;
+            }
             if (url.pathname === '/v1/machines' && request.method === 'GET') {
                 sendJson(response, [machineRecord(secret)]);
                 return;
@@ -139,6 +148,10 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
                     return;
                 }
                 state.spawnRequests += 1;
+                // 每次启动（包括目录确认后的重试）都必须使用新的机器授权。
+                if (params?.agent === 'codex' && !grants.delete(params.codexSessionGrant)) {
+                    throw new Error('missing or reused Codex grant');
+                }
                 if (params?.approvedNewDirectoryCreation !== true) {
                     acknowledge({
                         ok: true,
