@@ -10,6 +10,7 @@ export type {
     BrowseDirectoryResult,
     ConnectionState,
     CredentialProvider,
+    ImageAttachmentInput,
     Machine,
     MachinesResource,
     Message,

@@ -4,6 +4,7 @@ import { decodeBase64, decrypt, encodeBase64, encrypt } from '../crypto/encrypti
 import { RecordEncryptionStore } from '../crypto/records';
 import type { PawsHttpTransport } from '../transport/http';
 import type { SessionsResourceImpl } from './sessions';
+import { encryptImage, snapshotImages } from './imageAttachments';
 
 type RawMessage = {
     id: string;
@@ -52,7 +53,13 @@ export class MessagesResourceImpl implements MessagesResource {
         if (!input.sessionId.trim()) {
             throw new PawsAgentError('INVALID_ARGUMENT', 'sessionId is required');
         }
+        const images = snapshotImages(input.images);
+        const checkCancelled = () => {
+            if (input.signal?.aborted) throw new PawsAgentError('CONNECTION_LOST', 'Message send cancelled');
+        };
+        checkCancelled();
         const session = await this.sessions.get(input.sessionId);
+        checkCancelled();
         const metadata = session.metadata as { lifecycleState?: unknown } | null;
         if (!session.active || metadata?.lifecycleState === 'archived') {
             throw new PawsAgentError('SESSION_ARCHIVED', 'Session is archived', {
@@ -61,19 +68,42 @@ export class MessagesResourceImpl implements MessagesResource {
         }
         const recordEncryption = await this.getEncryption(input.sessionId);
         const localId = input.localId ?? globalThis.crypto.randomUUID();
+        const batch: { localId: string; content: string }[] = [];
+        for (const [index, image] of images.entries()) {
+            checkCancelled();
+            const bytes = encryptImage(image.bytes, recordEncryption);
+            const descriptor = await this.transport.post<unknown>(
+                `/v1/sessions/${encodeURIComponent(input.sessionId)}/attachments/request-upload`,
+                { filename: image.name, size: bytes.length }, { signal: input.signal },
+            );
+            const ref = await this.transport.uploadAttachment(descriptor, bytes, { signal: input.signal });
+            checkCancelled();
+            const fileLocalId = `${localId}:image:${index}`;
+            const file = {
+                role: 'session',
+                content: { type: 'session', data: {
+                    id: fileLocalId, time: Date.now(), role: 'user',
+                    ev: { t: 'file', ref, name: image.name, size: image.bytes.length, mimeType: image.mimeType,
+                        ...(image.width !== undefined ? { image: { width: image.width, height: image.height } } : {}),
+                    },
+                } },
+            };
+            batch.push({ localId: fileLocalId, content: encodeBase64(encrypt(recordEncryption.key, recordEncryption.variant, file)) });
+        }
         const content = {
             role: 'user',
             content: { type: 'text', text: input.text },
             meta: { sentFrom: 'paws-agent', ...input.meta },
         };
+        // CLI 在收到 user/text 时领取之前的附件；仅图片也必须保留空正文。
+        batch.push({ localId, content: encodeBase64(encrypt(recordEncryption.key, recordEncryption.variant, content)) });
+        checkCancelled();
         await this.transport.post(
             `/v3/sessions/${encodeURIComponent(input.sessionId)}/messages`,
             {
-                messages: [{
-                    localId,
-                    content: encodeBase64(encrypt(recordEncryption.key, recordEncryption.variant, content)),
-                }],
+                messages: batch,
             },
+            { signal: input.signal },
         );
         return { sessionId: input.sessionId, localId };
     }

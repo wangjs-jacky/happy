@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布
+
+- 将 Chrome 插件 0.0.8 的 SDK 补丁回迁到 TypeScript 源码：Codex 启动前申请机器绑定的一次性授权，失败时不降级启动。
+- `messages.send` 支持 PNG/JPEG/WebP 原始字节和 `AbortSignal`，复用 Happy Blobs 加密协议以及本地 PUT / 对象存储 POST 上传。
+- 文件事件和正文按顺序一次提交；上传失败或取消时不发送残缺消息。仅图片也发送空正文以触发 CLI 处理。
+- 严格校验上传描述符、阻止重定向和第三方 token 泄露，上传支持 15 秒超时及客户端销毁取消。
+
+以上为源码修复，尚未发布新版 npm 包；插件 0.0.8 的补丁暂时保留。
+
 ## 0.1.0-beta.2 - 2026-09-09
 
 - Prepare the first public npm release, distributed on the `next` tag.

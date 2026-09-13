@@ -11,6 +11,33 @@ const credentials = {
 };
 
 describe('SessionsResource', () => {
+    it('Codex 启动前申请机器绑定的一次性授权，并传给加密 RPC', async () => {
+        const grant = 'a'.repeat(43);
+        const transport = { post: vi.fn().mockResolvedValue({ grant }) };
+        const realtime = { machineRpc: vi.fn().mockResolvedValue({ type: 'success', sessionId: 's1' }) };
+        const sessions = new SessionsResourceImpl(transport as never, realtime as never, new RecordEncryptionStore(), vi.fn().mockResolvedValue([{ id: 'm1' }]));
+        await sessions.spawn({ machineId: 'm1', directory: '/project', agent: 'codex' });
+        expect(transport.post).toHaveBeenCalledWith('/v1/codex-session-grants', { machineId: 'm1' });
+        expect(realtime.machineRpc).toHaveBeenCalledWith('m1', 'spawn-happy-session', expect.objectContaining({ codexSessionGrant: grant }));
+        expect(transport.post.mock.invocationCallOrder[0]).toBeLessThan(realtime.machineRpc.mock.invocationCallOrder[0]);
+    });
+
+    it.each([null, {}, { grant: '' }, { grant: 'x'.repeat(42) }, { grant: '!'.repeat(43) }])('授权响应不合法时不启动进程 %j', async response => {
+        const transport = { post: vi.fn().mockResolvedValue(response) };
+        const realtime = { machineRpc: vi.fn().mockResolvedValue({ type: 'success', sessionId: 's1' }) };
+        const sessions = new SessionsResourceImpl(transport as never, realtime as never, new RecordEncryptionStore(), vi.fn().mockResolvedValue([{ id: 'm1' }]));
+        await expect(sessions.spawn({ machineId: 'm1', directory: '/project', agent: 'codex' })).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+        expect(realtime.machineRpc).not.toHaveBeenCalled();
+    });
+
+    it('授权接口失败时不回退为未授权启动', async () => {
+        const transport = { post: vi.fn().mockRejectedValue(new Error('grant failed')) };
+        const realtime = { machineRpc: vi.fn().mockResolvedValue({ type: 'success', sessionId: 's1' }) };
+        const sessions = new SessionsResourceImpl(transport as never, realtime as never, new RecordEncryptionStore(), vi.fn().mockResolvedValue([{ id: 'm1' }]));
+        await expect(sessions.spawn({ machineId: 'm1', directory: '/project', agent: 'codex' })).rejects.toThrow('grant failed');
+        expect(realtime.machineRpc).not.toHaveBeenCalled();
+    });
+
     it('loads the active snapshot and keeps encryption material private', async () => {
         const transport = {
             getWithCredentials: vi.fn().mockResolvedValue({

@@ -70,12 +70,23 @@ export class SessionsResourceImpl implements SessionsResource {
         this.requireId(input.machineId, 'machineId');
         this.requireId(input.directory, 'directory');
         await this.ensureMachine(input.machineId);
+        let codexSessionGrant: string | undefined;
+        if (input.agent === 'codex') {
+            const response = await this.transport.post<{ grant?: unknown } | null>(
+                '/v1/codex-session-grants', { machineId: input.machineId },
+            );
+            if (typeof response?.grant !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(response.grant)) {
+                throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Invalid Codex session grant response');
+            }
+            codexSessionGrant = response.grant;
+        }
         const result = await this.realtime.machineRpc<unknown>(input.machineId, 'spawn-happy-session', {
             type: 'spawn-in-directory',
             directory: input.directory,
             approvedNewDirectoryCreation: input.approvedNewDirectoryCreation ?? false,
             token: input.providerToken,
             agent: input.agent,
+            ...(codexSessionGrant ? { codexSessionGrant } : {}),
         });
         return this.parseSpawnResult(result);
     }
