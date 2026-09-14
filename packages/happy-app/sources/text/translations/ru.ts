@@ -536,6 +536,7 @@ export const ru: TranslationStructure = {
         browserProgress: {
             title: 'Ход работы в браузере',
             view: 'Посмотреть ход',
+            viewCount: ({ count }: { count: number }) => `Посмотреть ход · ${count}`,
             close: 'Закрыть ход работы в браузере',
             timelineTitle: 'Шаги в браузере',
             liveCount: ({ count }: { count: number }) => `В реальном времени · ${count} шаг`,

@@ -4,60 +4,54 @@ import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { BrowserProgressContext } from './BrowserProgressContext';
 import { BrowserStepsPopover, type BrowserStepsAnchorRect } from './rightPanel/BrowserStepsPopover';
-import type { BrowserStepRun } from './rightPanel/browserStepRunsModel';
-
-const selectionKey = (run: BrowserStepRun) => JSON.stringify([run.invocationMessageId, run.skillName, run.id]);
 
 /** A sibling action, never nested inside the Skill diagnostic button. */
 export function SkillBrowserProgress(props: { invocationMessageIds: string[] }) {
     const context = React.useContext(BrowserProgressContext);
+    const dialogId = React.useId();
     const runs = React.useMemo(() => context?.runs.filter(run =>
         props.invocationMessageIds.includes(run.invocationMessageId)) ?? [],
     [context?.runs, props.invocationMessageIds]);
-    const [selectedId, setSelectedId] = React.useState<string | null>(null);
+    const steps = React.useMemo(() => runs.flatMap(run => run.steps)
+        .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)), [runs]);
+    const [open, setOpen] = React.useState(false);
     const [anchor, setAnchor] = React.useState<BrowserStepsAnchorRect>();
-    const refs = React.useRef(new Map<string, View>());
-    const selected = runs.find(run => selectionKey(run) === selectedId);
-    React.useEffect(() => { setSelectedId(null); }, [context?.sessionId]);
-    React.useEffect(() => {
-        if (selectedId && !selected) setSelectedId(null);
-    }, [selectedId, selected]);
+    const triggerRef = React.useRef<View>(null);
+    React.useEffect(() => { setOpen(false); }, [context?.sessionId]);
 
-    if (!context?.sessionId || runs.length === 0) return null;
+    if (!context?.sessionId || steps.length === 0) return null;
     return <>
         <View style={styles.actions}>
-            {runs.map((run, index) => <Pressable
-                key={selectionKey(run)}
-                ref={node => { if (node) refs.current.set(selectionKey(run), node); else refs.current.delete(selectionKey(run)); }}
-                testID={`browser-progress-trigger-${run.id}`}
+            <Pressable
+                ref={triggerRef}
+                testID="browser-progress-trigger"
                 accessibilityRole="button"
-                accessibilityLabel={`${t('rightPanelCapabilityHub.browserProgress.view')}: ${run.skillName}${runs.length > 1 ? ` ${index + 1}/${runs.length}` : ''}`}
-                accessibilityState={{ expanded: selectedId === selectionKey(run) }}
-                aria-expanded={selectedId === selectionKey(run)}
-                aria-controls={`browser-progress-dialog-${run.id}`}
+                accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.viewCount', { count: steps.length })}
+                accessibilityState={{ expanded: open }}
+                aria-expanded={open}
+                aria-controls={dialogId}
                 onPress={() => {
-                    const node = refs.current.get(selectionKey(run));
                     setAnchor(undefined);
                     // Open synchronously; measurement only adjusts placement.
-                    setSelectedId(selectionKey(run));
-                    if (Platform.OS === 'web') node?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
+                    setOpen(true);
+                    if (Platform.OS === 'web') triggerRef.current?.measureInWindow((x, y, width, height) => setAnchor({ x, y, width, height }));
                 }}
                 style={({ pressed }) => [styles.button, pressed && styles.pressed]}
             >
                 <Text style={styles.label}>
-                    {t('rightPanelCapabilityHub.browserProgress.view')}{runs.length > 1 ? ` · ${index + 1}/${runs.length}` : ''}
+                    {t('rightPanelCapabilityHub.browserProgress.viewCount', { count: steps.length })}
                 </Text>
-            </Pressable>)}
+            </Pressable>
         </View>
-        {selected ? <BrowserStepsPopover
-            key={`${context.sessionId}:${selectionKey(selected)}`}
+        {open ? <BrowserStepsPopover
+            key={context.sessionId}
             open
-            dialogId={`browser-progress-dialog-${selected.id}`}
+            dialogId={dialogId}
             sessionId={context.sessionId}
-            steps={selected.steps}
+            steps={steps}
             anchor={anchor}
-            onClose={() => setSelectedId(null)}
-            returnFocusRef={{ current: refs.current.get(selectionKey(selected)) ?? null }}
+            onClose={() => setOpen(false)}
+            returnFocusRef={triggerRef}
         /> : null}
     </>;
 }

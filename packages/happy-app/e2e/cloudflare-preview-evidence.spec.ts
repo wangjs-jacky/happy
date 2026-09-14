@@ -103,7 +103,7 @@ test.describe('Happy-managed Cloudflare preview PC Web evidence', () => {
     });
 
     for (const theme of ['default', 'ginghamDark'] as const) {
-        test(`[EGO-POPOVER] opens from inline Skills and isolates repeated runs (${theme})`, async ({ page }, testInfo) => {
+        test(`[EGO-POPOVER] opens repeated runs as one inline gallery (${theme})`, async ({ page }, testInfo) => {
             test.setTimeout(120_000);
             const fixture = await seedCloudflarePreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
             if (theme === 'ginghamDark') {
@@ -120,25 +120,26 @@ test.describe('Happy-managed Cloudflare preview PC Web evidence', () => {
             await expect(page.getByTestId('capability-block-skills')).toBeVisible();
             await expect(page.getByTestId('capability-hub-detail-skills')).toHaveCount(0);
 
-            const firstTrigger = page.getByTestId('browser-progress-trigger-ego-fixture-run-1');
-            const secondTrigger = page.getByTestId('browser-progress-trigger-ego-fixture-run-2');
-            await expect(firstTrigger).toBeVisible();
-            await expect(secondTrigger).toBeVisible();
-            await expect(page.getByTestId('activity-skill-ego-browser').filter({ has: firstTrigger })).toBeVisible();
-            await firstTrigger.click();
-            await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
-            await page.getByTestId('browser-steps-popover-close').click();
-            await expect(page.getByTestId('browser-steps-popover')).toHaveCount(0);
-            await firstTrigger.focus();
-            await firstTrigger.press('Enter');
+            const activityRow = page.getByTestId('activity-skill-ego-browser');
+            const trigger = activityRow.getByTestId('browser-progress-trigger');
+            await expect(trigger).toBeVisible();
+            await expect(trigger).toContainText(/15/);
+            await expect(activityRow).toBeVisible();
+            await expect(trigger).toHaveCount(1);
+            await trigger.click();
             await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
             await expect(page.getByTestId('browser-steps-timeline-scroll')).toContainText('Verified browser milestone 1.12');
+            await expect(page.getByTestId('browser-steps-timeline-scroll')).toContainText('Verified browser milestone 2.3');
+            await page.getByTestId('browser-steps-popover-close').click();
+            await expect(page.getByTestId('browser-steps-popover')).toHaveCount(0);
+            await trigger.focus();
+            await trigger.press('Enter');
+            await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
             await page.keyboard.press('Escape');
             await expect(page.getByTestId('browser-steps-popover')).toHaveCount(0);
-            await expect(firstTrigger).toBeFocused();
-            await secondTrigger.press('Space');
+            await expect(trigger).toBeFocused();
+            await trigger.press('Space');
             await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
-            await expect(page.getByTestId('browser-steps-timeline-scroll')).toContainText('Verified browser milestone 2.3');
 
             await page.screenshot({
                 path: evidencePath(testInfo, `case-3-ego-popover-${theme}-after.png`),
@@ -149,7 +150,7 @@ test.describe('Happy-managed Cloudflare preview PC Web evidence', () => {
             await page.setViewportSize({ width: 1024, height: 768 });
             await page.getByTestId('desktop-right-panel-toggle-button').click();
             await page.getByTestId('capability-block-skills').click();
-            await page.getByTestId('browser-progress-trigger-ego-fixture-run-1').click();
+            await trigger.click();
             const popoverBox = await page.getByTestId('browser-steps-popover').boundingBox();
             expect(popoverBox).not.toBeNull();
             expect(popoverBox!.x).toBeGreaterThanOrEqual(12);

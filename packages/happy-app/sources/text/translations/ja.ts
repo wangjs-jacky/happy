@@ -558,6 +558,7 @@ export const ja: TranslationStructure = {
         browserProgress: {
             title: 'ブラウザーの進行状況',
             view: '進行状況を表示',
+            viewCount: ({ count }: { count: number }) => `進行状況を表示 · ${count} 枚`,
             close: 'ブラウザーの進行状況を閉じる',
             timelineTitle: 'ブラウザーの手順',
             liveCount: ({ count }: { count: number }) => `リアルタイム · ${count} ステップ`,
