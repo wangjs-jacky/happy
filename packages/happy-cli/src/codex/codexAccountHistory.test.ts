@@ -14,7 +14,9 @@ describe('profile-scoped native history', () => {
     await retainCodexAccountHistory(cache, 'profile-a', source);
     await rememberCodexAccountSession(cache, 'paws-session-a', 'profile-a');
     const target = await temp();
-    await copyCodexSourceThread(cache, 'paws-session-a', 'thread-a', target);
+    await expect(copyCodexSourceThread(cache, 'paws-session-a', 'thread-a', target, 'profile-b')).rejects.toThrow('different account');
+    await expect(stat(join(target, 'sessions', 'rollout-thread-a.jsonl'))).rejects.toThrow();
+    await copyCodexSourceThread(cache, 'paws-session-a', 'thread-a', target, 'profile-a');
     expect(await readFile(join(target, 'sessions', 'rollout-thread-a.jsonl'), 'utf8')).toBe('requested');
     await expect(stat(join(target, 'sessions', 'rollout-thread-other.jsonl'))).rejects.toThrow();
     await expect(copyCodexSourceThread(cache, 'legacy-unmapped', 'thread-a', target)).rejects.toThrow('unavailable');

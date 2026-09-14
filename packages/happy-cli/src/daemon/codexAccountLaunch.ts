@@ -6,7 +6,7 @@ import { CodexAccountRequestError } from '@/api/codexAccountTypes';
 import { codexAccountAuthSchema, readCodexAccountAuth, type CodexAccountAuth } from '@/codex/codexAccountAuth';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, type CodexUsageRateLimitWindow, type CodexUsageRateLimits } from '@/codex/codexUsage';
-import { retainCodexAccountHistory, restoreCodexAccountHistory, rememberCodexAccountSession, copyCodexSourceThread, CodexSourceHistoryUnavailableError } from '@/codex/codexAccountHistory';
+import { retainCodexAccountHistory, restoreCodexAccountHistory, rememberCodexAccountSession, copyCodexSourceThread, CodexSourceHistoryUnavailableError, CodexSourceAccountMismatchError } from '@/codex/codexAccountHistory';
 import { configuration } from '@/configuration';
 import type { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
 import { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
@@ -83,7 +83,7 @@ export class CodexAccountLaunch {
     try {
       if (!options?.skipHistory) {
         await restoreCodexAccountHistory(historyRoot, redeemed.profile.id, home);
-        if (options?.sourceThreadId) await copyCodexSourceThread(historyRoot, options.sourceSessionId ?? '', options.sourceThreadId, home);
+        if (options?.sourceThreadId) await copyCodexSourceThread(historyRoot, options.sourceSessionId ?? '', options.sourceThreadId, home, redeemed.profile.id);
       }
       const launch = new CodexAccountLaunch(api, machineId, home, {
         schemaVersion: 1, daemonPid: process.pid, machineId, profileId: redeemed.profile.id, launchId: redeemed.launchId,
@@ -94,7 +94,12 @@ export class CodexAccountLaunch {
       await launch.checkpoint();
       return launch;
     }
-    catch (error) { await rm(home, { recursive: true, force: true }); throw error instanceof CodexSourceHistoryUnavailableError ? error : new Error('Unable to restore Codex session history'); }
+    catch (error) {
+      await rm(home, { recursive: true, force: true });
+      throw error instanceof CodexSourceHistoryUnavailableError || error instanceof CodexSourceAccountMismatchError
+        ? error
+        : new Error('Unable to restore Codex session history');
+    }
   }
 
   environment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -249,6 +254,8 @@ export async function withCodexAccountLaunch(
     return result;
   } catch (error) {
     await launch?.abort().catch(() => undefined);
-    return { type: 'error', errorMessage: error instanceof CodexSourceHistoryUnavailableError ? error.message : 'Codex account launch failed. Check the account binding in Settings → Device Environment and start the session again.' };
+    return { type: 'error', errorMessage: error instanceof CodexSourceHistoryUnavailableError || error instanceof CodexSourceAccountMismatchError
+      ? error.message
+      : 'Codex account launch failed. Check the account binding in Settings → Device Environment and start the session again.' };
   }
 }

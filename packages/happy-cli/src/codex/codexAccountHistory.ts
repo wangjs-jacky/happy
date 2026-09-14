@@ -10,6 +10,9 @@ const copyLock = new AsyncLock();
 export class CodexSourceHistoryUnavailableError extends Error {
   constructor() { super('Codex source history unavailable. This session has no retained Paws account history on this machine.'); }
 }
+export class CodexSourceAccountMismatchError extends Error {
+  constructor() { super('This Codex session belongs to a different account. Rebind this machine to the original Codex account before resuming it.'); }
+}
 const profilePath = (root: string, profileId: string) => join(root, createHash('sha256').update(profileId).digest('hex'));
 const profileIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function privateDirectory(path: string): Promise<void> {
@@ -96,7 +99,7 @@ export async function collectRetainedCodexAccountUsage(
 }
 
 /** An explicit owned Paws session is the only bridge across profile caches. */
-export async function copyCodexSourceThread(root: string, sourceSessionId: string, threadId: string, target: string): Promise<string> {
+export async function copyCodexSourceThread(root: string, sourceSessionId: string, threadId: string, target: string, expectedProfileId?: string): Promise<string> {
   if (!sourceSessionId || !/^[A-Za-z0-9_-]{1,128}$/.test(threadId)) throw new CodexSourceHistoryUnavailableError();
   return copyLock.inLock(async () => {
     try {
@@ -104,6 +107,7 @@ export async function copyCodexSourceThread(root: string, sourceSessionId: strin
       if (!(await lstat(path)).isFile()) throw new Error();
       const audit = JSON.parse(await readFile(path, 'utf8'));
       if (typeof audit.profileId !== 'string' || !audit.profileId) throw new Error();
+      if (expectedProfileId && audit.profileId !== expectedProfileId) throw new CodexSourceAccountMismatchError();
       let found = 0;
       if (typeof audit.home === 'string' && basename(audit.home).startsWith('happy-codex-home-')) {
         const marker = join(audit.home, '.paws-account-launch.json');
@@ -115,6 +119,9 @@ export async function copyCodexSourceThread(root: string, sourceSessionId: strin
       found += await copyNativeHistory(profilePath(root, audit.profileId), target, threadId);
       if (!found) throw new Error();
       return audit.profileId;
-    } catch { throw new CodexSourceHistoryUnavailableError(); }
+    } catch (error) {
+      if (error instanceof CodexSourceAccountMismatchError) throw error;
+      throw new CodexSourceHistoryUnavailableError();
+    }
   });
 }

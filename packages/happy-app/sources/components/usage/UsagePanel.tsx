@@ -376,7 +376,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 8,
     },
     codexAccountChipActive: {
-        backgroundColor: theme.colors.accent,
+        backgroundColor: theme.colors.button.primary.background,
     },
     codexAccountChipText: {
         color: theme.colors.textSecondary,
@@ -384,7 +384,7 @@ const styles = StyleSheet.create((theme) => ({
         fontWeight: '600',
     },
     codexAccountChipTextActive: {
-        color: '#FFFFFF',
+        color: theme.colors.button.primary.tint,
     },
     codexTitle: {
         color: theme.colors.text,
