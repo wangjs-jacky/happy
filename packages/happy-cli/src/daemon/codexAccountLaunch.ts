@@ -170,6 +170,12 @@ export class CodexAccountLaunch {
     return this.pending;
   }
 
+  /** Copy the live rollout into the profile cache before an attributed usage scan. */
+  async retainUsageHistory(): Promise<void> {
+    if (!this.sourceSessionId || this.identityInvalid) return;
+    await retainCodexAccountHistory(this.historyRoot, this.profileId, this.home);
+  }
+
   private async syncOnce(): Promise<void> {
     if (!this.sourceSessionId) return;
     // A stale writer still owns quota observations, so identity validation must

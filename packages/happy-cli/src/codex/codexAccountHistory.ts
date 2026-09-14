@@ -4,12 +4,14 @@ import { chmod, lstat, mkdir, open, readFile, readdir, rename, rm, utimes, write
 import { basename, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { AsyncLock } from '@/utils/lock';
+import { collectCodexUsageSnapshot, type CodexUsageSnapshot } from './codexUsage';
 
 const copyLock = new AsyncLock();
 export class CodexSourceHistoryUnavailableError extends Error {
   constructor() { super('Codex source history unavailable. This session has no retained Paws account history on this machine.'); }
 }
 const profilePath = (root: string, profileId: string) => join(root, createHash('sha256').update(profileId).digest('hex'));
+const profileIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function privateDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true, mode: 0o700 });
   if (!(await lstat(path)).isDirectory()) throw new Error('Invalid Codex history directory');
@@ -67,6 +69,30 @@ export async function rememberCodexAccountSession(root: string, sessionId: strin
     try { await writeFile(temp, JSON.stringify({ profileId, home }), { mode: 0o600, flag: 'wx' }); await rename(temp, target); }
     finally { await rm(temp, { force: true }); }
   });
+}
+
+/**
+ * Build account-attributed usage only from Paws' explicit session audit.
+ * Local Codex history without this bridge remains intentionally unattributed.
+ */
+export async function collectRetainedCodexAccountUsage(
+  root: string,
+  options?: { maxDays?: number },
+): Promise<Array<{ profileId: string; usage: CodexUsageSnapshot }>> {
+  const auditDirectory = join(root, 'session-audit');
+  const profileIds = new Set<string>();
+  const entries = await readdir(auditDirectory, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    try {
+      const audit = JSON.parse(await readFile(join(auditDirectory, entry.name), 'utf8')) as { profileId?: unknown };
+      if (typeof audit.profileId === 'string' && profileIdPattern.test(audit.profileId)) profileIds.add(audit.profileId);
+    } catch { /* Ignore malformed or concurrently replaced audit files. */ }
+  }
+  return Promise.all([...profileIds].sort().map(async (profileId) => ({
+    profileId,
+    usage: await collectCodexUsageSnapshot({ codexHome: profilePath(root, profileId), maxDays: options?.maxDays }),
+  })));
 }
 
 /** An explicit owned Paws session is the only bridge across profile caches. */

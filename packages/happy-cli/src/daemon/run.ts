@@ -32,6 +32,7 @@ import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
 import { refreshCodexAccountQuota } from './codexQuotaProbe';
 import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
+import { collectRetainedCodexAccountUsage } from '@/codex/codexAccountHistory';
 import { AsyncLock } from '@/utils/lock';
 import {
   buildSessionWorkerEnvironment,
@@ -1033,6 +1034,11 @@ export async function startDaemon(): Promise<void> {
     let lastCodexUsageSignature: string | null = null;
     const codexUsageRefreshIntervalMs = parseInt(process.env.HAPPY_CODEX_USAGE_REFRESH_INTERVAL || '300000');
     const codexUsageSyncLock = new AsyncLock();
+    const codexAccountHistoryRoot = join(configuration.happyHomeDir, 'codex-session-cache');
+    const collectCodexAccountUsage = async (maxDays: number) => {
+      await Promise.allSettled([...codexLaunches.values()].map((launch) => launch.retainUsageHistory()));
+      return collectRetainedCodexAccountUsage(codexAccountHistoryRoot, { maxDays });
+    };
     const syncCodexUsage = async (force: boolean = false): Promise<void> => codexUsageSyncLock.inLock(async () => {
         const now = Date.now();
         if (!force && now - lastCodexUsageScanAt < codexUsageRefreshIntervalMs) {
@@ -1044,8 +1050,14 @@ export async function startDaemon(): Promise<void> {
 
         lastCodexUsageScanAt = now;
         try {
-          const codexUsage = await collectCodexUsageSnapshot();
-          const signature = codexUsageSignature(codexUsage);
+          const [codexUsage, codexAccountUsage] = await Promise.all([
+            collectCodexUsageSnapshot(),
+            collectCodexAccountUsage(365),
+          ]);
+          const signature = JSON.stringify([
+            codexUsageSignature(codexUsage),
+            codexAccountUsage.map((entry) => [entry.profileId, codexUsageSignature(entry.usage)]),
+          ]);
           if (!force && signature === lastCodexUsageSignature) {
             return;
           }
@@ -1057,6 +1069,7 @@ export async function startDaemon(): Promise<void> {
             httpPort: controlPort,
             startedAt: state?.startedAt || Date.now(),
             codexUsage,
+            codexAccountUsage,
           }));
         } catch (error) {
           logger.debug('[DAEMON RUN] Failed to sync Codex usage snapshot', error);
@@ -1070,10 +1083,21 @@ export async function startDaemon(): Promise<void> {
 
       lastImmediateCodexUsageScanAt = now;
       lastCodexUsageScanAt = now;
-      const recentCodexUsage = await collectCodexUsageSnapshot({ maxDays: 1 });
+      const [recentCodexUsage, recentCodexAccountUsage] = await Promise.all([
+        collectCodexUsageSnapshot({ maxDays: 1 }),
+        collectCodexAccountUsage(1),
+      ]);
       await apiMachine.updateDaemonState((state: DaemonState | null) => {
         const codexUsage = mergeRecentCodexUsageSnapshot(state?.codexUsage, recentCodexUsage);
-        lastCodexUsageSignature = codexUsageSignature(codexUsage);
+        const previousByProfile = new Map((state?.codexAccountUsage || []).map((entry) => [entry.profileId, entry.usage]));
+        const codexAccountUsage = recentCodexAccountUsage.map((entry) => ({
+          profileId: entry.profileId,
+          usage: mergeRecentCodexUsageSnapshot(previousByProfile.get(entry.profileId), entry.usage),
+        }));
+        lastCodexUsageSignature = JSON.stringify([
+          codexUsageSignature(codexUsage),
+          codexAccountUsage.map((entry) => [entry.profileId, codexUsageSignature(entry.usage)]),
+        ]);
         return {
           ...(state || {}),
           status: state?.status || 'running',
@@ -1081,6 +1105,7 @@ export async function startDaemon(): Promise<void> {
           httpPort: controlPort,
           startedAt: state?.startedAt || Date.now(),
           codexUsage,
+          codexAccountUsage,
         };
       });
     });

@@ -202,6 +202,11 @@ export const CodexUsageSnapshotSchema = z.object({
   warnings: z.array(z.string()),
 })
 
+export const CodexAccountUsageSnapshotSchema = z.object({
+  profileId: z.string().uuid(),
+  usage: CodexUsageSnapshotSchema,
+})
+
 /**
  * Daemon state - dynamic runtime information (frequently updated)
  */
@@ -220,6 +225,7 @@ export const DaemonStateSchema = z.object({
       z.string() // Forward compatibility
     ]).optional(),
   codexUsage: CodexUsageSnapshotSchema.optional(),
+  codexAccountUsage: z.array(CodexAccountUsageSnapshotSchema).optional(),
 })
 
 export type DaemonState = z.infer<typeof DaemonStateSchema>
@@ -379,6 +385,8 @@ export type Metadata = {
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
+  codexAccountProfileId?: string,
+  codexAccountCredentialVersion?: number,
   /** Last Codex turn mirrored into this Paws session, used for reconnect catch-up. */
   codexSyncCursor?: {
     threadId: string
