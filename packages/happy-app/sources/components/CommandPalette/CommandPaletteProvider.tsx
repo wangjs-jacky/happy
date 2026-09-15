@@ -56,7 +56,7 @@ export function firstUserMessageSummary(messages: Message[] | undefined): string
 
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
-    const { openRoute, openSettings } = useDesktopSettingsModal();
+    const { isDesktop, openRoute, openSettings } = useDesktopSettingsModal();
     const { logout } = useAuth();
     const { state: modalState, showModal } = useModal();
     const paletteOpeningRef = useRef(false);
@@ -137,6 +137,16 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                     openRoute('/settings/account');
                 }
             },
+            ...(!isDesktop ? [{
+                id: 'connect',
+                title: t('settingsAccount.linkNewDevice'),
+                subtitle: t('settingsAccount.linkNewDeviceSubtitle'),
+                icon: 'link-outline' as const,
+                category: t('commandPalette.navigation'),
+                action: () => {
+                    router.push('/terminal/connect');
+                }
+            }] : []),
             {
                 id: 'device-environment',
                 title: t('deviceEnvironment.title'),
@@ -284,7 +294,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         }
 
         return cmds;
-    }, [router, sessions, firstUserMessageSummaries, machines, themePreference, preferredLanguage, currentViewingSessionId, navigateToSession, confirmLogout, openRoute, openSettings]);
+    }, [router, sessions, firstUserMessageSummaries, machines, themePreference, preferredLanguage, currentViewingSessionId, navigateToSession, confirmLogout, isDesktop, openRoute, openSettings]);
 
     const showCommandPalette = useCallback(() => {
         if (Platform.OS !== 'web' || paletteOpeningRef.current) return;

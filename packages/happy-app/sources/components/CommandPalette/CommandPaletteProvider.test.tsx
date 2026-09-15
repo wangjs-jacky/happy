@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     },
     keyboardHandler: undefined as (() => void) | undefined,
     keyboardOptions: undefined as { onOpenSettings?: () => void } | undefined,
+    isDesktop: true,
     openSettings: vi.fn(),
     openRoute: vi.fn(),
     state: {
@@ -126,6 +127,7 @@ vi.mock('@/hooks/useGlobalKeyboard', () => ({
 }));
 vi.mock('@/components/DesktopSettingsModal', () => ({
     useDesktopSettingsModal: () => ({
+        isDesktop: mocks.isDesktop,
         openSettings: mocks.openSettings,
         openRoute: mocks.openRoute,
     }),
@@ -204,6 +206,7 @@ describe('CommandPaletteProvider', () => {
         mocks.router.push.mockReset();
         mocks.keyboardHandler = undefined;
         mocks.keyboardOptions = undefined;
+        mocks.isDesktop = true;
         mocks.openSettings.mockReset();
         mocks.openRoute.mockReset();
         latestLauncher = null;
@@ -326,6 +329,25 @@ describe('CommandPaletteProvider', () => {
         expect(latestLauncher?.isAvailable).toBe(true);
         act(() => mocks.keyboardHandler?.());
         expect(mocks.modalShow).toHaveBeenCalledOnce();
+    });
+
+    it('keeps Link New Device available and actionable on narrow web', () => {
+        mocks.isDesktop = false;
+        act(() => {
+            renderer = TestRenderer.create(
+                <CommandPaletteProvider>
+                    <></>
+                </CommandPaletteProvider>,
+            );
+        });
+
+        act(() => mocks.keyboardHandler?.());
+        const commands = mocks.modalShow.mock.calls[0][0].props.commands as Command[];
+        const connect = commands.find((command) => command.id === 'connect');
+
+        expect(connect).toMatchObject({ title: '连接新设备' });
+        act(() => connect?.action());
+        expect(mocks.router.push).toHaveBeenCalledWith('/terminal/connect');
     });
 
     it('opens app settings from the global settings shortcut', () => {
