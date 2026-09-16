@@ -4,6 +4,7 @@ export type RoleId = 'moderator' | 'trend30' | 'structure10' | 'timing1';
 export type Engine = 'codex' | 'claude' | 'gemini' | 'opencode';
 export type RunMode = 'single' | 'consultation';
 export type RunStatus = 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+export type FollowUpStatus = 'queued' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
 
 export type ImageRef = {
   id: string;
@@ -30,6 +31,25 @@ export type RoleSnapshot = {
   error?: string;
 };
 
+export type FollowUpRoleSnapshot = {
+  status: FollowUpStatus;
+  error?: string;
+};
+
+/**
+ * Durable outcome of one accepted follow-up request. `status` summarizes all
+ * addressed roles; per-role terminal errors remain in `roles`. Queued/running
+ * records become interrupted on service restart and are never replayed.
+ */
+export type FollowUpSnapshot = {
+  requestId: string;
+  to: RoleId[];
+  status: FollowUpStatus;
+  roles: Partial<Record<RoleId, FollowUpRoleSnapshot>>;
+  createdAt: number;
+  error?: string;
+};
+
 export type RunSnapshot = {
   id: string;
   partyId: string;
@@ -39,6 +59,7 @@ export type RunSnapshot = {
   phase: string;
   createdAt: number;
   roles: Record<RoleId, RoleSnapshot>;
+  followUps: FollowUpSnapshot[];
   error?: string;
 };
 

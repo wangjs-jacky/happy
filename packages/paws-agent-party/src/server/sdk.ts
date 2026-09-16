@@ -44,6 +44,7 @@ export function createRealPawsSdk(): PawsSdkBoundary {
   let provider: BrowserCredentialProvider | null = null;
   let client: PawsAgentClient | null = null;
   let linkController: AbortController | null = null;
+  let generation = 0;
 
   const readyClient = (): PawsAgentClient => {
     if (!client || state.state !== 'ready') throw new Error('Link a Paws account before starting a consultation.');
@@ -51,14 +52,19 @@ export function createRealPawsSdk(): PawsSdkBoundary {
   };
 
   const disconnect = async (): Promise<void> => {
-    linkController?.abort(new DOMException('Account link cancelled', 'AbortError'));
+    generation += 1;
+    const previousController = linkController;
+    const previousClient = client;
+    const previousProvider = provider;
     linkController = null;
-    const previous = client;
     client = null;
-    await previous?.dispose().catch(() => undefined);
-    await provider?.clearCredentials().catch(() => undefined);
     provider = null;
     state = { state: 'disconnected' };
+    previousController?.abort(new DOMException('Account link cancelled', 'AbortError'));
+    const cleanup: Promise<void>[] = [];
+    if (previousClient) cleanup.push(previousClient.dispose());
+    if (previousProvider) cleanup.push(previousProvider.clearCredentials());
+    await Promise.allSettled(cleanup);
   };
 
   return {
@@ -67,21 +73,24 @@ export function createRealPawsSdk(): PawsSdkBoundary {
       const serverUrl = normalizeServerUrl(rawServerUrl);
       await disconnect();
       const controller = new AbortController();
+      const operation = ++generation;
       linkController = controller;
       const nextProvider = new BrowserCredentialProvider(storage, `paws-agent-party:${serverUrl}`);
       provider = nextProvider;
+      const ownsOperation = () => generation === operation && linkController === controller;
       state = { state: 'connecting', serverUrl };
       try {
         const link = await startBrowserAccountLink({ serverUrl, credentials: nextProvider, signal: controller.signal });
+        if (!ownsOperation()) return { ...state };
         state = { state: 'linking', serverUrl, qrUrl: link.qrUrl };
         void link.waitForAuthorization({ signal: controller.signal }).then(async () => {
-          if (controller.signal.aborted || linkController !== controller) return;
+          if (controller.signal.aborted || !ownsOperation()) return;
           state = { state: 'connecting', serverUrl };
           const candidate = new PawsAgentClient({ serverUrl, credentials: nextProvider });
           try {
             await candidate.connect();
             await candidate.machines.list({ active: true });
-            if (controller.signal.aborted || linkController !== controller) return;
+            if (controller.signal.aborted || !ownsOperation()) return;
             client = candidate;
             linkController = null;
             state = { state: 'ready', serverUrl };
@@ -89,17 +98,20 @@ export function createRealPawsSdk(): PawsSdkBoundary {
             if (client !== candidate) await candidate.dispose().catch(() => undefined);
           }
         }).catch(async error => {
-          if (linkController !== controller || controller.signal.aborted) return;
-          linkController = null;
+          if (!ownsOperation() || controller.signal.aborted) return;
           await nextProvider.clearCredentials().catch(() => undefined);
-          if (provider === nextProvider) provider = null;
+          if (!ownsOperation()) return;
+          linkController = null;
+          provider = null;
           state = { state: 'error', serverUrl, error: safeError(error) };
         });
         return { ...state };
       } catch (error) {
-        if (linkController === controller) linkController = null;
+        if (!ownsOperation()) return { ...state };
         await nextProvider.clearCredentials().catch(() => undefined);
-        if (provider === nextProvider) provider = null;
+        if (!ownsOperation()) return { ...state };
+        linkController = null;
+        provider = null;
         state = { state: 'error', serverUrl, error: safeError(error) };
         return { ...state };
       }

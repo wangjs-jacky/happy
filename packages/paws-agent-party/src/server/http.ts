@@ -55,6 +55,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
   }
   let closed = false;
   let listeningPort = 0;
+  let accountTransition = false;
 
   const server = createServer((request, response) => {
     void handle(request, response).catch(error => {
@@ -74,14 +75,25 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
 
     if (request.method === 'GET' && url.pathname === '/api/paws/status') return sendJson(response, 200, sdk.status());
     if (request.method === 'POST' && url.pathname === '/api/paws/link') {
-      const body = await readJson(request, 16 * 1024);
-      if (typeof body.serverUrl !== 'string') return sendJson(response, 400, { error: 'serverUrl is required' });
-      return sendJson(response, 200, await sdk.link(body.serverUrl));
+      if (accountTransition || runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
+      accountTransition = true;
+      try {
+        const body = await readJson(request, 16 * 1024);
+        if (typeof body.serverUrl !== 'string') return sendJson(response, 400, { error: 'serverUrl is required' });
+        return sendJson(response, 200, await sdk.link(body.serverUrl));
+      } finally {
+        accountTransition = false;
+      }
     }
     if (request.method === 'DELETE' && url.pathname === '/api/paws/link') {
-      if (runs.hasActiveRun()) return sendJson(response, 409, { error: 'Stop the active consultation before unlinking.' });
-      await sdk.disconnect();
-      return sendJson(response, 200, sdk.status());
+      if (accountTransition || runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
+      accountTransition = true;
+      try {
+        await sdk.disconnect();
+        return sendJson(response, 200, sdk.status());
+      } finally {
+        accountTransition = false;
+      }
     }
     if (request.method === 'GET' && url.pathname === '/api/paws/machines') {
       return sendJson(response, 200, { machines: await sdk.machines() });
@@ -113,7 +125,9 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
       return sendJson(response, 200, { runs: runs.list() });
     }
     if (request.method === 'POST' && url.pathname === '/api/consultations') {
-      return sendJson(response, 200, await runs.start(await readJson(request, 128 * 1024) as StartInput));
+      const body = await readJson(request, 128 * 1024) as StartInput;
+      if (accountTransition) return sendJson(response, 409, { error: 'Wait for the Paws account transition to finish.' });
+      return sendJson(response, 200, await runs.start(body));
     }
     const consultationMatch = url.pathname.match(/^\/api\/consultations\/([^/]+)$/);
     if (request.method === 'GET' && consultationMatch) {
@@ -126,9 +140,11 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     }
     const followupMatch = url.pathname.match(/^\/api\/consultations\/([^/]+)\/messages$/);
     if (request.method === 'POST' && followupMatch) {
+      const body = await readJson(request, 128 * 1024) as unknown as FollowUpInput;
+      if (accountTransition) return sendJson(response, 409, { error: 'Wait for the Paws account transition to finish.' });
       await runs.followUp(
         decodeURIComponent(followupMatch[1]),
-        await readJson(request, 128 * 1024) as unknown as FollowUpInput,
+        body,
       );
       return sendJson(response, 200, { accepted: true });
     }

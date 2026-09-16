@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { StartInput } from '../src/contracts.js';
 import { createPocServer, type PocServer } from '../src/server/http.js';
+import { TestOnlySdk } from './fake-sdk.js';
 
 const dirs: string[] = [];
 const servers: PocServer[] = [];
@@ -14,10 +16,10 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
 });
 
-async function start(dataDir?: string): Promise<PocServer> {
+async function start(dataDir?: string, sdk: unknown = disconnectedSdk): Promise<PocServer> {
   const dir = dataDir ?? await mkdtemp(join(tmpdir(), 'paws-agent-party-service-'));
   if (!dataDir) dirs.push(dir);
-  const server = await createPocServer({ dataDir: dir, accessToken: token, sdk: disconnectedSdk as never });
+  const server = await createPocServer({ dataDir: dir, accessToken: token, sdk: sdk as never });
   servers.push(server);
   return server;
 }
@@ -116,7 +118,90 @@ describe('authenticated local service', () => {
     const server = await start(dataDir);
     expect((await fetch(`${server.url}/api/consultations`, authorized())).status).toBe(200);
   });
+
+  it('rejects relinking while a consultation is active', async () => {
+    const sdk = new TestOnlySdk({ delayMs: 2_000 });
+    const server = await start(undefined, sdk);
+    const started = await fetch(`${server.url}/api/consultations`, authorized({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(startInput()),
+    }));
+    expect(started.status).toBe(200);
+
+    const relink = await fetch(`${server.url}/api/paws/link`, authorized({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'https://example.invalid' }),
+    }));
+
+    expect(relink.status).toBe(409);
+    expect(sdk.linkCalls).toBe(0);
+  });
+
+  it('rejects consultation admission while an account transition is pending', async () => {
+    const sdk = new TestOnlySdk({ linkDelayMs: 100 });
+    const server = await start(undefined, sdk);
+    const linking = fetch(`${server.url}/api/paws/link`, authorized({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'https://example.invalid' }),
+    }));
+    await waitUntil(() => sdk.linkCalls === 1);
+
+    const startResponse = await fetch(`${server.url}/api/consultations`, authorized({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(startInput()),
+    }));
+
+    expect(startResponse.status).toBe(409);
+    expect((await linking).status).toBe(200);
+  });
+
+  it('rejects follow-up admission while an account transition is pending', async () => {
+    const sdk = new TestOnlySdk({ linkDelayMs: 100 });
+    const server = await start(undefined, sdk);
+    const startedResponse = await fetch(`${server.url}/api/consultations`, authorized({
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(startInput()),
+    }));
+    const started = await startedResponse.json() as { id: string };
+    await waitUntil(async () => {
+      const response = await fetch(`${server.url}/api/consultations/${started.id}`, authorized());
+      return ((await response.json()) as { status: string }).status === 'completed';
+    });
+    const linking = fetch(`${server.url}/api/paws/link`, authorized({
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'https://example.invalid' }),
+    }));
+    await waitUntil(() => sdk.linkCalls === 1);
+
+    const followUp = await fetch(`${server.url}/api/consultations/${started.id}/messages`, authorized({
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ requestId: 'during-link', text: 'Follow up.', to: [], images: [] }),
+    }));
+
+    expect(followUp.status).toBe(409);
+    expect((await linking).status).toBe(200);
+  });
 });
+
+function startInput(): StartInput {
+  return {
+    requestId: 'service-request', stock: 'SYNTH', text: 'Analyze.', images: [],
+    machineId: 'machine-1', directory: '/workspace/project', mode: 'single',
+    agents: { moderator: 'codex', trend30: 'claude', structure10: 'gemini', timing1: 'opencode' },
+  };
+}
+
+async function waitUntil(check: () => boolean | Promise<boolean>, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error('Timed out waiting for condition');
+}
 
 async function statusWithHost(url: string, host: string): Promise<number> {
   return new Promise((resolve, reject) => {

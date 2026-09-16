@@ -8,11 +8,18 @@ export const MAX_UPLOAD_BODY_BYTES = 11 * 1024 * 1024;
 export const MAX_IMAGES_PER_MESSAGE = 4;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
+export type AssetMetadataWriter = (
+  directory: string,
+  metadata: Readonly<Record<string, ImageRef>>,
+) => Promise<void>;
+
 export class AssetStore {
   readonly directory: string;
   private metadata: Record<string, ImageRef> | null = null;
+  private loadPromise: Promise<void> | null = null;
+  private persistQueue: Promise<void> = Promise.resolve();
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, private readonly metadataWriter: AssetMetadataWriter = writeMetadata) {
     this.directory = join(dataDir, 'assets');
   }
 
@@ -65,6 +72,11 @@ export class AssetStore {
 
   private async ensureLoaded(): Promise<void> {
     if (this.metadata) return;
+    if (!this.loadPromise) this.loadPromise = this.load();
+    await this.loadPromise;
+  }
+
+  private async load(): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     await chmod(this.directory, 0o700);
     try {
@@ -77,13 +89,20 @@ export class AssetStore {
     }
   }
 
-  private async persist(): Promise<void> {
-    const target = join(this.directory, 'metadata.json');
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(this.metadata), { flag: 'wx', mode: 0o600 });
-    await rename(temporary, target);
-    await chmod(target, 0o600);
+  private persist(): Promise<void> {
+    const snapshot = structuredClone(this.metadata!);
+    const pending = this.persistQueue.then(() => this.metadataWriter(this.directory, snapshot));
+    this.persistQueue = pending.catch(() => undefined);
+    return pending;
   }
+}
+
+async function writeMetadata(directory: string, metadata: Readonly<Record<string, ImageRef>>): Promise<void> {
+  const target = join(directory, 'metadata.json');
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  await writeFile(temporary, JSON.stringify(metadata), { flag: 'wx', mode: 0o600 });
+  await rename(temporary, target);
+  await chmod(target, 0o600);
 }
 
 export class AssetError extends Error {

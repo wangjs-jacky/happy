@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { MessageSubscription, SendMessageInput } from '@wangjs-jacky/paws-agent';
+import type { MessageSubscription, SendMessageInput, SpawnSessionResult } from '@wangjs-jacky/paws-agent';
 import {
   ROLE_IDS,
   type AgentMessagesResponse,
+  type FollowUpSnapshot,
+  type FollowUpStatus,
   type FollowUpInput,
   type ImageRef,
   type RoleId,
@@ -29,7 +31,10 @@ export class RunService {
   private readonly runs = new Map<string, StoredRun>();
   private readonly requestIds = new Map<string, string>();
   private readonly controllers = new Map<string, AbortController>();
-  private readonly followupControllers = new Set<AbortController>();
+  private readonly executionTasks = new Map<string, Promise<void>>();
+  private readonly followupControllers = new Map<string, Set<AbortController>>();
+  private readonly followupTasks = new Map<string, Set<Promise<void>>>();
+  private readonly pendingSpawns = new Map<string, Promise<SpawnSessionResult>>();
   private readonly followupIds = new Set<string>();
   private readonly startInFlight = new Map<string, Promise<RunSnapshot>>();
   private readonly followupInFlight = new Map<string, Promise<void>>();
@@ -46,10 +51,24 @@ export class RunService {
     file: RunsFile,
   ) {
     for (const run of file.runs) {
+      run.snapshot.followUps ??= [];
       if (run.snapshot.status === 'running') {
         run.snapshot.status = 'interrupted';
         run.snapshot.phase = 'interrupted-after-restart';
         run.snapshot.error = 'Service restarted during this run; it was not replayed.';
+      }
+      for (const followUp of run.snapshot.followUps) {
+        if (followUp.status !== 'queued' && followUp.status !== 'running') continue;
+        followUp.status = 'interrupted';
+        followUp.error = 'Service restarted during this follow-up; it was not replayed.';
+        for (const [roleId, role] of Object.entries(followUp.roles)) {
+          if (role && (role.status === 'queued' || role.status === 'running')) {
+            role.status = 'interrupted';
+            role.error = followUp.error;
+            run.snapshot.roles[roleId as RoleId].status = 'interrupted';
+            run.snapshot.roles[roleId as RoleId].error = followUp.error;
+          }
+        }
       }
       this.runs.set(run.snapshot.id, run);
     }
@@ -78,7 +97,13 @@ export class RunService {
   }
 
   get(id: string): RunSnapshot { return clone(this.requireRun(id).snapshot); }
-  hasActiveRun(): boolean { return [...this.runs.values()].some(run => run.snapshot.status === 'running'); }
+  hasActiveWork(): boolean {
+    return this.startInFlight.size > 0
+      || this.followupInFlight.size > 0
+      || this.controllers.size > 0
+      || [...this.followupControllers.values()].some(controllers => controllers.size > 0)
+      || [...this.runs.values()].some(run => run.snapshot.status === 'running');
+  }
 
   async start(input: StartInput): Promise<RunSnapshot> {
     validateStartInput(input);
@@ -102,7 +127,7 @@ export class RunService {
     } satisfies RoleSnapshot])) as Record<RoleId, RoleSnapshot>;
     const snapshot: RunSnapshot = {
       id: randomUUID(), partyId, stock: input.stock, mode: input.mode,
-      status: 'running', phase: 'queued', createdAt: Date.now(), roles,
+      status: 'running', phase: 'queued', createdAt: Date.now(), roles, followUps: [],
     };
     const stored: StoredRun = { snapshot, input: clone(input), cursors: {} };
     this.runs.set(snapshot.id, stored);
@@ -110,19 +135,39 @@ export class RunService {
     const controller = new AbortController();
     this.controllers.set(snapshot.id, controller);
     await this.persist();
-    void this.execute(stored, controller).catch(() => undefined);
+    const execution = this.execute(stored, controller);
+    this.executionTasks.set(snapshot.id, execution);
+    void execution.finally(() => {
+      if (this.executionTasks.get(snapshot.id) === execution) this.executionTasks.delete(snapshot.id);
+    }).catch(() => undefined);
     return clone(snapshot);
   }
 
   async stop(id: string): Promise<RunSnapshot> {
     const run = this.requireRun(id);
+    let changed = false;
     if (run.snapshot.status === 'running') {
       run.snapshot.status = 'stopped';
       run.snapshot.phase = 'coordination-stopped';
       run.snapshot.error = 'Coordination stopped. Already accepted remote work may continue.';
       this.controllers.get(id)?.abort(new DOMException('Coordination stopped', 'AbortError'));
-      await this.persist();
+      changed = true;
     }
+    const activeFollowUps = run.snapshot.followUps.filter(item => item.status === 'queued' || item.status === 'running');
+    if (activeFollowUps.length > 0) {
+      for (const followUp of activeFollowUps) markFollowUpTerminal(followUp, 'stopped', 'Follow-up coordination stopped. Already accepted remote work may continue.');
+      run.snapshot.phase = 'follow-up-stopped';
+      for (const controller of this.followupControllers.get(id) ?? []) {
+        controller.abort(new DOMException('Follow-up coordination stopped', 'AbortError'));
+      }
+      changed = true;
+    }
+    if (changed) await this.persist();
+    if (run.snapshot.status === 'stopped') {
+      const execution = this.executionTasks.get(id);
+      if (execution) await Promise.allSettled([execution]);
+    }
+    if (activeFollowUps.length > 0) await Promise.allSettled([...(this.followupTasks.get(id) ?? [])]);
     return clone(run.snapshot);
   }
 
@@ -164,18 +209,55 @@ export class RunService {
 
   private async queueFollowUp(run: StoredRun, input: FollowUpInput, roles: RoleId[], dedupeKey: string): Promise<void> {
     await this.assets.resolveMany(input.images);
+    const followUp: FollowUpSnapshot = {
+      requestId: input.requestId,
+      to: roles,
+      status: 'queued',
+      roles: Object.fromEntries(roles.map(role => [role, { status: 'queued' as const }])),
+      createdAt: Date.now(),
+    };
+    run.snapshot.followUps.push(followUp);
     this.followupIds.add(dedupeKey);
     await this.persist();
     for (const role of roles) {
       const key = `${run.snapshot.id}:${role}`;
       const previous = this.roleQueues.get(key) ?? Promise.resolve();
       const controller = new AbortController();
-      this.followupControllers.add(controller);
+      mapSet(this.followupControllers, run.snapshot.id).add(controller);
       const queued = previous.catch(() => undefined).then(async () => {
-        const images = await this.loadImages(input.images);
-        await this.taskTurn(run, role, input.text, images, controller.signal);
-      }).finally(() => this.followupControllers.delete(controller));
+        throwIfAborted(controller.signal);
+        followUp.roles[role] = { status: 'running' };
+        refreshFollowUp(followUp);
+        await this.persist();
+        try {
+          const images = await this.loadImages(input.images);
+          await this.taskTurn(run, role, input.text, input.images, images, controller.signal);
+          followUp.roles[role] = { status: 'completed' };
+        } catch (error) {
+          if (followUp.status !== 'stopped' && followUp.status !== 'interrupted') {
+            const message = safeError(error);
+            followUp.roles[role] = { status: 'failed', error: message };
+            run.snapshot.roles[role].status = 'failed';
+            run.snapshot.roles[role].error = message;
+          }
+        }
+        refreshFollowUp(followUp);
+        await this.persist();
+      }).catch(async error => {
+        if (followUp.status !== 'stopped' && followUp.status !== 'interrupted') {
+          const message = safeError(error);
+          followUp.roles[role] = { status: 'failed', error: message };
+          run.snapshot.roles[role].status = 'failed';
+          run.snapshot.roles[role].error = message;
+          refreshFollowUp(followUp);
+          await this.persist();
+        }
+      }).finally(() => {
+        this.followupControllers.get(run.snapshot.id)?.delete(controller);
+        this.followupTasks.get(run.snapshot.id)?.delete(queued);
+      });
       this.roleQueues.set(key, queued);
+      mapSet(this.followupTasks, run.snapshot.id).add(queued);
       void queued.catch(() => undefined);
     }
   }
@@ -183,7 +265,18 @@ export class RunService {
   async close(): Promise<void> {
     this.closing = true;
     for (const controller of this.controllers.values()) controller.abort(new DOMException('Service closing', 'AbortError'));
-    for (const controller of this.followupControllers) controller.abort(new DOMException('Service closing', 'AbortError'));
+    for (const run of this.runs.values()) {
+      for (const followUp of run.snapshot.followUps) {
+        if (followUp.status === 'queued' || followUp.status === 'running') {
+          markFollowUpTerminal(followUp, 'interrupted', 'Service closed during this follow-up; it was not replayed.');
+        }
+      }
+    }
+    for (const controllers of this.followupControllers.values()) {
+      for (const controller of controllers) controller.abort(new DOMException('Service closing', 'AbortError'));
+    }
+    await this.persist().catch(() => undefined);
+    await Promise.allSettled([...this.executionTasks.values(), ...[...this.followupTasks.values()].flatMap(tasks => [...tasks])]);
     await this.persistQueue.catch(() => undefined);
   }
 
@@ -192,18 +285,18 @@ export class RunService {
       const images = await this.loadImages(run.input.images);
       if (run.input.mode === 'single') {
         await this.phase(run, 'moderator');
-        await this.taskTurn(run, 'moderator', run.input.text, images, controller.signal);
+        await this.taskTurn(run, 'moderator', run.input.text, run.input.images, images, controller.signal);
       } else {
         await this.phase(run, 'moderator-opening');
-        await this.taskTurn(run, 'moderator', `Open the consultation, frame the question, and assign the three specialist perspectives. User request: ${run.input.text}`, images, controller.signal);
+        await this.taskTurn(run, 'moderator', `Open the consultation, frame the question, and assign the three specialist perspectives. User request: ${run.input.text}`, run.input.images, images, controller.signal);
         await this.phase(run, 'specialist-analysis');
         await Promise.all((['trend30', 'structure10', 'timing1'] satisfies RoleId[]).map(role =>
-          this.taskTurn(run, role, `Initial specialist analysis. User request: ${run.input.text}`, images, controller.signal)));
+          this.taskTurn(run, role, `Initial specialist analysis. User request: ${run.input.text}`, run.input.images, images, controller.signal)));
         await this.phase(run, 'specialist-cross-examination');
         await Promise.all((['trend30', 'structure10', 'timing1'] satisfies RoleId[]).map(role =>
-          this.taskTurn(run, role, 'Cross-examine the other specialists using the complete party discussion, then publish one revised conclusion.', images, controller.signal)));
+          this.taskTurn(run, role, 'Cross-examine the other specialists using the complete party discussion, then publish one revised conclusion.', run.input.images, images, controller.signal)));
         await this.phase(run, 'moderator-summary');
-        await this.taskTurn(run, 'moderator', 'Publish the final synthesis from the complete party history.', images, controller.signal);
+        await this.taskTurn(run, 'moderator', 'Publish the final synthesis from the complete party history.', run.input.images, images, controller.signal);
       }
       if (run.snapshot.status === 'running') {
         run.snapshot.status = 'completed';
@@ -229,11 +322,12 @@ export class RunService {
     run: StoredRun,
     role: RoleId,
     task: string,
+    imageRefs: ImageRef[],
     images: SendMessageInput['images'],
     signal: AbortSignal,
   ): Promise<string> {
     throwIfAborted(signal);
-    const taskMessage = await this.party.send({ partyId: run.snapshot.partyId, from: 'host', to: [role], text: task, images: run.input.images });
+    const taskMessage = await this.party.send({ partyId: run.snapshot.partyId, from: 'host', to: [role], text: task, images: imageRefs });
     const history = await this.party.read(run.snapshot.partyId);
     const delivered = history.find(message => message.id === taskMessage.id);
     if (!delivered) throw new Error('Party task delivery was not durably readable.');
@@ -284,7 +378,7 @@ export class RunService {
       await this.persist();
       return result.text;
     } catch (error) {
-      roleState.status = signal.aborted ? 'stopped' : 'failed';
+      roleState.status = this.closing ? 'interrupted' : signal.aborted ? 'stopped' : 'failed';
       roleState.error = safeError(error);
       await this.persist();
       throw error;
@@ -297,22 +391,35 @@ export class RunService {
   private async ensureSession(run: StoredRun, role: RoleId, signal: AbortSignal): Promise<string> {
     const existing = run.snapshot.roles[role].sessionId;
     if (existing) return existing;
-    const pending = this.sdk.spawn({
-      role, machineId: run.input.machineId, directory: run.input.directory,
-      approvedNewDirectoryCreation: false, agent: run.input.agents[role],
-    });
-    pending.then(async result => {
-      if (result.type !== 'success') return;
-      run.snapshot.roles[role].sessionId = result.sessionId;
-      await this.persist();
-    }).catch(() => undefined);
+    const key = `${run.snapshot.id}:${role}`;
+    let pending = this.pendingSpawns.get(key);
+    if (!pending) {
+      const spawned = this.sdk.spawn({
+        role, machineId: run.input.machineId, directory: run.input.directory,
+        approvedNewDirectoryCreation: false, agent: run.input.agents[role],
+      });
+      pending = spawned.then(async result => {
+        if (result.type === 'success' && !this.closing) {
+          run.snapshot.roles[role].sessionId = result.sessionId;
+          await this.persist();
+        }
+        return result;
+      });
+      this.pendingSpawns.set(key, pending);
+      const tracked = pending;
+      void tracked.finally(() => {
+        if (this.pendingSpawns.get(key) === tracked) this.pendingSpawns.delete(key);
+      }).catch(() => undefined);
+    }
     const result = await raceAbort(pending, signal);
     if (result.type === 'requestToApproveDirectoryCreation') {
       throw new Error(`Directory approval required for ${result.directory}; approve it in Paws before retrying.`);
     }
     if (result.type === 'error') throw new Error(result.errorMessage);
-    run.snapshot.roles[role].sessionId = result.sessionId;
-    await this.persist();
+    if (!run.snapshot.roles[role].sessionId && !this.closing) {
+      run.snapshot.roles[role].sessionId = result.sessionId;
+      await this.persist();
+    }
     return result.sessionId;
   }
 
@@ -396,6 +503,39 @@ function isImageRef(value: unknown): value is ImageRef {
     && typeof value.name === 'string'
     && typeof value.mimeType === 'string'
     && typeof value.size === 'number';
+}
+
+function markFollowUpTerminal(followUp: FollowUpSnapshot, status: Extract<FollowUpStatus, 'stopped' | 'interrupted'>, error: string): void {
+  for (const role of Object.values(followUp.roles)) {
+    if (role && (role.status === 'queued' || role.status === 'running')) {
+      role.status = status;
+      role.error = error;
+    }
+  }
+  followUp.status = status;
+  followUp.error = error;
+}
+
+function refreshFollowUp(followUp: FollowUpSnapshot): void {
+  const roles = Object.values(followUp.roles).filter(value => value !== undefined);
+  const statuses = roles.map(role => role.status);
+  if (statuses.includes('failed')) followUp.status = 'failed';
+  else if (statuses.includes('interrupted')) followUp.status = 'interrupted';
+  else if (statuses.includes('stopped')) followUp.status = 'stopped';
+  else if (statuses.length > 0 && statuses.every(status => status === 'completed')) followUp.status = 'completed';
+  else if (statuses.includes('running')) followUp.status = 'running';
+  else followUp.status = 'queued';
+  const error = roles.find(role => role.error)?.error;
+  if (error) followUp.error = error;
+  else delete followUp.error;
+}
+
+function mapSet<T>(map: Map<string, Set<T>>, key: string): Set<T> {
+  const existing = map.get(key);
+  if (existing) return existing;
+  const created = new Set<T>();
+  map.set(key, created);
+  return created;
 }
 
 function deadlineSignal(parent: AbortSignal, timeoutMs: number): { signal: AbortSignal; dispose(): void } {

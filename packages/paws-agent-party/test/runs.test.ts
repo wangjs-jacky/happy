@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -104,6 +104,7 @@ describe('consultation runs', () => {
 
     expect(response.status).toBe(200);
     expect(stopped.status).toBe('stopped');
+    expect((await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers })).status).toBe(200);
     await waitUntil(() => sdk.unsubscribeCount > 0);
     expect(sdk.sessionsStopped).toBe(0);
   });
@@ -138,6 +139,27 @@ describe('consultation runs', () => {
     expect(body.messages.length).toBeGreaterThan(0);
     expect(body.messages.map(message => message.seq)).toEqual([...body.messages.map(message => message.seq)].sort((a, b) => a - b));
     expect(body.requests).toEqual([]);
+  });
+
+  it('publishes the current follow-up images to Party and delivers the same images to Paws', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(sdk);
+    const initialImage = await upload(server, new Uint8Array([1]));
+    const followUpImage = await upload(server, new Uint8Array([2]));
+    const started = await postStart(server, input({ mode: 'single', images: [initialImage] }));
+    await waitForTerminal(server, started.id);
+
+    const response = await fetch(`${server.url}/api/consultations/${started.id}/messages`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ requestId: 'image-follow-up', text: '', to: [], images: [followUpImage] }),
+    });
+    expect(response.status).toBe(200);
+    await waitUntil(() => sdk.callsFor('moderator').length === 2);
+
+    const partyMessages = await readParty(server, started.partyId);
+    const followUpTask = partyMessages.filter(message => message.from === 'host').at(-1);
+    expect(followUpTask?.images).toEqual([followUpImage]);
+    expect(sdk.callsFor('moderator').at(-1)?.images?.map(image => [...image.bytes])).toEqual([[2]]);
   });
 
   it('marks a persisted running consultation interrupted after restart without replaying it', async () => {
@@ -208,7 +230,138 @@ describe('consultation runs', () => {
     expect(snapshot.status).toBe('stopped');
     expect(sdk.calls).toHaveLength(0);
   });
+
+  it('does not let a spawn callback persist after close releases store ownership', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-late-close-'));
+    dirs.push(dataDir);
+    const spawnGate = deferred<void>();
+    const firstSdk = new TestOnlySdk({ spawnGate: spawnGate.promise });
+    const first = await startAt(firstSdk, dataDir);
+    const started = await postStart(first, input({ mode: 'single', requestId: 'close-during-spawn' }));
+    await waitUntil(() => firstSdk.spawnCalls === 1);
+
+    await first.close();
+    servers.splice(servers.indexOf(first), 1);
+    const second = await startAt(new TestOnlySdk(), dataDir);
+    expect((await getRun(second, started.id)).status).toBe('interrupted');
+
+    spawnGate.resolve();
+    await waitUntil(() => firstSdk.spawnResolved === 1);
+    await new Promise(resolve => setImmediate(resolve));
+    const persisted = JSON.parse(await readFile(join(dataDir, 'runs.json'), 'utf8')) as { runs: Array<{ snapshot: RunSnapshot }> };
+    const stored = persisted.runs.find(run => run.snapshot.id === started.id)?.snapshot;
+    expect(stored?.status).toBe('interrupted');
+    expect(stored?.roles.moderator.sessionId).toBeUndefined();
+  });
+
+  it('reuses a stopped run pending spawn when a follow-up starts before it resolves', async () => {
+    const spawnGate = deferred<void>();
+    const sdk = new TestOnlySdk({ spawnGate: spawnGate.promise });
+    const server = await start(sdk);
+    const started = await postStart(server, input({ mode: 'single', requestId: 'reuse-pending-spawn' }));
+    await waitUntil(() => sdk.spawnCalls === 1);
+    await fetch(`${server.url}/api/consultations/${started.id}/stop`, { method: 'POST', headers, body: '{}' });
+
+    const accepted = await postFollowUp(server, started.id, {
+      requestId: 'while-spawn-pending', text: 'Continue after stop.', to: [], images: [],
+    });
+    expect(accepted.status).toBe(200);
+    await waitUntil(async () => (await getRun(server, started.id)).roles.moderator.status === 'spawning');
+    await new Promise(resolve => setImmediate(resolve));
+    expect(sdk.spawnCalls).toBe(1);
+    spawnGate.resolve();
+    await waitUntil(() => sdk.callsFor('moderator').length === 1);
+
+    expect(sdk.spawnCalls).toBe(1);
+  });
+
+  it('stops active and queued follow-ups and blocks unlinking until coordination is stopped', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(sdk);
+    const started = await postStart(server, input({ mode: 'single', requestId: 'follow-up-stop' }));
+    await waitForTerminal(server, started.id);
+    const deliveryGate = deferred<void>();
+    sdk.holdNextDelivery(deliveryGate.promise);
+    await postFollowUp(server, started.id, { requestId: 'active-follow', text: 'First', to: [], images: [] });
+    await postFollowUp(server, started.id, { requestId: 'queued-follow', text: 'Second', to: [], images: [] });
+    await waitUntil(() => sdk.callsFor('moderator').length === 2);
+
+    const blockedUnlink = await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers });
+    expect(blockedUnlink.status).toBe(409);
+    const stoppedResponse = await fetch(`${server.url}/api/consultations/${started.id}/stop`, {
+      method: 'POST', headers, body: '{}',
+    });
+    const stopped = await stoppedResponse.json() as RunWithFollowUps;
+    deliveryGate.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(followUp(stopped, 'active-follow').status).toBe('stopped');
+    expect(followUp(stopped, 'queued-follow').status).toBe('stopped');
+    expect(sdk.callsFor('moderator')).toHaveLength(2);
+    expect((await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers })).status).toBe(200);
+  });
+
+  it('marks an active follow-up interrupted on restart without replaying it', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-follow-restart-'));
+    dirs.push(dataDir);
+    const firstSdk = new TestOnlySdk();
+    const first = await startAt(firstSdk, dataDir);
+    const started = await postStart(first, input({ mode: 'single', requestId: 'follow-restart' }));
+    await waitForTerminal(first, started.id);
+    const deliveryGate = deferred<void>();
+    firstSdk.holdNextDelivery(deliveryGate.promise);
+    await postFollowUp(first, started.id, { requestId: 'interrupted-follow', text: 'Wait', to: [], images: [] });
+    await waitUntil(() => firstSdk.callsFor('moderator').length === 2);
+
+    await first.close();
+    servers.splice(servers.indexOf(first), 1);
+    const secondSdk = new TestOnlySdk();
+    const second = await startAt(secondSdk, dataDir);
+    const restored = await getRun(second, started.id) as RunWithFollowUps;
+
+    expect(followUp(restored, 'interrupted-follow').status).toBe('interrupted');
+    expect(restored.roles.moderator.status).toBe('interrupted');
+    expect(secondSdk.calls).toHaveLength(0);
+    deliveryGate.resolve();
+  });
+
+  it('records a deduplicated failed follow-up when bounded Party context rejects before remote execution', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(sdk);
+    const started = await postStart(server, input({ mode: 'single', requestId: 'context-budget' }));
+    await waitForTerminal(server, started.id);
+    for (let index = 0; index < 6; index += 1) {
+      await postFollowUp(server, started.id, {
+        requestId: `context-${index}`, text: `${index}${'x'.repeat(19_900)}`, to: [], images: [],
+      });
+      await waitUntil(() => sdk.callsFor('moderator').length === index + 2);
+    }
+    const callsBeforeFailure = sdk.calls.length;
+    const failedRequest = { requestId: 'context-failure', text: `7${'x'.repeat(19_900)}`, to: [], images: [] };
+
+    expect((await postFollowUp(server, started.id, failedRequest)).status).toBe(200);
+    await waitUntil(async () => followUp(await getRun(server, started.id) as RunWithFollowUps, 'context-failure').status === 'failed');
+    const failed = followUp(await getRun(server, started.id) as RunWithFollowUps, 'context-failure');
+    expect(failed.error).toContain('context budget');
+    expect(sdk.calls).toHaveLength(callsBeforeFailure);
+    expect((await postFollowUp(server, started.id, failedRequest)).status).toBe(200);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(sdk.calls).toHaveLength(callsBeforeFailure);
+  });
 });
+
+type FollowUpView = {
+  requestId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+  error?: string;
+};
+type RunWithFollowUps = RunSnapshot & { followUps: FollowUpView[] };
+
+function followUp(run: RunWithFollowUps, requestId: string): FollowUpView {
+  const result = run.followUps.find(item => item.requestId === requestId);
+  if (!result) throw new Error(`Missing follow-up ${requestId}`);
+  return result;
+}
 
 function input(overrides: Partial<StartInput> = {}): StartInput {
   return {
@@ -227,6 +380,19 @@ function input(overrides: Partial<StartInput> = {}): StartInput {
 async function postStart(server: PocServer, body: StartInput): Promise<RunSnapshot> {
   const response = await fetch(`${server.url}/api/consultations`, { method: 'POST', headers, body: JSON.stringify(body) });
   expect(response.status).toBe(200);
+  return response.json() as Promise<RunSnapshot>;
+}
+
+async function postFollowUp(server: PocServer, id: string, body: {
+  requestId: string; text: string; to: Array<'moderator' | 'trend30' | 'structure10' | 'timing1'>; images: ImageRef[];
+}): Promise<Response> {
+  return fetch(`${server.url}/api/consultations/${id}/messages`, {
+    method: 'POST', headers, body: JSON.stringify(body),
+  });
+}
+
+async function getRun(server: PocServer, id: string): Promise<RunSnapshot> {
+  const response = await fetch(`${server.url}/api/consultations/${id}`, { headers });
   return response.json() as Promise<RunSnapshot>;
 }
 
@@ -258,7 +424,14 @@ async function waitUntil(check: () => boolean | Promise<boolean>, timeoutMs = 5_
   throw new Error('Timed out waiting for condition');
 }
 
-async function readParty(server: PocServer, partyId: string): Promise<Array<PartyMessage & { text: string }>> {
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+async function readParty(server: PocServer, partyId: string): Promise<Array<PartyMessage & { text: string; images: ImageRef[] }>> {
   const list = await fetch(`${server.url}/api/parties`, { headers });
   const parties = (await list.json() as { parties: Array<{ id: string; key: string }> }).parties;
   const key = parties.find(party => party.id === partyId)?.key;
@@ -268,7 +441,7 @@ async function readParty(server: PocServer, partyId: string): Promise<Array<Part
   return Promise.all(messages.map(async message => {
     const plaintext = await decryptText(key, message.text);
     if (!plaintext) throw new Error('party message did not decrypt');
-    const envelope = JSON.parse(plaintext) as { text: string };
-    return { ...message, text: envelope.text };
+    const envelope = JSON.parse(plaintext) as { text: string; images: ImageRef[] };
+    return { ...message, text: envelope.text, images: envelope.images };
   }));
 }

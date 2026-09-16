@@ -23,23 +23,36 @@ export class TestOnlySdk {
   private readonly messages = new Map<string, Message[]>();
   private readonly sequences = new Map<string, number>();
   private readonly activeByRole = new Map<RoleId, number>();
+  private readonly deliveryGates: Promise<void>[] = [];
 
   constructor(private readonly options: {
     ready?: boolean;
     failRole?: RoleId;
     delayMs?: number;
     spawnDelayMs?: number;
+    spawnGate?: Promise<void>;
+    linkDelayMs?: number;
   } = {}) {}
 
+  linkCalls = 0;
+  spawnCalls = 0;
+  spawnResolved = 0;
   status(): ConnectionStatus { return this.options.ready === false ? { state: 'disconnected' } : { state: 'ready' }; }
-  async link(): Promise<ConnectionStatus> { return this.status(); }
+  async link(): Promise<ConnectionStatus> {
+    this.linkCalls += 1;
+    if (this.options.linkDelayMs) await new Promise(resolve => setTimeout(resolve, this.options.linkDelayMs));
+    return this.status();
+  }
   async disconnect(): Promise<void> {}
   async dispose(): Promise<void> {}
   async machines(): Promise<Machine[]> { return [machine('machine-1')]; }
 
   async spawn(input: SpawnSessionInput & { role?: RoleId }): Promise<SpawnSessionResult> {
     if (!input.role) throw new Error('test SDK requires the role boundary field');
+    this.spawnCalls += 1;
+    if (this.options.spawnGate) await this.options.spawnGate;
     if (this.options.spawnDelayMs) await new Promise(resolve => setTimeout(resolve, this.options.spawnDelayMs));
+    this.spawnResolved += 1;
     return { type: 'success', sessionId: `session-${input.role}` };
   }
 
@@ -70,7 +83,9 @@ export class TestOnlySdk {
     this.activeByRole.set(role, active);
     this.maxConcurrentByRole.set(role, Math.max(this.maxConcurrentByRole.get(role) ?? 0, active));
     const localId = input.localId ?? crypto.randomUUID();
+    const deliveryGate = this.deliveryGates.shift();
     const deliver = async () => {
+      if (deliveryGate) await deliveryGate;
       if (this.options.delayMs) await new Promise(resolve => setTimeout(resolve, this.options.delayMs));
       this.emit(input.sessionId, { role: 'user' }, localId);
       this.emit(input.sessionId, sessionEvent(`root-${call}`, { t: 'turn-start' }));
@@ -98,6 +113,8 @@ export class TestOnlySdk {
   callsFor(role: RoleId): Array<{ role: RoleId; text: string; images: SendMessageInput['images'] }> {
     return this.calls.filter(item => item.role === role);
   }
+
+  holdNextDelivery(gate: Promise<void>): void { this.deliveryGates.push(gate); }
 
   private emit(sessionId: string, content: unknown, localId: string | null = null): void {
     const seq = (this.sequences.get(sessionId) ?? 0) + 1;
