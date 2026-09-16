@@ -241,7 +241,7 @@ describe('SidebarAccountMenu', () => {
         expect(events).toEqual(['focus-trigger', 'open-settings']);
     });
 
-    it('keeps usage in settings instead of duplicating it in the account menu', () => {
+    it('keeps usage as the single outer account-menu entry and opens the shared route', () => {
         act(() => {
             renderer = TestRenderer.create(
                 <SidebarAccountMenu
@@ -254,7 +254,10 @@ describe('SidebarAccountMenu', () => {
             );
         });
 
-        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-action' })).toHaveLength(0);
+        const usageAction = renderer.root.findByProps({ testID: 'sidebar-account-usage-action' });
+        act(() => usageAction.props.onPress());
+
+        expect(mocks.navigate).toHaveBeenCalledWith('/settings/usage');
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-dialog' })).toHaveLength(0);
     });
 
@@ -277,16 +280,19 @@ describe('SidebarAccountMenu', () => {
             'sidebar-account-profile-action',
             'sidebar-account-settings-action',
             'sidebar-account-details-action',
+            'sidebar-account-usage-action',
             'sidebar-account-logout-action',
         ]);
 
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-profile-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-details-action' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-action' }).props.onPress());
         expect(mocks.navigate.mock.calls).toEqual([
             ['/settings/profile'],
             ['/settings'],
             ['/accounts'],
+            ['/settings/usage'],
         ]);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
     });
