@@ -71,7 +71,7 @@ export function useSessionRowDisclosure(title: string) {
         const overflowing = isSessionTitleOverflowing(node ? {
             clientWidth: node.clientWidth ?? 0,
             scrollWidth: Math.max(node.scrollWidth ?? 0, content?.scrollWidth ?? 0),
-        } : null);
+        } : null) || !!(content && content.scrollHeight > content.clientHeight + 1);
         if (node?.setAttribute && node?.removeAttribute) {
             if (overflowing) node.setAttribute('title', title);
             else node.removeAttribute('title');
@@ -257,6 +257,7 @@ export const SessionRowActions = React.memo(function SessionRowActions({
     onStartSelection,
     sessionId,
     statusLabel,
+    showStatusLabel = true,
     visible,
 }: {
     contextAnchor: SessionActionsAnchor | null;
@@ -264,6 +265,7 @@ export const SessionRowActions = React.memo(function SessionRowActions({
     onStartSelection?: () => void;
     sessionId: string;
     statusLabel: string;
+    showStatusLabel?: boolean;
     visible: boolean;
 }) {
     const styles = stylesheet;
@@ -315,9 +317,9 @@ export const SessionRowActions = React.memo(function SessionRowActions({
             <View style={styles.actions} testID={`session-row-actions-${sessionId}`}>
                 {showInline ? (
                     <>
-                        <Text numberOfLines={1} style={styles.actionStatus} testID="session-row-hover-status">
+                        {showStatusLabel && <Text numberOfLines={1} style={styles.actionStatus} testID="session-row-hover-status">
                             {statusLabel}
-                        </Text>
+                        </Text>}
                         <SessionRowActionButton
                             active={quickActions.sessionPinned}
                             icon="pin"
