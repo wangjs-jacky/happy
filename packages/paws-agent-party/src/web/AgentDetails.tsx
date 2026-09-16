@@ -54,8 +54,8 @@ export function AgentDetails({ run, role, api, onClose }: { run: RunSnapshot; ro
 }
 
 function eventSummary(content: unknown): string {
-  const value = content as { role?: string; content?: { data?: { ev?: { t?: string; status?: string; thinking?: boolean } } } } | null;
-  const event = value?.content?.data?.ev;
+  const value = content as { role?: string; content?: { ev?: { t?: string; status?: string; thinking?: boolean } } } | null;
+  const event = value?.role === 'session' ? value.content?.ev : undefined;
   if (event) return `${event.t ?? '事件'}${event.status ? ` · ${event.status}` : ''}${event.thinking ? ' · 私有思考标记' : ''}`;
   return value?.role === 'user' ? '用户提交回声' : '原始记录';
 }

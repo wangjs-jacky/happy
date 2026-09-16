@@ -19,8 +19,9 @@ export type TurnTerminal =
 
 export function decodeSessionEnvelope(content: unknown): SessionEnvelope | null {
   if (!isRecord(content) || content.role !== 'session' || !isRecord(content.content)) return null;
-  if (content.content.type !== 'session' || !isRecord(content.content.data)) return null;
-  const envelope = content.content.data;
+  // The CLI encrypts { role: 'session', content: envelope, meta }, and the SDK
+  // returns that payload unchanged. Session events have no type/data wrapper.
+  const envelope = content.content;
   if (
     (envelope.role !== 'agent' && envelope.role !== 'user')
     || !isRecord(envelope.ev)

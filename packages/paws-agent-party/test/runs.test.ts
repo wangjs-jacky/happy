@@ -51,8 +51,8 @@ describe('consultation runs', () => {
       expect(result?.replyTo).toBe(turn.taskMessageId);
       const page = await sdk.historyPage(turn.sessionId!, { afterSeq: 0, limit: 200 });
       expect(page.messages.some(message => message.localId === turn.localId)).toBe(true);
-      expect(page.messages.find(message => message.id === turn.sourceMessageId)?.content).toEqual({
-        role: 'session', content: { type: 'session', data: { role: 'agent', turn: turn.rootTurnId, ev: { t: 'turn-end', status: 'completed' } } },
+      expect(page.messages.find(message => message.id === turn.sourceMessageId)?.content).toMatchObject({
+        role: 'session', content: { role: 'agent', turn: turn.rootTurnId, ev: { t: 'turn-end', status: 'completed' } },
       });
     }
     expect(turns.filter(turn => turn.participant === 'trend30').map(turn => turn.rootTurnId)).toEqual(['root-1', 'root-2']);

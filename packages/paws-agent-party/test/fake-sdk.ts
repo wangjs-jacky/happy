@@ -134,7 +134,7 @@ export class TestOnlySdk {
 }
 
 function sessionEvent(turn: string, ev: Record<string, unknown>): unknown {
-  return { role: 'session', content: { type: 'session', data: { role: 'agent', turn, ev } } };
+  return { role: 'session', content: { id: crypto.randomUUID(), time: Date.now(), role: 'agent', turn, ev }, meta: { sentFrom: 'cli' } };
 }
 
 function machine(id: string): Machine {

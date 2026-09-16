@@ -12,7 +12,7 @@ it('pages durable records by received seq and displays only the chosen role prov
     requests.push(path);
     const second = path.includes('afterSeq=2');
     return { sessionId: 's-trend', status: 'completed', requests: [{ id: 'permission', tool: 'shell' }], hasMore: !second,
-      messages: second ? [{ id: 'm-3', seq: 3, content: { role: 'user' } }] : [{ id: 'm-2', seq: 2, content: { role: 'session', content: { data: { ev: { t: 'turn-end', status: 'completed' } } } } }] };
+      messages: second ? [{ id: 'm-3', seq: 3, content: { role: 'user' } }] : [{ id: 'm-2', seq: 2, content: { role: 'session', content: { id: 'root-trend:end', time: 2, role: 'agent', turn: 'root-trend', ev: { t: 'turn-end', status: 'completed' } } } }] };
   }) as Api;
   const run = { id: 'r', partyId: 'party', roles: { trend30: { sessionId: 's-trend', status: 'completed' } }, turns: [
     { runId: 'r', partyId: 'party', participant: 'trend30', taskMessageId: 'task-trend', publicMessageId: 'public-trend', localId: 'local-trend', sessionId: 's-trend', rootTurnId: 'root-trend', sourceMessageId: 'm-2' },
@@ -20,6 +20,7 @@ it('pages durable records by received seq and displays only the chosen role prov
   ] } as unknown as RunSnapshot;
   render(<AgentDetails run={run} role="trend30" api={api} onClose={() => {}} />);
   expect(await screen.findByText('m-2')).toBeTruthy();
+  expect(await screen.findByText('#2 · turn-end · completed')).toBeTruthy();
   expect(screen.getByText('public-trend')).toBeTruthy();
   expect(screen.queryByText('wrong-role')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '加载下一页' }));

@@ -25,10 +25,22 @@ const partyMessage = (cursor: number, text: string): TimelineMessage => ({
 
 const sessionEvent = (turn: string, ev: Record<string, unknown>, subagent?: string): unknown => ({
   role: 'session',
-  content: { type: 'session', data: { role: 'agent', turn, ...(subagent ? { subagent } : {}), ev } },
+  content: { id: `event-${turn}-${ev.t}`, time: 1, role: 'agent', turn, ...(subagent ? { subagent } : {}), ev },
 });
 
 describe('DurableTurnDecoder', () => {
+  it('publishes a canonical CLI/SDK root reply and retains its exact durable completion identity', () => {
+    // Shape independently verified against apiSession.createSessionProtocolContent
+    // and a real CLI 1.3.9 SDK history page. There is no type/data wrapper.
+    const decoder = new DurableTurnDecoder('submitted-message');
+    decoder.accept(message(1, { role: 'user', content: { type: 'text', text: 'Mock analysis' } }, 'submitted-message'));
+    decoder.accept(message(2, { role: 'session', content: { id: 'turn:start', time: 10, role: 'agent', turn: 'actual-turn', ev: { t: 'turn-start' } }, meta: { sentFrom: 'cli' } }));
+    decoder.accept(message(3, { role: 'session', content: { id: 'item:private', time: 11, role: 'agent', turn: 'actual-turn', ev: { t: 'text', text: 'private reasoning', thinking: true } } }));
+    decoder.accept(message(4, { role: 'session', content: { id: 'item:answer', time: 12, role: 'agent', turn: 'actual-turn', codexItemId: 'answer-item', ev: { t: 'text', text: 'Synthetic evidence only.' } }, meta: { sentFrom: 'cli' } }));
+    expect(decoder.accept(message(5, { role: 'session', content: { id: 'turn:end', time: 13, role: 'agent', turn: 'actual-turn', ev: { t: 'turn-end', status: 'completed' } }, meta: { sentFrom: 'cli' } }))).toEqual({ type: 'completed', text: 'Synthetic evidence only.' });
+    expect(decoder.provenance).toEqual({ rootTurnId: 'actual-turn', sourceMessageId: 'm-5' });
+  });
+
   it('only completes the root turn that starts after the submitted localId echo', () => {
     const decoder = new DurableTurnDecoder('request-local-id');
 
