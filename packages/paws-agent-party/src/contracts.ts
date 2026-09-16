@@ -1,0 +1,75 @@
+import type { AgentRequest, Machine, Message } from '@wangjs-jacky/paws-agent';
+
+export type RoleId = 'moderator' | 'trend30' | 'structure10' | 'timing1';
+export type Engine = 'codex' | 'claude' | 'gemini' | 'opencode';
+export type RunMode = 'single' | 'consultation';
+export type RunStatus = 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+
+export type ImageRef = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+};
+
+export type StartInput = {
+  requestId: string;
+  stock: string;
+  text: string;
+  images: ImageRef[];
+  machineId: string;
+  directory: string;
+  agents: Record<RoleId, Engine>;
+  mode: RunMode;
+};
+
+export type RoleSnapshot = {
+  role: RoleId;
+  status: string;
+  sessionId?: string;
+  error?: string;
+};
+
+export type RunSnapshot = {
+  id: string;
+  partyId: string;
+  stock: string;
+  mode: RunMode;
+  status: RunStatus;
+  phase: string;
+  createdAt: number;
+  roles: Record<RoleId, RoleSnapshot>;
+  error?: string;
+};
+
+export type ConnectionStatus = {
+  state: 'disconnected' | 'linking' | 'connecting' | 'ready' | 'error';
+  serverUrl?: string;
+  qrUrl?: string;
+  error?: string;
+};
+
+export type AgentMessagesResponse = {
+  sessionId?: string;
+  messages: Message[];
+  hasMore: boolean;
+  requests: AgentRequest[];
+  status: string;
+};
+
+export type MachinesResponse = { machines: Machine[] };
+
+export type PartyEnvelope = {
+  v: 1;
+  text: string;
+  images: ImageRef[];
+};
+
+export type FollowUpInput = {
+  requestId: string;
+  text: string;
+  to: RoleId[];
+  images: ImageRef[];
+};
+
+export const ROLE_IDS: readonly RoleId[] = ['moderator', 'trend30', 'structure10', 'timing1'];

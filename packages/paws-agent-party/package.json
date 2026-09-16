@@ -1,0 +1,25 @@
+{
+  "name": "@wangjs-jacky/paws-agent-party",
+  "version": "0.0.0-private",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-server.mjs",
+    "start": "node dist/server.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wangjs-jacky/paws-agent": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "esbuild": "0.27.2",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "packageManager": "pnpm@10.11.0"
+}
