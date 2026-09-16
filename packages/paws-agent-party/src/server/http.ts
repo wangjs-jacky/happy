@@ -80,6 +80,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
       accountTransition = transition;
       try {
         const body = await readJson(request, 16 * 1024);
+        if (accountTransition !== transition) return sendJson(response, 409, { error: 'Paws account link was cancelled.' });
         if (typeof body.serverUrl !== 'string') return sendJson(response, 400, { error: 'serverUrl is required' });
         return sendJson(response, 200, await sdk.link(body.serverUrl));
       } finally {

@@ -226,6 +226,50 @@ describe('authenticated local service', () => {
     expect(statusBody.state).toBe('disconnected');
     expect(linkBody?.state).toBe('disconnected');
   });
+
+  it('does not start a partial-body account link after DELETE supersedes it', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(undefined, sdk);
+    const body = JSON.stringify({ serverUrl: 'https://example.invalid' });
+    const continued = deferred<void>();
+    const staleResponse = deferred<{ status: number; body: string }>();
+    const pending = request(`${server.url}/api/paws/link`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+        expect: '100-continue',
+      },
+    }, response => {
+      void (async () => {
+        let responseBody = '';
+        for await (const chunk of response) responseBody += chunk;
+        staleResponse.resolve({ status: response.statusCode ?? 0, body: responseBody });
+      })().catch(staleResponse.reject);
+    });
+    pending.once('continue', continued.resolve);
+    pending.once('error', error => {
+      continued.reject(error);
+      staleResponse.reject(error);
+    });
+    pending.flushHeaders();
+
+    await continued.promise;
+    pending.write(body.slice(0, 1));
+    const blockedLink = await fetch(`${server.url}/api/paws/link`, authorized({
+      method: 'POST', headers: { 'content-type': 'application/json' }, body,
+    }));
+    const cancelled = await fetch(`${server.url}/api/paws/link`, authorized({ method: 'DELETE' }));
+    pending.end(body.slice(1));
+    const stale = await staleResponse.promise;
+
+    expect(blockedLink.status).toBe(409);
+    expect(cancelled.status).toBe(200);
+    expect(stale.status).toBe(409);
+    expect(JSON.parse(stale.body)).toEqual({ error: 'Paws account link was cancelled.' });
+    expect(sdk.linkCalls).toBe(0);
+  });
 });
 
 function startInput(): StartInput {
