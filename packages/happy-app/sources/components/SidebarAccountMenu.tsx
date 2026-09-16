@@ -17,6 +17,7 @@ type SidebarAccountMenuProps = {
     desktopDensity?: boolean;
     displayName: string;
     onNavigate: (path: string) => void;
+    onOpenAccounts?: () => void;
     onOpenSettings?: () => void;
     onOpenChange: (open: boolean) => void;
     open: boolean;
@@ -68,6 +69,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     desktopDensity = false,
     displayName,
     onNavigate,
+    onOpenAccounts,
     onOpenSettings,
     onOpenChange,
     open,
@@ -173,12 +175,6 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     <ScrollView keyboardShouldPersistTaps="handled">
                     <SavedAccountsMenu ref={firstActionRef} onNavigate={navigate} />
                     <MenuAction
-                        icon="person-circle-outline"
-                        label={t('settingsAccount.profile')}
-                        onPress={() => navigate('/settings/profile')}
-                        testID="sidebar-account-profile-action"
-                    />
-                    <MenuAction
                         icon="settings-outline"
                         label={t('settings.title')}
                         onPress={() => {
@@ -195,7 +191,15 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     <MenuAction
                         icon="shield-checkmark-outline"
                         label={t('accounts.title')}
-                        onPress={() => navigate('/accounts')}
+                        onPress={() => {
+                            if (onOpenAccounts) {
+                                triggerRef.current?.focus?.();
+                                onOpenChange(false);
+                                onOpenAccounts();
+                                return;
+                            }
+                            navigate('/accounts');
+                        }}
                         testID="sidebar-account-details-action"
                     />
                     <MenuAction

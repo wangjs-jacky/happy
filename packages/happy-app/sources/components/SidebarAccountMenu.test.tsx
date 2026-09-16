@@ -276,12 +276,14 @@ describe('SidebarAccountMenu', () => {
     });
 
     it('preserves the other account destinations and action order', () => {
+        const openAccounts = vi.fn();
         act(() => {
             renderer = TestRenderer.create(
                 <SidebarAccountMenu
                     displayName="Paws User"
                     onNavigate={mocks.navigate}
                     onOpenChange={vi.fn()}
+                    {...{ onOpenAccounts: openAccounts } as any}
                     open
                     profile={profile}
                 />,
@@ -291,21 +293,18 @@ describe('SidebarAccountMenu', () => {
         const menu = renderer.root.findByProps({ testID: 'sidebar-account-menu' });
         const actionOrder = menu.findAllByType('Pressable').map((node: any) => node.props.testID);
         expect(actionOrder).toEqual([
-            'sidebar-account-profile-action',
             'sidebar-account-settings-action',
             'sidebar-account-details-action',
             'sidebar-account-usage-action',
             'sidebar-account-logout-action',
         ]);
 
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-profile-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-details-action' }).props.onPress());
         expect(mocks.navigate.mock.calls).toEqual([
-            ['/settings/profile'],
             ['/settings'],
-            ['/accounts'],
         ]);
+        expect(openAccounts).toHaveBeenCalledOnce();
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
     });
 
