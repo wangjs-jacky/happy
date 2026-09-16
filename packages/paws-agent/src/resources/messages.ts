@@ -132,6 +132,7 @@ export class MessagesResourceImpl implements MessagesResource {
         const recordEncryption = await this.getEncryption(input.sessionId);
         const localId = input.localId ?? globalThis.crypto.randomUUID();
         const batch: { localId: string; content: string }[] = [];
+        try {
         for (const [index, image] of images.entries()) {
             checkCancelled();
             const bytes = encryptImage(image.bytes, recordEncryption);
@@ -152,6 +153,9 @@ export class MessagesResourceImpl implements MessagesResource {
                 } },
             };
             batch.push({ localId: fileLocalId, content: encodeBase64(encrypt(recordEncryption.key, recordEncryption.variant, file)) });
+        }
+        } catch (cause) {
+            throw new PawsAgentError(cause instanceof PawsAgentError ? cause.code : 'UNKNOWN', 'Image attachment preparation failed; no message was submitted', { cause, details: { phase: 'attachments', messageSubmitted: false } });
         }
         const content = {
             role: 'user',
