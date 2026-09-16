@@ -25,6 +25,17 @@ Click a participant's name for durable execution details. Recipient chips indepe
 
 Data defaults to `packages/paws-agent-party/.data`; an explicit directory can be supplied with `PAWS_AGENT_PARTY_DATA_DIR=/absolute/path`. Only one process may own a data directory. The service binds loopback and validates Host/Origin; do not expose it with a tunnel, reverse proxy, or public bind. Static assets are public on loopback; APIs and images are authenticated. Keep the data directory and access token private. No daemon/global CLI changes are required by this package.
 
+### Recovering a verified stale `service.lock`
+
+An unclean exit can leave `service.lock` behind. Startup deliberately fails closed rather than guessing ownership. Do not delete the data directory or kill an unfamiliar PID. Closing a browser does not stop its service or accepted remote work.
+
+1. Stop automatic/manual restart attempts. Resolve the **exact** configured data directory to its canonical absolute path (including symlinks); use the launch configuration, not an assumed default. Read only that directory's `service.lock`, which contains `PID:nonce` (not an account credential), and note its contents and modification time.
+2. Check that PID with `ps -p <PID> -o pid=,ppid=,lstart=,command=` and `lsof -p <PID>`; check all open files in the exact directory with `lsof +D /absolute/exact/data-directory`. Correlate the command, process start time, working directory, explicit data-directory configuration and open Party/SQLite files. A live matching owner means **do not remove the lock**; shut down only that positively identified service normally and let it release its lock. PID reuse is possible: a PID's existence alone does not identify the owner, and a missing PID or empty `lsof` output alone is insufficient if visibility/permissions are incomplete. Check for another process using the same canonical directory. If ownership cannot be established, stop and seek operator help; never kill an unknown process.
+3. Only once no process owns that exact directory and no restart can race you, make a private backup of the **entire** directory, including Party SQLite files and any WAL/SHM files, run snapshots, assets and access token. Keep those data files untouched. Recheck the lock contents/time and process ownership immediately before recovery; any change means restart the checks.
+4. Remove **only** the now-verified stale `service.lock` (for example `rm -i /absolute/exact/data-directory/service.lock`, replacing the example with the verified literal path). Do not use recursive deletion, wildcards or delete any run/Party data. Restart using the same directory and normal startup command. Unfinished saved runs become interrupted without automatic replay; reconnect the account normally. This does not establish that previously accepted remote work stopped.
+
+This is a manual recovery procedure, not automatic stale-lock removal. Do not run its removal step merely because startup reports “already locked”.
+
 ## Test-only local entry
 
 ```sh

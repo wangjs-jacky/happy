@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import React from 'react';
+import React, { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { ConnectionPanel } from '../src/web/ConnectionPanel.js';
+import type { ConnectionStatus } from '../src/contracts.js';
 import { userEvent } from '@testing-library/user-event';
 import { RunStatus, StartConsultation } from '../src/web/Consultation.js';
 import type { RunSnapshot } from '../src/contracts.js';
@@ -9,6 +11,27 @@ import type { Api } from '../src/web/api.js';
 import { createApi } from '../src/web/api.js';
 import type { StartInput } from '../src/contracts.js';
 afterEach(cleanup);
+
+it('cancels a held initial link while disconnected and ignores its late response during a newer link', async () => {
+  let finishOld!: (status: ConnectionStatus) => void; let finishNew!: (status: ConnectionStatus) => void;
+  let posts = 0;
+  const api = (async (_path: string, init: RequestInit) => {
+    if (init.method === 'DELETE') return { state: 'disconnected' };
+    posts++;
+    return new Promise<ConnectionStatus>(resolve => { if (posts === 1) finishOld = resolve; else finishNew = resolve; });
+  }) as Api;
+  function Panel() { const [status, setStatus] = useState<ConnectionStatus>({ state: 'disconnected' }); return <ConnectionPanel status={status} onChange={setStatus} active={false} api={api} />; }
+  render(<Panel />);
+  const link = screen.getByRole('button', { name: '连接 / 扫码授权' }) as HTMLButtonElement;
+  const cancel = screen.getByRole('button', { name: '断开连接' }) as HTMLButtonElement;
+  fireEvent.click(link); expect(cancel.disabled).toBe(false);
+  await act(async () => { fireEvent.click(cancel); }); expect(link.disabled).toBe(false);
+  fireEvent.click(link);
+  await act(async () => { finishOld({ state: 'linking', serverUrl: 'https://old.invalid' }); });
+  expect(screen.queryByText(/old.invalid/)).toBeNull(); expect(link.disabled).toBe(true); expect(cancel.disabled).toBe(false);
+  await act(async () => { finishNew({ state: 'ready', serverUrl: 'https://new.invalid' }); });
+  expect(screen.getByText(/已连接.*new.invalid/)).toBeTruthy(); expect(link.disabled).toBe(false);
+});
 
 it('blocks model submission while disconnected even with complete machine input', () => {
   render(<StartConsultation ready={false} machines={[]} api={(async () => ({})) as unknown as Api} onStarted={() => {}} onClose={() => {}} />);

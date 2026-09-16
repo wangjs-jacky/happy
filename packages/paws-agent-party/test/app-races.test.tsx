@@ -2,7 +2,7 @@
 import React from 'react';
 import { webcrypto } from 'node:crypto';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { PartyApp } from '../src/web/PartyApp.js';
 import * as browserCrypto from '../src/web/lib/crypto.js';
 import { encryptText, generatePartyKey } from '../vendor/agents-party/src/core/crypto.js';
@@ -26,6 +26,8 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const image = (id: string): ImageRef => ({ id, name: `${id}.png`, mimeType: 'image/png', size: 5 });
+const acceptedRun: RunSnapshot = { id: 'accepted', partyId: 'A', stock: 'TEST', mode: 'single', status: 'completed', phase: 'completed', createdAt: 1,
+  roles: { moderator: { role: 'moderator', status: 'completed' }, trend30: { role: 'trend30', status: 'not-selected' }, structure10: { role: 'structure10', status: 'not-selected' }, timing1: { role: 'timing1', status: 'not-selected' } }, followUps: [], turns: [] };
 type RequestHandler = (path: string, init?: RequestInit) => Promise<Response> | Response | undefined;
 
 function installTransport(handle: RequestHandler = () => undefined, key: string | null = null) {
@@ -53,6 +55,54 @@ async function openB() {
 const textbox = () => screen.getByRole('textbox', { name: '消息' }) as HTMLTextAreaElement;
 const sendButton = () => screen.getByRole('button', { name: '发送消息' }) as HTMLButtonElement;
 const upload = (id: string) => fireEvent.change(screen.getByLabelText('添加图片'), { target: { files: [new File(['image'], `${id}.png`, { type: 'image/png' })] } });
+
+async function createDraft(text: string) {
+  fireEvent.click(screen.getByRole('button', { name: '新建会诊' }));
+  const dialog = within(screen.getByRole('dialog', { name: '新建会诊' }));
+  fireEvent.change(dialog.getByLabelText('标的'), { target: { value: text } });
+  fireEvent.change(dialog.getByLabelText('机器'), { target: { value: 'machine' } });
+  fireEvent.change(dialog.getByLabelText('工作目录'), { target: { value: '/explicit' } });
+  fireEvent.change(dialog.getByRole('textbox', { name: '消息' }), { target: { value: text } });
+  return dialog;
+}
+
+it('keeps a reopened creation draft and images when a closed submission is accepted late', async () => {
+  const posted = deferred<Response>(); let submitted = false; let refreshed = 0;
+  installTransport((path, init) => {
+    if (path === '/api/paws/machines') return Response.json({ machines: [{ id: 'machine', active: true }] });
+    if (path === '/api/consultations' && init?.method === 'POST') { submitted = true; return posted.promise; }
+    if (path === '/api/assets') return Response.json(image('draft-B'));
+    if (path.startsWith('/api/parties?')) refreshed++;
+    return undefined;
+  });
+  render(<PartyApp />); await vi.waitFor(() => expect(textbox().disabled).toBe(false));
+  const a = await createDraft('A'); fireEvent.click(a.getByRole('button', { name: '发送消息' }));
+  await vi.waitFor(() => expect(submitted).toBe(true)); fireEvent.click(a.getByRole('button', { name: '关闭' }));
+  const b = await createDraft('NEW UNSENT DRAFT');
+  fireEvent.change(b.getByLabelText('添加图片'), { target: { files: [new File(['image'], 'draft-B.png', { type: 'image/png' })] } });
+  await b.findByRole('button', { name: '移除 draft-B.png' }); const before = refreshed;
+  await act(async () => { posted.resolve(Response.json(acceptedRun)); });
+  expect(screen.getByRole('dialog', { name: '新建会诊' })).toBeTruthy();
+  expect((b.getByLabelText('标的') as HTMLInputElement).value).toBe('NEW UNSENT DRAFT');
+  expect((b.getByRole('textbox', { name: '消息' }) as HTMLTextAreaElement).value).toBe('NEW UNSENT DRAFT');
+  expect(b.getByRole('button', { name: '移除 draft-B.png' })).toBeTruthy();
+  expect(refreshed).toBeGreaterThan(before);
+});
+
+it('does not override later Party navigation after an accepted creation awaits list refresh', async () => {
+  const refresh = deferred<Response>(); let accepted = false; let refreshing = false;
+  installTransport((path, init) => {
+    if (path === '/api/paws/machines') return Response.json({ machines: [{ id: 'machine', active: true }] });
+    if (path === '/api/consultations' && init?.method === 'POST') { accepted = true; return Response.json(acceptedRun); }
+    if (path.startsWith('/api/parties?') && accepted) { refreshing = true; return refresh.promise.then(response => response.clone()); }
+    return undefined;
+  });
+  render(<PartyApp />); await vi.waitFor(() => expect(textbox().disabled).toBe(false));
+  const a = await createDraft('A'); fireEvent.click(a.getByRole('button', { name: '发送消息' }));
+  await vi.waitFor(() => expect(refreshing).toBe(true)); await openB();
+  await act(async () => { refresh.resolve(Response.json({ parties: ['A', 'B'].map(id => ({ id, title: `${id} 会诊`, key: null, createdAt: 1, lastMessageAt: 1, messagesCount: 1 })) })); });
+  expect(screen.getByRole('heading', { name: 'B 会诊' })).toBeTruthy();
+});
 
 it('isolates deferred uploads and busy state when Party A unmounts and Party B starts uploading', async () => {
   const a = deferred<Response>(); const b = deferred<Response>();

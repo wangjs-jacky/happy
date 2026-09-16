@@ -4,8 +4,11 @@ import type { AgentMessagesResponse, RunSnapshot, RoleId } from '../contracts.js
 import type { Api } from './api.js';
 import { Button } from '../../vendor/agents-party/src/ui/components/button.js';
 import { statusLabel } from './Consultation.js';
+import { useDialogFocus, useNarrowDetails } from './modalFocus.js';
 
 export function AgentDetails({ run, role, api, onClose }: { run: RunSnapshot; role: RoleId; api: Api; onClose: () => void }) {
+  const narrow = useNarrowDetails();
+  const dialog = useDialogFocus(narrow, onClose);
   const [messages, setMessages] = useState<Message[]>([]);
   const [page, setPage] = useState<AgentMessagesResponse | null>(null);
   const [error, setError] = useState('');
@@ -13,7 +16,6 @@ export function AgentDetails({ run, role, api, onClose }: { run: RunSnapshot; ro
   const cursor = useRef(0);
   const inFlight = useRef(false);
   const alive = useRef(true);
-  const closeButton = useRef<HTMLButtonElement>(null);
   const sessionId = run.roles[role].sessionId;
   const load = useCallback(async () => {
     if (inFlight.current) return;
@@ -28,12 +30,11 @@ export function AgentDetails({ run, role, api, onClose }: { run: RunSnapshot; ro
     finally { inFlight.current = false; if (alive.current) setBusy(false); }
   }, [api, run.id, role]);
   useEffect(() => {
-    alive.current = true; const prior = document.activeElement as HTMLElement | null;
-    closeButton.current?.focus(); void load();
-    return () => { alive.current = false; prior?.focus(); };
+    alive.current = true; void load();
+    return () => { alive.current = false; };
   }, [load]);
-  return <section role="dialog" aria-label="执行详情" className="agent-details" onKeyDown={event => { if (event.key === 'Escape') onClose(); }}>
-    <header className="flex items-center justify-between"><h2 className="font-title text-lg">执行详情 · {role}</h2><Button ref={closeButton} variant="ghost" onClick={onClose}>关闭详情</Button></header>
+  return <section ref={dialog} tabIndex={-1} role="dialog" aria-modal={narrow ? true : undefined} aria-label="执行详情" className="agent-details">
+    <header className="flex items-center justify-between"><h2 className="font-title text-lg">执行详情 · {role}</h2><Button variant="ghost" onClick={onClose}>关闭详情</Button></header>
     <p>{statusLabel[run.roles[role].status] ?? run.roles[role].status}</p>
     <p className="break-all">sessionId：{sessionId ?? '会话尚未创建；停止后晚到的会话仍会保留。'}</p>
     {sessionId && <a className="text-link underline" href={`https://47.115.228.20:8443/session/${encodeURIComponent(sessionId)}`} target="_blank" rel="noreferrer">在 Paws 打开原始会话</a>}

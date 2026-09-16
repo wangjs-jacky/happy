@@ -6,6 +6,7 @@ import { Button } from '../../vendor/agents-party/src/ui/components/button.js';
 import { Input } from '../../vendor/agents-party/src/ui/components/input.js';
 import { Attachments } from './Attachments.js';
 import { ApiError, type Api } from './api.js';
+import { useDialogFocus } from './modalFocus.js';
 
 export const statusLabel: Record<string, string> = { running: '执行中', queued: '排队中', completed: '已完成', failed: '失败', stopped: '已停止协调', interrupted: '已中断（未重放）', pending: '待执行', spawning: '创建会话中', 'not-selected': '未选择' };
 export const isActive = (run: RunSnapshot) => run.status === 'running' || run.followUps.some(item => item.status === 'running' || item.status === 'queued');
@@ -28,6 +29,7 @@ export function RunStatus({ run, onStop }: { run: RunSnapshot; onStop: () => Pro
 export function StartConsultation({ ready, machines, api, onStarted, onClose }: {
   ready: boolean; machines: Machine[]; api: Api; onStarted: (run: RunSnapshot) => void; onClose: () => void;
 }) {
+  const dialog = useDialogFocus(true, onClose);
   const [stock, setStock] = useState('');
   const [machineId, setMachineId] = useState('');
   const [directory, setDirectory] = useState('');
@@ -39,7 +41,7 @@ export function StartConsultation({ ready, machines, api, onStarted, onClose }: 
   // Retry of an ambiguous HTTP response keeps the same requestId and payload.
   const pending = useRef<StartInput | null>(null);
   const reason = !ready ? '先连接 Paws 账号。' : !stock.trim() ? '填写标的名称（使用 Mock 行情）。' : !machineId ? '选择在线机器。' : !directory.trim() ? '明确填写工作目录。' : uploading ? '图片上传中。' : '';
-  return <div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="新建会诊" className="modal-card">
+  return <div className="modal-backdrop"><section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="新建会诊" className="modal-card">
     <header className="flex items-center justify-between"><h2 className="font-title text-xl">新建会诊</h2><Button variant="ghost" onClick={onClose}>关闭</Button></header>
     <p className="text-sm">Mock 行情 · 合成数据，不构成投资建议</p>
     <label>标的<Input value={stock} onChange={event => setStock(event.target.value)} /></label>

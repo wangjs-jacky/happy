@@ -188,7 +188,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
   }
 
   return {
-    url: `http://${host}:${listeningPort}`,
+    url: `http://${host.includes(':') ? `[${host}]` : host}:${listeningPort}`,
     async close() {
       if (closed) return;
       closed = true;

@@ -37,6 +37,18 @@ const disconnectedSdk = {
 };
 
 describe('authenticated local service', () => {
+  it('returns a usable bracketed IPv6 loopback URL', async context => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-ipv6-')); dirs.push(dataDir);
+    let server: PocServer;
+    try { server = await createPocServer({ dataDir, host: '::1', accessToken: token, sdk: disconnectedSdk as never }); }
+    catch (error) {
+      if (['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes((error as NodeJS.ErrnoException).code ?? '')) { context.skip(); return; }
+      throw error;
+    }
+    servers.push(server);
+    expect(new URL(server.url).hostname).toBe('[::1]');
+    expect((await fetch(`${server.url}/api/consultations`, authorized())).status).toBe(200);
+  });
   it('rejects missing bearer auth, an untrusted Origin, and an untrusted Host', async () => {
     const server = await start();
 

@@ -58,7 +58,9 @@ export const PartyApp = () => {
   const [connection, setConnection] = useState<ConnectionStatus>({ state: 'disconnected' })
   const [machines, setMachines] = useState<MachinesResponse['machines']>([])
   const [runs, setRuns] = useState<RunSnapshot[]>([])
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<number | null>(null)
+  const creationRef = useRef<number | null>(null)
+  const navigationRef = useRef(0)
   const [detailRole, setDetailRole] = useState<RoleId | null>(null)
   const [images, setImages] = useState<ImageRef[]>([])
   const [uploading, setUploading] = useState(false)
@@ -201,6 +203,7 @@ export const PartyApp = () => {
 
   const openParty = useCallback(
     async (id: string) => {
+      navigationRef.current += 1
       listenAbortRef.current?.abort()
       draftGenerationRef.current += 1
       const ctl = new AbortController()
@@ -312,7 +315,7 @@ export const PartyApp = () => {
 
   useEffect(() => {
     if (token) void boot()
-    return () => { draftGenerationRef.current += 1; listenAbortRef.current?.abort() }
+    return () => { navigationRef.current += 1; creationRef.current = null; draftGenerationRef.current += 1; listenAbortRef.current?.abort() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -353,7 +356,7 @@ export const PartyApp = () => {
           <a href="https://github.com/1gr14/agents-party/tree/af00afbd49b3235c2084cff9849ef12353073484" target="_blank" rel="noreferrer" className="font-logo text-lg font-bold text-foreground">agents-party ↗</a>
           <span className="font-accent text-xs text-muted-foreground">{HOST}</span>
         </div>
-        <Button onClick={() => setCreating(true)} disabled={gate}>新建会诊</Button>
+        <Button onClick={() => { creationRef.current = ++navigationRef.current; setCreating(creationRef.current) }} disabled={gate}>新建会诊</Button>
         <Button
           variant="secondary"
           size="icon-sm"
@@ -398,6 +401,7 @@ export const PartyApp = () => {
           }}
           currentName={HOST}
           onBack={() => {
+            navigationRef.current += 1
             listenAbortRef.current?.abort()
             draftGenerationRef.current += 1
             pendingFollowUp.current = null; setImages([]); setUploading(false)
@@ -409,8 +413,19 @@ export const PartyApp = () => {
         />
         {run && detailRole && <AgentDetails key={run.id + ':' + detailRole} run={run} role={detailRole} api={api} onClose={() => setDetailRole(null)} />}
       </main>
-      {creating && <StartConsultation ready={connection.state === 'ready'} machines={machines} api={api} onClose={() => setCreating(false)} onStarted={created => {
-        setCreating(false); setRuns(previous => [created, ...previous.filter(item => item.id !== created.id)]); void loadParties().then(() => openParty(created.partyId)).catch(error => setError((error as Error).message))
+      {creating !== null && <StartConsultation key={creating} ready={connection.state === 'ready'} machines={machines} api={api} onClose={() => {
+        if (creationRef.current !== creating) return
+        creationRef.current = null; navigationRef.current += 1; setCreating(null)
+      }} onStarted={created => {
+        // Accepted work stays in history even after its dialog closes. Navigation
+        // belongs only to the originating instance and must survive the refresh.
+        setRuns(previous => [created, ...previous.filter(item => item.id !== created.id)])
+        const ownsDialog = creationRef.current === creating
+        const navigation = creating
+        if (ownsDialog) { creationRef.current = null; setCreating(null) }
+        void loadParties().then(() => {
+          if (ownsDialog && navigation === navigationRef.current) return openParty(created.partyId)
+        }).catch(error => { if (ownsDialog && navigation === navigationRef.current) setError((error as Error).message) })
       }} />}
 
       {gate && (
