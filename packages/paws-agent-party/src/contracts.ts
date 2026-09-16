@@ -60,7 +60,22 @@ export type RunSnapshot = {
   createdAt: number;
   roles: Record<RoleId, RoleSnapshot>;
   followUps: FollowUpSnapshot[];
+  turns: TurnProvenance[];
   error?: string;
+};
+
+/** Exact durable associations; absent fields mean that stage was never observed. */
+export type TurnProvenance = {
+  runId: string;
+  partyId: string;
+  participant: RoleId;
+  taskMessageId: string;
+  publicMessageId?: string;
+  sessionId?: string;
+  localId?: string;
+  rootTurnId?: string;
+  /** Durable SDK turn-end record, not the text fragment. */
+  sourceMessageId?: string;
 };
 
 export type ConnectionStatus = {

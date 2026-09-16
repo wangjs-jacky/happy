@@ -13,6 +13,7 @@ import {
   type RoleSnapshot,
   type RunSnapshot,
   type StartInput,
+  type TurnProvenance,
 } from '../contracts.js';
 import { AssetStore } from './assets.js';
 import { rolePrompt } from './market.js';
@@ -52,6 +53,7 @@ export class RunService {
   ) {
     for (const run of file.runs) {
       run.snapshot.followUps ??= [];
+      run.snapshot.turns ??= [];
       if (run.snapshot.status === 'running') {
         run.snapshot.status = 'interrupted';
         run.snapshot.phase = 'interrupted-after-restart';
@@ -127,7 +129,7 @@ export class RunService {
     } satisfies RoleSnapshot])) as Record<RoleId, RoleSnapshot>;
     const snapshot: RunSnapshot = {
       id: randomUUID(), partyId, stock: input.stock, mode: input.mode,
-      status: 'running', phase: 'queued', createdAt: Date.now(), roles, followUps: [],
+      status: 'running', phase: 'queued', createdAt: Date.now(), roles, followUps: [], turns: [],
     };
     const stored: StoredRun = { snapshot, input: clone(input), cursors: {} };
     this.runs.set(snapshot.id, stored);
@@ -330,13 +332,18 @@ export class RunService {
   ): Promise<string> {
     throwIfAborted(signal);
     const taskMessage = await this.party.send({ partyId: run.snapshot.partyId, from: 'host', to: [role], text: task, images: imageRefs });
+    const turn: TurnProvenance = { runId: run.snapshot.id, partyId: run.snapshot.partyId, participant: role, taskMessageId: taskMessage.id };
+    run.snapshot.turns.push(turn);
+    await this.persist();
     const history = await this.party.read(run.snapshot.partyId);
     const delivered = history.find(message => message.id === taskMessage.id);
     if (!delivered) throw new Error('Party task delivery was not durably readable.');
     const result = await this.runRemoteTurn(
-      run, role, rolePrompt(role, run.input.stock, delivered.text, boundedCompleteContext(history)), images, signal,
+      run, role, rolePrompt(role, run.input.stock, delivered.text, boundedCompleteContext(history)), images, signal, turn,
     );
-    await this.party.send({ partyId: run.snapshot.partyId, from: role, to: '*', text: result, replyTo: taskMessage.id });
+    const published = await this.party.send({ partyId: run.snapshot.partyId, from: role, to: '*', text: result, replyTo: taskMessage.id });
+    turn.publicMessageId = published.id;
+    await this.persist();
     return result;
   }
 
@@ -346,6 +353,7 @@ export class RunService {
     prompt: string,
     images: SendMessageInput['images'],
     signal: AbortSignal,
+    turn: TurnProvenance,
   ): Promise<string> {
     const roleState = run.snapshot.roles[role];
     const deadline = deadlineSignal(signal, this.turnTimeoutMs);
@@ -356,6 +364,8 @@ export class RunService {
     try {
       const sessionId = await this.ensureSession(run, role, runSignal);
       const localId = randomUUID();
+      Object.assign(turn, { sessionId, localId });
+      await this.persist();
       const decoder = new DurableTurnDecoder(localId);
       const terminal = deferred<TurnTerminal>();
       terminal.promise.catch(() => undefined);
@@ -365,6 +375,8 @@ export class RunService {
         onMessage: message => {
           run.cursors[role] = Math.max(run.cursors[role] ?? 0, message.seq);
           const result = decoder.accept(message);
+          Object.assign(turn, decoder.provenance);
+          void this.persist().catch(error => terminal.reject(error));
           if (result) terminal.resolve(result);
         },
         onError: error => terminal.reject(error),

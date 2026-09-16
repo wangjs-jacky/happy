@@ -37,6 +37,10 @@ export class DurableTurnDecoder {
   private readonly seen = new Set<number>();
   private submissionEchoed = false;
   private turnId: string | null = null;
+  private terminalMessageId: string | undefined;
+  get provenance(): { rootTurnId?: string; sourceMessageId?: string } {
+    return { ...(this.turnId ? { rootTurnId: this.turnId } : {}), ...(this.terminalMessageId ? { sourceMessageId: this.terminalMessageId } : {}) };
+  }
   private readonly text: string[] = [];
 
   constructor(private readonly submittedLocalId: string) {}
@@ -62,6 +66,7 @@ export class DurableTurnDecoder {
       return null;
     }
     if (envelope.ev.t !== 'turn-end' || !('status' in envelope.ev)) return null;
+    if (['completed', 'failed', 'cancelled'].includes(String(envelope.ev.status))) this.terminalMessageId = message.id;
     if (envelope.ev.status === 'failed' || envelope.ev.status === 'cancelled') {
       return { type: 'failed', status: envelope.ev.status };
     }

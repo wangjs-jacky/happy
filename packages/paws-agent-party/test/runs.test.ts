@@ -32,6 +32,38 @@ async function startAt(sdk: TestOnlySdk, dataDir: string, turnTimeoutMs?: number
 const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
 
 describe('consultation runs', () => {
+  it('persists exact task/result and SDK turn provenance across roles, turns and restart', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(sdk);
+    const started = await postStart(server, input());
+    const completed = await waitForTerminal(server, started.id);
+    const turns = completed.turns;
+    expect(turns).toHaveLength(8);
+    const publicMessages = await readParty(server, completed.partyId);
+    for (const turn of turns) {
+      expect(turn.runId).toBe(completed.id);
+      expect(turn.partyId).toBe(completed.partyId);
+      expect(turn.sessionId).toBe(`session-${turn.participant}`);
+      const task = publicMessages.find(message => message.id === turn.taskMessageId);
+      const result = publicMessages.find(message => message.id === turn.publicMessageId);
+      expect(task?.from).toBe('host');
+      expect(result?.from).toBe(turn.participant);
+      expect(result?.replyTo).toBe(turn.taskMessageId);
+      const page = await sdk.historyPage(turn.sessionId!, { afterSeq: 0, limit: 200 });
+      expect(page.messages.some(message => message.localId === turn.localId)).toBe(true);
+      expect(page.messages.find(message => message.id === turn.sourceMessageId)?.content).toEqual({
+        role: 'session', content: { type: 'session', data: { role: 'agent', turn: turn.rootTurnId, ev: { t: 'turn-end', status: 'completed' } } },
+      });
+    }
+    expect(turns.filter(turn => turn.participant === 'trend30').map(turn => turn.rootTurnId)).toEqual(['root-1', 'root-2']);
+    const dataDir = dirs.at(-1)!;
+    await server.close();
+    servers.splice(servers.indexOf(server), 1);
+    const restarted = await startAt(sdk, dataDir);
+    const restored = await fetch(`${restarted.url}/api/consultations/${started.id}`, { headers }).then(response => response.json());
+    expect(restored.turns).toEqual(turns);
+    expect(sdk.calls).toHaveLength(8);
+  });
   it('rejects a remote run before the Paws account is linked', async () => {
     const server = await start(new TestOnlySdk({ ready: false }));
 

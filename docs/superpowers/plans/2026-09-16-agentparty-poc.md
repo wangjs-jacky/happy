@@ -37,9 +37,17 @@ type ImageRef = { id: string; name: string; mimeType: string; size: number };
 type StartInput = { requestId: string; stock: string; text: string; images: ImageRef[];
   machineId: string; directory: string; agents: Record<RoleId, Engine>; mode: 'single' | 'consultation' };
 type RoleSnapshot = { role: RoleId; status: string; sessionId?: string; error?: string };
+type FollowUpStatus = 'queued' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+type FollowUpSnapshot = { requestId: string; to: RoleId[]; status: FollowUpStatus;
+  roles: Partial<Record<RoleId, { status: FollowUpStatus; error?: string }>>;
+  createdAt: number; error?: string };
+type TurnProvenance = { runId: string; partyId: string; participant: RoleId;
+  taskMessageId: string; publicMessageId?: string; localId?: string;
+  sessionId?: string; rootTurnId?: string; sourceMessageId?: string };
 type RunSnapshot = { id: string; partyId: string; stock: string; mode: 'single' | 'consultation';
   status: 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; phase: string;
-  createdAt: number; roles: Record<RoleId, RoleSnapshot>; error?: string };
+  createdAt: number; roles: Record<RoleId, RoleSnapshot>; followUps: FollowUpSnapshot[];
+  turns: TurnProvenance[]; error?: string };
 type ConnectionStatus = { state: 'disconnected' | 'linking' | 'connecting' | 'ready' | 'error';
   serverUrl?: string; qrUrl?: string; error?: string };
 ```
@@ -86,7 +94,11 @@ expect(callsFor('moderator')).toHaveLength(2);
 
 **Interfaces:** Consumes Task 1 HTTP/types/timeline reducer. Chat gains optional `onOpenParticipant(name)`, rich message renderer and composer extension hooks; retain original components and list/layout behavior. ConnectionPanel uses QR link status, never handles Paws account secret. AgentDetails consumes paginated durable message endpoint with seq-based append.
 
-- [ ] RED: rendered component tests catch clicking a participant changing recipient rather than opening details; image-only submission disabled; own send skipping an unseen received message; failed/stopped run shown as completed; disconnected state permitting model run. Use real Chat, not mocked UI.
+**Controller clarification (2026-09-16):** Task 1 omitted the approved design's root-turn/source-message association. Task 2 is authorized to add the minimal compatible contracts/protocol/run-store fields: persist Party task ID, returned public Party reply ID, SDK localId, exact session/rootTurnId and durable sourceMessageId, which explicitly labels the turn-end record. Render exact per-turn provenance in AgentDetails; never infer it from latest session or matching response text. Test multiple roles/turns and restart persistence. Older runs normalize `turns` to `[]`; Task 1's `followUps` is likewise required with old-record normalization. Follow-up active means queued/running; mixed failures do not hide surviving active recipients, and stop remains available during follow-ups even when initial run is terminal.
+
+**Task 2 evidence boundary:** Automated SDK-boundary fixtures use real Party SQLite/encryption and the actual imported Chat/Composer/Sidebar. They do not satisfy real model or browser acceptance. UI Before is upstream `af00afbd49b3235c2084cff9849ef12353073484`; local Task 2 base `b18af4088a356dcb1169b82752b118a6db5b9c96` contains no runnable UI. A1/A3/live images and Ego browser verification remain pending; screenshot choice remains unanswered.
+
+- [x] RED: rendered component tests catch clicking a participant changing recipient rather than opening details; image-only submission disabled; own send skipping an unseen received message; failed/stopped run shown as completed; disconnected state permitting model run. Use real Chat, not mocked UI.
 
 ```tsx
 await user.click(screen.getByRole('button', {name: /查看.*trend30/}));
@@ -94,13 +106,13 @@ expect(screen.getByRole('dialog', {name: /执行详情/})).toBeVisible();
 expect(screen.getByText(/远端可能继续/)).toBeVisible();
 ```
 
-- [ ] GREEN: preserve upstream Party layout and skin with semantic CSS tokens (no new per-component hardcoded surface colors). Keep react/Tailwind shell independent of Happy native Unistyles; no Tauri/Expo changes. Chinese labels for this POC, visible agents-party source link, constant Mock market banner. Adapt native timeline load/listen with the tested reducer and sorted/id-deduped merge, not a separate fabricated conversation.
-- [ ] GREEN: auth access token bootstrap from URL fragment (remove from address bar) or manual input, no credentials in assets/logs. Show SDK server URL + connect QR/status/disconnect, machine selector, explicit directory, per-role engine selects. Start form handles text, image-only, mixed; preview validated attachments and remove before sending. Disabled/busy/error states are accessible and explain missing prerequisites.
-- [ ] GREEN: offer single-Agent connection check and full consultation. Public timeline has eight actual Agent turns for full mode. Existing user addressing stays available for terminal-run follow-ups. Agent detail opens as right panel on wide viewport and touch-usable modal on narrow; shows status/sessionId, structured event summaries plus expandable raw record, pending permissions guidance and original Paws session link, paging/reconnect errors. Do not render hidden reasoning as promised data.
-- [ ] GREEN: stop label explicitly means stop coordination, late-created session remains visible. Switch/reload restores Party history and saved run state; server restart interrupted state not fake resumed. Fetch attachments with authorized API into revocable blob URLs; no token in image query URL.
-- [ ] Verify: package tests/typecheck/build, built HTTP app smoke with real Party storage. A test-only acceptance server may use deterministic SDK fixtures but must visibly say “测试替身，非真实 Agent”; no mock model switch in normal production start. Node fixture should use real SDK relay if practical; reuse prior test relay only if necessary and clearly separate.
-- [ ] README: exact pnpm commands, token handling, QR authorization, local-only access boundary, browser close vs server stop behavior, single data-dir restriction, why real-model acceptance can be blocked, upstream provenance. Include local-live start path that needs no code edits to use real SDK. Record base commit for UI Before, never claim screenshots/live tests if absent.
-- [ ] Create local commit and report exact verification commands and unresolved gate statuses. Controller performs independent review and Ego browser/live acceptance where authorized/available. Do not publish, push, open external tunnels, or create PR.
+- [x] GREEN: preserve upstream Party layout and skin with semantic CSS tokens (no new per-component hardcoded surface colors). Keep react/Tailwind shell independent of Happy native Unistyles; no Tauri/Expo changes. Chinese labels for this POC, visible agents-party source link, constant Mock market banner. Adapt native timeline load/listen with the tested reducer and sorted/id-deduped merge, not a separate fabricated conversation.
+- [x] GREEN: auth access token bootstrap from URL fragment (remove from address bar) or manual input, no credentials in assets/logs. Show SDK server URL + connect QR/status/disconnect, machine selector, explicit directory, per-role engine selects. Start form handles text, image-only, mixed; preview validated attachments and remove before sending. Disabled/busy/error states are accessible and explain missing prerequisites.
+- [x] GREEN: offer single-Agent connection check and full consultation. Public timeline has eight actual Agent turns for full mode. Existing user addressing stays available for terminal-run follow-ups. Agent detail opens as right panel on wide viewport and touch-usable modal on narrow; shows status/sessionId, structured event summaries plus expandable raw record, pending permissions guidance and original Paws session link, paging/reconnect errors. Do not render hidden reasoning as promised data.
+- [x] GREEN: stop label explicitly means stop coordination, late-created session remains visible. Switch/reload restores Party history and saved run state; server restart interrupted state not fake resumed. Fetch attachments with authorized API into revocable blob URLs; no token in image query URL.
+- [x] Verify: package tests/typecheck/build, built HTTP app smoke with real Party storage. A test-only acceptance server may use deterministic SDK fixtures but must visibly say “测试替身，非真实 Agent”; no mock model switch in normal production start. Node fixture should use real SDK relay if practical; reuse prior test relay only if necessary and clearly separate.
+- [x] README: exact pnpm commands, token handling, QR authorization, local-only access boundary, browser close vs server stop behavior, single data-dir restriction, why real-model acceptance can be blocked, upstream provenance. Include local-live start path that needs no code edits to use real SDK. Record base commit for UI Before, never claim screenshots/live tests if absent.
+- [x] Create local commit and report exact verification commands and unresolved gate statuses. Controller performs independent review and Ego browser/live acceptance where authorized/available. Do not publish, push, open external tunnels, or create PR.
 
 ## Acceptance cases
 
