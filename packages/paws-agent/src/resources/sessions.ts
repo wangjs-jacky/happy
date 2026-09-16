@@ -1,3 +1,4 @@
+import { readConfiguration } from './configuration';
 import { PawsAgentError } from '../client/errors';
 import type {
     Machine,
@@ -64,6 +65,10 @@ export class SessionsResourceImpl implements SessionsResource {
         };
         this.cache.set(session.id, session);
         return session;
+    }
+
+    async getConfiguration(sessionId: string) {
+        return readConfiguration((await this.get(sessionId)).metadata);
     }
 
     async spawn(input: SpawnSessionInput): Promise<SpawnSessionResult> {
