@@ -17,7 +17,7 @@ The last command always constructs the real SDK. There is no mock-model switch i
 
 An optional `#token=<local-access-token>` URL fragment bootstraps access and is immediately removed with `history.replaceState`; the fragment is never sent in an HTTP request. Prefer manual entry when sharing links or screens. The local token is retained in this tab's `sessionStorage` for reloads. Every API/attachment fetch uses a Bearer header. Images are fetched as authorized blobs and their object URLs are revoked on replacement/unmount. Do not put tokens in query strings or logs.
 
-Choose an online machine and explicitly enter its working directory. Select each role's engine (`codex`, `claude`, `gemini`, `opencode`). Start with “单 Agent 连接检查”; “完整会诊” runs eight initial turns: moderator opening, three specialist analyses, three challenges, moderator synthesis. PNG/JPEG/WebP inputs support text-only, image-only, and mixed submissions: at most four files, each at most 10 MiB. Model/provider image support still needs a live check.
+Choose an online machine and explicitly enter its working directory. Select each role's engine (`codex`, `claude`, `gemini`, `opencode`). Start with “单 Agent 连接检查”; “完整会诊” runs eight initial turns: moderator opening, three specialist analyses, three challenges, moderator synthesis. PNG/JPEG/WebP inputs support text-only, image-only, and mixed submissions: at most four files, each at most 10 MiB. Image support is model/provider-specific; the live checks below cover Codex on one Linux executor only.
 
 Click a participant's name for durable execution details. Recipient chips independently address terminal-run follow-ups; no selection means moderator. Details show stored party/run/participant/task/public-message/localId/session/root-turn associations. `sourceMessageId` identifies the durable **turn-end event**, not a text fragment. Missing fields indicate an unobserved/unreached stage. Public history contains only statements and submitted tasks; raw SDK records remain in the owner-only details panel. Pending permissions must be handled in the linked original Paws session; this service never auto-approves them. The original-session link uses the project's Paws Web origin, `https://47.115.228.20:8443/session/<id>`.
 
@@ -56,6 +56,18 @@ pnpm --filter @wangjs-jacky/paws-agent-party exec tsx test/smoke.ts
 
 The smoke test starts the built service twice in temporary directories: first its real, disconnected SDK adapter (HTML/assets/auth checks), then the explicit SDK fixture (eight turns through real Party SQLite/encryption plus durable provenance). It cleans up its own temporary data. Neither pass means a model ran.
 
-Live A1 (one real response), A3 (eight real responses), and the live image part of A2 require normal account QR approval, an available online machine/provider, and model access. They remain unverified. No browser, screenshots or visual acceptance are claimed by this implementation. The controller owns any authorized Ego browser check; screenshot choice remains pending. Overall acceptance is **部分完成（整体未完成）** until the live/browser gates are evaluated.
+Live acceptance on 2026-09-16 used the normal built service, its account-link approval flow, the real SDK and the user's selected Linux/Codex executor. No fixture was injected.
+
+| Gate | Observed result |
+| --- | --- |
+| A1: real response | Passed through the API: a real moderator reply reached Party. A canonical session-envelope decoding defect found in the first live run was fixed and regression-tested. |
+| A2: image input | Image-only and text-plus-image follow-ups completed in the same real session. The first image reply correctly identified a visual code absent from the prompt. This does not verify browser attachment interaction or every supported engine. |
+| A3: eight real turns | **Not passed.** Two attempts failed while creating the initial moderator session with `RPC call timed out`, before any consultation reply. No further blind spawn retry was made. |
+| A4: matching details | API verification passed: public text and persisted session/root-turn/turn-end references match the actual durable records. Clicking through the browser UI remains unverified. |
+| A5: failure/retry/lifecycle | Same-request retries were deduplicated for the single run and follow-ups; failed consultation attempts remain recorded. Broader stop/reload/disconnection coverage is automated, not live browser acceptance. |
+
+Read-only diagnosis after the spawn failures found fresh machine heartbeats, successful directory RPC, and working replies in the existing session. No new corresponding sessions were observed in the later snapshot. The underlying spawn failure remains unconfirmed and needs executor startup logs; online status alone does not establish spawn health. The SDK's 30-second RPC deadline differs from the server source's 100-second startup allowance, but this is not proof of the observed root cause. Neither timeouts nor daemon configuration were changed.
+
+The protocol fix passes 67 package tests, typecheck, build, built HTTP smoke and scoped independent review. These checks do not replace the outstanding full consultation or browser gates. No browser, screenshots, public deployment or visual acceptance are claimed. Screenshot choice remains pending. Overall acceptance is **部分完成（整体未完成）**.
 
 UI Before source is upstream commit `af00afbd49b3235c2084cff9849ef12353073484`; local Task 2 base is `b18af4088a356dcb1169b82752b118a6db5b9c96`. There was no runnable local UI at that local base. See [UPSTREAM.md](./UPSTREAM.md) for imported paths, adaptations, and licensing. Fonts use system fallbacks with no external font requests.
