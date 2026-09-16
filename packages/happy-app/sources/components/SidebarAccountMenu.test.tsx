@@ -308,6 +308,27 @@ describe('SidebarAccountMenu', () => {
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
     });
 
+    it('opens add-account management in the desktop modal flow', () => {
+        const openAccounts = vi.fn();
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarAccountMenu
+                    displayName="Paws User"
+                    onNavigate={mocks.navigate}
+                    onOpenChange={vi.fn()}
+                    {...{ onOpenAccounts: openAccounts } as any}
+                    open
+                    profile={profile}
+                />,
+            );
+        });
+
+        act(() => renderer.root.findByType('SavedAccountsMenu').props.onNavigate('/accounts?add=1'));
+
+        expect(openAccounts).toHaveBeenCalledExactlyOnceWith(true);
+        expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
     it('uses the pressed surface for Web hover and press states', () => {
         act(() => {
             renderer = TestRenderer.create(

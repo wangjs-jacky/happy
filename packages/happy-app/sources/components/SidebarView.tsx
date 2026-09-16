@@ -436,12 +436,12 @@ export const SidebarView = React.memo(({
         go('/settings');
     }, [go, isDesktop, openSettings]);
 
-    const openAccountManagement = React.useCallback(() => {
+    const openAccountManagement = React.useCallback((add = false) => {
         if (isDesktop) {
-            openRoute('/accounts');
+            openRoute('/accounts', add ? { add: '1' } : undefined);
             return;
         }
-        go('/accounts');
+        go(add ? '/accounts?add=1' : '/accounts');
     }, [go, isDesktop, openRoute]);
 
     const openSessionSearch = React.useCallback(() => {
