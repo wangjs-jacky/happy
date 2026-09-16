@@ -3,6 +3,7 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UsagePanel } from './UsagePanel';
 import { zhHans } from '@/text/translations/zh-Hans';
+import { appThemes } from '@/themePacks';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
@@ -250,6 +251,57 @@ describe('UsagePanel', () => {
         expect(texts).toContain('98%');
         expect(texts).toContain('Codex · 8A6C');
         expect(texts.some((value: string) => value.includes('"tokens":"900"'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('never presents an unattributed quota as the combined All-accounts quota when profile metadata is unavailable', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        const day = (totalTokens: number) => ({
+            date: '2026-09-14', inputTokens: totalTokens, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0,
+            totalTokens, tokenCountEvents: 1, sessions: 1, totalOnlyTokens: 0,
+        });
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl', scannedAt: Date.UTC(2026, 8, 14), days: [day(300)],
+                    latestEvent: { rateLimits: { planType: 'pro', primary: { usedPercent: 49, windowMinutes: 10080 } } },
+                },
+                codexAccountUsage: [{
+                    profileId: '00000000-0000-4000-8000-000000000001',
+                    usage: { source: 'codex-session-jsonl', scannedAt: Date.UTC(2026, 8, 14), days: [day(100)] },
+                }],
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const allAccounts = renderer.root.findByProps({ testID: 'codex-usage-scope-all' });
+        act(() => allAccounts.props.onPress());
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).not.toContain('51%');
+        expect(renderer.root.findByProps({ testID: 'codex-usage-day-2026-09-14' }).props.accessibilityLabel)
+            .toContain('"tokens":"400"');
+
+        act(() => renderer.unmount());
+    });
+
+    it('uses semantic surface states for Codex account scope chips', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.codexProfiles = [{
+            id: '00000000-0000-4000-8000-000000000001', displayName: 'Codex · 5C7D', status: 'available', credentialVersion: 1,
+            createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z', lastValidatedAt: null,
+            quota: { state: 'unknown', remainingPercent: null, weeklyResetsAt: null, observedAt: null },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const allAccounts = renderer.root.findByProps({ testID: 'codex-usage-scope-all' });
+        const selectedAccount = renderer.root.findByProps({ testID: `codex-usage-scope-${mocks.codexProfiles[0].id}` });
+
+        expect(typeof allAccounts.props.style).toBe('function');
+        expect(allAccounts.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ backgroundColor: appThemes.ginghamDark.colors.surface }));
+        expect(allAccounts.props.style({ pressed: true })).toContainEqual(expect.objectContaining({ backgroundColor: appThemes.ginghamDark.colors.surfacePressed }));
+        expect(selectedAccount.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ backgroundColor: appThemes.ginghamDark.colors.surfaceSelected }));
 
         act(() => renderer.unmount());
     });

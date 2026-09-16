@@ -65,6 +65,28 @@ export async function restoreCodexAccountHistory(root: string, profileId: string
 }
 
 const auditPath = (root: string, sessionId: string) => join(root, 'session-audit', createHash('sha256').update(sessionId).digest('hex') + '.json');
+async function readCodexSourceAccountAudit(root: string, sessionId: string): Promise<{ profileId: string; home?: string } | undefined> {
+  if (!sessionId) return undefined;
+  const path = auditPath(root, sessionId);
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw new CodexSourceHistoryUnavailableError();
+  });
+  if (!info) return undefined;
+  try {
+    if (!info.isFile()) throw new Error();
+    const audit = JSON.parse(await readFile(path, 'utf8')) as { profileId?: unknown; home?: unknown };
+    if (typeof audit.profileId !== 'string' || !audit.profileId) throw new Error();
+    return { profileId: audit.profileId, home: typeof audit.home === 'string' ? audit.home : undefined };
+  } catch {
+    throw new CodexSourceHistoryUnavailableError();
+  }
+}
+
+export async function getCodexSourceAccountProfileId(root: string, sessionId: string): Promise<string | undefined> {
+  return (await readCodexSourceAccountAudit(root, sessionId))?.profileId;
+}
+
 export async function rememberCodexAccountSession(root: string, sessionId: string, profileId: string, home?: string): Promise<void> {
   await copyLock.inLock(async () => {
     await privateDirectory(root); await privateDirectory(join(root, 'session-audit'));
@@ -103,10 +125,8 @@ export async function copyCodexSourceThread(root: string, sourceSessionId: strin
   if (!sourceSessionId || !/^[A-Za-z0-9_-]{1,128}$/.test(threadId)) throw new CodexSourceHistoryUnavailableError();
   return copyLock.inLock(async () => {
     try {
-      const path = auditPath(root, sourceSessionId);
-      if (!(await lstat(path)).isFile()) throw new Error();
-      const audit = JSON.parse(await readFile(path, 'utf8'));
-      if (typeof audit.profileId !== 'string' || !audit.profileId) throw new Error();
+      const audit = await readCodexSourceAccountAudit(root, sourceSessionId);
+      if (!audit) throw new Error();
       if (expectedProfileId && audit.profileId !== expectedProfileId) throw new CodexSourceAccountMismatchError();
       let found = 0;
       if (typeof audit.home === 'string' && basename(audit.home).startsWith('happy-codex-home-')) {

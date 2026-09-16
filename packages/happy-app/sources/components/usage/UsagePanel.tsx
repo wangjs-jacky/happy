@@ -370,13 +370,16 @@ const styles = StyleSheet.create((theme) => ({
         gap: 8,
     },
     codexAccountChip: {
-        backgroundColor: theme.colors.surfaceHigh,
+        backgroundColor: theme.colors.surface,
         borderRadius: 999,
         paddingHorizontal: 14,
         paddingVertical: 8,
     },
+    codexAccountChipPressed: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
     codexAccountChipActive: {
-        backgroundColor: theme.colors.button.primary.background,
+        backgroundColor: theme.colors.surfaceSelected,
     },
     codexAccountChipText: {
         color: theme.colors.textSecondary,
@@ -384,7 +387,7 @@ const styles = StyleSheet.create((theme) => ({
         fontWeight: '600',
     },
     codexAccountChipTextActive: {
-        color: theme.colors.button.primary.tint,
+        color: theme.colors.text,
     },
     codexTitle: {
         color: theme.colors.text,
@@ -638,7 +641,9 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const suggestedCodexProfileId = codexAccounts.profiles.some((profile) => profile.id === preferredCodexProfileId)
         ? preferredCodexProfileId
         : codexAccounts.profiles[0]?.id;
-    const activeCodexUsageScope = codexUsageScope || suggestedCodexProfileId || 'all';
+    const activeCodexUsageScope = codexUsageScope
+        || suggestedCodexProfileId
+        || (unattributedCodexUsageSnapshots.length > 0 ? 'unattributed' : 'all');
     const selectedCodexProfile = codexAccounts.profiles.find((profile) => profile.id === activeCodexUsageScope);
     const selectedCodexUsageSnapshots = React.useMemo(() => {
         if (activeCodexUsageScope === 'unattributed') return unattributedCodexUsageSnapshots;
@@ -656,10 +661,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         () => getCodexAccountQuotaSummary(selectedCodexProfile),
         [selectedCodexProfile],
     );
-    const codexQuotaUsage = activeCodexUsageScope === 'unattributed'
-        || (activeCodexUsageScope === 'all' && codexAccounts.profiles.length === 0)
-        ? unattributedQuotaUsage
-        : null;
+    const codexQuotaUsage = activeCodexUsageScope === 'unattributed' ? unattributedQuotaUsage : null;
     const codexRateLimits = React.useMemo(() => {
         const rateLimits = codexQuotaUsage?.latestEvent?.rateLimits;
         if (!rateLimits) return selectedAccountQuota ? [selectedAccountQuota] : [];
@@ -816,7 +818,11 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                     accessibilityRole="tab"
                                     aria-selected={active}
                                     onPress={() => setCodexUsageScope(scope.id)}
-                                    style={[styles.codexAccountChip, active && styles.codexAccountChipActive]}
+                                    style={({ pressed }) => [
+                                        styles.codexAccountChip,
+                                        active && styles.codexAccountChipActive,
+                                        pressed && styles.codexAccountChipPressed,
+                                    ]}
                                 >
                                     <Text style={[styles.codexAccountChipText, active && styles.codexAccountChipTextActive]}>{scope.label}</Text>
                                 </Pressable>

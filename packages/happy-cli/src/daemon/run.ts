@@ -905,7 +905,11 @@ export async function startDaemon(): Promise<void> {
           env: codexLaunch ? codexLaunch.environment(applyCodexNetworkEnv(env)) : env,
           codexLaunch,
         });
-        }, { sourceSessionId: happySessionId, sourceThreadId: metadata.codexThreadId });
+        }, {
+          sourceSessionId: happySessionId,
+          sourceThreadId: metadata.codexThreadId,
+          sourceProfileId: metadata.codexAccountProfileId,
+        });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : (error && typeof error === 'object' ? JSON.stringify(error) : String(error));
         logger.debug(`[DAEMON RUN] Failed to resume session: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
