@@ -18,10 +18,17 @@ export function useSidebarScrollState<T>(key: string) {
         restoring: (positions?.get(key) ?? 0) > 0,
         height: 0,
         contentHeight: 0,
+        active: true,
     }), [key, positions]);
 
+    React.useLayoutEffect(() => {
+        state.active = true;
+        return () => { state.active = false; };
+    }, [state]);
+
+    const cancelRestoration = React.useCallback(() => { state.restoring = false; }, [state]);
     const restore = React.useCallback(() => {
-        if (!state.restoring || !state.height || !state.contentHeight) return;
+        if (!state.active || !state.restoring || !state.height || !state.contentHeight) return;
         ref.current?.scrollToOffset({ offset: state.offset, animated: false });
     }, [state]);
 
@@ -35,12 +42,24 @@ export function useSidebarScrollState<T>(key: string) {
             state.contentHeight = height;
             restore();
         }, [restore, state]),
-        onScrollBeginDrag: React.useCallback(() => { state.restoring = false; }, [state]),
+        onScrollBeginDrag: cancelRestoration,
+        // React Native Web forwards these to the scroll element. A wheel or
+        // scrollbar drag must take over even while virtual cells are measuring.
+        onWheel: cancelRestoration,
+        onPointerDown: cancelRestoration,
+        onKeyDown: React.useCallback((event: { key?: string }) => {
+            if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key ?? '')) {
+                cancelRestoration();
+            }
+        }, [cancelRestoration]),
         onScroll: React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            if (!state.active) return false;
             const offset = event.nativeEvent.contentOffset.y;
             if (state.restoring) {
                 if (!state.height || !state.contentHeight) return false;
-                const target = Math.min(state.offset, Math.max(0, state.contentHeight - state.height));
+                // The first virtualized batch can be shorter than the saved
+                // offset. Do not mistake its temporary scroll clamp for success.
+                const target = state.offset;
                 if (Math.abs(offset - target) > 1) return false;
                 state.restoring = false;
                 state.offset = offset;

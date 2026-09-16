@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
         sessions: [] as any[],
         pinnedOrder: [] as string[],
         pathname: '/',
+        width: 1024,
+        platform: 'web',
     };
     return Object.assign(state, {
         updateExpansion(updater: (current: Record<string, boolean>) => Record<string, boolean>) {
@@ -29,7 +31,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('react-native', async () => {
     const ReactModule = await import('react');
     return {
-        Platform: { OS: 'web', select: ({ default: value }: any) => value },
+        Platform: { get OS() { return mocks.platform; }, select: ({ default: value }: any) => value },
         Pressable: ({ children, ...props }: any) => ReactModule.createElement(
             'Pressable',
             props,
@@ -38,7 +40,7 @@ vi.mock('react-native', async () => {
         View: 'View',
         FlatList: 'FlatList',
         ActivityIndicator: 'ActivityIndicator',
-        useWindowDimensions: () => ({ width: 1024, height: 768 }),
+        useWindowDimensions: () => ({ width: mocks.width, height: 768 }),
     };
 });
 vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather' }));
@@ -133,6 +135,34 @@ describe('ActiveSessionsGroupCompact project expansion persistence', () => {
         mocks.sessions = [];
         mocks.pinnedOrder = [];
         mocks.pathname = '/';
+        mocks.width = 1024;
+        mocks.platform = 'web';
+    });
+
+    it.each([
+        ['web', 1440, 'time', true],
+        ['web', 1440, 'projects', false],
+        ['web', 390, 'time', false],
+        ['ios', 1440, 'time', false],
+    ] as const)('limits Animated List to desktop timeline (%s/%s/%s)', (platform, width, layoutMode, expected) => {
+        mocks.platform = platform;
+        mocks.width = width;
+        mocks.sessions = [{ ...session, name: '完整的会话标题' }];
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionsList layoutMode={layoutMode} />); });
+        const list = renderer.root.findByType('FlatList');
+        const row = list.props.data.find((item: any) => item.type === 'compact-session');
+        const element = list.props.renderItem({ item: row });
+        expect(element.props.animatedTimeline).toBe(expected);
+        let cell: any;
+        act(() => { cell = TestRenderer.create(element); });
+        expect(cell.root.findByProps({ testID: 'session-row-title-text' }).props.children).toBe('完整的会话标题');
+        expect(cell.root.findByProps({ testID: 'session-row-title-text' }).props.numberOfLines).toBe(expected || width < 600 ? 2 : 1);
+        if (layoutMode === 'time') {
+            expect(cell.root.findAllByProps({ accessibilityLabel: 'repo · Mac' })).toHaveLength(1);
+            expect(cell.root.findByProps({ name: 'folder' }).props.size).toBe(13);
+        }
+        act(() => { cell.unmount(); renderer.unmount(); });
     });
 
     it('preserves pinned order, location and selected row when rendering an individual outer cell', () => {

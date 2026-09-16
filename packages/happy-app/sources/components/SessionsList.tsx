@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, View, Pressable, FlatList, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, View, Pressable, FlatList, useWindowDimensions } from 'react-native';
+import { AnimatedTimelineProvider } from './AnimatedTimeline';
 import { useSidebarScrollState } from './SidebarScrollState';
 import { Text } from '@/components/StyledText';
 import { usePathname } from 'expo-router';
@@ -140,7 +141,9 @@ type SidebarListItem = Exclude<SessionListViewItem, { type: 'active-sessions' }>
 
 export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projects' | 'time' }) {
     const scrollState = useSidebarScrollState<SidebarListItem>(layoutMode);
-    const compactToolbar = useWindowDimensions().width < 600;
+    const viewportWidth = useWindowDimensions().width;
+    const compactToolbar = viewportWidth < 600;
+    const animatedTimeline = Platform.OS === 'web' && viewportWidth >= 1024 && layoutMode === 'time';
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -280,6 +283,7 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                 return (
                     <CompactSessionListRow
                         item={item}
+                        animatedTimeline={animatedTimeline}
                         selectedSessionId={selectedSessionId}
                         selectionMode={selectionMode}
                         selectedIds={selectedIds}
@@ -304,6 +308,7 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                 return (
                     <CompactSessionRow
                         session={item.session}
+                        animatedTimeline={animatedTimeline}
                         selected={item.session.id === selectedSessionId}
                         bulkSelected={selectedIds.has(item.session.id)}
                         selectionMode={selectionMode}
@@ -313,7 +318,7 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
                     />
                 );
         }
-    }, [selectedSessionId, toggleArchived, selectionMode, selectedIds, startSelection, toggleSelection]);
+    }, [animatedTimeline, selectedSessionId, toggleArchived, selectionMode, selectedIds, startSelection, toggleSelection]);
     const HeaderComponent = React.useCallback(() => {
         return (
             <UpdateBanner />
@@ -325,19 +330,21 @@ export function SessionsList({ layoutMode = 'projects' }: { layoutMode?: 'projec
     return (
         <View style={styles.container}>
             <View style={styles.contentContainer}>
-                <FlatList
-                    key={layoutMode}
-                    {...scrollState}
-                    data={listData}
-                    renderItem={renderItem}
-                    keyExtractor={keyExtractor}
-                    extraData={`${selectedSessionId ?? ''}:${selectionMode}:${Array.from(selectedIds).join(',')}`}
-                    contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
-                    ListHeaderComponent={HeaderComponent}
-                    windowSize={5}
-                    maxToRenderPerBatch={8}
-                    initialNumToRender={12}
-                />
+                <AnimatedTimelineProvider>
+                    <FlatList
+                        key={layoutMode}
+                        {...scrollState}
+                        data={listData}
+                        renderItem={renderItem}
+                        keyExtractor={keyExtractor}
+                        extraData={`${selectedSessionId ?? ''}:${selectionMode}:${Array.from(selectedIds).join(',')}`}
+                        contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
+                        ListHeaderComponent={HeaderComponent}
+                        windowSize={5}
+                        maxToRenderPerBatch={8}
+                        initialNumToRender={12}
+                    />
+                </AnimatedTimelineProvider>
                 {selectionMode && (
                     <View testID="session-bulk-toolbar" style={[styles.bulkToolbar, compactToolbar && styles.bulkToolbarCompact, { bottom: safeArea.bottom + 16 }]}>
                         <Text style={[styles.bulkToolbarTitle, compactToolbar && styles.bulkToolbarTitleCompact]}>

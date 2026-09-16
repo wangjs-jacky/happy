@@ -1,3 +1,4 @@
+import { AnimatedTimelineItem } from './AnimatedTimeline';
 import React from 'react';
 import { View, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/StyledText';
@@ -221,12 +222,13 @@ export type CompactSessionListItem =
     | { type: 'compact-header'; key: string; element: React.ReactElement }
     | { type: 'compact-session'; key: string; session: SessionRowData; showLocation: boolean; showBorder: boolean; marginBottom: number };
 
-export function CompactSessionListRow({ item, ...props }: Omit<ActiveSessionsGroupProps, 'sessions' | 'layoutMode'> & { item: CompactSessionListItem }) {
+export function CompactSessionListRow({ item, ...props }: Omit<ActiveSessionsGroupProps, 'sessions' | 'layoutMode'> & { item: CompactSessionListItem; animatedTimeline?: boolean }) {
     if (item.type === 'compact-header') return item.element;
     return (
-        <View style={{ marginBottom: item.marginBottom }}>
+        <View style={{ marginBottom: props.animatedTimeline ? 4 : item.marginBottom }}>
             <CompactSessionRow
                 session={item.session}
+                animatedTimeline={props.animatedTimeline}
                 selected={props.selectedSessionId === item.session.id}
                 bulkSelected={props.selectedIds?.has(item.session.id) ?? false}
                 selectionMode={props.selectionMode}
@@ -248,13 +250,14 @@ export function ActiveSessionsGroupCompact(props: ActiveSessionsGroupProps) {
 
 // Compact Codex-style session row. Runtime status stays visible while actions
 // and richer metadata remain available through hover disclosure.
-export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selectionMode, showBorder, showLocation = false, onStartSelection, onToggleSelection }: {
+export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selectionMode, showBorder, showLocation = false, animatedTimeline = false, onStartSelection, onToggleSelection }: {
     session: SessionRowData;
     selected?: boolean;
     bulkSelected?: boolean;
     selectionMode?: boolean;
     showBorder?: boolean;
     showLocation?: boolean;
+    animatedTimeline?: boolean;
     onStartSelection?: (sessionId: string) => void;
     onToggleSelection?: (sessionId: string) => void;
 }) => {
@@ -347,14 +350,27 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
         );
     };
 
+    const actions = !selectionMode ? (
+        <SessionRowActions
+            contextAnchor={actionsAnchor}
+            onContextAnchorChange={setActionsAnchor}
+            onStartSelection={onStartSelection ? () => onStartSelection(session.id) : undefined}
+            sessionId={session.id}
+            statusLabel={presentation.status}
+            showStatusLabel={!animatedTimeline}
+            visible={disclosure.visible}
+        />
+    ) : null;
+
     const itemContent = (
         <View
             style={[
                 styles.sessionRow,
                 showLocation && styles.sessionRowByTime,
                 showBorder && styles.sessionRowWithBorder,
-                disclosure.visible && styles.sessionRowHovered,
-                (selected || bulkSelected || !!actionsAnchor) && styles.sessionRowSelected
+                !animatedTimeline && disclosure.visible && styles.sessionRowHovered,
+                !animatedTimeline && (selected || bulkSelected || !!actionsAnchor) && styles.sessionRowSelected,
+                animatedTimeline && styles.timelineRow
             ]}
         >
             <Pressable
@@ -368,7 +384,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                 testID={`session-row-${session.id}`}
                 {...menuProps}
             >
-                <View style={[styles.sessionContent, showLocation && styles.sessionContentByTime]}>
+                <View style={[styles.sessionContent, showLocation && styles.sessionContentByTime, animatedTimeline && styles.timelineContent]}>
                     <View style={styles.sessionTitleRow}>
                         {selectionMode ? renderLeadingIndicator() : null}
                         <View
@@ -376,16 +392,18 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                             testID="session-row-title"
                             {...(Platform.OS === 'web' ? {
                                 dataSet: {
-                                    marqueeActive: disclosure.visible && disclosure.titleOverflowing ? 'true' : 'false',
+                                    timelineTitle: animatedTimeline ? 'true' : undefined,
+                                    marqueeActive: !animatedTimeline && disclosure.visible && disclosure.titleOverflowing ? 'true' : 'false',
                                 },
                             } as any : {})}
                         >
                             <Text
                                 style={[
                                     styles.sessionTitle,
-                                    session.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
+                                    session.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected,
+                                    animatedTimeline && styles.timelineTitle
                                 ]}
-                                numberOfLines={compactTitle ? 2 : 1}
+                                numberOfLines={animatedTimeline || compactTitle ? 2 : 1}
                                 testID="session-row-title-text"
                             >
                                 {session.name}
@@ -395,7 +413,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                     {showLocation ? (
                         <View
                             accessibilityLabel={`${presentation.project} · ${presentation.machine}`}
-                            style={styles.timeLocationRow}
+                            style={[styles.timeLocationRow, animatedTimeline && styles.timelineLocation]}
                         >
                             <Feather color={stylesheet.timeLocationText.color} name="folder" size={13} />
                             <Text numberOfLines={1} style={styles.timeLocationText}>
@@ -413,7 +431,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                             {sessionTags.length > 2 ? <Text style={styles.sessionTagMore}>+{sessionTags.length - 2}</Text> : null}
                         </View>
                     ) : null}
-                    <View style={styles.statusRow} testID="session-row-status">
+                    <View style={[styles.statusRow, animatedTimeline && styles.timelineStatus]} testID="session-row-status">
                         <View style={styles.statusDotContainer}>
                             <StatusDot color={status.dotColor} isPulsing={status.isPulsing} />
                         </View>
@@ -423,16 +441,7 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
                     </View>
                 </View>
             </Pressable>
-            {!selectionMode ? (
-                <SessionRowActions
-                    contextAnchor={actionsAnchor}
-                    onContextAnchorChange={setActionsAnchor}
-                    onStartSelection={onStartSelection ? () => onStartSelection(session.id) : undefined}
-                    sessionId={session.id}
-                    statusLabel={presentation.status}
-                    visible={disclosure.visible}
-                />
-            ) : null}
+            {animatedTimeline ? <View style={styles.timelineActions}>{actions}</View> : actions}
         </View>
     );
 
@@ -442,7 +451,9 @@ export const CompactSessionRow = React.memo(({ session, selected, bulkSelected, 
             style={[styles.sessionRowWrapper, (disclosure.visible || !!actionsAnchor) && styles.sessionRowWrapperRaised]}
             {...disclosure.interactionProps as any}
         >
-            {itemContent}
+            <AnimatedTimelineItem enabled={animatedTimeline} sessionId={session.id} active={!!selected || !!bulkSelected || !!actionsAnchor} hovered={disclosure.visible}>
+                {itemContent}
+            </AnimatedTimelineItem>
             <SessionRowDetails
                 anchor={disclosure.detailsAnchor}
                 presentation={presentation}
@@ -505,6 +516,17 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingLeft: 38,
         paddingRight: 8,
     },
+    timelineRow: {
+        marginHorizontal: 0,
+        paddingLeft: 14,
+        paddingRight: 12,
+        minHeight: 76,
+    },
+    timelineContent: { paddingVertical: 6 },
+    timelineTitle: { fontSize: 14, lineHeight: 21, ...Typography.default('semiBold') },
+    timelineLocation: { marginTop: 3, marginBottom: 3 },
+    timelineStatus: { minHeight: 22, paddingRight: 96 },
+    timelineActions: { position: 'absolute', right: 10, bottom: 3 },
     sessionRowByTime: {
         minHeight: 68,
         paddingLeft: 10,
