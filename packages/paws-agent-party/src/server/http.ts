@@ -55,7 +55,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
   }
   let closed = false;
   let listeningPort = 0;
-  let accountTransition = false;
+  let accountTransition: symbol | null = null;
 
   const server = createServer((request, response) => {
     void handle(request, response).catch(error => {
@@ -76,23 +76,25 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     if (request.method === 'GET' && url.pathname === '/api/paws/status') return sendJson(response, 200, sdk.status());
     if (request.method === 'POST' && url.pathname === '/api/paws/link') {
       if (accountTransition || runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
-      accountTransition = true;
+      const transition = Symbol('link');
+      accountTransition = transition;
       try {
         const body = await readJson(request, 16 * 1024);
         if (typeof body.serverUrl !== 'string') return sendJson(response, 400, { error: 'serverUrl is required' });
         return sendJson(response, 200, await sdk.link(body.serverUrl));
       } finally {
-        accountTransition = false;
+        if (accountTransition === transition) accountTransition = null;
       }
     }
     if (request.method === 'DELETE' && url.pathname === '/api/paws/link') {
-      if (accountTransition || runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
-      accountTransition = true;
+      if (runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
+      const transition = Symbol('disconnect');
+      accountTransition = transition;
       try {
         await sdk.disconnect();
         return sendJson(response, 200, sdk.status());
       } finally {
-        accountTransition = false;
+        if (accountTransition === transition) accountTransition = null;
       }
     }
     if (request.method === 'GET' && url.pathname === '/api/paws/machines') {

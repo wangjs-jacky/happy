@@ -24,6 +24,7 @@ export class TestOnlySdk {
   private readonly sequences = new Map<string, number>();
   private readonly activeByRole = new Map<RoleId, number>();
   private readonly deliveryGates: Promise<void>[] = [];
+  private readonly deliveryGatesByRole = new Map<RoleId, Promise<void>[]>();
 
   constructor(private readonly options: {
     ready?: boolean;
@@ -83,7 +84,7 @@ export class TestOnlySdk {
     this.activeByRole.set(role, active);
     this.maxConcurrentByRole.set(role, Math.max(this.maxConcurrentByRole.get(role) ?? 0, active));
     const localId = input.localId ?? crypto.randomUUID();
-    const deliveryGate = this.deliveryGates.shift();
+    const deliveryGate = this.deliveryGatesByRole.get(role)?.shift() ?? this.deliveryGates.shift();
     const deliver = async () => {
       if (deliveryGate) await deliveryGate;
       if (this.options.delayMs) await new Promise(resolve => setTimeout(resolve, this.options.delayMs));
@@ -115,6 +116,11 @@ export class TestOnlySdk {
   }
 
   holdNextDelivery(gate: Promise<void>): void { this.deliveryGates.push(gate); }
+  holdNextDeliveryFor(role: RoleId, gate: Promise<void>): void {
+    const gates = this.deliveryGatesByRole.get(role) ?? [];
+    gates.push(gate);
+    this.deliveryGatesByRole.set(role, gates);
+  }
 
   private emit(sessionId: string, content: unknown, localId: string | null = null): void {
     const seq = (this.sequences.get(sessionId) ?? 0) + 1;

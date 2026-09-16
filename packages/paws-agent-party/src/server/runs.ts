@@ -58,17 +58,17 @@ export class RunService {
         run.snapshot.error = 'Service restarted during this run; it was not replayed.';
       }
       for (const followUp of run.snapshot.followUps) {
-        if (followUp.status !== 'queued' && followUp.status !== 'running') continue;
-        followUp.status = 'interrupted';
-        followUp.error = 'Service restarted during this follow-up; it was not replayed.';
+        if (!hasActiveFollowUpRole(followUp)) continue;
+        const error = 'Service restarted during this follow-up; it was not replayed.';
         for (const [roleId, role] of Object.entries(followUp.roles)) {
           if (role && (role.status === 'queued' || role.status === 'running')) {
             role.status = 'interrupted';
-            role.error = followUp.error;
+            role.error = error;
             run.snapshot.roles[roleId as RoleId].status = 'interrupted';
-            run.snapshot.roles[roleId as RoleId].error = followUp.error;
+            run.snapshot.roles[roleId as RoleId].error = error;
           }
         }
+        refreshFollowUp(followUp);
       }
       this.runs.set(run.snapshot.id, run);
     }
@@ -153,7 +153,7 @@ export class RunService {
       this.controllers.get(id)?.abort(new DOMException('Coordination stopped', 'AbortError'));
       changed = true;
     }
-    const activeFollowUps = run.snapshot.followUps.filter(item => item.status === 'queued' || item.status === 'running');
+    const activeFollowUps = run.snapshot.followUps.filter(hasActiveFollowUpRole);
     if (activeFollowUps.length > 0) {
       for (const followUp of activeFollowUps) markFollowUpTerminal(followUp, 'stopped', 'Follow-up coordination stopped. Already accepted remote work may continue.');
       run.snapshot.phase = 'follow-up-stopped';
@@ -234,7 +234,8 @@ export class RunService {
           await this.taskTurn(run, role, input.text, input.images, images, controller.signal);
           followUp.roles[role] = { status: 'completed' };
         } catch (error) {
-          if (followUp.status !== 'stopped' && followUp.status !== 'interrupted') {
+          const roleStatus = followUp.roles[role]?.status;
+          if (roleStatus !== 'stopped' && roleStatus !== 'interrupted') {
             const message = safeError(error);
             followUp.roles[role] = { status: 'failed', error: message };
             run.snapshot.roles[role].status = 'failed';
@@ -244,7 +245,8 @@ export class RunService {
         refreshFollowUp(followUp);
         await this.persist();
       }).catch(async error => {
-        if (followUp.status !== 'stopped' && followUp.status !== 'interrupted') {
+        const roleStatus = followUp.roles[role]?.status;
+        if (roleStatus !== 'stopped' && roleStatus !== 'interrupted') {
           const message = safeError(error);
           followUp.roles[role] = { status: 'failed', error: message };
           run.snapshot.roles[role].status = 'failed';
@@ -267,7 +269,7 @@ export class RunService {
     for (const controller of this.controllers.values()) controller.abort(new DOMException('Service closing', 'AbortError'));
     for (const run of this.runs.values()) {
       for (const followUp of run.snapshot.followUps) {
-        if (followUp.status === 'queued' || followUp.status === 'running') {
+        if (hasActiveFollowUpRole(followUp)) {
           markFollowUpTerminal(followUp, 'interrupted', 'Service closed during this follow-up; it was not replayed.');
         }
       }
@@ -512,22 +514,26 @@ function markFollowUpTerminal(followUp: FollowUpSnapshot, status: Extract<Follow
       role.error = error;
     }
   }
-  followUp.status = status;
-  followUp.error = error;
+  refreshFollowUp(followUp);
 }
 
 function refreshFollowUp(followUp: FollowUpSnapshot): void {
   const roles = Object.values(followUp.roles).filter(value => value !== undefined);
   const statuses = roles.map(role => role.status);
-  if (statuses.includes('failed')) followUp.status = 'failed';
+  if (statuses.includes('running')) followUp.status = 'running';
+  else if (statuses.includes('queued')) followUp.status = 'queued';
+  else if (statuses.includes('failed')) followUp.status = 'failed';
   else if (statuses.includes('interrupted')) followUp.status = 'interrupted';
   else if (statuses.includes('stopped')) followUp.status = 'stopped';
   else if (statuses.length > 0 && statuses.every(status => status === 'completed')) followUp.status = 'completed';
-  else if (statuses.includes('running')) followUp.status = 'running';
   else followUp.status = 'queued';
   const error = roles.find(role => role.error)?.error;
   if (error) followUp.error = error;
   else delete followUp.error;
+}
+
+function hasActiveFollowUpRole(followUp: FollowUpSnapshot): boolean {
+  return Object.values(followUp.roles).some(role => role?.status === 'queued' || role?.status === 'running');
 }
 
 function mapSet<T>(map: Map<string, Set<T>>, key: string): Set<T> {

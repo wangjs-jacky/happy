@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { request } from 'node:http';
+import { createServer, request } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { StartInput } from '../src/contracts.js';
 import { createPocServer, type PocServer } from '../src/server/http.js';
@@ -170,6 +170,7 @@ describe('authenticated local service', () => {
       const response = await fetch(`${server.url}/api/consultations/${started.id}`, authorized());
       return ((await response.json()) as { status: string }).status === 'completed';
     });
+    await waitUntil(async () => (await fetch(`${server.url}/api/paws/link`, authorized({ method: 'DELETE' }))).status === 200);
     const linking = fetch(`${server.url}/api/paws/link`, authorized({
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ serverUrl: 'https://example.invalid' }),
@@ -183,6 +184,47 @@ describe('authenticated local service', () => {
 
     expect(followUp.status).toBe(409);
     expect((await linking).status).toBe(200);
+  });
+
+  it('cancels a held real account-link request through the public DELETE route', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-link-cancel-'));
+    dirs.push(dataDir);
+    const requestArrived = deferred<void>();
+    const accountServer = createServer(request => {
+      requestArrived.resolve();
+      request.resume();
+    });
+    await new Promise<void>((resolve, reject) => {
+      accountServer.once('error', reject);
+      accountServer.listen(0, '127.0.0.1', resolve);
+    });
+    const address = accountServer.address();
+    if (!address || typeof address === 'string') throw new Error('Account server address unavailable');
+    const server = await createPocServer({ dataDir, accessToken: token });
+    servers.push(server);
+    let linking: Promise<Response> | undefined;
+    let deleteStatus = 0;
+    let statusBody: { state?: string } = {};
+    let linkBody: { state?: string } | undefined;
+    try {
+      linking = fetch(`${server.url}/api/paws/link`, authorized({
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ serverUrl: `http://127.0.0.1:${address.port}` }),
+      }));
+      await requestArrived.promise;
+      const cancelled = await fetch(`${server.url}/api/paws/link`, authorized({ method: 'DELETE' }));
+      deleteStatus = cancelled.status;
+      statusBody = await (await fetch(`${server.url}/api/paws/status`, authorized())).json() as { state?: string };
+      if (deleteStatus === 200) linkBody = await (await linking).json() as { state?: string };
+    } finally {
+      accountServer.closeAllConnections();
+      await new Promise<void>(resolve => accountServer.close(() => resolve()));
+      await linking?.catch(() => undefined);
+    }
+
+    expect(deleteStatus).toBe(200);
+    expect(statusBody.state).toBe('disconnected');
+    expect(linkBody?.state).toBe('disconnected');
   });
 });
 
@@ -201,6 +243,13 @@ async function waitUntil(check: () => boolean | Promise<boolean>, timeoutMs = 2_
     await new Promise(resolve => setTimeout(resolve, 5));
   }
   throw new Error('Timed out waiting for condition');
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 async function statusWithHost(url: string, host: string): Promise<number> {

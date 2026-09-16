@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ImageRef, RunSnapshot, StartInput } from '../src/contracts.js';
+import type { FollowUpSnapshot, ImageRef, RunSnapshot, StartInput } from '../src/contracts.js';
 import { createPocServer, type PocServer } from '../src/server/http.js';
 import { decryptText } from '../vendor/agents-party/src/core/crypto.js';
 import type { Message as PartyMessage } from '../vendor/agents-party/src/core/types.js';
@@ -301,6 +301,102 @@ describe('consultation runs', () => {
     expect((await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers })).status).toBe(200);
   });
 
+  it('keeps a mixed failed/running follow-up active until stop terminates the surviving role', async () => {
+    const sdk = new TestOnlySdk({ failRole: 'trend30' });
+    const server = await start(sdk);
+    const started = await postStart(server, input({ mode: 'single', requestId: 'mixed-running' }));
+    await waitForTerminal(server, started.id);
+    const deliveryGate = deferred<void>();
+    sdk.holdNextDeliveryFor('structure10', deliveryGate.promise);
+    await postFollowUp(server, started.id, {
+      requestId: 'mixed-follow', text: 'Compare.', to: ['trend30', 'structure10'], images: [],
+    });
+    let active!: RunSnapshot;
+    await waitUntil(async () => {
+      active = await getRun(server, started.id);
+      const follow = followUp(active, 'mixed-follow');
+      return follow.roles.trend30?.status === 'failed' && follow.roles.structure10?.status === 'running';
+    });
+
+    expect(followUp(active, 'mixed-follow').status).toBe('running');
+    expect((await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers })).status).toBe(409);
+    const stoppedResponse = await fetch(`${server.url}/api/consultations/${started.id}/stop`, {
+      method: 'POST', headers, body: '{}',
+    });
+    const stopped = await stoppedResponse.json() as RunSnapshot;
+
+    expect(followUp(stopped, 'mixed-follow').status).toBe('failed');
+    expect(followUp(stopped, 'mixed-follow').roles.structure10?.status).toBe('stopped');
+    expect((await fetch(`${server.url}/api/paws/link`, { method: 'DELETE', headers })).status).toBe(200);
+    deliveryGate.resolve();
+  });
+
+  it('keeps a mixed failed/queued follow-up active behind earlier same-role work', async () => {
+    const sdk = new TestOnlySdk({ failRole: 'trend30' });
+    const server = await start(sdk);
+    const started = await postStart(server, input({ mode: 'single', requestId: 'mixed-queued' }));
+    await waitForTerminal(server, started.id);
+    const deliveryGate = deferred<void>();
+    sdk.holdNextDeliveryFor('structure10', deliveryGate.promise);
+    await postFollowUp(server, started.id, {
+      requestId: 'structure-blocker', text: 'Hold structure.', to: ['structure10'], images: [],
+    });
+    await waitUntil(() => sdk.callsFor('structure10').length === 1);
+    await postFollowUp(server, started.id, {
+      requestId: 'mixed-queued-follow', text: 'Compare later.', to: ['trend30', 'structure10'], images: [],
+    });
+    let active!: RunSnapshot;
+    await waitUntil(async () => {
+      active = await getRun(server, started.id);
+      return followUp(active, 'mixed-queued-follow').roles.trend30?.status === 'failed';
+    });
+
+    expect(followUp(active, 'mixed-queued-follow').roles.structure10?.status).toBe('queued');
+    expect(followUp(active, 'mixed-queued-follow').status).toBe('queued');
+    await fetch(`${server.url}/api/consultations/${started.id}/stop`, { method: 'POST', headers, body: '{}' });
+    deliveryGate.resolve();
+  });
+
+  it('interrupts queued roles on restart even when another recipient already failed', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-mixed-restart-'));
+    dirs.push(dataDir);
+    const first = await startAt(new TestOnlySdk(), dataDir);
+    const started = await postStart(first, input({ mode: 'single', requestId: 'mixed-restart' }));
+    await waitForTerminal(first, started.id);
+    await first.close();
+    servers.splice(servers.indexOf(first), 1);
+    const path = join(dataDir, 'runs.json');
+    const persisted = JSON.parse(await readFile(path, 'utf8')) as {
+      runs: Array<{ snapshot: RunSnapshot }>;
+      followupIds?: string[];
+    };
+    const stored = persisted.runs.find(run => run.snapshot.id === started.id)?.snapshot;
+    if (!stored) throw new Error('Persisted run unavailable');
+    stored.roles.structure10.status = 'spawning';
+    stored.followUps.push({
+      requestId: 'mixed-persisted',
+      to: ['trend30', 'structure10'],
+      status: 'failed',
+      roles: {
+        trend30: { status: 'failed', error: 'Remote trend30 turn failed.' },
+        structure10: { status: 'queued' },
+      },
+      createdAt: 1,
+      error: 'Remote trend30 turn failed.',
+    });
+    persisted.followupIds = [...(persisted.followupIds ?? []), `${started.id}:mixed-persisted`];
+    await writeFile(path, JSON.stringify(persisted));
+
+    const secondSdk = new TestOnlySdk();
+    const second = await startAt(secondSdk, dataDir);
+    const restored = await getRun(second, started.id);
+
+    expect(followUp(restored, 'mixed-persisted').status).toBe('failed');
+    expect(followUp(restored, 'mixed-persisted').roles.structure10?.status).toBe('interrupted');
+    expect(restored.roles.structure10.status).toBe('interrupted');
+    expect(secondSdk.calls).toHaveLength(0);
+  });
+
   it('marks an active follow-up interrupted on restart without replaying it', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-follow-restart-'));
     dirs.push(dataDir);
@@ -350,14 +446,9 @@ describe('consultation runs', () => {
   });
 });
 
-type FollowUpView = {
-  requestId: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted';
-  error?: string;
-};
-type RunWithFollowUps = RunSnapshot & { followUps: FollowUpView[] };
+type RunWithFollowUps = RunSnapshot;
 
-function followUp(run: RunWithFollowUps, requestId: string): FollowUpView {
+function followUp(run: RunWithFollowUps, requestId: string): FollowUpSnapshot {
   const result = run.followUps.find(item => item.requestId === requestId);
   if (!result) throw new Error(`Missing follow-up ${requestId}`);
   return result;
