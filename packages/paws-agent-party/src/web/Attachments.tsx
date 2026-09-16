@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ImageRef, PartyEnvelope } from '../contracts.js';
 import { MessageText } from '../../vendor/agents-party/src/ui/party/message.js';
 import { validateImages, type Api } from './api.js';
@@ -24,6 +24,8 @@ export function Attachments({ images, onChange, api, disabled = false, onBusy }:
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const uploadRef = useRef<AbortController | null>(null);
+  useEffect(() => () => { uploadRef.current?.abort(); }, []);
   return <div className="flex w-full flex-wrap items-center gap-2">
     <label className="rounded border border-border px-2 py-1">添加图片
       <input aria-label="添加图片" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={disabled || busy}
@@ -31,11 +33,15 @@ export function Attachments({ images, onChange, api, disabled = false, onBusy }:
           const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = '';
           setError('');
           try { validateImages(files, images.length); } catch (error) { setError((error as Error).message); return; }
+          const controller = new AbortController();
+          uploadRef.current?.abort(); uploadRef.current = controller;
+          const current = () => uploadRef.current === controller && !controller.signal.aborted;
           setBusy(true); onBusy?.(true);
           void Promise.all(files.map(file => api<ImageRef>('/api/assets', {
-            method: 'POST', headers: { 'content-type': file.type, 'x-filename': encodeURIComponent(file.name) }, body: file,
-          }))).then(uploaded => onChange([...images, ...uploaded])).catch(error => setError((error as Error).message))
-            .finally(() => { setBusy(false); onBusy?.(false); });
+            method: 'POST', headers: { 'content-type': file.type, 'x-filename': encodeURIComponent(file.name) }, body: file, signal: controller.signal,
+          }))).then(uploaded => { if (current()) onChange([...images, ...uploaded]); })
+            .catch(error => { if (current()) setError((error as Error).message); })
+            .finally(() => { if (current()) { setBusy(false); onBusy?.(false); uploadRef.current = null; } });
         }} />
     </label>
     {busy && <span role="status">上传中…</span>}

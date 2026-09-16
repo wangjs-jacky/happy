@@ -64,6 +64,8 @@ export const PartyApp = () => {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const timelineRef = useRef(initialTimeline())
+  const draftGenerationRef = useRef(0)
+  const draftGeneration = draftGenerationRef.current
   const pendingFollowUp = useRef<{ runId: string; input: FollowUpInput } | null>(null)
   const run = runs.find(item => item.partyId === current?.id)
   const keyRef = useRef<string | null>(null)
@@ -71,6 +73,14 @@ export const PartyApp = () => {
   const listenAbortRef = useRef<AbortController | null>(null)
   const tokenRef = useRef(token)
   tokenRef.current = token
+
+  const projectTimeline = useCallback(async (key: string | null, signal?: AbortSignal) => {
+    // Reducer states are immutable: identity is the version of this projection.
+    // Another receive/older page may merge while WebCrypto is still decrypting.
+    const snapshot = timelineRef.current
+    const decoded = await decodeToChat(snapshot.messages, key)
+    if (!signal?.aborted && timelineRef.current === snapshot) setMessages(decoded)
+  }, [])
 
   const api = useMemo(() => createApi(() => tokenRef.current, () => setGate(true)), [])
   const refreshRuns = useCallback(async () => {
@@ -169,11 +179,10 @@ export const PartyApp = () => {
             const incoming = body.messages ?? []
             if (incoming.length > 0) {
               timelineRef.current = receivedBatch(timelineRef.current, incoming)
-              const chat = await decodeToChat(timelineRef.current.messages, key)
+              await projectTimeline(key, ctl.signal)
               if (ctl.signal.aborted) {
                 return
               }
-              setMessages(chat)
               void refreshParticipants(id, ctl.signal).catch(() => undefined)
               void loadParties().catch(error => setError((error as Error).message))
             }
@@ -187,15 +196,16 @@ export const PartyApp = () => {
         }
       })()
     },
-    [loadParties, refreshParticipants],
+    [loadParties, refreshParticipants, projectTimeline],
   )
 
   const openParty = useCallback(
     async (id: string) => {
       listenAbortRef.current?.abort()
+      draftGenerationRef.current += 1
       const ctl = new AbortController()
       listenAbortRef.current = ctl
-      setDetailRole(null); setImages([]); pendingFollowUp.current = null; setError('')
+      setDetailRole(null); setImages([]); setUploading(false); pendingFollowUp.current = null; setError('')
       // The list is paged — a party can sit past the loaded window; fall back to fetching its meta by id.
       const party =
         parties.find((p) => p.id === id) ?? ((await api(`/api/parties/${id}`).catch(() => null)) as OwnerParty | null)
@@ -220,9 +230,8 @@ export const PartyApp = () => {
         oldestRef.current = raw[0]?.cursor ?? null
         timelineRef.current = receivedBatch(initialTimeline(), raw)
         setHasOlder(raw.length >= PAGE)
-        const decoded = await decodeToChat(timelineRef.current.messages, party.key)
+        await projectTimeline(party.key, ctl.signal)
         if (ctl.signal.aborted) return
-        setMessages(decoded)
         void loadParties().catch(error => setError((error as Error).message))
         listenLoop(id)
       } catch (error) {
@@ -233,7 +242,7 @@ export const PartyApp = () => {
         if (!ctl.signal.aborted) setMessagesLoading(false)
       }
     },
-    [api, parties, refreshParticipants, loadParties, listenLoop],
+    [api, parties, refreshParticipants, loadParties, listenLoop, projectTimeline],
   )
 
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -256,30 +265,32 @@ export const PartyApp = () => {
       }
       oldestRef.current = raw[0]!.cursor
       timelineRef.current = receivedBatch(timelineRef.current, raw)
-      const chat = await decodeToChat(timelineRef.current.messages, key)
+      await projectTimeline(key, ctl?.signal)
       if (ctl?.signal.aborted) return
-      setMessages(chat)
       setHasOlder(raw.length >= PAGE)
     } catch (error) {
       if (!ctl?.signal.aborted) setError((error as Error).message)
     } finally {
       if (!ctl?.signal.aborted) setLoadingOlder(false)
     }
-  }, [api, current, loadingOlder])
+  }, [api, current, loadingOlder, projectTimeline])
 
   const send = useCallback(async (text: string) => {
     if (!run || connection.state !== 'ready') throw new Error('先连接 Paws 并选择会诊。')
+    const generation = draftGeneration
     const pending = pendingFollowUp.current ?? { runId: run.id, input: { requestId: crypto.randomUUID(), text, to: selected as RoleId[], images } }
     pendingFollowUp.current = pending
     try {
       await api('/api/consultations/' + pending.runId + '/messages', { method: 'POST', body: JSON.stringify(pending.input) })
     } catch (error) {
-      if (error instanceof ApiError && error.status < 500) pendingFollowUp.current = null
+      if (error instanceof ApiError && error.status < 500 && pendingFollowUp.current === pending) pendingFollowUp.current = null
       throw error
     }
-    pendingFollowUp.current = null; setImages([])
+    if (pendingFollowUp.current === pending) pendingFollowUp.current = null
+    if (generation !== draftGenerationRef.current) return
+    setImages([])
     await refreshRuns().catch(error => setError((error as Error).message))
-  }, [api, run, connection.state, selected, images, refreshRuns])
+  }, [api, run, connection.state, selected, images, refreshRuns, draftGeneration])
 
   const boot = useCallback(async () => {
     try {
@@ -301,7 +312,7 @@ export const PartyApp = () => {
 
   useEffect(() => {
     if (token) void boot()
-    return () => listenAbortRef.current?.abort()
+    return () => { draftGenerationRef.current += 1; listenAbortRef.current?.abort() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -377,7 +388,7 @@ export const PartyApp = () => {
           onSend={send}
           composerDisabled={!run || run.status === 'running' || connection.state !== 'ready' || uploading || isActive(run)}
           composerHasContent={images.length > 0}
-          composerExtension={<><span>{!run ? '此 Party 无关联会诊。' : connection.state !== 'ready' ? '先连接 Paws，才能追问。' : isActive(run) ? '等待当前协调结束后追问。' : '追问未选收件人时交给主持人。'}</span><Attachments images={images} onChange={setImages} api={api} disabled={!run || isActive(run)} onBusy={setUploading} /></>}
+          composerExtension={<><span>{!run ? '此 Party 无关联会诊。' : connection.state !== 'ready' ? '先连接 Paws，才能追问。' : isActive(run) ? '等待当前协调结束后追问。' : '追问未选收件人时交给主持人。'}</span><Attachments key={draftGeneration} images={images} onChange={next => { if (draftGeneration === draftGenerationRef.current) setImages(next) }} api={api} disabled={!run || isActive(run)} onBusy={busy => { if (draftGeneration === draftGenerationRef.current) setUploading(busy) }} /></>}
           recipients={{
             options: recipientOptions,
             selected,
@@ -388,6 +399,8 @@ export const PartyApp = () => {
           currentName={HOST}
           onBack={() => {
             listenAbortRef.current?.abort()
+            draftGenerationRef.current += 1
+            pendingFollowUp.current = null; setImages([]); setUploading(false)
             sessionStorage.removeItem('apCurrentParty')
             setCurrent(null)
             setDetailRole(null)
