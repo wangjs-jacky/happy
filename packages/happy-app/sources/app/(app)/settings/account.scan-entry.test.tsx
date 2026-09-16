@@ -89,4 +89,12 @@ describe('AccountSettingsScreen scan entry', () => {
         expect(itemTitles).toContain('settingsAccount.status');
         expect(itemTitles).not.toContain('settingsAccount.linkNewDevice');
     });
+
+    it('keeps privacy and push-notification settings out of the account screen', () => {
+        const groupTitles = renderer.root.findAllByType('ItemGroup').map((node: any) => node.props.title);
+
+        expect(groupTitles).not.toContain('settingsAccount.privacy');
+        expect(groupTitles).not.toContain('pushNotifications.title');
+        expect(groupTitles).not.toContain('pushNotifications.registeredTokensTitle');
+    });
 });
