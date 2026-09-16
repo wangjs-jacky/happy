@@ -241,37 +241,20 @@ describe('SidebarAccountMenu', () => {
         expect(events).toEqual(['focus-trigger', 'open-settings']);
     });
 
-    it('opens usage in a dialog without navigating away', () => {
-        const onOpenChange = vi.fn();
-        function UsageDialogHarness() {
-            const [open, setOpen] = React.useState(true);
-            return (
+    it('keeps usage in settings instead of duplicating it in the account menu', () => {
+        act(() => {
+            renderer = TestRenderer.create(
                 <SidebarAccountMenu
                     displayName="Paws User"
                     onNavigate={mocks.navigate}
-                    onOpenChange={(nextOpen) => {
-                        onOpenChange(nextOpen);
-                        setOpen(nextOpen);
-                    }}
-                    open={open}
+                    onOpenChange={vi.fn()}
+                    open
                     profile={profile}
-                />
+                />,
             );
-        }
-        act(() => {
-            renderer = TestRenderer.create(<UsageDialogHarness />);
         });
 
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-action' }).props.onPress());
-
-        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-menu' })).toHaveLength(0);
-        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-dialog' })).toHaveLength(1);
-        expect(renderer.root.findAllByType('UsagePanel')).toHaveLength(1);
-        expect(mocks.navigate).not.toHaveBeenCalled();
-        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
-        expect(onOpenChange).toHaveBeenCalledWith(false);
-
-        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-dialog-close' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-action' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-usage-dialog' })).toHaveLength(0);
     });
 
@@ -294,7 +277,6 @@ describe('SidebarAccountMenu', () => {
             'sidebar-account-profile-action',
             'sidebar-account-settings-action',
             'sidebar-account-details-action',
-            'sidebar-account-usage-action',
             'sidebar-account-logout-action',
         ]);
 
@@ -322,24 +304,24 @@ describe('SidebarAccountMenu', () => {
             );
         });
 
-        const findUsagePressable = () => renderer.root
+        const findSettingsPressable = () => renderer.root
             .findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-account-usage-action');
-        let usageAction = findUsagePressable();
-        expect(usageAction).toBeDefined();
-        expect(usageAction.props.style({ pressed: false })).not.toContainEqual(
+            .find((node: any) => node.props.testID === 'sidebar-account-settings-action');
+        let settingsAction = findSettingsPressable();
+        expect(settingsAction).toBeDefined();
+        expect(settingsAction.props.style({ pressed: false })).not.toContainEqual(
             expect.objectContaining({ backgroundColor: '#eee' }),
         );
 
-        act(() => usageAction.props.onHoverIn());
-        usageAction = findUsagePressable();
-        expect(usageAction.props.style({ pressed: false })).toContainEqual(
+        act(() => settingsAction.props.onHoverIn());
+        settingsAction = findSettingsPressable();
+        expect(settingsAction.props.style({ pressed: false })).toContainEqual(
             expect.objectContaining({ backgroundColor: '#eee' }),
         );
 
-        act(() => usageAction.props.onHoverOut());
-        usageAction = findUsagePressable();
-        expect(usageAction.props.style({ pressed: true })).toContainEqual(
+        act(() => settingsAction.props.onHoverOut());
+        settingsAction = findSettingsPressable();
+        expect(settingsAction.props.style({ pressed: true })).toContainEqual(
             expect.objectContaining({ backgroundColor: '#eee' }),
         );
     });
