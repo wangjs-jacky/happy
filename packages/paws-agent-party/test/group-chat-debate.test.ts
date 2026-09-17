@@ -36,8 +36,10 @@ describe('bounded room debate', () => {
     expect(t.sdk.calls[0]!.text).toContain('立论'); expect(t.sdk.calls[1]!.text).toContain(`public-${a!.id}-1`);
     expect(t.sdk.calls[2]!.text).toContain('交锋 2'); expect(t.sdk.calls[2]!.text).toContain(`public-${b!.id}-1`);
     expect(t.sdk.calls.every(call => !call.text.includes('tool-secret'))).toBe(true);
-    const stored = JSON.parse(await readFile(join(t.dataDir, 'group-chat-rooms.json'), 'utf8'));
-    expect(stored.rooms[0].snapshot.debate.terminalMessageId).toBeTruthy();
+    await eventually(async () => {
+      const stored = JSON.parse(await readFile(join(t.dataDir, 'group-chat-rooms.json'), 'utf8'));
+      expect(stored.rooms[0].snapshot.debate.terminalMessageId).toBeTruthy();
+    });
   }, 20_000);
 
   it('stops an in-flight turn and ignores its later delivery without scheduling the next member', async () => {
@@ -82,5 +84,12 @@ describe('bounded room debate', () => {
     const changed = await value<GroupRoomSnapshot>(t.server, `/rooms/${t.room.id}`, { maxRounds: 1, autoDebate: false }, 'PATCH'); expect(changed.maxRounds).toBe(1);
     await t.message(); await eventually(async () => expect((await t.current()).members.every(member => member.status === 'completed')).toBe(true));
     expect(t.sdk.calls).toHaveLength(2); expect((await t.current()).debate).toBeUndefined();
+  });
+
+  it('rejects malformed room settings and non-boolean autoReply as client errors', async () => {
+    const t = await setup({ autoDebate: false });
+    expect((await request(t.server, `/rooms/${t.room.id}`, 1, 'PATCH')).status).toBe(400);
+    const created = await request(t.server, '/rooms', { requestId: crypto.randomUUID(), title: '错误开关', memberIds: t.agents.slice(0, 1).map(agent => agent.id), machineId: 'machine-1', directory: '/tmp/work', autoReply: 'yes' });
+    expect(created.status).toBe(400);
   });
 });

@@ -62,7 +62,10 @@ export class GroupRoomService {
     try { file = JSON.parse(await readFile(path, 'utf8')) as RoomsFile; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const service = new GroupRoomService(path, options.sdk, options.assets, options.party, options.profiles, options.turnTimeoutMs ?? 10 * 60_000, file);
     await service.persist();
-    for (const room of service.rooms.values()) if (room.snapshot.debate?.status === 'interrupted' && !room.snapshot.debate.terminalMessageId) await service.publishDebateEnd(room, room.snapshot.debate);
+    for (const room of service.rooms.values()) {
+      const debate = room.snapshot.debate;
+      if (debate && debate.status !== 'running' && !debate.terminalMessageId) await service.publishDebateEnd(room, debate);
+    }
     return service;
   }
   list(): GroupRoomSnapshot[] { return [...this.rooms.values()].map(room => clone(room.snapshot)).sort((a, b) => b.updatedAt - a.updatedAt); }
@@ -75,6 +78,7 @@ export class GroupRoomService {
     if (!input.requestId?.trim() || !input.title?.trim() || input.title.length > 100 || !input.machineId?.trim() || !input.directory?.trim()) throw new RunError(400, 'A group needs a title, machine, and working directory.');
     if (!isAbsoluteDirectory(input.directory.trim())) throw new RunError(400, 'Enter an absolute working directory already approved in Paws, for example /home/node.');
     validateMaxRounds(input.maxRounds ?? 10);
+    if (input.autoReply !== undefined && typeof input.autoReply !== 'boolean') throw new RunError(400, 'autoReply must be boolean.');
     if (input.autoDebate !== undefined && typeof input.autoDebate !== 'boolean') throw new RunError(400, 'autoDebate must be boolean.');
     const profiles = this.profiles.members(input.memberIds);
     const partyId = await this.party.createGroup({ title: input.title.trim(), participants: profiles.map(profile => ({ id: profile.id, description: profile.instructions })) });
@@ -87,7 +91,7 @@ export class GroupRoomService {
   async configure(id: string, input: { autoReply?: boolean; autoDebate?: boolean; maxRounds?: number }): Promise<GroupRoomSnapshot> {
     return this.serialize(id, async () => {
       const room = this.require(id);
-      if (!input || !['autoReply', 'autoDebate', 'maxRounds'].some(key => key in input)) throw new RunError(400, 'Provide a group setting.');
+      if (!input || typeof input !== 'object' || Array.isArray(input) || !['autoReply', 'autoDebate', 'maxRounds'].some(key => key in input)) throw new RunError(400, 'Provide a group setting.');
       for (const key of ['autoReply', 'autoDebate'] as const) if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new RunError(400, `${key} must be boolean.`);
       if (input.maxRounds !== undefined) validateMaxRounds(input.maxRounds);
       if (room.snapshot.debate?.status === 'running' && input.maxRounds !== undefined && input.maxRounds !== room.snapshot.maxRounds) throw new RunError(409, 'Stop the active debate before changing its round limit.');
@@ -161,7 +165,16 @@ export class GroupRoomService {
   private async publishDebateEnd(room: StoredRoom, debate: DebateSnapshot): Promise<void> {
     if (debate.terminalMessageId) return;
     const label = debate.status === 'completed' ? `辩论已在第 ${debate.completedRounds} / ${debate.maxRounds} 轮结束` : `辩论${debate.status === 'stopped' ? '已停止' : debate.status === 'interrupted' ? '已中断' : '失败'}：${debate.stopReason ?? ''}`;
-    const message = await this.party.send({ partyId: room.snapshot.partyId, from: 'host', to: '*', text: label, replyTo: debate.sourceMessageId }); debate.terminalMessageId = message.id; await this.persist();
+    try {
+      const message = await this.party.send({ partyId: room.snapshot.partyId, from: 'host', to: '*', text: label, replyTo: debate.sourceMessageId });
+      debate.terminalMessageId = message.id;
+      room.snapshot.error = undefined;
+    } catch (error) {
+      // The durable terminal state remains authoritative. A later service start
+      // retries any state that has no terminal public message yet.
+      room.snapshot.error = `Unable to publish debate end: ${safeError(error)}`;
+    }
+    await this.persist();
   }
 
   async agentMessages(id: string, agentId: string, afterSeq: number): Promise<AgentMessagesResponse> {
@@ -216,7 +229,7 @@ export class GroupRoomService {
       const pending = this.sdk.watch(sessionId, { afterSeq: room.cursors[member.id] ?? 0, signal: deadline.signal, onMessage: message => { room.cursors[member.id] = Math.max(room.cursors[member.id] ?? 0, message.seq); const outcome = decoder.accept(message); Object.assign(turn, decoder.provenance); if (outcome) terminal.resolve(outcome); }, onError: error => terminal.reject(error) });
       void pending.then(value => { if (deadline.signal.aborted) value.unsubscribe(); }, () => undefined);
       subscription = await abortable(pending, deadline.signal); member.status = 'running'; await this.persist(); deadline.signal.throwIfAborted();
-      const [, outcome] = await abortable(Promise.all([this.sdk.send({ sessionId, text: prompt, localId, images, signal: deadline.signal }), terminal.promise]), deadline.signal);
+      const [, outcome] = await abortable(Promise.all([this.sdk.send({ sessionId, text: prompt, localId, images, meta: { model: member.model, effort: member.effort }, signal: deadline.signal }), terminal.promise]), deadline.signal);
       if (outcome.type === 'failed') throw new Error(`Remote ${member.name} turn ${outcome.status}.`); member.status = 'completed'; return outcome.text;
     } finally { subscription?.unsubscribe(); deadline.dispose(); }
   }

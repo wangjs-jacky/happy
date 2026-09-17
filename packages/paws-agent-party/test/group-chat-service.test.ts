@@ -15,13 +15,14 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> { const resp
 
 describe('generic group chat', () => {
   it('freezes the Codex model/effort at room creation and forwards that snapshot on spawn', async () => {
-    const { server, sdk } = await start(); const spawn = vi.spyOn(sdk, 'spawn');
+    const { server, sdk } = await start(); const spawn = vi.spyOn(sdk, 'spawn'); const send = vi.spyOn(sdk, 'send');
     const profile = await json<{ id: string }>(`${server.url}/api/group-chat/agents`, { method: 'POST', body: JSON.stringify({ name: '架构师', instructions: '分析架构', model: 'gpt-5.6-terra', effort: 'high' }) });
     const room = await json<GroupRoomSnapshot>(`${server.url}/api/group-chat/rooms`, { method: 'POST', body: JSON.stringify({ requestId: 'frozen-room', title: '模型配置', memberIds: [profile.id], machineId: 'machine-1', directory: '/tmp/work' }) });
     expect(room.members[0]).toMatchObject({ engine: 'codex', model: 'gpt-5.6-terra', effort: 'high' });
     await json(`${server.url}/api/group-chat/agents/${profile.id}`, { method: 'PATCH', body: JSON.stringify({ name: '架构师', instructions: '新的角色', model: 'gpt-5.6-luna', effort: 'low' }) });
     await json(`${server.url}/api/group-chat/rooms/${room.id}/messages`, { method: 'POST', body: JSON.stringify({ requestId: 'frozen-message', text: '@架构师 给出观点', images: [] }) });
     await eventually(() => expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', model: 'gpt-5.6-terra', effort: 'high' })));
+    await eventually(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ meta: { model: 'gpt-5.6-terra', effort: 'high' } })));
     const unchanged = await json<GroupRoomSnapshot>(`${server.url}/api/group-chat/rooms/${room.id}`);
     expect(unchanged.members[0]).toMatchObject({ instructions: '分析架构', model: 'gpt-5.6-terra', effort: 'high' });
   });

@@ -37,7 +37,9 @@ it('shows bounded debate progress, locks its cap while running, and sends the de
   }));
 
   render(<GroupChatApp />);
-  expect(await screen.findByText('自动辩论')).toBeTruthy();
+  // The room becomes selected after the three initial API responses settle;
+  // leave headroom for parallel worker CPU without relaxing the interaction.
+  expect(await screen.findByText('自动辩论', {}, { timeout: 5_000 })).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('进行中 · 第 3 / 10 轮 · 下一位：正方');
   expect((screen.getByLabelText('最大辩论轮数') as HTMLSelectElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: '停止辩论' }));
