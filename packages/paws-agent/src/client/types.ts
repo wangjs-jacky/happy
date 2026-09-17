@@ -176,6 +176,8 @@ export interface SessionsResource {
     getConfiguration(sessionId: string): Promise<SessionConfiguration>;
     spawn(input: SpawnSessionInput): Promise<SpawnSessionResult>;
     resume(input: ResumeSessionInput): Promise<SpawnSessionResult>;
+    /** End the execution process, retaining history for resume. */
+    terminate(sessionId: string): Promise<void>;
     stop(sessionId: string): Promise<void>;
 }
 

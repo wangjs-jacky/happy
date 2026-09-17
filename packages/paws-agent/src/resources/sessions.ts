@@ -116,6 +116,15 @@ export class SessionsResourceImpl implements SessionsResource {
         return this.parseSpawnResult(result);
     }
 
+    /** Gracefully end execution, preserving daemon resume state and message history. */
+    async terminate(sessionId: string): Promise<void> {
+        await this.ensureSession(sessionId);
+        const result = await this.realtime.sessionRpc<{ success?: boolean }>(sessionId, 'killSession', {});
+        if (result?.success !== true) {
+            throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Session did not acknowledge termination');
+        }
+    }
+
     async stop(sessionId: string): Promise<void> {
         await this.ensureSession(sessionId);
         this.realtime.emit('session-end', { sid: sessionId, time: Date.now() });
