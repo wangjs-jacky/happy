@@ -16,6 +16,7 @@ type SidebarAccountMenuProps = {
     desktopDensity?: boolean;
     displayName: string;
     onNavigate: (path: string) => void;
+    onOpenAccounts?: (add?: boolean) => void;
     onOpenSettings?: () => void;
     onOpenChange: (open: boolean) => void;
     open: boolean;
@@ -67,6 +68,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     desktopDensity = false,
     displayName,
     onNavigate,
+    onOpenAccounts,
     onOpenSettings,
     onOpenChange,
     open,
@@ -145,6 +147,15 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         })();
     }, [logout, onOpenChange]);
 
+    const openAccountManagement = React.useCallback((path: string) => {
+        if (path === '/accounts?add=1' && onOpenAccounts) {
+            triggerRef.current?.focus?.();
+            onOpenChange(false);
+            onOpenAccounts(true);
+            return;
+        }
+        navigate(path);
+    }, [navigate, onOpenAccounts, onOpenChange]);
     const menu = open ? (
                 <Animated.View
                     entering={FadeIn.duration(160).reduceMotion(ReduceMotion.System).withCallback((finished) => {
@@ -164,13 +175,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     testID="sidebar-account-menu"
                 >
                     <ScrollView keyboardShouldPersistTaps="handled">
-                    <SavedAccountsMenu ref={firstActionRef} onNavigate={navigate} />
-                    <MenuAction
-                        icon="person-circle-outline"
-                        label={t('settingsAccount.profile')}
-                        onPress={() => navigate('/settings/profile')}
-                        testID="sidebar-account-profile-action"
-                    />
+                    <SavedAccountsMenu ref={firstActionRef} onNavigate={openAccountManagement} />
                     <MenuAction
                         icon="settings-outline"
                         label={t('settings.title')}
@@ -188,7 +193,15 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     <MenuAction
                         icon="shield-checkmark-outline"
                         label={t('accounts.title')}
-                        onPress={() => navigate('/accounts')}
+                        onPress={() => {
+                            if (onOpenAccounts) {
+                                triggerRef.current?.focus?.();
+                                onOpenChange(false);
+                                onOpenAccounts();
+                                return;
+                            }
+                            navigate('/accounts');
+                        }}
                         testID="sidebar-account-details-action"
                     />
                     <MenuAction
