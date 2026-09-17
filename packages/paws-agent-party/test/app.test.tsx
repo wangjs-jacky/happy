@@ -44,13 +44,16 @@ it('restores stored Party history and exact details on reload using the original
   }));
   sessionStorage.setItem('apToken', 'test-only'); sessionStorage.setItem('apCurrentParty', party.id);
   const view = render(<PartyApp />);
-  expect(await screen.findByText('已保存的公开结论')).toBeTruthy();
+  // This exercises real WebCrypto and virtual-list rendering after several
+  // asynchronous requests. A 1s default is a scheduling race in the full suite,
+  // not the product's loading deadline; still require the decrypted UI result.
+  expect(await screen.findByText('已保存的公开结论', {}, { timeout: 5_000 })).toBeTruthy();
   fireEvent.click(screen.getAllByRole('button', { name: /查看 trend30/ })[0]!);
   expect(await screen.findByText('source-original')).toBeTruthy();
   expect(screen.getByRole('link', { name: '在 Paws 打开原始会话' }).getAttribute('href')).toContain('/session/exact-session');
   view.unmount();
   render(<PartyApp />);
-  expect(await screen.findByText('已保存的公开结论')).toBeTruthy();
+  expect(await screen.findByText('已保存的公开结论', {}, { timeout: 5_000 })).toBeTruthy();
   expect(screen.getByText(/会诊：已停止协调/)).toBeTruthy();
 });
 

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FollowUpSnapshot, ImageRef, RunSnapshot, StartInput } from '../src/contracts.js';
 import { createPocServer, type PocServer } from '../src/server/http.js';
 import { decryptText } from '../vendor/agents-party/src/core/crypto.js';
@@ -214,15 +214,31 @@ describe('consultation runs', () => {
   });
 
   it('times out observation, removes the durable subscription, and fails the run', async () => {
-    const sdk = new TestOnlySdk({ delayMs: 2_000 });
-    const server = await start(sdk, 30);
-    const started = await postStart(server, input({ mode: 'single' }));
-
-    const failed = await waitForTerminal(server, started.id);
-
-    expect(failed.status).toBe('failed');
-    expect(failed.error).toContain('deadline');
-    expect(sdk.unsubscribeCount).toBeGreaterThan(0);
+    const deadlineMs = 60_123;
+    const setRealTimeout = globalThis.setTimeout;
+    let expireDeadline: (() => void) | undefined;
+    const timer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      const handle = setRealTimeout(callback, delay, ...args);
+      if (delay === deadlineMs) expireDeadline = () => { clearTimeout(handle); callback(...args); };
+      return handle;
+    });
+    const delivery = deferred<void>();
+    const sdk = new TestOnlySdk(); sdk.holdNextDelivery(delivery.promise);
+    try {
+      const server = await start(sdk, deadlineMs);
+      const started = await postStart(server, input({ mode: 'single' }));
+      // send happens only after watch resolves and the subscription is retained.
+      // Trigger the production timer's callback at that boundary, rather than
+      // racing filesystem/spawn latency against an arbitrary 30ms deadline.
+      await waitUntil(() => sdk.calls.length === 1);
+      expect(expireDeadline).toBeTypeOf('function');
+      expect(sdk.unsubscribeCount).toBe(0);
+      expireDeadline!();
+      const failed = await waitForTerminal(server, started.id);
+      expect(failed.status).toBe('failed');
+      expect(failed.error).toContain('deadline');
+      expect(sdk.unsubscribeCount).toBe(1);
+    } finally { delivery.resolve(); timer.mockRestore(); }
   });
 
   it('rejects malformed attachment arrays at both start and follow-up boundaries', async () => {
