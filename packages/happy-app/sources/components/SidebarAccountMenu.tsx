@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Modal as NativeModal, Platform, Pressable, Text, View } from 'react-native';
+import { Modal as NativeModal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -9,12 +9,14 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { getAvatarUrl, type Profile } from '@/sync/profile';
 import { t } from '@/text';
-import { UsageDialog } from '@/components/usage/UsageDialog';
+import { SavedAccountsMenu } from '@/components/accounts/SavedAccountsMenu';
+import Animated, { FadeIn, LinearTransition, ReduceMotion, runOnJS } from 'react-native-reanimated';
 
 type SidebarAccountMenuProps = {
     desktopDensity?: boolean;
     displayName: string;
     onNavigate: (path: string) => void;
+    onOpenAccounts?: (add?: boolean) => void;
     onOpenSettings?: () => void;
     onOpenChange: (open: boolean) => void;
     open: boolean;
@@ -66,6 +68,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     desktopDensity = false,
     displayName,
     onNavigate,
+    onOpenAccounts,
     onOpenSettings,
     onOpenChange,
     open,
@@ -79,10 +82,11 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     const { theme } = useUnistyles();
     const triggerRef = React.useRef<any>(null);
     const safeArea = useSafeAreaInsets();
+    const { height: viewportHeight } = useWindowDimensions();
     const nativeMobileMenu = mobileRail && Platform.OS !== 'web';
     const firstActionRef = React.useRef<any>(null);
+    const focusFirstAction = React.useCallback(() => firstActionRef.current?.focus?.(), []);
     const wasOpenRef = React.useRef(false);
-    const [usageDialogOpen, setUsageDialogOpen] = React.useState(false);
     const avatarUrl = getAvatarUrl(profile);
     const webTitle = Platform.OS === 'web' && railMode ? { title: displayName } as any : {};
 
@@ -97,13 +101,13 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         const timeout = setTimeout(() => {
             if (open) {
                 firstActionRef.current?.focus?.();
-            } else if (wasOpen && restoreFocusOnClose && !usageDialogOpen) {
+            } else if (wasOpen && restoreFocusOnClose) {
                 triggerRef.current?.focus?.();
             }
         }, 0);
 
         return () => clearTimeout(timeout);
-    }, [open, restoreFocusOnClose, usageDialogOpen]);
+    }, [open, restoreFocusOnClose]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !open || typeof window === 'undefined') {
@@ -143,13 +147,22 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         })();
     }, [logout, onOpenChange]);
 
-    const openUsageDialog = React.useCallback(() => {
-        setUsageDialogOpen(true);
-        onOpenChange(false);
-    }, [onOpenChange]);
-
+    const openAccountManagement = React.useCallback((path: string) => {
+        if (path === '/accounts?add=1' && onOpenAccounts) {
+            triggerRef.current?.focus?.();
+            onOpenChange(false);
+            onOpenAccounts(true);
+            return;
+        }
+        navigate(path);
+    }, [navigate, onOpenAccounts, onOpenChange]);
     const menu = open ? (
-                <View
+                <Animated.View
+                    entering={FadeIn.duration(160).reduceMotion(ReduceMotion.System).withCallback((finished) => {
+                        'worklet';
+                        if (finished) runOnJS(focusFirstAction)();
+                    })}
+                    layout={LinearTransition.duration(220).reduceMotion(ReduceMotion.System)}
                     accessibilityViewIsModal
                     style={[
                         styles.menu,
@@ -157,16 +170,12 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                         railMode && styles.menuRail,
                         mobileRail && styles.menuMobileRail,
                         nativeMobileMenu && { bottom: safeArea.bottom + 64 },
+                        { maxHeight: Math.max(120, viewportHeight - safeArea.top - safeArea.bottom - 90) },
                     ]}
                     testID="sidebar-account-menu"
                 >
-                    <MenuAction
-                        ref={firstActionRef}
-                        icon="person-circle-outline"
-                        label={t('settingsAccount.profile')}
-                        onPress={() => navigate('/settings/profile')}
-                        testID="sidebar-account-profile-action"
-                    />
+                    <ScrollView keyboardShouldPersistTaps="handled">
+                    <SavedAccountsMenu ref={firstActionRef} onNavigate={openAccountManagement} />
                     <MenuAction
                         icon="settings-outline"
                         label={t('settings.title')}
@@ -183,14 +192,22 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     />
                     <MenuAction
                         icon="shield-checkmark-outline"
-                        label={t('settings.account')}
-                        onPress={() => navigate('/settings/account')}
+                        label={t('accounts.title')}
+                        onPress={() => {
+                            if (onOpenAccounts) {
+                                triggerRef.current?.focus?.();
+                                onOpenChange(false);
+                                onOpenAccounts();
+                                return;
+                            }
+                            navigate('/accounts');
+                        }}
                         testID="sidebar-account-details-action"
                     />
                     <MenuAction
                         icon="analytics-outline"
                         label={t('settings.usage')}
-                        onPress={openUsageDialog}
+                        onPress={() => navigate('/settings/usage')}
                         testID="sidebar-account-usage-action"
                     />
                     <View style={styles.dangerGroup}>
@@ -202,7 +219,8 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                             testID="sidebar-account-logout-action"
                         />
                     </View>
-                </View>
+                    </ScrollView>
+                </Animated.View>
             ) : null;
 
     return (
@@ -260,11 +278,6 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     size={15}
                 /> : null}
             </Pressable>
-            <UsageDialog
-                onClose={() => setUsageDialogOpen(false)}
-                open={usageDialogOpen}
-                returnFocusRef={triggerRef}
-            />
         </View>
     );
 });

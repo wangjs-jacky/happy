@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, Platform, ScrollView, Pressable } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -17,26 +17,11 @@ import type { CodexAccountProfile } from '@/sync/apiCodexAccounts';
 
 type TimePeriod = 'today' | '7days' | '30days';
 
-interface CodexRateLimitWindow {
-    usedPercent?: number;
-    windowMinutes?: number;
-    resetsAt?: number;
-}
-
 interface CodexUsageSnapshot {
     source: 'codex-session-jsonl';
     scannedAt: number;
     timeZone?: string;
     days?: CodexUsageDay[];
-    latestEvent?: {
-        timestamp?: string;
-        rateLimitsTimestamp?: string;
-        rateLimits?: {
-            planType?: string;
-            primary?: CodexRateLimitWindow;
-            secondary?: CodexRateLimitWindow;
-        };
-    } | null;
 }
 
 interface CodexUsageDay {
@@ -51,16 +36,40 @@ interface CodexUsageDay {
     totalOnlyTokens: number;
 }
 
-interface CodexAccountUsageSnapshot {
-    profileId: string;
-    usage: CodexUsageSnapshot;
+const CODEX_HEATMAP_DAYS = 365;
+const CODEX_HEATMAP_MAX_CELL_SIZE = 14;
+const CODEX_HEATMAP_MAX_GAP = 5;
+const CODEX_HEATMAP_MIN_CELL_SIZE = 1;
+const CODEX_HEATMAP_MIN_GAP = 0;
+const CODEX_HEATMAP_MONTH_LABEL_SPACING = 24;
+const CODEX_USAGE_REFRESH_RPC_TIMEOUT_MS = 60_000;
+
+export function getCodexHeatmapCellMetrics(width: number, weekCount = 53): { cellSize: number; gap: number } {
+    const fullWidth = weekCount * CODEX_HEATMAP_MAX_CELL_SIZE + (weekCount - 1) * CODEX_HEATMAP_MAX_GAP;
+    const scale = Math.min(1, Math.max(0, width) / fullWidth);
+    const gap = Math.max(CODEX_HEATMAP_MIN_GAP, Math.floor(CODEX_HEATMAP_MAX_GAP * scale));
+    const cellSize = Math.max(
+        CODEX_HEATMAP_MIN_CELL_SIZE,
+        Math.min(CODEX_HEATMAP_MAX_CELL_SIZE, Math.floor((width - (weekCount - 1) * gap) / weekCount)),
+    );
+    return { cellSize, gap };
 }
 
-type CodexUsageScope = 'all' | 'unattributed' | string;
+type CodexHeatmapMonthLabel = { key: string; label: string; weekIndex: number };
 
-const CODEX_HEATMAP_DAYS = 365;
-const CODEX_HEATMAP_CELL_SIZE = 14;
-const CODEX_USAGE_REFRESH_RPC_TIMEOUT_MS = 60_000;
+export function filterCodexHeatmapMonthLabels(
+    labels: CodexHeatmapMonthLabel[],
+    columnWidth: number,
+    minimumSpacing = CODEX_HEATMAP_MONTH_LABEL_SPACING,
+): CodexHeatmapMonthLabel[] {
+    let lastLeft = Number.NEGATIVE_INFINITY;
+    return labels.filter((label) => {
+        const left = label.weekIndex * columnWidth;
+        if (left - lastLeft < minimumSpacing) return false;
+        lastLeft = left;
+        return true;
+    });
+}
 
 function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null {
     if (!daemonState || typeof daemonState !== 'object') {
@@ -75,99 +84,6 @@ function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null 
         return null;
     }
     return candidate as CodexUsageSnapshot;
-}
-
-function getCodexAccountUsageSnapshots(daemonState: unknown): CodexAccountUsageSnapshot[] {
-    if (!daemonState || typeof daemonState !== 'object') return [];
-    const entries = (daemonState as { codexAccountUsage?: unknown }).codexAccountUsage;
-    if (!Array.isArray(entries)) return [];
-    return entries.flatMap((entry): CodexAccountUsageSnapshot[] => {
-        if (!entry || typeof entry !== 'object') return [];
-        const candidate = entry as { profileId?: unknown; usage?: unknown };
-        if (typeof candidate.profileId !== 'string') return [];
-        const usage = getCodexUsageSnapshot({ codexUsage: candidate.usage });
-        return usage ? [{ profileId: candidate.profileId, usage }] : [];
-    });
-}
-
-function hasUsableRateLimits(snapshot: CodexUsageSnapshot): boolean {
-    const rateLimits = snapshot.latestEvent?.rateLimits;
-    return typeof rateLimits?.primary?.usedPercent === 'number'
-        || typeof rateLimits?.secondary?.usedPercent === 'number';
-}
-
-function getLatestCodexUsageSnapshot(
-    machines: Array<{ daemonState: unknown }>,
-    requireRateLimits = false,
-): CodexUsageSnapshot | null {
-    return machines.reduce<CodexUsageSnapshot | null>((latest, machine) => {
-        const snapshot = getCodexUsageSnapshot(machine.daemonState);
-        if (!snapshot || (requireRateLimits && !hasUsableRateLimits(snapshot))) {
-            return latest;
-        }
-        const snapshotTimestamp = requireRateLimits
-            ? snapshot.latestEvent?.rateLimitsTimestamp || snapshot.latestEvent?.timestamp
-            : snapshot.latestEvent?.timestamp;
-        const latestTimestamp = requireRateLimits
-            ? latest?.latestEvent?.rateLimitsTimestamp || latest?.latestEvent?.timestamp
-            : latest?.latestEvent?.timestamp;
-        const snapshotEventTime = snapshotTimestamp
-            ? Date.parse(snapshotTimestamp)
-            : snapshot.scannedAt;
-        const latestEventTime = latestTimestamp
-            ? Date.parse(latestTimestamp)
-            : latest?.scannedAt;
-        if (latest && (latestEventTime || 0) >= (snapshotEventTime || 0)) {
-            return latest;
-        }
-        return snapshot;
-    }, null);
-}
-
-function getCodexQuotaUsageSnapshot(
-    machines: Array<{ active?: boolean; daemonState: unknown; id?: string }>,
-    currentMachineId: string | null,
-): CodexUsageSnapshot | null {
-    if (currentMachineId) {
-        const currentMachineSnapshot = getLatestCodexUsageSnapshot(
-            machines.filter((machine) => machine.id === currentMachineId),
-            true,
-        );
-        if (currentMachineSnapshot) {
-            return currentMachineSnapshot;
-        }
-    }
-
-    const activeMachineSnapshot = getLatestCodexUsageSnapshot(
-        machines.filter((machine) => machine.active === true),
-        true,
-    );
-    return activeMachineSnapshot || getLatestCodexUsageSnapshot(machines, true);
-}
-
-function mergeCodexUsageDays(snapshots: CodexUsageSnapshot[]): CodexUsageDay[] {
-    const merged = new Map<string, CodexUsageDay>();
-    for (const snapshot of snapshots) {
-        for (const day of snapshot.days || []) {
-            const existing = merged.get(day.date);
-            if (!existing) {
-                merged.set(day.date, { ...day });
-                continue;
-            }
-            merged.set(day.date, {
-                date: day.date,
-                inputTokens: existing.inputTokens + day.inputTokens,
-                cachedInputTokens: existing.cachedInputTokens + day.cachedInputTokens,
-                outputTokens: existing.outputTokens + day.outputTokens,
-                reasoningOutputTokens: existing.reasoningOutputTokens + day.reasoningOutputTokens,
-                totalTokens: existing.totalTokens + day.totalTokens,
-                tokenCountEvents: existing.tokenCountEvents + day.tokenCountEvents,
-                sessions: existing.sessions + day.sessions,
-                totalOnlyTokens: existing.totalOnlyTokens + day.totalOnlyTokens,
-            });
-        }
-    }
-    return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function dateKeyForTimeZone(timestamp: number, timeZone?: string): string {
@@ -259,13 +175,6 @@ function getCodexHeatmapOpacity(totalTokens: number, maxTokens: number): number 
     return 1;
 }
 
-function formatRateLimitPeriod(windowMinutes: number | undefined): string {
-    if (typeof windowMinutes !== 'number') return '?';
-    if (windowMinutes % 1440 === 0) return `${windowMinutes / 1440}d`;
-    if (windowMinutes >= 60) return `${windowMinutes / 60}h`;
-    return `${windowMinutes}m`;
-}
-
 function formatCodexActivityTokens(tokens: number, language: string): string {
     if (language === 'zh-Hans') {
         return `${(tokens / 100_000_000).toFixed(2)} 亿`;
@@ -287,21 +196,6 @@ interface CodexRateLimitSummary {
     used: number;
     remaining: number;
     resetAt: string;
-}
-
-function getCodexRateLimitSummary(window: CodexRateLimitWindow | undefined): CodexRateLimitSummary | null {
-    if (!window || typeof window.usedPercent !== 'number') {
-        return null;
-    }
-    const used = Math.max(0, Math.min(100, window.usedPercent));
-    return {
-        period: formatRateLimitPeriod(window.windowMinutes),
-        used,
-        remaining: 100 - used,
-        resetAt: typeof window.resetsAt === 'number'
-            ? new Date(window.resetsAt * 1000).toLocaleString()
-            : t('common.unknown'),
-    };
 }
 
 function getCodexAccountQuotaSummary(profile: CodexAccountProfile | undefined): CodexRateLimitSummary | null {
@@ -481,8 +375,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     heatmapCell: {
         borderRadius: 4,
-        height: CODEX_HEATMAP_CELL_SIZE,
-        width: CODEX_HEATMAP_CELL_SIZE,
         ...Platform.select({
             web: {
                 transitionDuration: '120ms',
@@ -492,8 +384,6 @@ const styles = StyleSheet.create((theme) => ({
         }),
     },
     heatmapCellPlaceholder: {
-        height: CODEX_HEATMAP_CELL_SIZE,
-        width: CODEX_HEATMAP_CELL_SIZE,
     },
     heatmapCellInactive: {
         backgroundColor: theme.colors.surfaceHigh,
@@ -599,7 +489,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const auth = useAuth();
     const machines = useAllMachines({ includeOffline: true });
     const codexAccounts = useCodexAccounts();
-    const [codexUsageScope, setCodexUsageScope] = useState<CodexUsageScope | null>(null);
+    const [selectedQuotaProfileId, setSelectedQuotaProfileId] = useState<string | null>(null);
     const [period, setPeriod] = useState<TimePeriod>('7days');
     const [chartMetric, setChartMetric] = useState<'tokens' | 'cost'>('tokens');
     const [loading, setLoading] = useState(true);
@@ -613,80 +503,61 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     });
     const [selectedCodexUsageDate, setSelectedCodexUsageDate] = useState<string | null>(null);
     const [hoveredCodexUsageDate, setHoveredCodexUsageDate] = useState<string | null>(null);
-    const heatmapScrollRef = useRef<ScrollView>(null);
+    const [heatmapWidth, setHeatmapWidth] = useState(
+        53 * CODEX_HEATMAP_MAX_CELL_SIZE + 52 * CODEX_HEATMAP_MAX_GAP,
+    );
     const currentLanguage = getCurrentLanguage();
     const currentMachineId = storage((state) => {
-        const currentSessionId = state.currentViewingSessionId;
+        const currentSessionId = sessionId || state.currentViewingSessionId;
         return currentSessionId ? state.sessions[currentSessionId]?.metadata?.machineId || null : null;
     });
     const currentCodexProfileId = storage((state) => {
-        const currentSessionId = state.currentViewingSessionId;
+        const currentSessionId = sessionId || state.currentViewingSessionId;
         return currentSessionId ? state.sessions[currentSessionId]?.metadata?.codexAccountProfileId || null : null;
     });
-    const refreshMachineIds = React.useMemo(() => {
-        const ids = new Set<string>();
-        if (currentMachineId) ids.add(currentMachineId);
-        for (const machine of machines) {
-            if (machine.active && machine.id) ids.add(machine.id);
-        }
-        return [...ids];
+    // A machine's local log scan is independent of the account selected for quota.
+    // Never substitute another machine when the current session's machine is missing.
+    const activityMachine = React.useMemo(() => {
+        if (currentMachineId) return machines.find((machine) => machine.id === currentMachineId);
+        const activeMachines = machines.filter((machine) => machine.active);
+        if (activeMachines.length === 1) return activeMachines[0];
+        return machines.length === 1 ? machines[0] : undefined;
     }, [currentMachineId, machines]);
-    const unattributedCodexUsageSnapshots = React.useMemo(() => machines
-        .map((machine) => getCodexUsageSnapshot(machine.daemonState))
-        .filter((snapshot): snapshot is CodexUsageSnapshot => !!snapshot), [machines]);
-    const attributedCodexUsageSnapshots = React.useMemo(() => machines
-        .flatMap((machine) => getCodexAccountUsageSnapshots(machine.daemonState)), [machines]);
+    const activityMachineId = activityMachine?.id;
+    const codexActivity = React.useMemo(
+        () => getCodexUsageSnapshot(activityMachine?.daemonState),
+        [activityMachine?.daemonState],
+    );
     const preferredCodexProfileId = currentCodexProfileId
         || codexAccounts.bindings.find((binding) => binding.machineId === currentMachineId)?.profileId;
     const suggestedCodexProfileId = codexAccounts.profiles.some((profile) => profile.id === preferredCodexProfileId)
         ? preferredCodexProfileId
         : codexAccounts.profiles[0]?.id;
-    const activeCodexUsageScope = codexUsageScope
-        || suggestedCodexProfileId
-        || (unattributedCodexUsageSnapshots.length > 0 ? 'unattributed' : 'all');
-    const selectedCodexProfile = codexAccounts.profiles.find((profile) => profile.id === activeCodexUsageScope);
-    const selectedCodexUsageSnapshots = React.useMemo(() => {
-        if (activeCodexUsageScope === 'unattributed') return unattributedCodexUsageSnapshots;
-        const attributed = activeCodexUsageScope === 'all'
-            ? attributedCodexUsageSnapshots
-            : attributedCodexUsageSnapshots.filter((entry) => entry.profileId === activeCodexUsageScope);
-        const snapshots = attributed.map((entry) => entry.usage);
-        return activeCodexUsageScope === 'all' ? [...snapshots, ...unattributedCodexUsageSnapshots] : snapshots;
-    }, [activeCodexUsageScope, attributedCodexUsageSnapshots, unattributedCodexUsageSnapshots]);
-    const unattributedQuotaUsage = React.useMemo(
-        () => getCodexQuotaUsageSnapshot(machines, currentMachineId),
-        [currentMachineId, machines],
-    );
-    const selectedAccountQuota = React.useMemo(
+    const activeQuotaProfileId = selectedQuotaProfileId || suggestedCodexProfileId;
+    const selectedCodexProfile = codexAccounts.profiles.find((profile) => profile.id === activeQuotaProfileId);
+    const primaryCodexRateLimit = React.useMemo(
         () => getCodexAccountQuotaSummary(selectedCodexProfile),
         [selectedCodexProfile],
     );
-    const codexQuotaUsage = activeCodexUsageScope === 'unattributed' ? unattributedQuotaUsage : null;
-    const codexRateLimits = React.useMemo(() => {
-        const rateLimits = codexQuotaUsage?.latestEvent?.rateLimits;
-        if (!rateLimits) return selectedAccountQuota ? [selectedAccountQuota] : [];
-        return [
-            getCodexRateLimitSummary(rateLimits.primary),
-            getCodexRateLimitSummary(rateLimits.secondary),
-        ].filter((limit): limit is CodexRateLimitSummary => !!limit);
-    }, [codexQuotaUsage, selectedAccountQuota]);
-    const primaryCodexRateLimit = codexRateLimits[0];
     const codexQuotaObservedAt = selectedCodexProfile?.quota.observedAt
         ? Date.parse(selectedCodexProfile.quota.observedAt)
-        : codexQuotaUsage?.scannedAt;
-    const codexActivity = React.useMemo(() => {
-        const latestScan = selectedCodexUsageSnapshots.reduce<CodexUsageSnapshot | null>((latest, snapshot) => (
-            !latest || snapshot.scannedAt > latest.scannedAt ? snapshot : latest
-        ), null);
-        return latestScan
-            ? { ...latestScan, days: mergeCodexUsageDays(selectedCodexUsageSnapshots) }
-            : null;
-    }, [selectedCodexUsageSnapshots]);
+        : undefined;
     const codexHeatmapDays = React.useMemo(() => getCodexHeatmapDays(codexActivity), [codexActivity]);
     const codexHeatmapWeeks = React.useMemo(() => getCodexHeatmapWeeks(codexHeatmapDays), [codexHeatmapDays]);
     const codexHeatmapMonthLabels = React.useMemo(
         () => getCodexHeatmapMonthLabels(codexHeatmapWeeks, currentLanguage),
         [codexHeatmapWeeks, currentLanguage],
+    );
+    const codexHeatmapMetrics = React.useMemo(
+        () => getCodexHeatmapCellMetrics(heatmapWidth, codexHeatmapWeeks.length || 53),
+        [codexHeatmapWeeks.length, heatmapWidth],
+    );
+    const visibleCodexHeatmapMonthLabels = React.useMemo(
+        () => filterCodexHeatmapMonthLabels(
+            codexHeatmapMonthLabels,
+            codexHeatmapMetrics.cellSize + codexHeatmapMetrics.gap,
+        ),
+        [codexHeatmapMetrics.cellSize, codexHeatmapMetrics.gap, codexHeatmapMonthLabels],
     );
     const maxCodexHeatmapTokens = React.useMemo(
         () => Math.max(...codexHeatmapDays.map((day) => day.totalTokens), 1),
@@ -700,22 +571,24 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const hasApiUsage = usageData.length > 0;
 
     useEffect(() => {
-        if (codexUsageScope && codexUsageScope !== 'all' && codexUsageScope !== 'unattributed'
-            && !codexAccounts.profiles.some((profile) => profile.id === codexUsageScope)) {
-            setCodexUsageScope(null);
+        if (selectedQuotaProfileId
+            && !codexAccounts.profiles.some((profile) => profile.id === selectedQuotaProfileId)) {
+            setSelectedQuotaProfileId(null);
         }
-    }, [codexAccounts.profiles, codexUsageScope]);
+    }, [codexAccounts.profiles, selectedQuotaProfileId]);
 
     useEffect(() => {
-        for (const machineId of refreshMachineIds) {
+        setSelectedCodexUsageDate(null);
+        setHoveredCodexUsageDate(null);
+        if (activityMachineId) {
             void apiSocket.machineRPC(
-                machineId,
+                activityMachineId,
                 'refresh-codex-usage',
                 {},
                 { timeoutMs: CODEX_USAGE_REFRESH_RPC_TIMEOUT_MS },
             ).catch(() => {});
         }
-    }, [refreshMachineIds]);
+    }, [activityMachineId]);
     
     useEffect(() => {
         let cancelled = false;
@@ -792,44 +665,37 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
             <View style={styles.codexCard} accessibilityLiveRegion="polite">
                 <View style={styles.codexHeader}>
                     <Text style={styles.codexTitle}>{t('machine.codexUsage')}</Text>
-                    {!!(selectedCodexProfile || codexQuotaUsage?.latestEvent?.rateLimits?.planType) && (
+                    {!!selectedCodexProfile && (
                         <View style={styles.planBadge}>
                             <Text style={styles.planBadgeText} numberOfLines={1}>
-                                {selectedCodexProfile?.displayName
-                                    || codexQuotaUsage?.latestEvent?.rateLimits?.planType?.toUpperCase()}
+                                {selectedCodexProfile.displayName}
                             </Text>
                         </View>
                     )}
                 </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {codexAccounts.profiles.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={styles.codexAccountSelector} accessibilityRole="tablist">
-                        {[
-                            { id: 'all', label: t('machine.codexUsageAllAccounts') },
-                            ...codexAccounts.profiles.map((profile) => ({ id: profile.id, label: profile.displayName })),
-                            ...(unattributedCodexUsageSnapshots.length > 0
-                                ? [{ id: 'unattributed', label: t('machine.codexUsageUnattributed') }]
-                                : []),
-                        ].map((scope) => {
-                            const active = scope.id === activeCodexUsageScope;
+                        {codexAccounts.profiles.map((scope) => {
+                            const active = scope.id === activeQuotaProfileId;
                             return (
                                 <Pressable
                                     key={scope.id}
                                     testID={`codex-usage-scope-${scope.id}`}
                                     accessibilityRole="tab"
                                     aria-selected={active}
-                                    onPress={() => setCodexUsageScope(scope.id)}
+                                    onPress={() => setSelectedQuotaProfileId(scope.id)}
                                     style={({ pressed }) => [
                                         styles.codexAccountChip,
                                         active && styles.codexAccountChipActive,
                                         pressed && styles.codexAccountChipPressed,
                                     ]}
                                 >
-                                    <Text style={[styles.codexAccountChipText, active && styles.codexAccountChipTextActive]}>{scope.label}</Text>
+                                    <Text style={[styles.codexAccountChipText, active && styles.codexAccountChipTextActive]}>{scope.displayName}</Text>
                                 </Pressable>
                             );
                         })}
                     </View>
-                </ScrollView>
+                </ScrollView>}
                 {primaryCodexRateLimit ? (
                     <>
                         <View>
@@ -842,11 +708,6 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                         <Text style={styles.quotaDetails}>
                             {t('machine.codexUsageRateLimitWindow', primaryCodexRateLimit)}
                         </Text>
-                        {codexRateLimits.slice(1).map((limit) => (
-                            <Text key={limit.period} style={styles.quotaDetails}>
-                                {t('machine.codexUsageRateLimitWindow', limit)}
-                            </Text>
-                        ))}
                         <Text style={styles.quotaReset}>
                             {t('machine.codexUsageResetsAt', { time: primaryCodexRateLimit.resetAt })}
                         </Text>
@@ -861,17 +722,11 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                     </>
                 ) : (
                     <Text style={styles.quotaDetails}>
-                        {activeCodexUsageScope === 'all'
-                            ? codexAccounts.profiles.length > 0
-                                ? t('machine.codexUsageSelectAccount')
-                                : t('machine.codexUsageWaitingForDaemon')
-                            : activeCodexUsageScope === 'unattributed'
-                                ? t('machine.codexUsageUnattributedHint')
-                                : selectedCodexProfile
-                                    ? selectedCodexProfile.quota.state === 'reset'
-                                        ? `${t('codexAccounts.quotaUnknown')} · ${t('codexAccounts.quotaWaiting')}`
-                                        : t('codexAccounts.quotaUnknown')
-                                    : t('machine.codexUsageWaitingForDaemon')}
+                        {selectedCodexProfile
+                            ? selectedCodexProfile.quota.state === 'reset'
+                                ? `${t('codexAccounts.quotaUnknown')} · ${t('codexAccounts.quotaWaiting')}`
+                                : t('codexAccounts.quotaUnknown')
+                            : t('codexAccounts.quotaUnknown')}
                     </Text>
                 )}
             </View>
@@ -882,36 +737,39 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                         <Text style={styles.heatmapTitle}>{t('machine.codexUsageHeatmap')}</Text>
                         <Text style={styles.heatmapLegend}>{t('machine.codexUsageHeatmapLegend')}</Text>
                     </View>
-                    <ScrollView
-                        ref={heatmapScrollRef}
-                        testID="codex-usage-heatmap-scroll"
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        onContentSizeChange={() => heatmapScrollRef.current?.scrollToEnd({ animated: false })}
+                    <View
+                        onLayout={(event) => setHeatmapWidth(event.nativeEvent.layout.width)}
+                        style={styles.heatmapCalendar}
+                        testID="codex-usage-heatmap"
                     >
-                        <View style={styles.heatmapCalendar}>
-                            {codexHeatmapMonthLabels.map((month) => (
-                                <Text
-                                    key={month.key}
-                                    testID={`codex-usage-month-${month.key}`}
-                                    style={[
-                                        styles.heatmapMonthLabel,
-                                        { left: month.weekIndex * (CODEX_HEATMAP_CELL_SIZE + 5) },
-                                    ]}
+                        {visibleCodexHeatmapMonthLabels.map((month) => (
+                            <Text
+                                key={month.key}
+                                testID={`codex-usage-month-${month.key}`}
+                                style={[
+                                    styles.heatmapMonthLabel,
+                                    { left: month.weekIndex * (codexHeatmapMetrics.cellSize + codexHeatmapMetrics.gap) },
+                                ]}
+                            >
+                                {month.label}
+                            </Text>
+                        ))}
+                        <View
+                            style={[styles.heatmapGrid, { gap: codexHeatmapMetrics.gap }]}
+                            testID="codex-usage-heatmap-grid"
+                        >
+                            {codexHeatmapWeeks.map((week, weekIndex) => (
+                                <View
+                                    key={weekIndex}
+                                    testID={`codex-usage-week-${weekIndex}`}
+                                    style={[styles.heatmapWeek, { gap: codexHeatmapMetrics.gap }]}
                                 >
-                                    {month.label}
-                                </Text>
-                            ))}
-                            <View style={styles.heatmapGrid}>
-                                {codexHeatmapWeeks.map((week, weekIndex) => (
-                                    <View
-                                        key={weekIndex}
-                                        testID={`codex-usage-week-${weekIndex}`}
-                                        style={styles.heatmapWeek}
-                                    >
-                                        {week.map((day, dayIndex) => {
+                                    {week.map((day, dayIndex) => {
                                             if (!day) {
-                                                return <View key={`empty-${dayIndex}`} style={styles.heatmapCellPlaceholder} />;
+                                                return <View key={`empty-${dayIndex}`} style={[
+                                                    styles.heatmapCellPlaceholder,
+                                                    { height: codexHeatmapMetrics.cellSize, width: codexHeatmapMetrics.cellSize },
+                                                ]} />;
                                             }
                                             const isActive = day.totalTokens > 0;
                                             const isSelected = day.date === selectedCodexUsageDay?.date;
@@ -925,6 +783,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                                     testID={`codex-usage-day-${day.date}`}
                                                     style={({ pressed }) => [
                                                         styles.heatmapCell,
+                                                        { height: codexHeatmapMetrics.cellSize, width: codexHeatmapMetrics.cellSize },
                                                         isActive ? styles.heatmapCellActive : styles.heatmapCellInactive,
                                                         isActive && !isSelected && !isHovered && !pressed && { opacity },
                                                         (isSelected || isHovered) && styles.heatmapCellSelected,
@@ -947,12 +806,11 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                                     })}
                                                 />
                                             );
-                                        })}
-                                    </View>
-                                ))}
-                            </View>
+                                    })}
+                                </View>
+                            ))}
                         </View>
-                    </ScrollView>
+                    </View>
                     {displayedCodexUsageDay && (
                         <Text style={styles.heatmapSelection}>
                             {t('machine.codexUsageHeatmapDay', {

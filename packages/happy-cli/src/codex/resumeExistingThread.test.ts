@@ -2,9 +2,57 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SessionEnvelope } from '@slopus/happy-wire';
 
 import { resumeExistingThread } from './resumeExistingThread';
+import { buildCodexImageAttachmentNotice } from './codexImageInput';
 import { McpAppBindingRegistry } from './mcpApps/McpAppBindingRegistry';
 
 describe('resumeExistingThread', () => {
+    it('keeps the recovery marker and cursor when a historical image upload fails', async () => {
+        const client = {
+            resumeThread: vi.fn().mockResolvedValue({ threadId: 'fork', model: 'model', reasoningEffort: null }),
+            readThread: vi.fn().mockResolvedValue({ thread: { turns: [{ id: 'turn', status: 'completed',
+                items: [{ id: 'user', type: 'userMessage', content: [{ type: 'localImage', path: '/attachments/photo.png' }] }] }] } }),
+        };
+        let metadata: any = { parentSessionId: 'parent', codexSyncCursor: { threadId: 'fork', turnId: 'previous' } };
+        const session = {
+            sessionId: 'fork-session', getMetadata: () => metadata, updateMetadata: vi.fn(),
+            updateMetadataAndAwait: vi.fn(async (f) => { metadata = f(metadata); }), sendSessionEvent: vi.fn(),
+            uploadImageAttachment: vi.fn(async () => { throw new Error('Upload failed'); }),
+            sendSessionProtocolHistoryAndAwait: vi.fn(async (_envelopes: readonly SessionEnvelope[]) => {}),
+        };
+        await expect(resumeExistingThread({ client, session, messageBuffer: { addMessage: vi.fn() },
+            threadId: 'fork', cwd: '/tmp', mcpServers: {} })).rejects.toThrow('Upload failed');
+        expect(metadata.codexHistoryReplay).toMatchObject({ threadId: 'fork' });
+        expect(metadata.codexSyncCursor).toEqual({ threadId: 'fork', turnId: 'previous' });
+        expect(session.sendSessionProtocolHistoryAndAwait).not.toHaveBeenCalled();
+    });
+
+    it('restores historical user pictures before their prompt without internal path instructions', async () => {
+        const images = [{ type: 'localImage' as const, path: '/attachments/one.png' },
+            { type: 'localImage' as const, path: '/attachments/two.png' }];
+        const client = {
+            resumeThread: vi.fn().mockResolvedValue({ threadId: 'fork', model: 'model', reasoningEffort: null }),
+            readThread: vi.fn().mockResolvedValue({ thread: { turns: [{ id: 'turn', status: 'completed', startedAt: 100,
+                items: [{ id: 'user', type: 'userMessage', content: [...images,
+                    { type: 'text', text: buildCodexImageAttachmentNotice(images) + '\n\nCompare these images.' }] }] }] } }),
+        };
+        let metadata: any = { parentSessionId: 'parent' };
+        const session = {
+            sessionId: 'fork-session', getMetadata: () => metadata, updateMetadata: vi.fn(),
+            updateMetadataAndAwait: vi.fn(async (f) => { metadata = f(metadata); }), sendSessionEvent: vi.fn(),
+            uploadImageAttachment: vi.fn(async (path: string) => ({ ref: 'fork/' + path.split('/').at(-1),
+                name: path.split('/').at(-1)!, size: 42, dims: { width: 10, height: 20 }, motionPhoto: null })),
+            sendSessionProtocolHistoryAndAwait: vi.fn(async (_envelopes: readonly SessionEnvelope[]) => {}),
+        };
+        await resumeExistingThread({ client, session, messageBuffer: { addMessage: vi.fn() }, threadId: 'fork', cwd: '/tmp', mcpServers: {} });
+        const users = session.sendSessionProtocolHistoryAndAwait.mock.calls[0][0].filter(e => e.role === 'user');
+        expect(users.map(e => e.ev)).toEqual([
+            expect.objectContaining({ t: 'file', ref: 'fork/one.png', source: 'user', image: { width: 10, height: 20, thumbhash: '' } }),
+            expect.objectContaining({ t: 'file', ref: 'fork/two.png', source: 'user' }),
+            { t: 'text', text: 'Compare these images.' },
+        ]);
+        expect(users[0].time).toBeLessThan(users[2].time!);
+    });
+
     it('rebuilds MCP App authority from the full snapshot even when cursor replay emits nothing', async () => {
         const registry = new McpAppBindingRegistry();
         const client = {
@@ -64,7 +112,7 @@ describe('resumeExistingThread', () => {
         });
     });
 
-    it('resumes the thread and updates session metadata', async () => {
+    it.each([false, true])('resumes history and keeps fork startup notices out of the transcript (fork=%s)', async (isFork) => {
         const client = {
             resumeThread: vi.fn().mockResolvedValue({
                 threadId: '019ccca2-1a77-7481-9873-de72f3464372',
@@ -85,7 +133,7 @@ describe('resumeExistingThread', () => {
                 },
             }),
         };
-        let metadata: any = { existing: true };
+        let metadata: any = { existing: true, ...(isFork ? { parentSessionId: 'parent-session' } : {}) };
         const session = {
             sessionId: 'paws-session-1',
             getMetadata: vi.fn(() => metadata),
@@ -124,6 +172,7 @@ describe('resumeExistingThread', () => {
         });
         expect(metadata).toEqual({
             existing: true,
+            ...(isFork ? { parentSessionId: 'parent-session' } : {}),
             codexThreadId: '019ccca2-1a77-7481-9873-de72f3464372',
             codexSyncCursor: {
                 threadId: '019ccca2-1a77-7481-9873-de72f3464372',
@@ -149,7 +198,8 @@ describe('resumeExistingThread', () => {
         expect(session.sendSessionProtocolHistoryAndAwait.mock.invocationCallOrder[0])
             .toBeLessThan(session.updateMetadataAndAwait.mock.invocationCallOrder[1]);
         expect(messageBuffer.addMessage).toHaveBeenCalledWith(expect.stringContaining('Resumed thread'), 'status');
-        expect(session.sendSessionEvent).toHaveBeenCalledWith({
+        if (isFork) expect(session.sendSessionEvent).not.toHaveBeenCalled();
+        else expect(session.sendSessionEvent).toHaveBeenCalledWith({
             type: 'message',
             message: 'Resumed Codex thread 019ccca2-1a77-7481-9873-de72f3464372',
         });
