@@ -22,7 +22,7 @@ it('cancels a held initial link while disconnected and ignores its late response
   }) as Api;
   function Panel() { const [status, setStatus] = useState<ConnectionStatus>({ state: 'disconnected' }); return <ConnectionPanel status={status} onChange={setStatus} active={false} api={api} />; }
   render(<Panel />);
-  const link = screen.getByRole('button', { name: '连接 / 扫码授权' }) as HTMLButtonElement;
+  const link = screen.getByRole('button', { name: '二维码授权' }) as HTMLButtonElement;
   const cancel = screen.getByRole('button', { name: '断开连接' }) as HTMLButtonElement;
   fireEvent.click(link); expect(cancel.disabled).toBe(false);
   await act(async () => { fireEvent.click(cancel); }); expect(link.disabled).toBe(false);
@@ -31,6 +31,22 @@ it('cancels a held initial link while disconnected and ignores its late response
   expect(screen.queryByText(/old.invalid/)).toBeNull(); expect(link.disabled).toBe(true); expect(cancel.disabled).toBe(false);
   await act(async () => { finishNew({ state: 'ready', serverUrl: 'https://new.invalid' }); });
   expect(screen.getByText(/已连接.*new.invalid/)).toBeTruthy(); expect(link.disabled).toBe(false);
+});
+
+it('submits a recovery code only to the dedicated in-memory recovery endpoint', async () => {
+  let request: { path: string; body: unknown } | null = null;
+  const api = (async (path: string, init: RequestInit) => {
+    request = { path, body: JSON.parse(String(init.body)) };
+    return { state: 'ready', serverUrl: 'http://paws.test' };
+  }) as Api;
+  function Panel() { const [status, setStatus] = useState<ConnectionStatus>({ state: 'disconnected' }); return <ConnectionPanel status={status} onChange={setStatus} active={false} api={api} />; }
+  render(<Panel />);
+  fireEvent.change(screen.getByLabelText('Paws 恢复码'), { target: { value: 'AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AA' } });
+  await userEvent.click(screen.getByRole('button', { name: '使用恢复码连接' }));
+  await vi.waitFor(() => expect(request).not.toBeNull());
+  expect(request).toEqual({ path: '/api/paws/recover', body: { serverUrl: 'http://47.115.228.20:3005', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AA' } });
+  expect(screen.getByText(/已连接.*paws.test/)).toBeTruthy();
+  expect((screen.getByLabelText('Paws 恢复码') as HTMLInputElement).value).toBe('');
 });
 
 it('blocks model submission while disconnected even with complete machine input', () => {

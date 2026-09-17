@@ -37,6 +37,13 @@ const disconnectedSdk = {
 };
 
 describe('authenticated local service', () => {
+  it('accepts recovery-code connection only through the dedicated account transition route', async () => {
+    const sdk = new TestOnlySdk();
+    const server = await start(undefined, sdk);
+    const response = await fetch(`${server.url}/api/paws/recover`, authorized({ method: 'POST', body: JSON.stringify({ serverUrl: 'http://paws.test', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AA' }) }));
+    expect(response.status).toBe(200);
+    expect(sdk.recoverCalls).toEqual([{ serverUrl: 'http://paws.test', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AA' }]);
+  });
   it('returns a usable bracketed IPv6 loopback URL', async context => {
     const dataDir = await mkdtemp(join(tmpdir(), 'paws-agent-party-ipv6-')); dirs.push(dataDir);
     let server: PocServer;

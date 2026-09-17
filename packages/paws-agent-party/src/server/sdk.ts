@@ -1,6 +1,7 @@
 import {
   BrowserCredentialProvider,
   PawsAgentClient,
+  restorePawsCredentialsWithSecret,
   startBrowserAccountLink,
   type AgentRequest,
   type ImageAttachmentInput,
@@ -15,14 +16,15 @@ import {
   type SpawnSessionInput,
   type SpawnSessionResult,
 } from '@wangjs-jacky/paws-agent/browser';
-import type { ConnectionStatus, RoleId } from '../contracts.js';
+import type { ConnectionStatus } from '../contracts.js';
 
 export interface PawsSdkBoundary {
   status(): ConnectionStatus;
   link(serverUrl: string): Promise<ConnectionStatus>;
+  recover(serverUrl: string, recoveryCode: string): Promise<ConnectionStatus>;
   disconnect(): Promise<void>;
   machines(): Promise<Machine[]>;
-  spawn(input: SpawnSessionInput & { role: RoleId }): Promise<SpawnSessionResult>;
+  spawn(input: SpawnSessionInput & { role: string }): Promise<SpawnSessionResult>;
   watch(sessionId: string, options: MessageWatchOptions): Promise<MessageSubscription>;
   send(input: SendMessageInput): Promise<SendMessageReceipt>;
   historyPage(sessionId: string, options: { afterSeq: number; limit: number; signal?: AbortSignal }): Promise<MessagePage>;
@@ -43,6 +45,7 @@ export function createRealPawsSdk(): PawsSdkBoundary {
   let state: ConnectionStatus = { state: 'disconnected' };
   let provider: BrowserCredentialProvider | null = null;
   let client: PawsAgentClient | null = null;
+  let pendingClient: PawsAgentClient | null = null;
   let linkController: AbortController | null = null;
   let generation = 0;
 
@@ -51,18 +54,21 @@ export function createRealPawsSdk(): PawsSdkBoundary {
     return client;
   };
 
-  const disconnect = async (): Promise<void> => {
-    generation += 1;
+  const disconnect = async (invalidate = true): Promise<void> => {
+    if (invalidate) generation += 1;
     const previousController = linkController;
     const previousClient = client;
+    const previousPendingClient = pendingClient;
     const previousProvider = provider;
     linkController = null;
     client = null;
+    pendingClient = null;
     provider = null;
     state = { state: 'disconnected' };
     previousController?.abort(new DOMException('Account link cancelled', 'AbortError'));
     const cleanup: Promise<void>[] = [];
     if (previousClient) cleanup.push(previousClient.dispose());
+    if (previousPendingClient && previousPendingClient !== previousClient) cleanup.push(previousPendingClient.dispose());
     if (previousProvider) cleanup.push(previousProvider.clearCredentials());
     await Promise.allSettled(cleanup);
   };
@@ -71,9 +77,10 @@ export function createRealPawsSdk(): PawsSdkBoundary {
     status: () => ({ ...state }),
     async link(rawServerUrl) {
       const serverUrl = normalizeServerUrl(rawServerUrl);
-      await disconnect();
-      const controller = new AbortController();
       const operation = ++generation;
+      await disconnect(false);
+      if (generation !== operation) return { ...state };
+      const controller = new AbortController();
       linkController = controller;
       const nextProvider = new BrowserCredentialProvider(storage, `paws-agent-party:${serverUrl}`);
       provider = nextProvider;
@@ -87,14 +94,17 @@ export function createRealPawsSdk(): PawsSdkBoundary {
           if (controller.signal.aborted || !ownsOperation()) return;
           state = { state: 'connecting', serverUrl };
           const candidate = new PawsAgentClient({ serverUrl, credentials: nextProvider });
+          pendingClient = candidate;
           try {
             await candidate.connect();
             await candidate.machines.list({ active: true });
             if (controller.signal.aborted || !ownsOperation()) return;
             client = candidate;
+            pendingClient = null;
             linkController = null;
             state = { state: 'ready', serverUrl };
           } finally {
+            if (pendingClient === candidate) pendingClient = null;
             if (client !== candidate) await candidate.dispose().catch(() => undefined);
           }
         }).catch(async error => {
@@ -107,6 +117,49 @@ export function createRealPawsSdk(): PawsSdkBoundary {
         });
         return { ...state };
       } catch (error) {
+        if (!ownsOperation()) return { ...state };
+        await nextProvider.clearCredentials().catch(() => undefined);
+        if (!ownsOperation()) return { ...state };
+        linkController = null;
+        provider = null;
+        state = { state: 'error', serverUrl, error: safeError(error) };
+        return { ...state };
+      }
+    },
+    async recover(rawServerUrl, recoveryCode) {
+      const serverUrl = normalizeServerUrl(rawServerUrl);
+      const recoverySecret = decodeRecoveryCode(recoveryCode);
+      const operation = ++generation;
+      await disconnect(false);
+      if (generation !== operation) { recoverySecret.fill(0); return { ...state }; }
+      const controller = new AbortController();
+      linkController = controller;
+      const nextProvider = new BrowserCredentialProvider(storage, `paws-agent-party:${serverUrl}`);
+      provider = nextProvider;
+      const ownsOperation = () => generation === operation && linkController === controller;
+      state = { state: 'connecting', serverUrl };
+      try {
+        const credentials = await restorePawsCredentialsWithSecret({ serverUrl, secret: recoverySecret, signal: controller.signal });
+        recoverySecret.fill(0);
+        if (!ownsOperation()) return { ...state };
+        await nextProvider.setCredentials(credentials);
+        const candidate = new PawsAgentClient({ serverUrl, credentials: nextProvider });
+        pendingClient = candidate;
+        try {
+          await candidate.connect();
+          await candidate.machines.list({ active: true });
+          if (controller.signal.aborted || !ownsOperation()) return { ...state };
+          client = candidate;
+          pendingClient = null;
+          linkController = null;
+          state = { state: 'ready', serverUrl };
+          return { ...state };
+        } finally {
+          if (pendingClient === candidate) pendingClient = null;
+          if (client !== candidate) await candidate.dispose().catch(() => undefined);
+        }
+      } catch (error) {
+        recoverySecret.fill(0);
         if (!ownsOperation()) return { ...state };
         await nextProvider.clearCredentials().catch(() => undefined);
         if (!ownsOperation()) return { ...state };
@@ -155,4 +208,19 @@ function normalizeServerUrl(raw: string): string {
   url.hash = '';
   url.search = '';
   return url.toString().replace(/\/$/, '');
+}
+
+function decodeRecoveryCode(value: string): Uint8Array {
+  const normalized = value.toUpperCase().replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/9/g, 'G').replace(/[^A-Z2-7]/g, '');
+  if (normalized.length !== 52) throw new Error('Enter a valid 52-character Paws recovery code.');
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const bytes: number[] = []; let buffer = 0; let bits = 0;
+  for (const char of normalized) {
+    const digit = alphabet.indexOf(char);
+    if (digit < 0) throw new Error('Enter a valid Paws recovery code.');
+    buffer = (buffer << 5) | digit; bits += 5;
+    if (bits >= 8) { bits -= 8; bytes.push((buffer >> bits) & 0xff); }
+  }
+  if (bytes.length !== 32) throw new Error('Enter a valid Paws recovery code.');
+  return new Uint8Array(bytes);
 }

@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { PartyApp } from './PartyApp.js';
+import { GroupChatApp } from './GroupChatApp.js';
 import './styles.css';
-createRoot(document.getElementById('root')!).render(<PartyApp />);
+try { document.documentElement.className = localStorage.getItem('ap-theme') === 'dark' ? 'dark' : 'light'; } catch { document.documentElement.className = 'light'; }
+createRoot(document.getElementById('root')!).render(<GroupChatApp />);

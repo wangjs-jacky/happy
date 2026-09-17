@@ -15,16 +15,16 @@ import type { ConnectionStatus, RoleId } from '../src/contracts.js';
 type Watch = { options: MessageWatchOptions; active: boolean };
 
 export class TestOnlySdk {
-  readonly calls: Array<{ role: RoleId; text: string; images: SendMessageInput['images'] }> = [];
+  readonly calls: Array<{ role: string; text: string; images: SendMessageInput['images'] }> = [];
   unsubscribeCount = 0;
   readonly sessionsStopped = 0;
-  readonly maxConcurrentByRole = new Map<RoleId, number>();
+  readonly maxConcurrentByRole = new Map<string, number>();
   private readonly watches = new Map<string, Set<Watch>>();
   private readonly messages = new Map<string, Message[]>();
   private readonly sequences = new Map<string, number>();
-  private readonly activeByRole = new Map<RoleId, number>();
+  private readonly activeByRole = new Map<string, number>();
   private readonly deliveryGates: Promise<void>[] = [];
-  private readonly deliveryGatesByRole = new Map<RoleId, Promise<void>[]>();
+  private readonly deliveryGatesByRole = new Map<string, Promise<void>[]>();
 
   constructor(private readonly options: {
     ready?: boolean;
@@ -36,6 +36,7 @@ export class TestOnlySdk {
   } = {}) {}
 
   linkCalls = 0;
+  readonly recoverCalls: Array<{ serverUrl: string; recoveryCode: string }> = [];
   spawnCalls = 0;
   spawnResolved = 0;
   status(): ConnectionStatus { return this.options.ready === false ? { state: 'disconnected' } : { state: 'ready' }; }
@@ -44,11 +45,12 @@ export class TestOnlySdk {
     if (this.options.linkDelayMs) await new Promise(resolve => setTimeout(resolve, this.options.linkDelayMs));
     return this.status();
   }
+  async recover(serverUrl: string, recoveryCode: string): Promise<ConnectionStatus> { this.recoverCalls.push({ serverUrl, recoveryCode }); return this.status(); }
   async disconnect(): Promise<void> {}
   async dispose(): Promise<void> {}
   async machines(): Promise<Machine[]> { return [machine('machine-1')]; }
 
-  async spawn(input: SpawnSessionInput & { role?: RoleId }): Promise<SpawnSessionResult> {
+  async spawn(input: SpawnSessionInput & { role?: string }): Promise<SpawnSessionResult> {
     if (!input.role) throw new Error('test SDK requires the role boundary field');
     this.spawnCalls += 1;
     if (this.options.spawnGate) await this.options.spawnGate;
@@ -77,7 +79,7 @@ export class TestOnlySdk {
   }
 
   async send(input: SendMessageInput): Promise<SendMessageReceipt> {
-    const role = input.sessionId.replace('session-', '') as RoleId;
+    const role = input.sessionId.replace('session-', '');
     const call = this.calls.filter(item => item.role === role).length + 1;
     this.calls.push({ role, text: input.text, images: input.images });
     const active = (this.activeByRole.get(role) ?? 0) + 1;
@@ -111,12 +113,12 @@ export class TestOnlySdk {
   async session(sessionId: string): Promise<Session> { return session(sessionId); }
   async requests(): Promise<AgentRequest[]> { return []; }
 
-  callsFor(role: RoleId): Array<{ role: RoleId; text: string; images: SendMessageInput['images'] }> {
+  callsFor(role: string): Array<{ role: string; text: string; images: SendMessageInput['images'] }> {
     return this.calls.filter(item => item.role === role);
   }
 
   holdNextDelivery(gate: Promise<void>): void { this.deliveryGates.push(gate); }
-  holdNextDeliveryFor(role: RoleId, gate: Promise<void>): void {
+  holdNextDeliveryFor(role: string, gate: Promise<void>): void {
     const gates = this.deliveryGatesByRole.get(role) ?? [];
     gates.push(gate);
     this.deliveryGatesByRole.set(role, gates);

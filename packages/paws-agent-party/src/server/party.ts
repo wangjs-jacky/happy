@@ -19,7 +19,8 @@ export type DecodedPartyMessage = Omit<PartyMessage, 'text'> & { text: string; i
 
 export type PartyBus = {
   create(title: string): Promise<string>;
-  send(input: { partyId: string; from: 'host' | RoleId; to: Recipients; text: string; images?: ImageRef[]; replyTo?: string }): Promise<PartyMessage>;
+  createGroup(input: { title: string; participants: Array<{ id: string; description: string }> }): Promise<string>;
+  send(input: { partyId: string; from: string; to: Recipients; text: string; images?: ImageRef[]; replyTo?: string }): Promise<PartyMessage>;
   read(partyId: string): Promise<DecodedPartyMessage[]>;
 };
 
@@ -66,6 +67,19 @@ export async function createPartyService(dataDir: string, accessToken: string): 
       await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: 'host', desc: 'Paws consultation owner' }) });
       for (const role of ['moderator', 'trend30', 'structure10', 'timing1'] satisfies RoleId[]) {
         await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: role, desc: `Paws ${role} role` }) });
+      }
+      return partyId;
+    },
+    async createGroup(input) {
+      const ids = input.participants.map(participant => participant.id);
+      if (ids.length === 0 || new Set(ids).size !== ids.length || ids.some(id => !/^[a-z][a-z0-9-]{0,63}$/.test(id))) {
+        throw new Error('A group needs unique safe participant identifiers.');
+      }
+      const created = await call('/api/parties', { method: 'POST', body: JSON.stringify({ title: input.title, key: generatePartyKey() }) });
+      const partyId = String(created.id);
+      await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: 'host', desc: 'Paws group owner' }) });
+      for (const participant of input.participants) {
+        await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: participant.id, desc: participant.description.slice(0, 500) }) });
       }
       return partyId;
     },
