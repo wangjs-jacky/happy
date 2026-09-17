@@ -11,8 +11,9 @@ import type { PartyBus } from '../server/party.js';
 import type { AgentProfile, ProfileService } from './profiles.js';
 import { resolveMentionTargets, type RoomMember } from './routing.js';
 import { debateTurn, validateMaxRounds, type DebateSnapshot } from './debate.js';
+import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_EFFORT, type CodexEffort } from './codex-profile.js';
 
-export type RoomAgentSnapshot = RoomMember & { status: 'idle' | 'spawning' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; sessionId?: string; error?: string };
+export type RoomAgentSnapshot = RoomMember & { engine: 'codex'; model: string; effort: CodexEffort; status: 'idle' | 'spawning' | 'running' | 'completed' | 'failed' | 'stopped' | 'interrupted'; sessionId?: string; error?: string };
 export type GroupRoomSnapshot = {
   id: string; partyId: string; title: string; machineId: string; directory: string; autoReply: boolean; createdAt: number; updatedAt: number;
   autoDebate: boolean; maxRounds: number; debate?: DebateSnapshot;
@@ -41,7 +42,15 @@ export class GroupRoomService {
     for (const room of file.rooms ?? []) {
       room.snapshot.autoDebate ??= false; room.snapshot.maxRounds ??= 10;
       if (room.snapshot.debate?.status === 'running') { room.snapshot.debate.status = 'interrupted'; room.snapshot.debate.nextMemberId = null; room.snapshot.debate.stopReason = 'Service restarted; debate was not replayed. Remote work may continue.'; }
-      for (const member of room.snapshot.members) if (member.status === 'spawning' || member.status === 'running') { member.status = 'interrupted'; member.error = 'Service restarted; this turn was not replayed.'; }
+      for (const member of room.snapshot.members) {
+        if (member.status === 'spawning' || member.status === 'running') { member.status = 'interrupted'; member.error = 'Service restarted; this turn was not replayed.'; }
+        // Legacy sessions may have a different engine or unknown effective model.
+        // Preserve their provenance, but create a fresh session on the next task.
+        if (member.engine !== 'codex' || member.model === undefined || member.effort === undefined) {
+          delete member.sessionId; delete room.cursors[member.id];
+        }
+        member.engine = 'codex'; member.model ??= DEFAULT_CODEX_MODEL; member.effort ??= DEFAULT_CODEX_EFFORT;
+      }
       this.rooms.set(room.snapshot.id, room);
     }
     for (const [requestId, id] of Object.entries(file.requestIds ?? {})) this.createRequests.set(requestId, id);
@@ -213,7 +222,7 @@ export class GroupRoomService {
   }
   private async session(room: StoredRoom, member: RoomAgentSnapshot, signal: AbortSignal): Promise<string> {
     signal.throwIfAborted(); if (member.sessionId) return member.sessionId; const key = `${room.snapshot.id}:${member.id}`; let pending = this.pendingSpawns.get(key);
-    if (!pending) { pending = this.sdk.spawn({ role: member.id, machineId: room.snapshot.machineId, directory: room.snapshot.directory, approvedNewDirectoryCreation: false, agent: member.engine }); this.pendingSpawns.set(key, pending); void pending.finally(() => this.pendingSpawns.delete(key)).catch(() => undefined); }
+    if (!pending) { pending = this.sdk.spawn({ role: member.id, machineId: room.snapshot.machineId, directory: room.snapshot.directory, approvedNewDirectoryCreation: false, agent: 'codex', model: member.model, effort: member.effort }); this.pendingSpawns.set(key, pending); void pending.finally(() => this.pendingSpawns.delete(key)).catch(() => undefined); }
     const result = await abortable(pending, signal); if (result.type === 'requestToApproveDirectoryCreation') throw new Error(`Directory approval required for ${result.directory}; approve it in Paws before retrying.`); if (result.type === 'error') throw new Error(result.errorMessage); member.sessionId = result.sessionId; await this.persist(); return result.sessionId;
   }
   private async loadImages(images: ImageRef[]): Promise<SendMessageInput['images']> { return (await this.assets.resolveMany(images)).map(({ ref, bytes }) => ({ name: ref.name, mimeType: ref.mimeType, bytes })); }
@@ -221,7 +230,7 @@ export class GroupRoomService {
   private persist(): Promise<void> { const payload = JSON.stringify({ rooms: [...this.rooms.values()], requestIds: Object.fromEntries(this.createRequests), messageRequestIds: [...this.messageRequests] } satisfies RoomsFile); this.persistQueue = this.persistQueue.then(async () => { await mkdir(dirname(this.path), { recursive: true, mode: 0o700 }); const temp = `${this.path}.${randomUUID()}.tmp`; await writeFile(temp, payload, { flag: 'wx', mode: 0o600 }); await rename(temp, this.path); await chmod(this.path, 0o600); }); return this.persistQueue; }
 }
 
-function toMember(profile: AgentProfile): RoomAgentSnapshot { return { id: profile.id, name: profile.name, instructions: profile.instructions, engine: profile.engine, status: 'idle' }; }
+function toMember(profile: AgentProfile): RoomAgentSnapshot { return { id: profile.id, name: profile.name, instructions: profile.instructions, engine: 'codex', model: profile.model, effort: profile.effort, status: 'idle' }; }
 function displayName(members: RoomAgentSnapshot[], id: string): string { return id === 'host' ? '我' : members.find(member => member.id === id)?.name ?? id; }
 function clone<T>(value: T): T { return structuredClone(value); }
 function isAbsoluteDirectory(value: string): boolean { return value.startsWith('/') && !value.includes('\0'); }
