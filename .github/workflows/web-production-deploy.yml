@@ -396,6 +396,7 @@ jobs:
           PAWS_AGENT_PARTY_STANDALONE=1 PAWS_AGENT_PARTY_BASE_PATH=/agent-party/ \
             pnpm --filter @wangjs-jacky/paws-agent-party build
           printf '%s\n' "$GITHUB_SHA" > packages/paws-agent-party/dist/revision
+          node packages/paws-agent-party/scripts/production-smoke.mjs
 
       - name: Deploy and verify AgentParty companion service
         id: agent_party

@@ -13,5 +13,7 @@ await build({
   target: 'node22',
   format: 'esm',
   sourcemap: true,
-  packages: 'external',
+  ...(process.env.PAWS_AGENT_PARTY_STANDALONE === '1'
+    ? { banner: { js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" } }
+    : { packages: 'external' }),
 });

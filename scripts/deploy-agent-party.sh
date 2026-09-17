@@ -57,8 +57,10 @@ backup="/var/backups/paws-agent-party/$release_id"
 config='/etc/caddy/Caddyfile'
 old_present=0; renamed=0; new_created=0; data_backed_up=0; caddy_changed=0
 wait_reload() {
+  local reload_result
   for ((attempt=1; attempt<=30; attempt+=1)); do
-    if [[ -z "$(systemctl list-jobs --no-legend --plain caddy.service)" && "$(systemctl show caddy --property=ActiveState --value)" == active && "$(systemctl show caddy --property=ReloadResult --value)" == success ]]; then return 0; fi
+    reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+    if [[ -z "$(systemctl list-jobs --no-legend --plain caddy.service)" && "$(systemctl show caddy --property=ActiveState --value)" == active ]] && { [[ -z "$reload_result" ]] || [[ "$reload_result" == success ]]; }; then return 0; fi
     sleep 1
   done
   return 1
