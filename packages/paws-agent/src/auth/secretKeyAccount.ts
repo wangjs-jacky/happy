@@ -25,6 +25,6 @@ export async function restorePawsCredentialsWithSecret(options: {
     if (!response.ok) throw new PawsAgentError(response.status === 401 ? 'AUTH_EXPIRED' : 'UNKNOWN', `Account restore failed (${response.status})`);
     const body = await response.json().catch(() => { throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Account restore response is not valid JSON'); }) as { token?: unknown };
     if (typeof body.token !== 'string' || !body.token) throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Account restore response is incomplete');
-    const secret = options.secret.slice();
+    const secret = Uint8Array.from(options.secret);
     return { token: body.token, secret, contentKeyPair: deriveContentKeyPair(secret) };
 }
