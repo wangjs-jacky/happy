@@ -11,6 +11,8 @@ import { RunService } from './runs.js';
 import { RunError } from './runs.js';
 import { createRealPawsSdk, safeError, type PawsSdkBoundary } from './sdk.js';
 import { ROLE_IDS, type FollowUpInput, type RoleId, type StartInput } from '../contracts.js';
+import { ProfileService, type AgentProfileInput } from '../group-chat/profiles.js';
+import { GroupRoomService, type CreateGroupRoomInput, type GroupMessageInput } from '../group-chat/rooms.js';
 
 export type PocServer = {
   url: string;
@@ -40,12 +42,16 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
   let assets!: AssetStore;
   let party!: Awaited<ReturnType<typeof createPartyService>>;
   let runs!: RunService;
+  let profiles!: ProfileService;
+  let groups!: GroupRoomService;
   try {
     accessToken = options.accessToken ?? await loadOrCreateAccessToken(dataDir);
     sdk = options.sdk ?? createRealPawsSdk();
     assets = new AssetStore(dataDir);
     party = await createPartyService(dataDir, accessToken);
     runs = await RunService.create({ dataDir, sdk, assets, party: party.bus, turnTimeoutMs: options.turnTimeoutMs });
+    profiles = await ProfileService.create(dataDir);
+    groups = await GroupRoomService.create({ dataDir, sdk, assets, party: party.bus, profiles, turnTimeoutMs: options.turnTimeoutMs });
   } catch (error) {
     const cleanup: Promise<unknown>[] = [lock.release()];
     if (party) cleanup.push(party.close());
@@ -75,7 +81,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
 
     if (request.method === 'GET' && url.pathname === '/api/paws/status') return sendJson(response, 200, sdk.status());
     if (request.method === 'POST' && url.pathname === '/api/paws/link') {
-      if (accountTransition || runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
+      if (accountTransition || runs.hasActiveWork() || groups.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active agent work before changing the Paws account.' });
       const transition = Symbol('link');
       accountTransition = transition;
       try {
@@ -87,8 +93,21 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
         if (accountTransition === transition) accountTransition = null;
       }
     }
+    if (request.method === 'POST' && url.pathname === '/api/paws/recover') {
+      if (accountTransition || runs.hasActiveWork() || groups.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active agent work before changing the Paws account.' });
+      const transition = Symbol('recover');
+      accountTransition = transition;
+      try {
+        const body = await readJson(request, 16 * 1024);
+        if (accountTransition !== transition) return sendJson(response, 409, { error: 'Paws account recovery was cancelled.' });
+        if (typeof body.serverUrl !== 'string' || typeof body.recoveryCode !== 'string') return sendJson(response, 400, { error: 'serverUrl and recoveryCode are required' });
+        return sendJson(response, 200, await sdk.recover(body.serverUrl, body.recoveryCode));
+      } finally {
+        if (accountTransition === transition) accountTransition = null;
+      }
+    }
     if (request.method === 'DELETE' && url.pathname === '/api/paws/link') {
-      if (runs.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active consultation work before changing the Paws account.' });
+      if (runs.hasActiveWork() || groups.hasActiveWork()) return sendJson(response, 409, { error: 'Stop active agent work before changing the Paws account.' });
       const transition = Symbol('disconnect');
       accountTransition = transition;
       try {
@@ -100,6 +119,36 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     }
     if (request.method === 'GET' && url.pathname === '/api/paws/machines') {
       return sendJson(response, 200, { machines: await sdk.machines() });
+    }
+    if (request.method === 'GET' && url.pathname === '/api/group-chat/agents') return sendJson(response, 200, { agents: profiles.list() });
+    if (request.method === 'POST' && url.pathname === '/api/group-chat/agents') return sendJson(response, 200, await profiles.create(await readJson(request, 32 * 1024) as AgentProfileInput));
+    const agentProfileMatch = url.pathname.match(/^\/api\/group-chat\/agents\/([^/]+)$/);
+    if (request.method === 'PATCH' && agentProfileMatch) return sendJson(response, 200, await profiles.update(decodeURIComponent(agentProfileMatch[1]), await readJson(request, 32 * 1024) as AgentProfileInput));
+    if (request.method === 'GET' && url.pathname === '/api/group-chat/rooms') return sendJson(response, 200, { rooms: groups.list() });
+    if (request.method === 'POST' && url.pathname === '/api/group-chat/rooms') {
+      if (accountTransition) return sendJson(response, 409, { error: 'Wait for the Paws account transition to finish.' });
+      return sendJson(response, 200, await groups.create(await readJson(request, 64 * 1024) as CreateGroupRoomInput));
+    }
+    const groupRoomMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)$/);
+    if (request.method === 'GET' && groupRoomMatch) return sendJson(response, 200, groups.get(decodeURIComponent(groupRoomMatch[1])));
+    if (request.method === 'PATCH' && groupRoomMatch) {
+      const body = await readJson(request, 4096);
+      return sendJson(response, 200, await groups.configure(decodeURIComponent(groupRoomMatch[1]), body));
+    }
+    const groupMessageMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)\/messages$/);
+    if (request.method === 'POST' && groupMessageMatch) {
+      if (accountTransition) return sendJson(response, 409, { error: 'Wait for the Paws account transition to finish.' });
+      return sendJson(response, 200, await groups.message(decodeURIComponent(groupMessageMatch[1]), await readJson(request, 128 * 1024) as GroupMessageInput));
+    }
+    const groupStopMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)\/stop$/);
+    const groupDebateStopMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)\/debate\/stop$/);
+    if (request.method === 'POST' && groupDebateStopMatch) { await readJson(request, 1024); return sendJson(response, 200, await groups.stopDebate(decodeURIComponent(groupDebateStopMatch[1]))); }
+    if (request.method === 'POST' && groupStopMatch) { await readJson(request, 1024); return sendJson(response, 200, await groups.stop(decodeURIComponent(groupStopMatch[1]))); }
+    const groupAgentMessagesMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)\/agents\/([^/]+)\/messages$/);
+    if (request.method === 'GET' && groupAgentMessagesMatch) {
+      const afterSeq = Number(url.searchParams.get('afterSeq') ?? 0);
+      if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return sendJson(response, 400, { error: 'afterSeq must be a non-negative integer.' });
+      return sendJson(response, 200, await groups.agentMessages(decodeURIComponent(groupAgentMessagesMatch[1]), decodeURIComponent(groupAgentMessagesMatch[2]), afterSeq));
     }
     if (request.method === 'POST' && url.pathname === '/api/assets') {
       const bytes = await readBytes(request, MAX_UPLOAD_BODY_BYTES);
@@ -193,7 +242,8 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
       if (closed) return;
       closed = true;
       await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()));
-      await Promise.allSettled([runs.close(), party.close(), sdk.dispose()]);
+      await Promise.allSettled([runs.close(), groups.close()]);
+      await Promise.allSettled([party.close(), sdk.dispose()]);
       await lock.release();
     },
   };
