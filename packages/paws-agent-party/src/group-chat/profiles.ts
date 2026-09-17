@@ -2,16 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { RunError } from '../server/runs.js';
+import { DEFAULT_CODEX_EFFORT, DEFAULT_CODEX_MODEL, isCodexEffort, isCodexModel, type CodexEffort, type CodexModel } from './codex-profile.js';
 import type { RoomMember } from './routing.js';
 
 /** The first group-chat release deliberately launches only Codex agents. */
-export const CODEX_MODELS = ['gpt-5.6-luna'] as const;
-export const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-export const DEFAULT_CODEX_MODEL = 'gpt-5.6-luna';
-export const DEFAULT_CODEX_EFFORT = 'low';
-
-export type CodexModel = typeof CODEX_MODELS[number];
-export type CodexEffort = typeof CODEX_EFFORTS[number];
+export { DEFAULT_CODEX_EFFORT, DEFAULT_CODEX_MODEL, type CodexEffort, type CodexModel } from './codex-profile.js';
 export type AgentProfile = RoomMember & {
   engine: 'codex';
   model: CodexModel;
@@ -120,7 +115,5 @@ function normalizeStoredProfile(profile: AgentProfile): AgentProfile {
     effort: isCodexEffort(profile.effort) ? profile.effort : DEFAULT_CODEX_EFFORT,
   };
 }
-function isCodexModel(value: unknown): value is CodexModel { return typeof value === 'string' && (CODEX_MODELS as readonly string[]).includes(value); }
-function isCodexEffort(value: unknown): value is CodexEffort { return typeof value === 'string' && (CODEX_EFFORTS as readonly string[]).includes(value); }
 function sameProfile(left: AgentProfile, right: AgentProfile): boolean { return left.engine === right.engine && left.model === right.model && left.effort === right.effort; }
 function clone<T>(value: T): T { return structuredClone(value); }
