@@ -19,12 +19,13 @@ export function validateImages(files: ArrayLike<Pick<File, 'type' | 'size'>>, ex
   }
 }
 
-export function createApi(token: () => string, unauthorized: () => void, transport: typeof fetch = fetch) {
+export function createApi(token: () => string, unauthorized: () => void, transport: typeof fetch = fetch, baseUrl: string = import.meta.env.BASE_URL) {
+  const prefix = (baseUrl ?? '/').replace(/\/$/, '');
   const request = async (path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${token()}`);
     if (typeof init.body === 'string' && !headers.has('content-type')) headers.set('content-type', 'application/json');
-    const response = await transport(path, { ...init, headers, cache: 'no-store' });
+    const response = await transport(`${prefix}${path}`, { ...init, headers, cache: 'no-store' });
     if (response.status === 401) { unauthorized(); throw new Unauthorized('访问令牌无效，请重新输入。'); }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));

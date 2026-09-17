@@ -1,6 +1,18 @@
 import { expect, it, vi } from 'vitest';
 import { bootstrapToken, validateImages, createApi } from '../src/web/api.js';
 
+it('keeps JSON and image requests within the deployed application prefix', async () => {
+  const paths: string[] = [];
+  const transport = vi.fn(async (input: RequestInfo | URL) => {
+    paths.push(String(input));
+    return Response.json({ ok: true });
+  });
+  const api = createApi(() => 'test', () => {}, transport, '/agent-party/');
+  await api('/api/paws/status');
+  await api.blob('/api/assets/image-id');
+  expect(paths).toEqual(['/agent-party/api/paws/status', '/agent-party/api/assets/image-id']);
+});
+
 it('removes the access token fragment and stores it only for this tab', () => {
   const saved = new Map<string, string>();
   let replacement = '';
