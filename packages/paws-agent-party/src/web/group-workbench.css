@@ -78,6 +78,7 @@
 .message-tag { border-radius: 4px; padding: 1px 6px; background: var(--secondary); color: var(--workbench-subtle); font-size: 10px; overflow-wrap: anywhere; }
 .message-meta time { margin-left: auto; font-size: 11px; color: var(--workbench-subtle); }
 .message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.95; margin-top: 7px; }
+.message-live-state { margin-top: 8px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .host-message .message-text { display: inline-block; padding: 12px 16px; border-radius: 0 12px 12px 12px; background: var(--secondary); }
 .room-members { display: flex; flex-direction: column; flex-shrink: 0; width: 274px; min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--secondary); padding: 24px 20px; }
 .members-heading { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--workbench-subtle); }
