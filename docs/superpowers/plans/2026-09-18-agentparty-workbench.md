@@ -25,10 +25,12 @@ Run package tests/typecheck/build; independently review backend and complete dif
 ## Acceptance cases
 | Case | Expected | Status |
 |---|---|---|
-| Layout | fixed viewport; sidebar collapse; members overlay; reduced motion | pending |
-| Identity | 24 robot presets; no avatar upload; consistent displayed avatar | pending |
-| Config | readable machine; model/effort selection; execution snapshot | pending |
-| Invite | library + temporary; no unintended preset persistence | pending |
-| Compose | keyboard multi-@; image + text; room-safe draft | pending |
-| Delete | confirm/cancel; last-room empty; active safety; durable removal | pending |
-| Execution | streamed public text + details; N-member debate; incremental history | pending |
+| Layout | fixed viewport; sidebar collapse; members overlay; reduced motion | DOM + component checks passed; reduced-motion CSS reviewed; no pixel comparison |
+| Identity | 24 robot presets; no avatar upload; consistent displayed avatar | fixture browser + regression tests passed |
+| Config | readable machine; model/effort selection; execution snapshot | fixture browser + tests passed; bare-machine catalog unavailable, labeled candidates |
+| Invite | library + temporary; no unintended preset persistence | backend tests + temporary invitation browser check passed |
+| Compose | keyboard multi-@; image + text; room-safe draft | fixture browser + tests passed |
+| Delete | confirm/cancel; last-room empty; active safety; durable removal | regression tests + fixture deletion browser check passed |
+| Execution | streamed public text + details; N-member debate; incremental history | fixture + automated tests passed; fresh real remote execution not performed |
+
+Final evidence: `packages/paws-agent-party/docs/workbench-acceptance.md`. Code ffb882dc passed independent review, 153 tests, typecheck and production build. No merge or deployment performed.
