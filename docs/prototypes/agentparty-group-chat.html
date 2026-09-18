@@ -174,14 +174,82 @@ input[type=file]{display:none}.room-header .mobile-room-control{display:none}
   .empty-state{padding-bottom:12px;min-height:210px}.empty-avatars{margin-bottom:12px}.empty-state button{margin-top:16px}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+/* Compact chat: collapsible navigation and non-resizing member popover. */
+.app{grid-template-columns:240px minmax(0,1fr)}
+.sidebar{padding:16px 12px;position:relative}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px}
+.sidebar-head .brand{margin:0;font-size:20px;gap:8px}
+.sidebar-head .brand-mark{width:24px;height:32px}
+.sidebar-toggle{padding:6px;display:flex;align-items:center}
+.rail-new{display:none}
+.sidebar .section-title{margin-top:20px}
+.footnote p{display:none}
+.app.sidebar-collapsed{grid-template-columns:72px minmax(0,1fr)}
+.sidebar-collapsed .sidebar{padding:16px 10px}
+.sidebar-collapsed .sidebar-head{justify-content:center}
+.sidebar-collapsed .brand,.sidebar-collapsed .nav-label,.sidebar-collapsed .nav>span:last-child,.sidebar-collapsed .section-title,.sidebar-collapsed .room-list,.sidebar-collapsed .footnote{display:none}
+.sidebar-collapsed .nav{justify-content:center;padding:14px 0;gap:0}
+.sidebar-collapsed .rail-new{display:flex;justify-content:center;padding:12px 0;margin-top:8px}
+.room-header{height:68px;padding:12px 24px;gap:16px}
+.room-title{display:flex;align-items:center;gap:12px;min-width:0}
+.room-title h1{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.room-title small{white-space:nowrap;flex:none}
+.room-header>.row{gap:8px;flex:none}
+.room-header button{min-height:36px;padding:6px 10px;font-size:var(--sm)}
+.layout,.layout.members-hidden{display:flex;min-width:0}
+.conversation{flex:1;width:100%}
+.layout .members{display:none}
+.layout.members-open .members{display:block;position:absolute;right:16px;top:8px;bottom:auto;width:312px;max-height:calc(100% - 24px);z-index:8;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.member-panel-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.member-panel-header h2{font-size:var(--base)}
+.member-panel-header button{padding:4px}
+.members .member{display:flex;align-items:center;text-align:left;width:100%;margin:4px 0;padding:12px 8px;gap:12px;border:0;background:transparent}
+.members .member:hover{background:var(--soft)}
+.members .member-copy{display:block}
+.members .member-copy small{display:block;margin-top:2px}
+.members .member .avatar{width:36px;height:36px;border-radius:12px;font-size:var(--base)}
+.members .invite-button{width:100%;margin-top:12px;color:var(--accent)}
+.timeline{padding:32px max(24px,calc((100% - 980px)/2))}
+.composer{padding:16px max(24px,calc((100% - 980px)/2))}
+.hint{justify-content:flex-end}
+.empty-state{padding-bottom:36px}
+@media(max-width:680px){
+ .app,.app.sidebar-collapsed{grid-template-columns:56px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+ .sidebar,.sidebar-collapsed .sidebar{display:flex;padding:12px 6px;border-right:1px solid var(--line);border-bottom:0}
+ .sidebar-head{justify-content:center;margin-bottom:8px}
+ .sidebar .brand,.sidebar .nav-label,.sidebar .nav>span:last-child,.sidebar .section-title,.sidebar .room-list,.sidebar .footnote{display:none}
+ .sidebar .nav{justify-content:center;padding:12px 0}
+ .sidebar .rail-new{display:flex;justify-content:center;padding:12px 0;margin-top:8px}
+ .app.mobile-nav-open .sidebar{position:absolute;top:36px;bottom:0;left:0;width:240px;z-index:12;box-shadow:var(--shadow)}
+ .app.mobile-nav-open .sidebar .brand{display:flex}
+ .app.mobile-nav-open .sidebar .sidebar-head{justify-content:space-between}
+ .app.mobile-nav-open .sidebar .nav-label{display:inline}
+ .app.mobile-nav-open .sidebar .nav{justify-content:flex-start;padding:12px;gap:12px}
+ .app.mobile-nav-open .sidebar .section-title{display:flex}
+ .app.mobile-nav-open .sidebar .room-list{display:block;max-height:none}
+ .app.mobile-nav-open .sidebar .room-item{width:100%;margin-bottom:8px}
+ .app.mobile-nav-open .sidebar .rail-new{display:none}
+ .room-header{height:60px;padding:10px 12px;gap:6px}
+ .room-title{gap:4px;flex:1}.room-title h1{font-size:var(--base)}.room-title small{display:none}
+ .room-header>.row{gap:4px}
+ .room-header button{padding:5px;gap:4px;font-size:11px}
+ .room-header [data-action=about]{display:none}
+ .room-header .mobile-room-control{display:none!important}
+ .layout.members-open .members{right:8px;max-width:calc(100% - 16px)}
+ .timeline{padding:20px 12px}.composer{padding:12px}
+ .compose-box .row{gap:4px}.compose-box .quiet{gap:6px;font-size:12px;padding:5px}
+ .hint span:last-child{display:inline;font-size:10px}
+ .empty-state p{font-size:12px}.empty-state h2{font-size:18px}.empty-state{min-height:220px;padding-bottom:16px}
+}
 </style></head>
 <body><div class="banner">交互重建稿 · 预设模拟，不调用真实 Agent · 刷新重置 <button class="link" data-action="about">这版能体验什么 ↗</button></div>
 <div class="app">
-<aside class="sidebar">
-  <div class="brand"><svg class="brand-mark" viewBox="0 0 30 40" aria-hidden="true"><rect class="a" x="3" y="2" width="9" height="30" rx="4.5" transform="rotate(-13 7 17)"/><rect class="b" x="17" y="10" width="9" height="30" rx="4.5" transform="rotate(-13 21 25)"/></svg>AgentParty</div>
-  <button class="nav active" data-action="chat"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>群聊<span id="room-count"></span></button>
-  <button class="nav" data-action="library"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-3a6 6 0 0 1 12 0v3m2-17a4 4 0 0 1 0 8m2 3a6 6 0 0 1 2 6"/></svg>Agent 管理<span id="agent-count"></span></button>
-  <div class="section-title">我的群聊<button class="quiet" aria-label="新建群聊" data-action="newroom"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+<aside class="sidebar" id="navigation"><div class="sidebar-head">
+  <div class="brand"><svg class="brand-mark" viewBox="0 0 30 40" aria-hidden="true"><rect class="a" x="3" y="2" width="9" height="30" rx="4.5" transform="rotate(-13 7 17)"/><rect class="b" x="17" y="10" width="9" height="30" rx="4.5" transform="rotate(-13 21 25)"/></svg>AgentParty</div><button class="quiet sidebar-toggle" data-action="sidebar" aria-label="折叠侧栏" aria-expanded="true" aria-controls="navigation" title="折叠侧栏"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-11-3 3 3 3"/></svg></button></div>
+  <button class="nav active" data-action="chat" aria-label="群聊" title="群聊"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg><span class="nav-label">群聊</span><span id="room-count"></span></button>
+  <button class="nav" data-action="library" aria-label="Agent 管理" title="Agent 管理"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-3a6 6 0 0 1 12 0v3m2-17a4 4 0 0 1 0 8m2 3a6 6 0 0 1 2 6"/></svg><span class="nav-label">Agent 管理</span><span id="agent-count"></span></button>
+  <button class="quiet rail-new" data-action="newroom" aria-label="新建群聊" title="新建群聊"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><div class="section-title">我的群聊<button class="quiet" aria-label="新建群聊" data-action="newroom"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
   <nav class="room-list" id="room-list" aria-label="群聊列表"></nav>
   <div class="footnote"><span class="status-dot"></span>本地交互演示<p>配置、消息和图片仅留在当前页面。<br>刷新重置，不会发送给远端。</p></div>
 </aside>
@@ -212,19 +280,19 @@ function render(){
   $('#agent-count').textContent=agents.length;
   $('#room-list').innerHTML=rooms.map(x=>'<button class="room-item '+(x.id===active?'selected':'')+'" data-action="switch" data-id="'+x.id+'" '+(x.id===active?'aria-current="page"':'')+'><b>'+escapeHTML(x.title)+'</b><small>'+x.members.length+' 位 Agent · '+(x.auto?'自动接话':'仅 @ 回复')+'</small></button>').join('');
   $('#workspace').innerHTML=
-  '<header class="room-header"><div><h1>'+escapeHTML(r.title)+'</h1><p>你与 '+r.members.length+' 位 Agent · 每个群聊独立上下文</p></div><div class="row">'+
+  '<header class="room-header"><div class="room-title"><h1>'+escapeHTML(r.title)+'</h1><small>'+r.members.length+' 位成员</small></div><div class="row">'+
   '<button data-action="auto" aria-pressed="'+r.auto+'"><span class="switch"></span>自动接话</button>'+
-  '<button data-action="members" aria-label="本群成员" aria-expanded="true">'+icon('users')+'<span>成员</span></button>'+
-  '<button class="mobile-room-control" data-action="newroom" aria-label="新建群聊">'+icon('plus')+'</button></div></header>'+
+  '<button data-action="members" aria-label="本群成员" aria-expanded="false" aria-controls="member-panel">'+icon('users')+'<span>成员</span></button>'+
+  '<button class="quiet" data-action="about" aria-label="使用说明" title="使用说明">?</button></div></header>'+
   '<div class="layout"><section class="conversation" aria-label="群聊"><div class="timeline" id="timeline" role="log" aria-label="群聊消息"></div>'+
-  '<div class="composer"><div class="examples"><small>试一试</small><button data-action="example" data-kind="mention">@ 两位成员</button><button data-action="example" data-kind="auto">不 @，自动接话</button><button data-action="invite">成员请求协助</button></div>'+
+  '<div class="composer">'+
   '<div class="compose-box"><div id="mention-menu" class="mention-menu" hidden></div><div id="image-strip" class="images"></div>'+
   '<textarea id="draft" aria-label="消息" aria-autocomplete="list" aria-controls="mention-options" aria-expanded="false" placeholder="说点什么，或输入 @ 邀请一位、几位成员回答…"></textarea>'+
   '<div class="row between"><div class="row"><button class="quiet" data-action="mentions" aria-label="提及成员">'+icon('at')+'</button><button class="quiet" data-action="image">'+icon('image')+'图片 + 文字</button></div><button class="primary" data-action="send">发送 ↑</button></div></div>'+
-  '<div class="hint"><span>直接聊天，或 @ 多位成员 · 有 @ 时优先按点名回复</span><span id="keyboard-hint">Enter 发送 · Shift + Enter 换行</span></div></div></section>'+
-  '<aside class="members" aria-label="本群成员"><div class="row between"><small>本群成员 · '+r.members.length+'</small><button class="link" data-action="invite">管理</button></div>'+
-  r.members.map(a=>'<article class="member">'+avatar(a)+'<div class="member-copy"><b>'+escapeHTML(a.name)+'</b>'+(a.temp?' <span class="tag">临时</span>':'')+'<br><button class="link" data-action="member" data-id="'+a.id+'">Codex · 查看角色 ↗</button><p>'+escapeHTML(a.role)+'</p></div></article>').join('')+
-  '<div class="rules-wrap"><div class="rules"><b>'+(r.auto?'未点名时，按话题接话':'现在仅 @ 成员回复')+'</b>'+(r.auto?'有 @ 就只通知被点名者。没有 @ 时，草图用关键词模拟选人，不会让所有成员轮流回答。':'你可以先记下想法，没人会自动回应。一次 @ 多人时，他们可以分别回复。')+'</div><p>没有固定主持人，也没有强制讨论流程。你可以随时插话。</p></div></aside></div>';
+  '<div class="hint"><span id="keyboard-hint">Enter 发送 · Shift + Enter 换行</span></div></div></section>'+
+  '<aside class="members" id="member-panel" role="region" aria-label="本群成员"><div class="member-panel-header"><h2>成员 · '+r.members.length+'</h2><button class="quiet" data-action="members-close" aria-label="关闭成员列表">×</button></div>'+
+  r.members.map(a=>'<button class="member" data-action="member" data-id="'+a.id+'">'+avatar(a)+'<span class="member-copy"><b>'+escapeHTML(a.name)+'</b><small>'+(a.temp?'临时成员 · ':'')+'待命（模拟）</small></span><span aria-hidden="true">›</span></button>').join('')+
+  '<button class="invite-button" data-action="invite">＋ 邀请成员</button></aside></div>';
   $('#draft').value=r.draft;
   $('#draft').oninput=e=>{r.draft=e.target.value;updateSend();updateMentions()};
   $('#draft').onclick=updateMentions;
@@ -244,8 +312,18 @@ function render(){
   renderMessages();renderImages();syncMembersButton();
 }
 function syncMembersButton(){
-  const narrow=matchMedia('(max-width:1000px)').matches;
-  $('[data-action=members]').setAttribute('aria-expanded',String(narrow?$('.layout').classList.contains('members-open'):!$('.layout').classList.contains('members-hidden')));
+  $('[data-action=members]').setAttribute('aria-expanded',String($('.layout').classList.contains('members-open')));
+}
+function setMembers(open,focusBack=false){
+  $('.layout').classList.toggle('members-open',open);syncMembersButton();
+  if(open)$('[data-action=members-close]').focus();
+  else if(focusBack)$('[data-action=members]').focus();
+}
+function toggleSidebar(){
+  const mobile=matchMedia('(max-width:680px)').matches;
+  $('.app').classList.toggle(mobile?'mobile-nav-open':'sidebar-collapsed');
+  const expanded=mobile?$('.app').classList.contains('mobile-nav-open'):!$('.app').classList.contains('sidebar-collapsed');
+  const button=$('[data-action=sidebar]');button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',expanded?'折叠侧栏':'展开侧栏');button.title=expanded?'折叠侧栏':'展开侧栏';
 }
 function renderMessages(){
   const r=current(),empty=!r.messages.some(m=>!m.system),timeline=$('#timeline');
@@ -302,10 +380,14 @@ function invite(){const available=agents.filter(a=>!current().members.some(m=>m.
 function newRoom(){show('新建群聊',`<form id="room-form"><label>群聊名称<input name="title" required maxlength="60" placeholder="例如：新产品讨论"></label><label>邀请成员</label>${choices(agents)}<div class="notice">不需要为整个群选择设备和模型。每个 Agent 已有自己的配置，之后也可以随时邀请成员。</div><p class="error" id="room-error"></p></form>`,`<small>新群与已有群的上下文独立</small><button class="primary" form="room-form">创建群聊</button>`);$('#room-form').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),ids=f.getAll('members'),title=f.get('title').trim();if(!title||!ids.length){$('#room-error').textContent='请填写群名，并至少邀请一位成员。';return}const r=room(uid(),title,ids,true,[{system:'群聊已创建，直接发消息或 @ 成员开始讨论。'}]);rooms.push(r);active=r.id;close();render()}}
 function member(id){const a=current().members.find(a=>a.id===id);show('角色与本群配置',`<div class="row">${avatar(a,true)}<div><h3>${escapeHTML(a.name)}</h3><small>${a.temp?'仅本群的临时成员':'从我的 Agent 邀请'}</small></div></div><p style="margin:20px 0">${escapeHTML(a.role)}</p><div class="agent-card">运行设备：${escapeHTML(deviceName(a))}<br>工作目录：${escapeHTML(a.path)}<br>模型：${escapeHTML(a.model)}<br>思考强度：${escapeHTML(a.effort)}</div><div class="notice">这是本群加入时的配置快照。编辑 Agent 默认配置不会自动改写此处。本草图不演示运行中切换配置。</div>`)}
 function detail(id){const m=current().messages.find(m=>m.id===id),a=current().members.find(a=>a.id===m?.from);if(!a)return;show('执行细节 · 模拟示例',`<div class="row">${avatar(a)}<div><h3>${escapeHTML(a.name)}</h3><small>${escapeHTML(deviceName(a))}</small></div></div><ol class="steps"><li>接收本群文字与本次图片<br><small>不带入其他群历史</small></li><li>使用成员配置：${escapeHTML(a.model)} / ${escapeHTML(a.effort)}</li><li>在主时间线展示公开回复</li></ol><div class="notice">这是流程说明，不是真实工具日志。本页面没有运行 Agent、调用 Skills 或连接远端设备，也不会展示隐藏推理。</div>`)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,id=b.dataset.id,r=current();switch(action){case'close':close();break;case'chat':if($('#modal').open)close();break;case'members':{const layout=$('.layout');layout.classList.toggle(matchMedia('(max-width:1000px)').matches?'members-open':'members-hidden');syncMembersButton();break;}case'switch':active=id;render();break;case'library':library();break;case'edit':editAgent(id);break;case'create-agent':editAgent();break;case'temporary':editAgent(null,true);break;case'invite':invite();break;case'newroom':newRoom();break;case'auto':r.auto=!r.auto;render();break;case'member':member(id);break;case'detail':detail(id);break;case'mentions':mentions();break;case'mention':selectMention(id);break;case'image':$('#message-files').click();break;case'avatar':$('#avatar-file').click();break;case'remove-avatar':editorState.avatar='';$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新'},true);break;case'remove-image':URL.revokeObjectURL(r.images[Number(id)].url);r.images.splice(Number(id),1);renderImages();break;case'send':send();break;case'example':r.draft=b.dataset.kind==='mention'?r.members.slice(0,2).map(a=>'@'+a.name).join(' ')+' 帮我看看这个想法的价值和实现路径。':'这个功能在技术实现上有哪些风险？';$('#draft').value=r.draft;hideMentions();updateSend();$('#draft').focus();break;case'about':show('这版可以体验什么',`<p>按原版三栏群聊稿重建，保持亮色，不是旧 HTML 恢复。</p><ol class="steps"><li>在 Agent 管理中配置头像、角色、设备、模型和强度。</li><li>新建或切换群聊；从成员栏邀请已有 Agent，或创建临时成员。</li><li>@ 多人，上传或粘贴图片，查看预设回复和模拟执行细节。</li></ol><div class="notice">所有设备与模型能力列表均为示例，所有回复均为模拟。配置和图片不上传，刷新重置。本稿不演示自动辩论调度或真实 Paws 预设导入。</div>`);break}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,id=b.dataset.id,r=current();switch(action){case'close':close();break;case'chat':if($('#modal').open)close();if($('.app').classList.contains('sidebar-collapsed')||matchMedia('(max-width:680px)').matches)toggleSidebar();break;case'members':setMembers(!$('.layout').classList.contains('members-open'));break;case'members-close':setMembers(false,true);break;case'sidebar':toggleSidebar();break;case'switch':active=id;$('.app').classList.remove('mobile-nav-open');render();break;case'library':library();break;case'edit':editAgent(id);break;case'create-agent':editAgent();break;case'temporary':editAgent(null,true);break;case'invite':invite();break;case'newroom':newRoom();break;case'auto':r.auto=!r.auto;render();break;case'member':member(id);break;case'detail':detail(id);break;case'mentions':mentions();break;case'mention':selectMention(id);break;case'image':$('#message-files').click();break;case'avatar':$('#avatar-file').click();break;case'remove-avatar':editorState.avatar='';$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新'},true);break;case'remove-image':URL.revokeObjectURL(r.images[Number(id)].url);r.images.splice(Number(id),1);renderImages();break;case'send':send();break;case'example':r.draft=b.dataset.kind==='mention'?r.members.slice(0,2).map(a=>'@'+a.name).join(' ')+' 帮我看看这个想法的价值和实现路径。':'这个功能在技术实现上有哪些风险？';$('#draft').value=r.draft;hideMentions();updateSend();$('#draft').focus();break;case'about':show('这版可以体验什么',`<p>按原版三栏群聊稿重建，保持亮色，不是旧 HTML 恢复。</p><ol class="steps"><li>在 Agent 管理中配置头像、角色、设备、模型和强度。</li><li>新建或切换群聊；从成员栏邀请已有 Agent，或创建临时成员。</li><li>@ 多人，上传或粘贴图片，查看预设回复和模拟执行细节。</li></ol><div class="notice">所有设备与模型能力列表均为示例，所有回复均为模拟。配置和图片不上传，刷新重置。本稿不演示自动辩论调度或真实 Paws 预设导入。</div>`);break}});
 $('#message-files').onchange=e=>{addImages([...e.target.files]);e.target.value=''};
 $('#avatar-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f||!editorState)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>5*1024*1024){toast('请选择 5 MB 以内的 PNG、JPEG 或 WebP');return}editorState.avatar=URL.createObjectURL(f);$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新',avatar:editorState.avatar},true)};
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('.compose-box')&&!e.target.closest('[data-action=mentions]'))hideMentions()});
+document.addEventListener('pointerdown',e=>{
+  if(!e.target.closest('.members')&&!e.target.closest('[data-action=members]')&&!e.target.closest('dialog'))setMembers(false);
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#modal').open&&$('.layout').classList.contains('members-open')){e.preventDefault();setMembers(false,true)}});
 window.addEventListener('resize',syncMembersButton);
 render();
 </script></body></html>
