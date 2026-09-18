@@ -1,6 +1,7 @@
 import type { GroupRoomSnapshot, GroupTurn } from '../group-chat/rooms.js';
+import type { ImageRef } from '../contracts.js';
 
-export type VisibleMessage = { id: string; from: string; text: string; ts: number; replyTo?: string; taskMessageId?: string; live?: GroupTurn['live'] };
+export type VisibleMessage = { id: string; from: string; text: string; ts: number; images?: ImageRef[]; replyTo?: string; taskMessageId?: string; live?: GroupTurn['live'] };
 
 export function mergeRooms(current: GroupRoomSnapshot[], incoming: GroupRoomSnapshot[]): GroupRoomSnapshot[] {
   const byId = new Map(current.map(room => [room.id, room]));

@@ -89,7 +89,7 @@ it('aborts the old stream and ignores delayed history when switching rooms', asy
   }));
   render(<GroupChatApp/>);
   await vi.waitFor(() => expect(resolveOld).toBeDefined());
-  fireEvent.click(within(screen.getByRole('navigation', { name: '我的群聊' })).getByRole('button', { name: /Room two/ }));
+  fireEvent.click(within(screen.getByRole('navigation', { name: '我的群聊' })).getByRole('button', { name: /Room two 1 位/ }));
   expect(await screen.findByText('新群消息')).toBeTruthy();
   expect(oldSignal?.aborted).toBe(true);
   await act(async () => resolveOld(Response.json({ messages: [{ id: 'old', from: 'host', to: '*', kind: 'message', text: '旧群消息', ts: 1 }] })));
