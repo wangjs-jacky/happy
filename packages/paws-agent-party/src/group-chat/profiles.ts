@@ -102,7 +102,7 @@ export class ProfileService {
 }
 
 export function normalizeProfileInput(input: AgentProfileInput): Pick<AgentProfile, 'name' | 'instructions' | 'engine' | 'model' | 'effort' | 'avatarId' | 'machineId' | 'directory'> {
-  if (!input || typeof input.name !== 'string' || typeof input.instructions !== 'string') throw new RunError(400, 'An agent needs a name and role instructions.');
+  if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.name !== 'string' || typeof input.instructions !== 'string') throw new RunError(400, 'An agent needs a name and role instructions.');
   if (input.engine !== undefined && input.engine !== 'codex') throw new RunError(400, 'This release supports Codex Agent profiles only.');
   const name = input.name.trim(); const instructions = input.instructions.trim();
   if (!name || name.length > 40 || /[@\n\r]/u.test(name)) throw new RunError(400, 'Agent name must be 1–40 characters and cannot contain @ or newlines.');
@@ -111,9 +111,10 @@ export function normalizeProfileInput(input: AgentProfileInput): Pick<AgentProfi
   const effort = input.effort ?? DEFAULT_CODEX_EFFORT;
   if (!isCodexModel(model)) throw new RunError(400, 'Unsupported Codex model.');
   if (!isCodexEffort(effort)) throw new RunError(400, 'Unsupported Codex thinking effort.');
-  const avatarId = input.avatarId ?? 0;
+  const avatarId = input.avatarId === undefined ? 0 : input.avatarId;
   if (!Number.isInteger(avatarId) || avatarId < 0 || avatarId > 23) throw new RunError(400, 'avatarId must be an integer from 0 to 23.');
   if ((input.machineId === undefined) !== (input.directory === undefined)) throw new RunError(400, 'machineId and directory must be provided together.');
+  if (input.machineId !== undefined && (typeof input.machineId !== 'string' || typeof input.directory !== 'string')) throw new RunError(400, 'machineId and directory must be strings.');
   const machineId = input.machineId?.trim(); const directory = input.directory?.trim();
   if (input.machineId !== undefined && (!machineId || !directory)) throw new RunError(400, 'machineId and directory must be provided together.');
   if (directory && !isAbsoluteDirectory(directory)) throw new RunError(400, 'Enter an absolute working directory already approved in Paws.');

@@ -98,6 +98,15 @@ describe('bounded room debate', () => {
     expect(sdk.calls).toHaveLength(1); expect((await t.current()).debate?.status).toBe('stopped'); expect(sdk.sessionsStopped).toBe(0);
   });
 
+  it('keeps active debate participants frozen when a newcomer is admitted', async () => {
+    const sdk = new TestOnlySdk(); const pending = gate(); sdk.holdNextDelivery(pending.promise); const t = await setup({ sdk, count: 2 });
+    await t.message(); await eventually(() => expect(sdk.calls).toHaveLength(1));
+    const before = (await t.current()).debate!.members;
+    const admitted = await value<GroupRoomSnapshot>(t.server, `/rooms/${t.room.id}/members`, { requestId: 'debate-invite', temporary: [{ name: '新成员', instructions: '下一题参与' }] });
+    expect(admitted.debate?.members).toEqual(before); expect(admitted.members.at(-1)).toMatchObject({ name: '新成员', temporary: true });
+    pending.resolve();
+  });
+
   it('fails the debate without scheduling another participant when a turn fails', async () => {
     const t = await setup({ count: 3 }); t.sdk.send = async () => { throw new Error('provider unavailable'); };
     await t.message(); await eventually(async () => expect((await t.current()).debate?.status).toBe('failed'));

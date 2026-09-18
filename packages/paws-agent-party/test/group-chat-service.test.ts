@@ -109,6 +109,28 @@ describe('generic group chat', () => {
     expect(listing.path).toBe('/tmp'); expect(browse).toHaveBeenCalledWith('machine-1', '/tmp');
     await expect(json<{ available: boolean }>(`${server.url}/api/paws/machines/machine-1/configuration`)).resolves.toEqual(expect.objectContaining({ available: false }));
   });
+
+  it('rejects malformed invitation request ids and temporary configuration with 400', async () => {
+    const { server } = await start(); const profiles = await json<{ agents: Array<{ id: string }> }>(`${server.url}/api/group-chat/agents`);
+    const room = await json<GroupRoomSnapshot>(`${server.url}/api/group-chat/rooms`, { method: 'POST', body: JSON.stringify({ requestId: 'malformed-room', title: '校验', memberIds: [profiles.agents[0]!.id], machineId: 'machine-1', directory: '/tmp/work' }) });
+    for (const body of [
+      { requestId: 1, temporary: [] },
+      { requestId: 'bad-avatar', temporary: [{ name: '坏头像', instructions: '拒绝', avatarId: null }] },
+      { requestId: 'bad-machine', temporary: [{ name: '坏机器', instructions: '拒绝', machineId: 1, directory: '/tmp' }] },
+    ]) expect((await fetch(`${server.url}/api/group-chat/rooms/${room.id}/members`, auth({ method: 'POST', body: JSON.stringify(body) }))).status).toBe(400);
+  });
+
+  it('closes an events stream safely when its room is deleted during a pending debounce', async () => {
+    const { server } = await start(); const profiles = await json<{ agents: Array<{ id: string }> }>(`${server.url}/api/group-chat/agents`);
+    const room = await json<GroupRoomSnapshot>(`${server.url}/api/group-chat/rooms`, { method: 'POST', body: JSON.stringify({ requestId: 'sse-delete-room', title: 'SSE 删除', memberIds: [profiles.agents[0]!.id], machineId: 'machine-1', directory: '/tmp/work' }) });
+    const controller = new AbortController(); const stream = await fetch(`${server.url}/api/group-chat/rooms/${room.id}/events`, auth({ signal: controller.signal }));
+    await json(`${server.url}/api/group-chat/rooms/${room.id}/members`, { method: 'POST', body: JSON.stringify({ requestId: 'schedule-event', temporary: [{ name: '临时流', instructions: '触发更新' }] }) });
+    expect((await fetch(`${server.url}/api/group-chat/rooms/${room.id}`, auth({ method: 'DELETE' }))).status).toBe(200);
+    await expect(stream.text()).resolves.toContain('data:');
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect((await fetch(`${server.url}/api/group-chat/rooms`, auth())).status).toBe(200);
+    controller.abort();
+  });
 });
 
 async function eventually(assertion: () => void | Promise<void>): Promise<void> { let last: unknown; for (let i = 0; i < 30; i += 1) { try { await assertion(); return; } catch (error) { last = error; await new Promise(resolve => setTimeout(resolve, 20)); } } throw last; }

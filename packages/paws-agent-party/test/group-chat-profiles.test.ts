@@ -40,4 +40,11 @@ describe('Codex group-chat profiles', () => {
     await expect(service.create({ name: '半配置', instructions: '拒绝。', machineId: 'machine-2' })).rejects.toThrow('machineId and directory');
     expect(service.list().find(profile => profile.name === '产品经理')).toMatchObject({ avatarId: 0 });
   });
+
+  it('returns client errors for malformed optional configuration fields', async () => {
+    const service = await createService();
+    await expect(service.create({ name: '空头像', instructions: '拒绝', avatarId: null as never })).rejects.toMatchObject({ status: 400 });
+    await expect(service.create({ name: '数字机器', instructions: '拒绝', machineId: 1 as never, directory: '/tmp' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.create({ name: '对象目录', instructions: '拒绝', machineId: 'machine', directory: {} as never })).rejects.toMatchObject({ status: 400 });
+  });
 });

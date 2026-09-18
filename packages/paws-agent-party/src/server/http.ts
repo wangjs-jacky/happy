@@ -144,13 +144,16 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
       const write = () => {
         timer = undefined;
         if (ended || blocked) { dirty = true; return; }
-        dirty = false; blocked = !response.write(`data: ${JSON.stringify(groups.get(id))}\n\n`);
+        try { dirty = false; blocked = !response.write(`data: ${JSON.stringify(groups.get(id))}\n\n`); }
+        catch (error) { if (error instanceof RunError && error.status === 404) finish(); else throw error; }
       };
       const schedule = () => { dirty = true; if (!timer && !blocked && !ended) timer = setTimeout(write, 100); };
       const unsubscribe = groups.subscribe(id, schedule);
+      const unsubscribeDeletion = groups.subscribeDeletion(id, () => { finish(); response.end(); });
+      const finish = () => { if (ended) return; ended = true; if (timer) clearTimeout(timer); clearInterval(heartbeat); unsubscribe(); unsubscribeDeletion(); eventResponses.delete(response); };
       response.on('drain', () => { blocked = false; if (dirty) schedule(); });
       const heartbeat = setInterval(() => { if (!blocked && !ended) blocked = !response.write(': heartbeat\n\n'); }, 15_000);
-      response.once('close', () => { ended = true; clearTimeout(timer); clearInterval(heartbeat); unsubscribe(); eventResponses.delete(response); });
+      response.once('close', finish);
       write(); return;
     }
     const groupRoomMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)$/);

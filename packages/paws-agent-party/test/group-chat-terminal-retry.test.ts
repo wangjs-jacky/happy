@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -41,3 +41,59 @@ describe('durable debate terminal announcements', () => {
     await second.close();
   });
 });
+
+describe('durable room deletion', () => {
+  it('persists a tombstone before Party deletion and replays unfinished cleanup after restart', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-room-delete-')); dirs.push(dataDir);
+    const profiles = await ProfileService.create(dataDir); const assets = new AssetStore(dataDir); const calls: string[] = [];
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+    const bus = party(false, calls); bus.delete = async () => gate;
+    const service = await GroupRoomService.create({ dataDir, sdk: new TestOnlySdk() as never, assets, party: bus, profiles });
+    const room = await service.create({ requestId: 'create-delete', title: '删除恢复', memberIds: [profiles.list()[0]!.id], machineId: 'machine-1', directory: '/tmp/work' });
+    const pending = service.delete(room.id);
+    await eventually(async () => {
+      const stored = JSON.parse(await readFile(join(dataDir, 'group-chat-rooms.json'), 'utf8'));
+      expect(stored.rooms).toHaveLength(0); expect(stored.deletions).toEqual([{ roomId: room.id, partyId: room.partyId }]);
+    });
+    release(); await pending; await service.close();
+    const interrupted = JSON.parse(await readFile(join(dataDir, 'group-chat-rooms.json'), 'utf8'));
+    interrupted.deletions = [{ roomId: room.id, partyId: room.partyId }];
+    await writeFile(join(dataDir, 'group-chat-rooms.json'), JSON.stringify(interrupted));
+    let replayed = 0; const replayBus = party(false, []); replayBus.delete = async () => { replayed += 1; };
+    const reopened = await GroupRoomService.create({ dataDir, sdk: new TestOnlySdk() as never, assets, party: replayBus, profiles });
+    expect(replayed).toBe(1); expect(reopened.list()).toHaveLength(0);
+    expect(JSON.parse(await readFile(join(dataDir, 'group-chat-rooms.json'), 'utf8')).deletions).toEqual([]);
+    await reopened.close();
+  });
+
+  it('rejects deletion while a terminal debate job is still publishing', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-room-debate-delete-')); dirs.push(dataDir);
+    const profiles = await ProfileService.create(dataDir); const assets = new AssetStore(dataDir); const sdk = new TestOnlySdk();
+    let release!: () => void; const terminalGate = new Promise<void>(resolve => { release = resolve; }); let sequence = 0;
+    const bus = party(false, []); bus.send = async input => {
+      if (input.text.startsWith('辩论已')) await terminalGate;
+      return { id: `message-${++sequence}`, cursor: String(sequence), kind: 'message', from: input.from, to: input.to, text: input.text, createdAt: Date.now() } as never;
+    };
+    const service = await GroupRoomService.create({ dataDir, sdk: sdk as never, assets, party: bus, profiles });
+    const members = profiles.list().slice(0, 2); const room = await service.create({ requestId: 'debate-delete', title: '终局', memberIds: members.map(member => member.id), machineId: 'machine-1', directory: '/tmp/work', autoDebate: true, maxRounds: 1 });
+    await service.message(room.id, { requestId: 'debate-message', text: members.map(member => `@${member.name}`).join(' '), images: [] });
+    await eventually(() => expect(service.get(room.id).debate?.status).toBe('completed'));
+    await expect(service.delete(room.id)).rejects.toMatchObject({ status: 409 });
+    release(); await eventually(() => expect(service.get(room.id).debate?.terminalMessageId).toBeTruthy());
+    await service.delete(room.id); await service.close();
+  });
+
+  it('retries Party cleanup from the tombstone without resurrecting the room', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-room-delete-retry-')); dirs.push(dataDir);
+    const profiles = await ProfileService.create(dataDir); const assets = new AssetStore(dataDir); const bus = party(false, []); let attempts = 0;
+    bus.delete = async () => { attempts += 1; if (attempts === 1) throw new Error('temporary delete failure'); };
+    const service = await GroupRoomService.create({ dataDir, sdk: new TestOnlySdk() as never, assets, party: bus, profiles });
+    const room = await service.create({ requestId: 'delete-retry', title: '重试', memberIds: [profiles.list()[0]!.id], machineId: 'machine-1', directory: '/tmp/work' });
+    await expect(service.delete(room.id)).rejects.toThrow('temporary delete failure');
+    expect(service.list()).toHaveLength(0);
+    await expect(service.delete(room.id)).resolves.toBeUndefined(); expect(attempts).toBe(2);
+    await service.close();
+  });
+});
+
+async function eventually(assertion: () => void | Promise<void>): Promise<void> { let last: unknown; for (let i = 0; i < 30; i += 1) { try { await assertion(); return; } catch (error) { last = error; await new Promise(resolve => setTimeout(resolve, 10)); } } throw last; }

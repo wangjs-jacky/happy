@@ -45,14 +45,14 @@ export async function createPartyService(dataDir: string, accessToken: string): 
     listenSettleMs: 0,
   });
 
-  const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
+  const call = async (path: string, init: RequestInit = {}, allowNotFound = false): Promise<Record<string, unknown>> => {
     const response = await api(new Request(`http://127.0.0.1${path}`, {
       ...init,
       headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', ...init.headers },
     }));
     if (!response) throw new Error(`Party route unavailable: ${path}`);
     const body = await response.json() as Record<string, unknown>;
-    if (!response.ok) throw new Error(typeof body.message === 'string' ? body.message : `Party request failed (${response.status})`);
+    if (!response.ok && !(allowNotFound && response.status === 404)) throw new Error(typeof body.message === 'string' ? body.message : `Party request failed (${response.status})`);
     return body;
   };
 
@@ -89,7 +89,7 @@ export async function createPartyService(dataDir: string, accessToken: string): 
       if (!/^[a-z][a-z0-9-]{0,63}$/.test(participant.id)) throw new Error('A group needs safe participant identifiers.');
       await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: participant.id, desc: participant.description.slice(0, 500) }) });
     },
-    async delete(partyId) { await call(`/api/parties/${partyId}`, { method: 'DELETE' }); },
+    async delete(partyId) { await call(`/api/parties/${partyId}`, { method: 'DELETE' }, true); },
     async send(input) {
       const envelope: PartyEnvelope = { v: 1, text: input.text, images: input.images ?? [] };
       const encrypted = await encryptText(await keyFor(input.partyId), JSON.stringify(envelope));
