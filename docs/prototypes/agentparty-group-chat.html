@@ -2,29 +2,295 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AgentParty · 群聊交互重建稿</title>
 <style>
-:root{--bg:#f7f8fb;--paper:#fff;--soft:#f0f3f9;--line:#e1e6ef;--ink:#253047;--muted:#627087;--accent:#4966ce;--tint:#edf1ff;--ok:#26765c;--danger:#af3b42;--overlay:#24314955;--shadow:0 24px 80px #24314922;--xs:12px;--sm:14px;--base:16px;--lg:20px;--xl:25px;--r:12px;--big:20px;--s:8px;--m:16px;--l:24px;--xlspace:32px}
-*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--paper);font:var(--sm)/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}button,input,textarea,select{font:inherit;color:inherit}button{border:1px solid var(--line);border-radius:var(--r);background:var(--paper);padding:8px 14px;cursor:pointer}button:hover{background:var(--soft)}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:var(--accent);color:var(--paper);border-color:var(--accent)}button.quiet{border-color:transparent;background:transparent}button.link{padding:0;border:0;color:var(--accent);background:transparent;font-size:var(--xs)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}h1,h2,h3,p{margin:0}h1{font-size:var(--xl);letter-spacing:-.5px}h2{font-size:var(--lg)}h3{font-size:var(--base)}small,.muted{color:var(--muted)}small{font-size:var(--xs)}[hidden]{display:none!important}.banner{text-align:center;background:var(--tint);color:var(--muted);padding:8px 16px;font-size:var(--xs)}.banner button{margin-left:12px}.app{display:grid;grid-template-columns:232px minmax(0,1fr);height:calc(100dvh - 39px);min-height:630px}.sidebar{padding:28px 16px;background:var(--bg);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px}.brand{font-size:var(--xl);font-weight:700;letter-spacing:-1px;margin:0 12px 24px}.brand span{color:var(--accent);margin-right:8px}.nav{display:flex;justify-content:space-between;align-items:center;text-align:left;border:0;background:transparent;padding:12px}.nav.active,.room-item.selected{background:var(--tint);color:var(--accent)}.section-title{display:flex;justify-content:space-between;align-items:center;margin:20px 12px 8px;color:var(--muted);font-size:var(--xs)}.room-item{text-align:left;width:100%;margin-bottom:8px;padding:14px;border:1px solid transparent;background:transparent}.room-item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.room-item small{display:block;margin-top:4px}.footnote{margin-top:auto;padding:24px 12px 0;font-size:var(--xs);color:var(--muted)}.workspace{min-width:0;display:flex;flex-direction:column}.room-header{padding:24px 32px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line)}.room-header p{color:var(--muted);margin-top:4px}.row{display:flex;gap:12px;align-items:center}.between{justify-content:space-between}.layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;flex:1;min-height:0}.conversation{display:flex;flex-direction:column;min-width:0;min-height:0}.timeline{overflow:auto;flex:1;padding:32px max(24px,6%)}.message{margin-bottom:32px;display:flex;gap:16px}.message-body{flex:1;min-width:0}.meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.meta time{margin-left:auto;color:var(--muted);font-size:var(--xs)}.message p{white-space:pre-wrap;margin:12px 0;color:var(--ink);font-size:var(--base);line-height:1.85}.message.user .message-body{background:var(--tint);border-radius:var(--r);padding:16px 20px}.message.user p{margin:4px 0}.tag{font-size:11px;background:var(--soft);padding:2px 7px;border-radius:6px;color:var(--muted)}.avatar{width:40px;height:40px;flex-shrink:0;border-radius:var(--r);background:var(--tint);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:var(--lg);overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover}.avatar.big{width:64px;height:64px;font-size:var(--xl)}.system{text-align:center;color:var(--muted);font-size:var(--xs);margin:24px 0}.members{border-left:1px solid var(--line);background:var(--bg);padding:24px;overflow:auto}.member{margin:24px 0}.member p{color:var(--muted);margin:12px 0;font-size:var(--sm)}.device{font-size:var(--xs);color:var(--muted);overflow-wrap:anywhere;margin:5px 0 8px}.rules{border:1px solid var(--line);padding:16px;border-radius:var(--r);font-size:var(--xs);color:var(--muted);margin-top:32px}.rules b{display:block;color:var(--ink);margin-bottom:8px}.composer{border-top:1px solid var(--line);padding:16px 24px 20px}.examples{display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap}.examples button{font-size:var(--xs);padding:5px 10px}.compose-box{border:1px solid var(--line);border-radius:16px;padding:12px 16px;background:var(--bg)}textarea{resize:vertical}.compose-box textarea{width:100%;min-height:70px;border:0;background:transparent;outline:none;padding:4px;font-size:var(--sm)}.hint{display:flex;justify-content:space-between;gap:8px;margin-top:8px;color:var(--muted);font-size:var(--xs)}.mention-menu{display:flex;gap:6px;flex-wrap:wrap;padding:8px 0}.mention-menu button{font-size:var(--xs)}.images{display:flex;gap:12px;flex-wrap:wrap}.image-wrap{position:relative}.image-wrap img{width:76px;height:64px;object-fit:cover;border-radius:8px}.image-wrap button{position:absolute;top:-6px;right:-6px;border-radius:50%;padding:0 6px;background:var(--paper)}.message-images img{max-width:180px;max-height:150px;border-radius:var(--r);margin:8px}.switch{display:inline-block;width:28px;height:16px;border-radius:16px;background:var(--accent);vertical-align:middle;margin-right:8px}.switch:after{content:'';display:block;width:12px;height:12px;margin:2px 2px 2px 14px;border-radius:50%;background:var(--paper)}[aria-pressed=false] .switch{background:var(--muted)}[aria-pressed=false] .switch:after{margin-left:2px}dialog{border:1px solid var(--line);border-radius:var(--big);padding:0;color:var(--ink);box-shadow:var(--shadow);width:min(680px,94vw);max-height:90dvh}dialog::backdrop{background:var(--overlay);backdrop-filter:blur(3px)}dialog header{padding:24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:12px}dialog .body{padding:24px}dialog footer{padding:16px 24px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--bg)}label{display:block;font-size:var(--sm);font-weight:600;margin-bottom:16px}input:not([type=checkbox]),select,dialog textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);margin-top:6px}label small{display:block;font-weight:400;margin-top:6px}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.notice{background:var(--soft);border-radius:var(--r);padding:14px 16px;color:var(--muted);font-size:var(--xs);margin:16px 0}.agent-card{border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:12px 0}.agent-card p{margin:8px 0;color:var(--muted)}.choice{display:flex;gap:12px;align-items:center;border:1px solid var(--line);padding:14px;border-radius:var(--r);font-weight:400}.choice:has(input:checked){background:var(--tint);border-color:var(--accent)}input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}.tabs{display:flex;gap:8px;margin-bottom:20px}.tabs button{flex:1}.error{color:var(--danger)}#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:12px 20px;border-radius:var(--r);z-index:20;max-width:90vw}#toast:empty{display:none}.steps{padding-left:20px;color:var(--muted)}.steps li{margin:16px 0}input[type=file]{display:none}.mobile-members{display:none}@media(max-width:1100px){.app{grid-template-columns:190px 1fr}.layout{grid-template-columns:minmax(0,1fr) 235px}.room-header{padding:20px 24px}.members{padding:20px 16px}.timeline{padding:24px}.brand{font-size:var(--lg)}}@media(max-width:820px){.app{height:auto;min-height:100dvh;grid-template-columns:1fr}.sidebar{padding:12px 16px;display:grid;grid-template-columns:1fr auto auto;gap:8px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:6px 0}.section-title,.footnote{display:none}.room-list{grid-column:1/-1;display:flex;gap:8px;overflow:auto}.room-item{min-width:170px;width:auto;margin:0;padding:8px 12px}.layout{display:flex;flex-direction:column-reverse}.members{border-left:0;border-bottom:1px solid var(--line);max-height:250px}.members .member{display:inline-block;width:48%;vertical-align:top;margin:16px 0}.members .rules,.members .member p{display:none}.room-header{padding:20px;align-items:flex-start}.room-header h1{font-size:var(--lg)}.room-header .row{flex-direction:column;gap:8px}.timeline{min-height:320px;max-height:55dvh;padding:24px 16px}.composer{padding:16px}.hint{flex-wrap:wrap}.two{grid-template-columns:1fr;gap:0}.message{gap:12px}.message p{font-size:var(--sm)}dialog .body,dialog header{padding:20px}.banner{font-size:11px} .meta time{display:none}}
+:root {
+  color-scheme: light;
+  --bg:#f8f9fc;--paper:#fff;--soft:#f0f2f7;--line:#e2e5ed;
+  --ink:#252938;--muted:#626b7e;--accent:#536bce;--tint:#e9edfc;
+  --ok:#2b816a;--danger:#b53b49;--overlay:#222a4140;
+  --shadow:0 16px 48px #26345624;--xs:12px;--sm:14px;--base:16px;--lg:20px;--xl:25px;
+  --r:12px;--big:20px;--s:8px;--m:16px;--l:24px;--xlspace:32px;
+  --purple-bg:#eee8fa;--purple-ink:#705398;--blue-bg:#e4edfc;--blue-ink:#466fac;
+  --green-bg:#e1f1eb;--green-ink:#347762;--amber-bg:#f5edda;--amber-ink:#886c30;
+  --logo-a:#879bff;--logo-b:#b49ae9;
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr);color:var(--ink);background:var(--paper);font:var(--sm)/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+button{border:1px solid var(--line);border-radius:var(--r);background:var(--paper);padding:8px 14px;cursor:pointer}
+button:hover{background:var(--soft)}button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+button.quiet{border-color:transparent;background:transparent}
+button.quiet:hover{background:var(--soft)}
+button.link{padding:0;border:0;color:var(--accent);background:transparent;font-size:var(--xs)}
+button.link:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+h1,h2,h3,p{margin:0}h1{font-size:var(--xl);line-height:1.4;letter-spacing:-.5px}h2{font-size:var(--lg)}h3{font-size:var(--base)}
+small,.muted{color:var(--muted)}small{font-size:var(--xs)}[hidden]{display:none!important}
+.icon{width:22px;height:22px;flex:none;vertical-align:middle;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.banner{display:flex;justify-content:center;align-items:center;gap:16px;min-height:36px;padding:6px 16px;text-align:center;background:var(--soft);color:var(--muted);font-size:var(--xs);border-bottom:1px solid var(--line)}
+.app{display:grid;grid-template-columns:clamp(224px,15vw,288px) minmax(0,1fr);min-height:0;overflow:hidden}
+.sidebar{min-height:0;padding:28px 20px 20px;background:var(--bg);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.brand{display:flex;align-items:center;gap:10px;font-size:var(--xl);font-weight:700;letter-spacing:-1px;margin:4px 8px 28px;white-space:nowrap}
+.brand-mark{width:30px;height:40px;flex:none}.brand-mark .a{fill:var(--logo-a)}.brand-mark .b{fill:var(--logo-b)}
+.nav{display:flex;gap:16px;align-items:center;text-align:left;border:0;background:transparent;padding:14px 16px;font-size:var(--base);color:var(--muted)}
+.nav>span:last-child{margin-left:auto;font-size:var(--sm)}
+.nav.active{background:var(--tint);color:var(--accent);font-weight:600}
+.section-title{display:flex;justify-content:space-between;align-items:center;margin:32px 12px 8px;color:var(--muted);font-size:var(--sm)}
+.section-title button{padding:4px}
+.room-list{min-height:0;overflow:auto;overscroll-behavior:contain}
+.room-item{text-align:left;width:100%;margin-bottom:12px;padding:18px 16px;border:1px solid transparent;background:transparent}
+.room-item.selected{background:var(--soft);border-color:var(--line)}
+.room-item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--base)}
+.room-item small{display:block;margin-top:6px}
+.footnote{margin-top:auto;padding:24px 12px 0;font-size:var(--xs);color:var(--muted)}
+.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:9px}
+.footnote p{margin-top:12px;line-height:1.8}
+.workspace{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.room-header{flex:none;padding:24px 32px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line)}
+.room-header p{color:var(--muted);margin-top:4px}
+.row{display:flex;gap:12px;align-items:center}.between{justify-content:space-between}
+.room-header button{display:flex;align-items:center;gap:10px;white-space:nowrap;min-height:44px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(256px,18vw,336px);flex:1;min-height:0;position:relative}
+.layout.members-hidden{grid-template-columns:minmax(0,1fr)}.layout.members-hidden .members{display:none}
+.conversation{display:flex;flex-direction:column;min-width:0;min-height:0}
+.timeline{overflow:auto;overscroll-behavior:contain;flex:1;min-height:0;padding:32px clamp(24px,5.6vw,112px)}
+.message{margin-bottom:36px;display:flex;gap:16px}
+.message-body{flex:1;min-width:0}
+.meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.meta b{font-size:var(--base)}
+.meta time{margin-left:auto;color:var(--muted);font-size:var(--xs)}
+.message p{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 20px;color:var(--ink);font-size:var(--base);line-height:1.85}
+.message.user .message-body{background:var(--tint);border-radius:var(--r);padding:16px 20px}.message.user p{margin:4px 0}
+.message:last-child{margin-bottom:0}
+.tag{font-size:var(--xs);background:var(--soft);padding:2px 7px;border-radius:6px;color:var(--muted)}
+.avatar{width:44px;height:44px;flex:none;border-radius:14px;background:var(--purple-bg);color:var(--purple-ink);display:grid;place-items:center;font-weight:600;font-size:var(--lg);overflow:hidden}
+.avatar[data-tone=eng]{background:var(--blue-bg);color:var(--blue-ink)}
+.avatar[data-tone=research]{background:var(--green-bg);color:var(--green-ink)}
+.avatar[data-tone=critic]{background:var(--amber-bg);color:var(--amber-ink)}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.avatar.big{width:64px;height:64px;border-radius:20px;font-size:var(--xl)}
+.system{text-align:center;color:var(--muted);font-size:var(--xs);margin:8px 0 24px}
+.timeline.is-empty{display:flex;flex-direction:column;padding:28px 24px}
+.empty-state{flex:1;min-height:260px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:16px 0 48px}
+.empty-avatars{display:flex;gap:14px;margin-bottom:24px}
+.empty-state h2{font-size:var(--xl);margin-bottom:12px}
+.empty-state p{color:var(--muted);font-size:var(--base);line-height:1.8}
+.empty-state button{margin-top:28px;font-weight:600;padding:10px 16px}
+.members{min-height:0;border-left:1px solid var(--line);background:var(--bg);padding:32px 24px;overflow:auto;overscroll-behavior:contain}
+.member{display:flex;align-items:flex-start;gap:16px;margin:32px 0}
+.member-copy{min-width:0;flex:1}.member-copy b{font-size:var(--base)}
+.member p{color:var(--muted);margin:12px 0 0;font-size:var(--sm);line-height:1.85}
+.member .link{color:var(--muted)}
+.device{font-size:var(--xs);color:var(--muted);overflow-wrap:anywhere;margin:5px 0 8px}
+.rules-wrap{border-top:1px solid var(--line);margin-top:36px;padding-top:24px;color:var(--muted);font-size:var(--sm)}
+.rules{border:1px solid var(--line);background:var(--soft);padding:18px;border-radius:var(--r);font-size:var(--sm);color:var(--muted)}
+.rules b{display:block;color:var(--ink);margin-bottom:8px}.rules-wrap>p{margin-top:20px}
+.composer{flex:none;border-top:1px solid var(--line);padding:16px 32px 20px;background:var(--paper);position:relative}
+.examples{display:flex;gap:8px;margin-bottom:12px;align-items:center;white-space:nowrap;overflow:auto}
+.examples button{font-size:var(--xs);padding:6px 10px;border-radius:7px;flex:none}
+.compose-box{position:relative;border:1px solid var(--line);border-radius:16px;padding:14px 16px 12px;background:var(--bg)}
+.compose-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--tint)}
+textarea{resize:vertical}
+.compose-box textarea{display:block;width:100%;height:82px;min-height:0;resize:none;border:0;background:transparent;outline:none;padding:4px;font-size:var(--base);line-height:1.7}
+.compose-box textarea::placeholder{color:var(--muted);opacity:.85}
+.compose-box .quiet{display:inline-flex;align-items:center;gap:12px;padding:8px;color:var(--muted)}
+.compose-box .primary{padding:8px 16px;border-radius:10px}
+.hint{display:flex;justify-content:space-between;gap:8px;margin-top:10px;color:var(--muted);font-size:var(--xs)}
+.mention-menu{position:absolute;z-index:5;left:0;bottom:calc(100% + 12px);width:min(440px,100%);max-height:min(340px,42dvh);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:10px;box-shadow:var(--shadow)}
+.mention-menu>small{display:block;padding:6px 10px 10px}
+.mention-option{display:flex;gap:14px;align-items:center;text-align:left;width:100%;border:0;border-radius:10px;padding:14px;background:transparent}
+.mention-option[aria-selected=true]{background:var(--tint)}
+.mention-option .avatar{width:38px;height:38px;border-radius:12px}
+.mention-option>span:last-child{min-width:0}.mention-option b{display:block}
+.mention-option small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:var(--xs);margin-top:4px}
+.mention-invite{width:100%;text-align:left;font-size:var(--xs);margin-top:6px;border:0;background:transparent;color:var(--accent)}
+.images{display:flex;gap:12px;overflow:auto;max-height:90px}
+.image-wrap{position:relative;flex:none;padding:6px}.image-wrap img{width:76px;height:64px;object-fit:cover;border-radius:8px}
+.image-wrap button{position:absolute;top:0;right:0;border-radius:50%;padding:0 6px;background:var(--paper)}
+.message-images img{max-width:min(180px,100%);max-height:150px;border-radius:var(--r);margin:8px}
+.switch{display:inline-block;flex:none;width:34px;height:20px;border-radius:20px;background:var(--accent)}
+.switch:after{content:'';display:block;width:16px;height:16px;margin:2px 2px 2px 16px;border-radius:50%;background:var(--paper)}
+[aria-pressed=false] .switch{background:var(--muted)}[aria-pressed=false] .switch:after{margin-left:2px}
+dialog{border:1px solid var(--line);border-radius:var(--big);padding:0;color:var(--ink);background:var(--paper);box-shadow:var(--shadow);width:min(680px,94vw);max-height:90dvh;overflow:hidden}
+dialog[open]{display:flex;flex-direction:column}
+dialog::backdrop{background:var(--overlay);backdrop-filter:blur(3px)}
+dialog header{flex:none;padding:24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:12px}
+dialog .body{min-height:0;overflow:auto;padding:24px}
+dialog footer{flex:none;padding:16px 24px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--bg)}
+label{display:block;font-size:var(--sm);font-weight:600;margin-bottom:16px}
+input:not([type=checkbox]),select,dialog textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);margin-top:6px}
+label small{display:block;font-weight:400;margin-top:6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.notice{background:var(--soft);border-radius:var(--r);padding:14px 16px;color:var(--muted);font-size:var(--xs);margin:16px 0}
+.agent-card{border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:12px 0}.agent-card p{margin:8px 0;color:var(--muted)}
+.choice{display:flex;gap:12px;align-items:center;border:1px solid var(--line);padding:14px;border-radius:var(--r);font-weight:400}
+.choice>span:last-child{min-width:0;overflow-wrap:anywhere}
+.choice:has(input:checked){background:var(--tint);border-color:var(--accent)}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex:none}
+.tabs{display:flex;gap:8px;margin-bottom:20px}.tabs button{flex:1}.error{color:var(--danger)}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:12px 20px;border-radius:var(--r);z-index:20;max-width:90vw}#toast:empty{display:none}
+.steps{padding-left:20px;color:var(--muted)}.steps li{margin:16px 0}
+input[type=file]{display:none}.room-header .mobile-room-control{display:none}
+@media(max-width:1200px){
+  .app{grid-template-columns:224px minmax(0,1fr)}
+  .layout{grid-template-columns:minmax(0,1fr) 256px}
+  .sidebar{padding:24px 12px 16px}.brand{font-size:22px}
+  .members{padding:24px 20px}.member{gap:12px}
+  .timeline{padding:24px}.room-header{padding:20px 24px}.composer{padding:16px 24px}
+}
+@media(max-width:1000px){
+  .layout{grid-template-columns:minmax(0,1fr)}
+  .members{display:none}.layout.members-open .members{display:block;position:absolute;right:0;top:0;bottom:0;width:min(336px,100%);z-index:8;box-shadow:var(--shadow)}
+}
+@media(max-width:680px){
+  .banner{font-size:10px;gap:8px;padding:4px 8px}.banner button{font-size:10px}
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .sidebar{padding:8px 12px;display:grid;grid-template-columns:1fr auto auto;gap:4px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{margin:0;font-size:var(--lg);gap:6px}.brand-mark{width:22px;height:30px}
+  .nav{font-size:var(--xs);padding:8px;gap:6px}.nav .icon{width:18px;height:18px}.nav>span:last-child{display:none}
+  .section-title,.footnote{display:none}
+  .room-list{grid-column:1/-1;display:flex;gap:8px;overflow:auto;max-height:72px}
+  .room-item{min-width:152px;width:auto;margin:0;padding:6px 10px}.room-item b{font-size:var(--sm)}.room-item small{margin-top:0;font-size:10px}
+  .room-header{padding:12px 16px;gap:8px}.room-header h1{font-size:var(--lg)}.room-header p{font-size:10px}
+  .room-header>.row{gap:4px}.room-header button{padding:6px;min-height:36px;font-size:var(--xs);gap:6px}
+  .room-header [data-action=members] span{display:none}
+  .switch{width:28px;height:16px}.switch:after{width:12px;height:12px;margin-left:14px}
+  .mobile-room-control{display:inline-flex!important}
+  .timeline{padding:20px 16px}.message{gap:10px;margin-bottom:28px}.message>.avatar{width:32px;height:32px;border-radius:10px;font-size:var(--base)}
+  .message p{font-size:var(--sm)}.meta{gap:6px}.meta b{font-size:var(--sm)}.meta time{display:none}
+  .composer{padding:10px 12px 12px}.examples{margin-bottom:8px}.examples button{font-size:10px;padding:4px 7px}
+  .compose-box{padding:8px 10px}.compose-box textarea{height:62px;font-size:var(--sm)}
+  .hint{font-size:10px}.hint span:last-child{display:none}
+  .mention-menu{max-height:36dvh}.empty-state{min-height:220px;padding:12px 0 24px}
+  .empty-state h2{font-size:var(--lg)}.empty-state p{font-size:var(--sm)}.empty-state button{margin-top:16px}
+  .empty-avatars{margin-bottom:16px}.empty-avatars .avatar{width:48px;height:48px}
+  .two{grid-template-columns:1fr;gap:0}dialog .body,dialog header{padding:16px}dialog footer{padding:12px 16px}
+}
+@media(max-height:700px){
+  .sidebar{padding-top:16px}.brand{margin-bottom:16px}.section-title{margin-top:12px}
+  .footnote{padding-top:12px}.footnote p{margin-top:6px}
+  .room-header{padding-top:14px;padding-bottom:14px}
+  .compose-box textarea{height:58px}.composer{padding-top:10px;padding-bottom:12px}
+  .empty-state{padding-bottom:12px;min-height:210px}.empty-avatars{margin-bottom:12px}.empty-state button{margin-top:16px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style></head>
 <body><div class="banner">交互重建稿 · 预设模拟，不调用真实 Agent · 刷新重置 <button class="link" data-action="about">这版能体验什么 ↗</button></div>
-<div class="app"><aside class="sidebar"><div class="brand"><span>▥</span>AgentParty</div><button class="nav active" data-action="chat">◯　群聊 <span id="room-count"></span></button><button class="nav" data-action="library">♧　Agent 管理 <span id="agent-count"></span></button><div class="section-title">我的群聊<button class="quiet" aria-label="新建群聊" data-action="newroom">＋</button></div><nav class="room-list" id="room-list" aria-label="群聊列表"></nav><div class="footnote">● 本地交互演示<br><br>配置、图片和消息仅留在当前页面，不发送到远端。<br>这是按原稿重建的版本，不是原 HTML 恢复。</div></aside><main class="workspace" id="workspace"></main></div>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><svg class="brand-mark" viewBox="0 0 30 40" aria-hidden="true"><rect class="a" x="3" y="2" width="9" height="30" rx="4.5" transform="rotate(-13 7 17)"/><rect class="b" x="17" y="10" width="9" height="30" rx="4.5" transform="rotate(-13 21 25)"/></svg>AgentParty</div>
+  <button class="nav active" data-action="chat"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4z"/></svg>群聊<span id="room-count"></span></button>
+  <button class="nav" data-action="library"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 20v-3a6 6 0 0 1 12 0v3m2-17a4 4 0 0 1 0 8m2 3a6 6 0 0 1 2 6"/></svg>Agent 管理<span id="agent-count"></span></button>
+  <div class="section-title">我的群聊<button class="quiet" aria-label="新建群聊" data-action="newroom"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+  <nav class="room-list" id="room-list" aria-label="群聊列表"></nav>
+  <div class="footnote"><span class="status-dot"></span>本地交互演示<p>配置、消息和图片仅留在当前页面。<br>刷新重置，不会发送给远端。</p></div>
+</aside>
+<main class="workspace" id="workspace"></main></div>
 <dialog id="modal" aria-labelledby="modal-title"></dialog><div id="toast" role="status"></div><input type="file" id="avatar-file" accept="image/png,image/jpeg,image/webp"><input type="file" id="message-files" accept="image/png,image/jpeg,image/webp" multiple>
 <script>
 'use strict';
 const $=s=>document.querySelector(s),escapeHTML=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const devices=[{id:'mac',name:'demo-mac-mini.local',path:'/Users/demo/AgentWorkspace'},{id:'linux',name:'research-linux',path:'/home/demo/agents'},{id:'offline',name:'travel-macbook.local',path:'/Users/demo/AgentWorkspace',offline:true}];
 const models={'gpt-5.6-luna':['low','medium','high'],'gpt-6-astra':['low','medium','high','xhigh']};
-let agents=[{id:'pm',name:'产品经理',role:'关注用户需求与产品价值。先判断问题是否值得解决，再给出最小可行方案。',device:'mac'},{id:'eng',name:'技术负责人',role:'关注实现成本、技术约束和开发路径。将想法拆成可验证的小步骤。',device:'linux'},{id:'critic',name:'质疑者',role:'寻找风险、漏洞与反例。对未经验证的假设提出问题，不为反对而反对。',device:'mac'}].map(a=>({...a,avatar:'',model:'gpt-5.6-luna',effort:'low',path:devices.find(d=>d.id===a.device).path}));
+let agents=[{id:'pm',name:'产品经理',role:'关注用户需求与产品价值。先判断问题是否值得解决，再给出最小可行方案。',device:'mac'},{id:'eng',name:'技术负责人',role:'关注实现成本、技术约束和开发路径。将想法拆成可验证的小步骤。',device:'linux'},{id:'critic',name:'质疑者',role:'寻找风险、漏洞与反例。对未经验证的假设提出问题，不为反对而反对。',device:'mac'},{id:'research',name:'研究员',role:'负责资料研究和调研。区分事实、推测与待验证信息，说明证据缺口。',device:'mac'}].map(a=>({...a,avatar:'',model:'gpt-5.6-luna',effort:'low',path:devices.find(d=>d.id===a.device).path}));
 let serial=10;const uid=()=>String(++serial),clone=v=>structuredClone(v);
 const seed=[{id:'m1',from:'我',text:'我想做一个 AI 管家，帮我记录今天的工作，再给它们排优先级。你们怎么看？',images:[]},{id:'m2',from:'pm',reason:'被你 @ 点名',text:'先聚焦在一个真实习惯上：你愿不愿意每天把当天的事情告诉它？\n\n优先级和提醒可以随后加，先确认记录这一步真的更轻松。',images:[]},{id:'m3',from:'eng',reason:'被你 @ 点名',text:'从实现上看，可以先收敛到一个很小的闭环：\n\n① 对话里记录任务，支持你随时更正。\n② 把任务以列表呈现，保留对应的原始消息。\n③ 只有你确认了时间，才创建提醒。\n\n先不做跨应用抓取，也不自动替你决定截止时间。这样更容易验证价值，边界也清楚。',images:[]}];
-const room=(id,title,ids,auto,messages=[])=>({id,title,members:clone(agents.filter(a=>ids.includes(a.id))),auto,messages:clone(messages),draft:'',images:[]});
-let rooms=[room('r1','产品想法讨论',['pm','eng'],true,seed),room('r2','日常研究',['eng','critic'],false,[{system:'在这里 @ 研究伙伴，开始一个新的话题。'}])],active='r1',editorState=null,returnFocus=null;
+const room=(id,title,ids,auto,messages=[])=>({id,title,members:clone(ids.map(id=>agents.find(a=>a.id===id)).filter(Boolean)),auto,messages:clone(messages),draft:'',images:[]});
+let rooms=[room('r1','产品想法讨论',['pm','eng','critic'],true,seed),room('r2','日常研究',['research','eng'],false,[])],active='r1',editorState=null,returnFocus=null;
 const current=()=>rooms.find(r=>r.id===active),deviceName=a=>devices.find(d=>d.id===a.device)?.name||'未配置设备';
-function avatar(a,big=false){return `<span class="avatar ${big?'big':''}">${a.avatar?`<img src="${escapeHTML(a.avatar)}" alt="${escapeHTML(a.name)}的头像">`:escapeHTML(a.name.slice(0,1))}</span>`}
+function avatar(a,big=false){return `<span class="avatar ${big?'big':''}" data-tone="${escapeHTML(a.id||'pm')}">${a.avatar?`<img src="${escapeHTML(a.avatar)}" alt="${escapeHTML(a.name)}的头像">`:escapeHTML(a.name.slice(0,1))}</span>`}
 function toast(text){$('#toast').textContent=text;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').textContent='',4500)}
-function render(){const r=current();$('#room-count').textContent=rooms.length;$('#agent-count').textContent=agents.length;$('#room-list').innerHTML=rooms.map(x=>`<button class="room-item ${x.id===active?'selected':''}" data-action="switch" data-id="${x.id}"><b>${escapeHTML(x.title)}</b><small>${x.members.length} 位 Agent · ${x.auto?'自动接话':'仅 @ 回复'}</small></button>`).join('');$('#workspace').innerHTML=`<header class="room-header"><div><h1>${escapeHTML(r.title)}</h1><p>你与 ${r.members.length} 位 Agent · 每个群聊独立上下文</p></div><div class="row"><button data-action="auto" aria-pressed="${r.auto}"><span class="switch"></span>自动接话</button><button data-action="invite">♧ 邀请成员</button></div></header><div class="layout"><section class="conversation" aria-label="群聊"><div class="timeline" id="timeline" role="log" aria-label="群聊消息"></div><div class="composer"><div class="examples"><small>试一试</small><button data-action="example" data-kind="mention">@ 两位成员</button><button data-action="example" data-kind="auto">不 @，自动接话</button><button data-action="invite">邀请一位新成员</button></div><div class="compose-box"><div id="image-strip" class="images"></div><textarea id="draft" aria-label="消息" placeholder="说点什么，或输入 @ 邀请一位、几位成员回答…"></textarea><div id="mention-menu" class="mention-menu" hidden></div><div class="row between"><div class="row"><button class="quiet" data-action="mentions" aria-label="提及成员">@</button><button class="quiet" data-action="image">▧ 图片 + 文字</button></div><button class="primary" data-action="send">发送 ↑</button></div></div><div class="hint"><span>直接聊天，或 @ 多位成员 · 有 @ 时优先按点名回复</span><span>Enter 发送 · Shift + Enter 换行</span></div></div></section><aside class="members" aria-label="本群成员"><div class="row between"><small>本群成员 · ${r.members.length}</small><button class="link" data-action="invite">＋ 邀请</button></div>${r.members.map(a=>`<article class="member"><div class="row">${avatar(a)}<div><b>${escapeHTML(a.name)}</b>${a.temp?' <span class="tag">临时</span>':''}<br><small>Codex · ${escapeHTML(a.effort)}</small></div></div><p>${escapeHTML(a.role)}</p><div class="device">▣ ${escapeHTML(deviceName(a))}<br>${escapeHTML(a.model)}</div><button class="link" data-action="member" data-id="${a.id}">查看角色与本群配置 ↗</button></article>`).join('')}<div class="rules"><b>${r.auto?'未点名时，按话题接话':'只在 @ 点名时回复'}</b>有 @ 就通知被点名者。没有 @ 时，草图用关键词模拟选人，不会让所有成员轮流回答。<br><br>没有固定主持人，没有强制讨论流程。每位成员使用自己的设备与模型。</div></aside></div>`;$('#draft').value=r.draft;$('#draft').oninput=e=>{r.draft=e.target.value;if(r.draft.endsWith('@'))mentions();else $('#mention-menu').hidden=true};$('#draft').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}};$('#draft').onpaste=e=>{const files=[...e.clipboardData.items].filter(i=>i.type.startsWith('image/')).map(i=>i.getAsFile());if(files.length){e.preventDefault();addImages(files)}};renderMessages();renderImages()}
-function renderMessages(){const r=current();$('#timeline').innerHTML=r.messages.map(m=>{if(m.system)return `<p class="system">${escapeHTML(m.system)}</p>`;const a=r.members.find(a=>a.id===m.from)||{name:'我',avatar:''};return `<article class="message ${m.from==='我'?'user':''}">${avatar(a)}<div class="message-body"><div class="meta"><b>${escapeHTML(a.name)}</b>${m.from==='我'?'':'<span class="tag">Codex</span><span class="tag">预设模拟</span>'}<time>${m.time||'09:42'}</time></div><p>${escapeHTML(m.text)}</p><div class="message-images">${(m.images||[]).map(i=>`<img src="${escapeHTML(i.url)}" alt="${escapeHTML(i.name)}">`).join('')}</div>${m.from==='我'?'':`<small>${escapeHTML(m.reason||'预设示例')}</small>　<button class="link" data-action="detail" data-id="${m.id}">查看执行细节 ↗</button>`}</div></article>`}).join('');$('#timeline').scrollTop=$('#timeline').scrollHeight}
-function renderImages(){$('#image-strip').innerHTML=current().images.map((i,n)=>`<div class="image-wrap"><img src="${escapeHTML(i.url)}" alt="${escapeHTML(i.name)}"><button aria-label="移除图片" data-action="remove-image" data-id="${n}">×</button></div>`).join('')}
-function mentions(){const menu=$('#mention-menu');menu.hidden=false;menu.innerHTML=current().members.map(a=>`<button data-action="mention" data-id="${a.id}">@${escapeHTML(a.name)}</button>`).join('')+'<button data-action="invite">＋ 邀请其他成员</button>'}
+
+const icon = name => {
+  const paths = {users:'<circle cx="9" cy="7" r="3"/><path d="M3 20v-3a6 6 0 0 1 12 0v3m2-17a4 4 0 0 1 0 8m2 3a6 6 0 0 1 2 6"/>',image:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/>',at:'<circle cx="11" cy="12" r="4"/><path d="M15 8v7c0 3 6 2 6-3a9 9 0 1 0-4 7"/>',plus:'<path d="M12 5v14M5 12h14"/>'};
+  return '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">'+paths[name]+'</svg>';
+};
+let mentionIndex=0, mentionOptions=[], mentionStart=-1;
+function render(){
+  const r=current();
+  $('#room-count').textContent=rooms.length;
+  $('#agent-count').textContent=agents.length;
+  $('#room-list').innerHTML=rooms.map(x=>'<button class="room-item '+(x.id===active?'selected':'')+'" data-action="switch" data-id="'+x.id+'" '+(x.id===active?'aria-current="page"':'')+'><b>'+escapeHTML(x.title)+'</b><small>'+x.members.length+' 位 Agent · '+(x.auto?'自动接话':'仅 @ 回复')+'</small></button>').join('');
+  $('#workspace').innerHTML=
+  '<header class="room-header"><div><h1>'+escapeHTML(r.title)+'</h1><p>你与 '+r.members.length+' 位 Agent · 每个群聊独立上下文</p></div><div class="row">'+
+  '<button data-action="auto" aria-pressed="'+r.auto+'"><span class="switch"></span>自动接话</button>'+
+  '<button data-action="members" aria-label="本群成员" aria-expanded="true">'+icon('users')+'<span>成员</span></button>'+
+  '<button class="mobile-room-control" data-action="newroom" aria-label="新建群聊">'+icon('plus')+'</button></div></header>'+
+  '<div class="layout"><section class="conversation" aria-label="群聊"><div class="timeline" id="timeline" role="log" aria-label="群聊消息"></div>'+
+  '<div class="composer"><div class="examples"><small>试一试</small><button data-action="example" data-kind="mention">@ 两位成员</button><button data-action="example" data-kind="auto">不 @，自动接话</button><button data-action="invite">成员请求协助</button></div>'+
+  '<div class="compose-box"><div id="mention-menu" class="mention-menu" hidden></div><div id="image-strip" class="images"></div>'+
+  '<textarea id="draft" aria-label="消息" aria-autocomplete="list" aria-controls="mention-options" aria-expanded="false" placeholder="说点什么，或输入 @ 邀请一位、几位成员回答…"></textarea>'+
+  '<div class="row between"><div class="row"><button class="quiet" data-action="mentions" aria-label="提及成员">'+icon('at')+'</button><button class="quiet" data-action="image">'+icon('image')+'图片 + 文字</button></div><button class="primary" data-action="send">发送 ↑</button></div></div>'+
+  '<div class="hint"><span>直接聊天，或 @ 多位成员 · 有 @ 时优先按点名回复</span><span id="keyboard-hint">Enter 发送 · Shift + Enter 换行</span></div></div></section>'+
+  '<aside class="members" aria-label="本群成员"><div class="row between"><small>本群成员 · '+r.members.length+'</small><button class="link" data-action="invite">管理</button></div>'+
+  r.members.map(a=>'<article class="member">'+avatar(a)+'<div class="member-copy"><b>'+escapeHTML(a.name)+'</b>'+(a.temp?' <span class="tag">临时</span>':'')+'<br><button class="link" data-action="member" data-id="'+a.id+'">Codex · 查看角色 ↗</button><p>'+escapeHTML(a.role)+'</p></div></article>').join('')+
+  '<div class="rules-wrap"><div class="rules"><b>'+(r.auto?'未点名时，按话题接话':'现在仅 @ 成员回复')+'</b>'+(r.auto?'有 @ 就只通知被点名者。没有 @ 时，草图用关键词模拟选人，不会让所有成员轮流回答。':'你可以先记下想法，没人会自动回应。一次 @ 多人时，他们可以分别回复。')+'</div><p>没有固定主持人，也没有强制讨论流程。你可以随时插话。</p></div></aside></div>';
+  $('#draft').value=r.draft;
+  $('#draft').oninput=e=>{r.draft=e.target.value;updateSend();updateMentions()};
+  $('#draft').onclick=updateMentions;
+  $('#draft').onkeydown=e=>{
+    if(e.isComposing)return;
+    const open=!$('#mention-menu').hidden;
+    if(open&&['ArrowDown','ArrowUp'].includes(e.key)){
+      e.preventDefault();
+      if(mentionOptions.length){mentionIndex=(mentionIndex+(e.key==='ArrowDown'?1:-1)+mentionOptions.length)%mentionOptions.length;paintMentionSelection()}
+      return;
+    }
+    if(open&&e.key==='Escape'){e.preventDefault();hideMentions();return}
+    if(open&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(mentionOptions.length)selectMention(mentionOptions[mentionIndex].id);return}
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+  };
+  $('#draft').onpaste=e=>{const files=[...e.clipboardData.items].filter(i=>i.type.startsWith('image/')).map(i=>i.getAsFile());if(files.length){e.preventDefault();addImages(files)}};
+  renderMessages();renderImages();syncMembersButton();
+}
+function syncMembersButton(){
+  const narrow=matchMedia('(max-width:1000px)').matches;
+  $('[data-action=members]').setAttribute('aria-expanded',String(narrow?$('.layout').classList.contains('members-open'):!$('.layout').classList.contains('members-hidden')));
+}
+function renderMessages(){
+  const r=current(),empty=!r.messages.some(m=>!m.system),timeline=$('#timeline');
+  timeline.classList.toggle('is-empty',empty);
+  timeline.innerHTML=empty?'<p class="system">新群聊已就绪 · 邀请的成员可以阅读本群消息</p><section class="empty-state" aria-label="开始群聊"><div class="empty-avatars">'+r.members.slice(0,4).map(a=>avatar(a,true)).join('')+'</div><h2>成员已到，聊点什么？</h2><p>直接发消息，让合适的成员接话；<br>或者在一句话里 @ 两三位，听听不同的视角。</p><button data-action="mentions" data-empty>@ 一位成员</button></section>':r.messages.map(m=>{
+    if(m.system)return '<p class="system">'+escapeHTML(m.system)+'</p>';
+    const a=r.members.find(a=>a.id===m.from)||{name:'我',avatar:''};
+    return '<article class="message '+(m.from==='我'?'user':'')+'">'+avatar(a)+'<div class="message-body"><div class="meta"><b>'+escapeHTML(a.name)+'</b>'+(m.from==='我'?'':'<span class="tag">Codex</span><span class="tag">预设示例</span>')+'<time>'+(m.time||'09:42')+'</time></div><p>'+escapeHTML(m.text)+'</p><div class="message-images">'+(m.images||[]).map(i=>'<img src="'+escapeHTML(i.url)+'" alt="'+escapeHTML(i.name)+'">').join('')+'</div>'+(m.from==='我'?'':'<small>'+escapeHTML(m.reason||'预设示例')+'</small>　<button class="link" data-action="detail" data-id="'+m.id+'">查看执行细节 ↗</button>')+'</div></article>';
+  }).join('');
+  timeline.scrollTop=empty?0:timeline.scrollHeight;
+}
+function updateSend(){$('[data-action=send]').disabled=!current().draft.trim()&&!current().images.length}
+function renderImages(){
+  $('#image-strip').innerHTML=current().images.map((i,n)=>'<div class="image-wrap"><img src="'+escapeHTML(i.url)+'" alt="'+escapeHTML(i.name)+'"><button aria-label="移除图片" data-action="remove-image" data-id="'+n+'">×</button></div>').join('');
+  updateSend();
+}
+function hideMentions(){
+  $('#mention-menu').hidden=true;$('#draft').setAttribute('aria-expanded','false');$('#draft').removeAttribute('aria-activedescendant');$('#keyboard-hint').textContent='Enter 发送 · Shift + Enter 换行';
+}
+function updateMentions(){
+  const field=$('#draft'),before=field.value.slice(0,field.selectionStart),match=before.match(/(?:^|\s)@([^\s@]*)$/u);
+  if(!match){hideMentions();return}
+  mentionStart=before.lastIndexOf('@');mentionIndex=0;
+  mentionOptions=current().members.filter(a=>a.name.includes(match[1]));
+  const menu=$('#mention-menu');
+  menu.hidden=false;
+  menu.innerHTML='<small>本群成员 · ↑ ↓ 选择，Enter 插入</small><div id="mention-options" role="listbox" aria-label="选择群成员">'+mentionOptions.map((a,i)=>'<button type="button" tabindex="-1" class="mention-option" id="mention-'+i+'" role="option" aria-selected="'+(i===0)+'" data-action="mention" data-id="'+a.id+'">'+avatar(a)+'<span><b>'+escapeHTML(a.name)+'</b><small>Codex · '+escapeHTML(a.role)+'</small></span></button>').join('')+'</div>'+(!mentionOptions.length?'<p class="muted">没有匹配的本群成员</p>':'')+'<button class="mention-invite" data-action="invite">＋ 邀请其他成员</button>';
+  $('#draft').setAttribute('aria-expanded','true');$('#keyboard-hint').textContent='↑ ↓ 选择 · Enter 插入 · Esc 关闭';paintMentionSelection();
+}
+function paintMentionSelection(){
+  document.querySelectorAll('.mention-option').forEach((el,i)=>{el.setAttribute('aria-selected',String(i===mentionIndex));if(i===mentionIndex)el.scrollIntoView({block:'nearest'})});
+  if(mentionOptions.length)$('#draft').setAttribute('aria-activedescendant','mention-'+mentionIndex);else $('#draft').removeAttribute('aria-activedescendant');
+}
+function mentions(){
+  const field=$('#draft');field.focus();
+  const pos=field.selectionStart,before=field.value.slice(0,pos);
+  if(!/(?:^|\s)@[^\s@]*$/u.test(before)){const prefix=before&&!/\s$/.test(before)?' @':'@';field.setRangeText(prefix,pos,field.selectionEnd,'end');current().draft=field.value}
+  updateMentions();updateSend();
+}
+function selectMention(id){
+  const a=current().members.find(a=>a.id===id);if(!a)return;
+  const field=$('#draft'),end=field.selectionStart;
+  field.setRangeText('@'+a.name+' ',mentionStart,end,'end');current().draft=field.value;hideMentions();updateSend();field.focus();
+}
+
 function addImages(files){const r=current();for(const f of files){if(r.images.length>=4){toast('每条消息最多 4 张图片');break}if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>10*1024*1024){toast('请选择 10 MB 以内的 PNG、JPEG 或 WebP');continue}r.images.push({name:f.name,url:URL.createObjectURL(f)})}renderImages()}
 function send(){const r=current(),text=r.draft.trim();if(!text&&!r.images.length)return;const found=[...text.matchAll(/@([^\s@]+)/g)].map(m=>m[1]);const unknown=found.filter(n=>!r.members.some(a=>a.name===n));if(unknown.length){toast('成员不在本群：'+unknown.join('、')+'。请先邀请。');return}const targetIds=[...new Set(found)].map(n=>r.members.find(a=>a.name===n).id);const targets=targetIds.length?targetIds:r.auto?[r.members.find(a=>/技术|实现|代码/.test(text)&&a.id==='eng')?.id||r.members[0].id]:[];const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});const hasImages=r.images.length>0;r.messages.push({id:uid(),from:'我',text,images:r.images,time});for(const id of targets){const a=r.members.find(a=>a.id===id);r.messages.push({id:uid(),from:id,time,images:[],reason:found.length?'被你 @ 点名':'关键词模拟自动接话',text:hasImages?'【模拟回复】我收到了这次的图片和文字。正式版会由我在 '+deviceName(a)+' 上分析；当前草图没有识别图片或调用模型。':'【模拟回复】我会从「'+a.role+'」的角度参与讨论。这里用于确认群聊与指派交互，不是真实推理结果。'})}r.images=[];r.draft='';render();if(!targets.length)toast('消息已保留；自动接话关闭，不触发回复')}
 function show(title,body,footer=''){const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=`<header><h2 id="modal-title">${title}</h2><button class="quiet" data-action="close">关闭</button></header><div class="body">${body}</div>${footer?`<footer>${footer}</footer>`:''}`;if(!d.open)d.showModal();const focus=d.querySelector('input:not([type=checkbox]),textarea,button');focus?.focus()}
@@ -36,8 +302,10 @@ function invite(){const available=agents.filter(a=>!current().members.some(m=>m.
 function newRoom(){show('新建群聊',`<form id="room-form"><label>群聊名称<input name="title" required maxlength="60" placeholder="例如：新产品讨论"></label><label>邀请成员</label>${choices(agents)}<div class="notice">不需要为整个群选择设备和模型。每个 Agent 已有自己的配置，之后也可以随时邀请成员。</div><p class="error" id="room-error"></p></form>`,`<small>新群与已有群的上下文独立</small><button class="primary" form="room-form">创建群聊</button>`);$('#room-form').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),ids=f.getAll('members'),title=f.get('title').trim();if(!title||!ids.length){$('#room-error').textContent='请填写群名，并至少邀请一位成员。';return}const r=room(uid(),title,ids,true,[{system:'群聊已创建，直接发消息或 @ 成员开始讨论。'}]);rooms.push(r);active=r.id;close();render()}}
 function member(id){const a=current().members.find(a=>a.id===id);show('角色与本群配置',`<div class="row">${avatar(a,true)}<div><h3>${escapeHTML(a.name)}</h3><small>${a.temp?'仅本群的临时成员':'从我的 Agent 邀请'}</small></div></div><p style="margin:20px 0">${escapeHTML(a.role)}</p><div class="agent-card">运行设备：${escapeHTML(deviceName(a))}<br>工作目录：${escapeHTML(a.path)}<br>模型：${escapeHTML(a.model)}<br>思考强度：${escapeHTML(a.effort)}</div><div class="notice">这是本群加入时的配置快照。编辑 Agent 默认配置不会自动改写此处。本草图不演示运行中切换配置。</div>`)}
 function detail(id){const m=current().messages.find(m=>m.id===id),a=current().members.find(a=>a.id===m?.from);if(!a)return;show('执行细节 · 模拟示例',`<div class="row">${avatar(a)}<div><h3>${escapeHTML(a.name)}</h3><small>${escapeHTML(deviceName(a))}</small></div></div><ol class="steps"><li>接收本群文字与本次图片<br><small>不带入其他群历史</small></li><li>使用成员配置：${escapeHTML(a.model)} / ${escapeHTML(a.effort)}</li><li>在主时间线展示公开回复</li></ol><div class="notice">这是流程说明，不是真实工具日志。本页面没有运行 Agent、调用 Skills 或连接远端设备，也不会展示隐藏推理。</div>`)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,id=b.dataset.id,r=current();switch(action){case'close':close();break;case'chat':close();break;case'switch':active=id;render();break;case'library':library();break;case'edit':editAgent(id);break;case'create-agent':editAgent();break;case'temporary':editAgent(null,true);break;case'invite':invite();break;case'newroom':newRoom();break;case'auto':r.auto=!r.auto;render();break;case'member':member(id);break;case'detail':detail(id);break;case'mentions':mentions();break;case'mention':r.draft=r.draft.replace(/@$/,'')+'@'+r.members.find(a=>a.id===id).name+' ';$('#draft').value=r.draft;$('#mention-menu').hidden=true;$('#draft').focus();break;case'image':$('#message-files').click();break;case'avatar':$('#avatar-file').click();break;case'remove-avatar':editorState.avatar='';$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新'},true);break;case'remove-image':URL.revokeObjectURL(r.images[Number(id)].url);r.images.splice(Number(id),1);renderImages();break;case'send':send();break;case'example':r.draft=b.dataset.kind==='mention'?r.members.slice(0,2).map(a=>'@'+a.name).join(' ')+' 帮我看看这个想法的价值和实现路径。':'这个功能在技术实现上有哪些风险？';$('#draft').value=r.draft;$('#draft').focus();break;case'about':show('这版可以体验什么',`<p>按原版三栏群聊稿重建，保持亮色，不是旧 HTML 恢复。</p><ol class="steps"><li>在 Agent 管理中配置头像、角色、设备、模型和强度。</li><li>新建或切换群聊；从成员栏邀请已有 Agent，或创建临时成员。</li><li>@ 多人，上传或粘贴图片，查看预设回复和模拟执行细节。</li></ol><div class="notice">所有设备与模型能力列表均为示例，所有回复均为模拟。配置和图片不上传，刷新重置。本稿不演示自动辩论调度或真实 Paws 预设导入。</div>`);break}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action,id=b.dataset.id,r=current();switch(action){case'close':close();break;case'chat':if($('#modal').open)close();break;case'members':{const layout=$('.layout');layout.classList.toggle(matchMedia('(max-width:1000px)').matches?'members-open':'members-hidden');syncMembersButton();break;}case'switch':active=id;render();break;case'library':library();break;case'edit':editAgent(id);break;case'create-agent':editAgent();break;case'temporary':editAgent(null,true);break;case'invite':invite();break;case'newroom':newRoom();break;case'auto':r.auto=!r.auto;render();break;case'member':member(id);break;case'detail':detail(id);break;case'mentions':mentions();break;case'mention':selectMention(id);break;case'image':$('#message-files').click();break;case'avatar':$('#avatar-file').click();break;case'remove-avatar':editorState.avatar='';$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新'},true);break;case'remove-image':URL.revokeObjectURL(r.images[Number(id)].url);r.images.splice(Number(id),1);renderImages();break;case'send':send();break;case'example':r.draft=b.dataset.kind==='mention'?r.members.slice(0,2).map(a=>'@'+a.name).join(' ')+' 帮我看看这个想法的价值和实现路径。':'这个功能在技术实现上有哪些风险？';$('#draft').value=r.draft;hideMentions();updateSend();$('#draft').focus();break;case'about':show('这版可以体验什么',`<p>按原版三栏群聊稿重建，保持亮色，不是旧 HTML 恢复。</p><ol class="steps"><li>在 Agent 管理中配置头像、角色、设备、模型和强度。</li><li>新建或切换群聊；从成员栏邀请已有 Agent，或创建临时成员。</li><li>@ 多人，上传或粘贴图片，查看预设回复和模拟执行细节。</li></ol><div class="notice">所有设备与模型能力列表均为示例，所有回复均为模拟。配置和图片不上传，刷新重置。本稿不演示自动辩论调度或真实 Paws 预设导入。</div>`);break}});
 $('#message-files').onchange=e=>{addImages([...e.target.files]);e.target.value=''};
 $('#avatar-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f||!editorState)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>5*1024*1024){toast('请选择 5 MB 以内的 PNG、JPEG 或 WebP');return}editorState.avatar=URL.createObjectURL(f);$('#avatar-preview').innerHTML=avatar({name:$('#agent-form').elements.name.value||'新',avatar:editorState.avatar},true)};
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('.compose-box')&&!e.target.closest('[data-action=mentions]'))hideMentions()});
+window.addEventListener('resize',syncMembersButton);
 render();
 </script></body></html>
