@@ -2,13 +2,15 @@ import { AtSign, ImagePlus, Send, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ImageRef } from '../contracts.js';
 import type { GroupRoomSnapshot } from '../group-chat/rooms.js';
+import type { AgentProfile } from '../group-chat/profiles.js';
 import { AssetImage } from './Attachments.js';
 import { validateImages, type Api } from './api.js';
 import { RobotAvatar } from './RobotAvatar.js';
+import { displayAvatarId } from './display-avatar.js';
 
 export type ComposerDraft = { text: string; images: ImageRef[] };
-export function GroupComposer({ room, draft, change, api, send, sending, mentionRequest }: {
-  room: GroupRoomSnapshot; draft: ComposerDraft; change(value: ComposerDraft): void; api: Api;
+export function GroupComposer({ room, profiles, draft, change, api, send, sending, mentionRequest }: {
+  room: GroupRoomSnapshot; profiles?: AgentProfile[]; draft: ComposerDraft; change(value: ComposerDraft): void; api: Api;
   send(): void; sending: boolean; mentionRequest: number;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -54,7 +56,7 @@ export function GroupComposer({ room, draft, change, api, send, sending, mention
     finally { if (!controller.signal.aborted) setBusy(false); }
   };
   return <div className="composer-inner">
-    {mention && <div className="mention-menu" role="listbox" id="mention-members" aria-label="选择提及的成员"><small>本群成员 · ↑ ↓ 选择，Enter 插入</small>{matches.map((member, index) => <button type="button" role="option" id={`mention-${member.id}`} aria-selected={active === index} key={member.id} onMouseDown={event => event.preventDefault()} onClick={() => select(member.name)}><RobotAvatar id={member.id} avatarId={member.avatarId}/><span><strong>{member.name}</strong><small>{member.instructions}</small></span></button>)}{!matches.length && <p>没有匹配成员，可从「成员」邀请。</p>}</div>}
+    {mention && <div className="mention-menu" role="listbox" id="mention-members" aria-label="选择提及的成员"><small>本群成员 · ↑ ↓ 选择，Enter 插入</small>{matches.map((member, index) => <button type="button" role="option" id={`mention-${member.id}`} aria-selected={active === index} key={member.id} onMouseDown={event => event.preventDefault()} onClick={() => select(member.name)}><RobotAvatar id={member.id} avatarId={displayAvatarId(member, profiles ?? [])}/><span><strong>{member.name}</strong><small>{member.instructions}</small></span></button>)}{!matches.length && <p>没有匹配成员，可从「成员」邀请。</p>}</div>}
     <div className="composer-box"><textarea ref={input} aria-label="群聊消息" aria-controls={mention ? 'mention-members' : undefined} aria-activedescendant={mention && matches[active] ? `mention-${matches[active].id}` : undefined} value={draft.text}
       onChange={event => { change({ ...draft, text: event.target.value }); detectMention(event.target.value, event.target.selectionStart); }}
       onClick={event => detectMention(draft.text, event.currentTarget.selectionStart)}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BrowseDirectoryResult, SessionConfiguration } from '@wangjs-jacky/paws-agent';
 import type { AgentProfileInput } from '../group-chat/profiles.js';
 import type { MachinesResponse } from '../contracts.js';
@@ -28,9 +28,13 @@ export function ProfileEditor({ initial, machines, sessions, api, onSave, submit
   const [browsing, setBrowsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const browseRequest = useRef<{ controller: AbortController; machineId: string; sequence: number } | null>(null);
+  const browseSequence = useRef(0);
   const sessionId = sessions.find(session => session.machineId === machineId)?.sessionId;
+  useEffect(() => () => browseRequest.current?.controller.abort(), []);
   useEffect(() => {
-    setCatalog(null); setCatalogState(''); setListing(null);
+    browseRequest.current?.controller.abort(); browseRequest.current = null; browseSequence.current += 1;
+    setBrowsing(false); setCatalog(null); setCatalogState(''); setListing(null);
     if (!machineId) return;
     const controller = new AbortController();
     setCatalogState('读取设备配置…');
@@ -47,10 +51,15 @@ export function ProfileEditor({ initial, machines, sessions, api, onSave, submit
   const efforts = catalog?.model === model && catalog.efforts.length ? catalog.efforts.filter(item => CODEX_EFFORTS.includes(item.code as CodexEffort)) : CODEX_EFFORTS.map(code => ({ code, label: code }));
   useEffect(() => { if (efforts.length && !efforts.some(item => item.code === effort)) setEffort(efforts[0].code as CodexEffort); }, [catalog, model, effort]);
   const browse = async (path?: string) => {
+    browseRequest.current?.controller.abort();
+    const controller = new AbortController(); const selectedMachine = machineId; const sequence = ++browseSequence.current;
+    browseRequest.current = { controller, machineId: selectedMachine, sequence };
     setBrowsing(true); setError('');
-    try { const result = await api<BrowseDirectoryResult>(`/api/paws/machines/${encodeURIComponent(machineId)}/directories${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+    try { const result = await api<BrowseDirectoryResult>(`/api/paws/machines/${encodeURIComponent(selectedMachine)}/directories${path ? `?path=${encodeURIComponent(path)}` : ''}`, { signal: controller.signal });
+      if (controller.signal.aborted || browseRequest.current?.sequence !== sequence || browseRequest.current.machineId !== selectedMachine) return;
       if (!result.success) throw new Error(result.error); setListing(result);
-    } catch (error) { setError((error as Error).message); } finally { setBrowsing(false); }
+    } catch (error) { if (!controller.signal.aborted && browseRequest.current?.sequence === sequence) setError((error as Error).message); }
+    finally { if (browseRequest.current?.sequence === sequence) { browseRequest.current = null; setBrowsing(false); } }
   };
   return <form className="profile-form" onSubmit={async event => {
     event.preventDefault(); if (saving) return; setSaving(true); setError('');

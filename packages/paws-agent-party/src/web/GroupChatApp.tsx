@@ -12,9 +12,10 @@ import { RobotAvatar } from './RobotAvatar.js';
 import { ProfileEditor, type ConfigurationSession } from './ProfileEditor.js';
 import { AssetImage, decodeEnvelope } from './Attachments.js';
 import { machineLabel } from './machine-label.js';
+import { displayAvatarId } from './display-avatar.js';
 import './group-workbench.css';
 import { useDialogFocus } from './modalFocus.js';
-import { mergeRooms, timelineMessages, watchGroupRoom, type VisibleMessage } from './group-stream.js';
+import { mergeRooms, reconcileRoomList, timelineMessages, watchGroupRoom, type VisibleMessage } from './group-stream.js';
 
 type OwnerParty = Pick<PartyMeta, 'key'>;
 export function GroupChatApp() {
@@ -41,6 +42,7 @@ export function GroupChatApp() {
   const [deleting, setDeleting] = useState<GroupRoomSnapshot | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const deletedRooms = useRef(new Set<string>());
+  const roomMutationEpoch = useRef(0);
   const [help, setHelp] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [mentionRequest, setMentionRequest] = useState(0);
@@ -56,8 +58,9 @@ export function GroupChatApp() {
   useLayoutEffect(() => { followOutput.current = true; }, [roomId]);
   useLayoutEffect(() => { if (followOutput.current && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; }, [messages]);
   const refresh = useCallback(async () => {
+    const mutationEpoch = roomMutationEpoch.current;
     const [status, agentResult, roomResult] = await Promise.all([api<ConnectionStatus>('/api/paws/status'), api<{ agents: AgentProfile[] }>('/api/group-chat/agents'), api<{ rooms: GroupRoomSnapshot[] }>('/api/group-chat/rooms')]);
-    setConnection(status); setAgents(agentResult.agents); setRooms(current => mergeRooms(current, roomResult.rooms).filter(item => !deletedRooms.current.has(item.id))); if (status.state === 'ready') setMachines((await api<MachinesResponse>('/api/paws/machines')).machines); else setMachines([]);
+    setConnection(status); setAgents(agentResult.agents); if (mutationEpoch === roomMutationEpoch.current) setRooms(current => reconcileRoomList(current, roomResult.rooms).filter(item => !deletedRooms.current.has(item.id))); if (status.state === 'ready') setMachines((await api<MachinesResponse>('/api/paws/machines')).machines); else setMachines([]);
   }, [api]);
   useEffect(() => { if (gate || !token) return; void refresh().catch(error => setError((error as Error).message)); const timer = setInterval(() => void refresh().catch(() => undefined), 1800); return () => clearInterval(timer); }, [gate, token, refresh]);
   useEffect(() => { if (!room && rooms[0]) setRoomId(rooms[0].id); }, [room, rooms]);
@@ -105,10 +108,12 @@ export function GroupChatApp() {
     document.addEventListener('keydown', escape); return () => document.removeEventListener('keydown', escape);
   }, []);
   const deleteRoom = async () => {
-    if (!deleting || deleteBusy) return; const id = deleting.id; setDeleteBusy(true); setError('');
-    try { await api(`/api/group-chat/rooms/${id}`, { method: 'DELETE' }); deletedRooms.current.add(id); setRooms(current => current.filter(item => item.id !== id)); if (selectedRoom.current === id) setRoomId(rooms.find(item => item.id !== id)?.id ?? null); setDeleting(null); }
+    if (!deleting || deleteBusy) return; const id = deleting.id; roomMutationEpoch.current += 1; setDeleteBusy(true); setError('');
+    try { await api(`/api/group-chat/rooms/${id}`, { method: 'DELETE' }); roomMutationEpoch.current += 1; deletedRooms.current.add(id); setRooms(current => current.filter(item => item.id !== id)); if (selectedRoom.current === id) setRoomId(rooms.find(item => item.id !== id)?.id ?? null); setDeleting(null); }
     catch (error) { setError((error as Error).message); } finally { setDeleteBusy(false); }
   };
+  const activeOrdinaryWork = !!room && room.debate?.status !== 'running' && room.members.some(member => member.status === 'spawning' || member.status === 'running');
+  const stopRoom = async () => { if (!room) return; setError(''); try { await api(`/api/group-chat/rooms/${room.id}/stop`, { method: 'POST', body: '{}' }); await refresh(); } catch (error) { setError((error as Error).message); } };
   if (gate) return <TokenGate value={draftToken} setValue={setDraftToken} submit={() => { const value = draftToken.trim(); if (!value) return; sessionStorage.setItem('apToken', value); setToken(value); setGate(false); }} />;
   return <main className={`group-workbench${collapsed ? ' sidebar-collapsed' : ''}`}>
     <aside className="workbench-sidebar">
@@ -120,20 +125,20 @@ export function GroupChatApp() {
     </aside>
     <div className="workbench-main">
       {!room ? <EmptyState onCreate={() => setShowRoom(true)}/> : <section className="workbench-room">
-        <header className="room-header"><div className="room-heading"><h2>{room.title}</h2><span>{room.members.length} 位成员</span></div><div className="room-actions"><button aria-pressed={room.autoReply} title="未 @ 时由一位相关成员回复" onClick={() => void updateRoom(api, room.id, { autoReply: !room.autoReply }, refresh, setError)}><span className="toggle-track" aria-hidden="true"><span/></span>自动接话</button><button aria-pressed={room.autoDebate} onClick={() => void updateRoom(api, room.id, { autoDebate: !room.autoDebate }, refresh, setError)}>自动辩论：{room.autoDebate ? '开' : '关'}</button><button aria-expanded={membersOpen} onClick={() => setMembersOpen(value => !value)}><Users size={18}/>成员 · {room.members.length}</button><button className="help-button" aria-label="群聊帮助" onClick={() => setHelp(true)}><HelpCircle size={18}/></button></div></header>
+        <header className="room-header"><div className="room-heading"><h2>{room.title}</h2><span>{room.members.length} 位成员</span></div><div className="room-actions">{activeOrdinaryWork && <button className="danger" title="停止本地协调；远端已接受的工作可能继续" onClick={() => void stopRoom()}>停止协调</button>}<button aria-pressed={room.autoReply} title="未 @ 时由一位相关成员回复" onClick={() => void updateRoom(api, room.id, { autoReply: !room.autoReply }, refresh, setError)}><span className="toggle-track" aria-hidden="true"><span/></span>自动接话</button><button aria-pressed={room.autoDebate} onClick={() => void updateRoom(api, room.id, { autoDebate: !room.autoDebate }, refresh, setError)}>自动辩论：{room.autoDebate ? '开' : '关'}</button><button aria-expanded={membersOpen} onClick={() => setMembersOpen(value => !value)}><Users size={18}/>成员 · {room.members.length}</button><button className="help-button" aria-label="群聊帮助" onClick={() => setHelp(true)}><HelpCircle size={18}/></button></div></header>
         <div className="room-body"><div className="room-conversation">{(room.autoDebate || room.debate) && <DebateStatus room={room} api={api} refresh={refresh} setError={setError}/>}
-          <div ref={timeline} onScroll={event => { const element = event.currentTarget; followOutput.current = element.scrollHeight - element.clientHeight - element.scrollTop < 64; }} className="room-timeline" role="region" aria-label="群聊消息"><div className="timeline-content">{messages.length ? messages.map(message => <MessageCard key={message.taskMessageId ?? message.id} message={message} room={room} api={api} profiles={agents} onDetails={setDetailMember}/>) : <div className="timeline-empty"><div className="welcome-avatars">{room.members.slice(0, 4).map(member => <RobotAvatar key={member.id} id={member.id} avatarId={agents.find(agent => agent.id === member.id)?.avatarId ?? member.avatarId} large/>)}</div><h3>成员已到，聊点什么？</h3><p>直接发消息，让合适的成员接话；<br/>或者在一句话里 @ 两三位，听听不同的视角。</p><button onClick={() => setMentionRequest(value => value + 1)}> @ 一位成员</button></div>}</div></div>
-          <div className="room-composer"><GroupComposer key={room.id} room={room} draft={draft} change={changeDraft} api={api} send={() => void send()} sending={sendingRooms.has(room.id)} mentionRequest={mentionRequest}/>{error && !deleting && <p role="alert" className="workbench-error">{error}</p>}</div>
+          <div ref={timeline} onScroll={event => { const element = event.currentTarget; followOutput.current = element.scrollHeight - element.clientHeight - element.scrollTop < 64; }} className="room-timeline" role="region" aria-label="群聊消息"><div className="timeline-content">{messages.length ? messages.map(message => <MessageCard key={message.taskMessageId ?? message.id} message={message} room={room} api={api} profiles={agents} onDetails={setDetailMember}/>) : <div className="timeline-empty"><div className="welcome-avatars">{room.members.slice(0, 4).map(member => <RobotAvatar key={member.id} id={member.id} avatarId={displayAvatarId(member, agents)} large/>)}</div><h3>成员已到，聊点什么？</h3><p>直接发消息，让合适的成员接话；<br/>或者在一句话里 @ 两三位，听听不同的视角。</p><button onClick={() => setMentionRequest(value => value + 1)}> @ 一位成员</button></div>}</div></div>
+          <div className="room-composer"><GroupComposer key={room.id} room={room} profiles={agents} draft={draft} change={changeDraft} api={api} send={() => void send()} sending={sendingRooms.has(room.id)} mentionRequest={mentionRequest}/>{error && !deleting && <p role="alert" className="workbench-error">{error}</p>}</div>
         </div>
-        {membersRendered && <><button hidden={!membersOpen} className="members-scrim" aria-label="关闭成员面板" onClick={() => setMembersOpen(false)}/><aside className={`room-members${membersOpen ? '' : ' is-closing'}`} inert={!membersOpen} aria-hidden={!membersOpen} aria-label="本群成员"><div className="members-heading"><span>本群成员 · {room.members.length}</span><button aria-label="关闭成员" onClick={() => setMembersOpen(false)}><X size={18}/></button></div><div className="member-list">{room.members.map(member => <button key={member.id} className="member-profile" onClick={() => { setDetailMember(member.id); setMembersOpen(false); }}><RobotAvatar id={member.id} avatarId={agents.find(agent => agent.id === member.id)?.avatarId ?? member.avatarId}/><span className="member-copy"><strong>{member.name}</strong><span className="member-model">{memberStatusLabel(member.status)}{member.temporary ? ' · 临时成员' : ''}</span></span></button>)}</div><button className="invite-button" onClick={() => { setInvite(true); setMembersOpen(false); }}><Plus size={16}/>邀请成员</button></aside></>}
+        {membersRendered && <><button hidden={!membersOpen} className="members-scrim" aria-label="关闭成员面板" onClick={() => setMembersOpen(false)}/><aside className={`room-members${membersOpen ? '' : ' is-closing'}`} inert={!membersOpen} aria-hidden={!membersOpen} aria-label="本群成员"><div className="members-heading"><span>本群成员 · {room.members.length}</span><button aria-label="关闭成员" onClick={() => setMembersOpen(false)}><X size={18}/></button></div><div className="member-list">{room.members.map(member => <button key={member.id} className="member-profile" onClick={() => { setDetailMember(member.id); setMembersOpen(false); }}><RobotAvatar id={member.id} avatarId={displayAvatarId(member, agents)}/><span className="member-copy"><strong>{member.name}</strong><span className="member-model">{memberStatusLabel(member.status)}{member.temporary ? ' · 临时成员' : ''}</span></span></button>)}</div><button className="invite-button" onClick={() => { setInvite(true); setMembersOpen(false); }}><Plus size={16}/>邀请成员</button></aside></>}
         </div>
       </section>}</div>
     {connectionOpen && <Modal title="Paws 连接" close={() => setConnectionOpen(false)}><ConnectionPanel status={connection} api={api} active={rooms.some(item => item.members.some(member => member.status === 'running' || member.status === 'spawning'))} onChange={setConnection}/></Modal>}
     {showAgent && <AgentDialog agents={agents} machines={machines} sessions={configurationSessions} api={api} close={() => setShowAgent(false)} refresh={refresh}/>}
-    {showRoom && <RoomDialog agents={agents} machines={machines} ready={connection.state === 'ready'} api={api} close={() => setShowRoom(false)} refresh={async () => { await refresh(); setShowRoom(false); }}/>}
+    {showRoom && <RoomDialog agents={agents} machines={machines} ready={connection.state === 'ready'} api={api} close={() => setShowRoom(false)} onCreated={created => { roomMutationEpoch.current += 1; deletedRooms.current.delete(created.id); setRooms(current => mergeRooms(current, [created])); setRoomId(created.id); setShowRoom(false); }}/>}
     {deleting && <Modal title="删除群聊" close={() => { if (!deleteBusy) setDeleting(null); }}><p>删除「{deleting.title}」及本地聊天记录？此操作不可撤销。</p><p className="muted">不会删除 Agent 配置库或远端 Paws 会话。运行中的群聊须先停止协调。</p><div className="dialog-actions"><button disabled={deleteBusy} onClick={() => setDeleting(null)}>取消</button><button className="danger" disabled={deleteBusy} onClick={() => void deleteRoom()}>{deleteBusy ? '删除中…' : '确认删除'}</button></div>{error && <p role="alert">{error}</p>}</Modal>}
     {help && <Modal title="群聊帮助" close={() => setHelp(false)}><p>用 @ 点名一位或多位成员；没有 @ 时，由自动接话开关决定是否回复。</p><p>开启自动辩论后，同时 @ 至少两位成员发起。每人说一次算一轮，最多 10 轮，可随时停止协调。</p><p>消息支持图片 + 文字；公开时间线只显示发言，点击执行详情查看真实 Paws 记录。</p></Modal>}
-    {detailMember && room && <MemberDetails room={room} memberId={detailMember} api={api} close={() => setDetailMember(null)}/>}
+    {detailMember && room && <MemberDetails room={room} memberId={detailMember} profiles={agents} machines={machines} api={api} close={() => setDetailMember(null)}/>}
     {invite && room && <InviteDialog room={room} agents={agents} machines={machines} sessions={configurationSessions} api={api} refresh={refresh} close={() => setInvite(false)}/>}
   </main>;
 }
@@ -149,7 +154,7 @@ export function MessageCard({ message, room, api, profiles = [], onDetails }: { 
   const phase = turn?.phase === 'opening' ? '立论' : turn?.phase === 'rebuttal' ? `交锋 ${turn.round}` : null;
   const timestamp = new Date(message.ts);
   return <article className={`timeline-message ${isHost ? 'host-message' : ''}`}>
-    {isHost ? <span className="host-avatar" aria-hidden="true"><UserRound size={20}/></span> : <RobotAvatar id={message.from} avatarId={profiles.find(item => item.id === message.from)?.avatarId ?? member?.avatarId}/>}
+    {isHost ? <span className="host-avatar" aria-hidden="true"><UserRound size={20}/></span> : <RobotAvatar id={message.from} avatarId={member ? displayAvatarId(member, profiles) : undefined}/>}
     <div className="message-content"><div className="message-meta"><strong>{author}</strong>{member && <><span className="message-tag">Codex</span><span className="message-tag">{member.model}</span></>}{phase && <span className="message-tag">{phase}</span>}<time dateTime={timestamp.toISOString()} title={timestamp.toLocaleString('zh-CN')}>{timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div><p className="message-text">{message.text || (message.live?.status === 'running' ? '等待 Agent 输出…' : '')}</p>{api && message.images?.map(image => <AssetImage key={image.id} image={image} api={api}/>)}{message.live && <p className={`message-live-state ${message.live.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`} role={message.live.status === 'failed' ? 'alert' : undefined}>{message.live.status === 'running' ? '正在回复' : message.live.status === 'completed' ? '回复已完成' : memberStatusLabel(message.live.status)}{message.live.error ? `：${message.live.error}` : ''}</p>}{member && onDetails && <button className="execution-link" onClick={() => onDetails(member.id)}>查看执行详情 ↗</button>}</div>
   </article>;
 }
@@ -164,7 +169,7 @@ function AgentDialog({ agents, machines, sessions, api, close, refresh }: { agen
     }}/></> : <><p className="muted">每位 Agent 独立设置角色、设备和执行配置。已有群聊保留邀请时的执行快照。</p>{agents.map(agent => <button className="profile-summary" key={agent.id} onClick={() => setEditing(agent)}><RobotAvatar id={agent.id} avatarId={agent.avatarId}/><span><strong>{agent.name}</strong><small>{agent.machineId ? machineLabel(machines.find(machine => machine.id === agent.machineId) ?? { id: agent.machineId, active: false } as MachinesResponse['machines'][number]) : '尚未配置设备'} · {agent.model} · {agent.effort}</small></span></button>)}<button className="primary-action" onClick={() => setEditing('new')}>添加 Codex Agent</button></>}
   </Modal>;
 }
-function RoomDialog({ agents, machines, ready, api, close, refresh }: { agents: AgentProfile[]; machines: MachinesResponse['machines']; ready: boolean; api: ReturnType<typeof createApi>; close(): void; refresh(): Promise<void> }) {
+function RoomDialog({ agents, machines, ready, api, close, onCreated }: { agents: AgentProfile[]; machines: MachinesResponse['machines']; ready: boolean; api: ReturnType<typeof createApi>; close(): void; onCreated(room: GroupRoomSnapshot): void }) {
   const [title, setTitle] = useState('新的讨论'); const [selected, setSelected] = useState<string[]>(agents.map(agent => agent.id));
   const [machineId, setMachineId] = useState(''); const [directory, setDirectory] = useState('');
   const [autoReply, setAutoReply] = useState(true); const [autoDebate, setAutoDebate] = useState(false); const [maxRounds, setMaxRounds] = useState(10);
@@ -174,7 +179,7 @@ function RoomDialog({ agents, machines, ready, api, close, refresh }: { agents: 
   const first = chosen[0]; const resolvedMachine = fallback ? machineId : first?.machineId; const resolvedDirectory = fallback ? directory.trim() : first?.directory;
   return <Modal title="新建群聊" close={close}><form className="profile-form" onSubmit={async event => {
     event.preventDefault(); if (busy) return; setBusy(true); setError('');
-    try { await api('/api/group-chat/rooms', { method: 'POST', body: JSON.stringify({ requestId: requestId.current, title, memberIds: selected, machineId: resolvedMachine, directory: resolvedDirectory, autoReply, autoDebate, maxRounds }) }); await refresh(); }
+    try { const created = await api<GroupRoomSnapshot>('/api/group-chat/rooms', { method: 'POST', body: JSON.stringify({ requestId: requestId.current, title, memberIds: selected, machineId: resolvedMachine, directory: resolvedDirectory, autoReply, autoDebate, maxRounds }) }); onCreated(created); }
     catch (error) { setError((error as Error).message); } finally { setBusy(false); }
   }}>
     <label>群聊名称<input required value={title} onChange={event => setTitle(event.target.value)}/></label>
@@ -191,7 +196,7 @@ function Modal({ title, children, close }: { title: string; children: React.Reac
   return <div className="workbench-modal-backdrop"><section ref={dialog} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="workbench-modal"><header className="workbench-modal-header"><h2>{title}</h2><button onClick={close}>关闭</button></header>{children}</section></div>;
 }
 
-function MemberDetails({ room, memberId, api, close }: { room: GroupRoomSnapshot; memberId: string; api: ReturnType<typeof createApi>; close(): void }) {
+function MemberDetails({ room, memberId, profiles, machines, api, close }: { room: GroupRoomSnapshot; memberId: string; profiles: AgentProfile[]; machines: MachinesResponse['machines']; api: ReturnType<typeof createApi>; close(): void }) {
   const member = room.members.find(item => item.id === memberId)!;
   const [page, setPage] = useState<AgentMessagesResponse | null>(null);
   const [error, setError] = useState('');
@@ -208,7 +213,9 @@ function MemberDetails({ room, memberId, api, close }: { room: GroupRoomSnapshot
     } catch (error) { if (!operation.signal.aborted) setError((error as Error).message); } finally { if (!operation.signal.aborted) setBusy(false); }
   }, [api, room.id, memberId]);
   useEffect(() => { void load(); return () => controller.current?.abort(); }, [load]);
-  return <Modal title={`${member.name} · 执行详情`} close={close}><div className="detail-profile"><RobotAvatar id={member.id} avatarId={member.avatarId} large/><div><h3>{member.name}</h3><p>{memberStatusLabel(member.status)}</p></div></div><p>{member.instructions}</p><dl className="configuration-summary"><dt>执行配置快照</dt><dd>{member.model} · {member.effort}</dd><dt>工作目录</dt><dd>{member.directory ?? room.directory}</dd></dl>{member.sessionId && <a href={`https://47.115.228.20:8443/session/${encodeURIComponent(member.sessionId)}`} target="_blank" rel="noreferrer">在 Paws 打开完整会话 ↗</a>}<p className="muted">以下是实际收到的执行记录，不保证包含隐藏推理。停止协调不等于终止远端进程。</p>{!!page?.requests.length && <p role="status">有待授权操作，请在 Paws 原始会话处理。</p>}{records.map(record => <details key={record.id}><summary>记录 #{record.seq}</summary><pre>{JSON.stringify(record.content, null, 2)}</pre></details>)}{error && <p role="alert">{error}</p>}<button disabled={busy} onClick={() => void load()}>{busy ? '读取中…' : page?.hasMore ? '加载更多' : '刷新记录'}</button></Modal>;
+  const executionMachineId = member.machineId ?? room.machineId;
+  const executionMachine = machines.find(machine => machine.id === executionMachineId) ?? { id: executionMachineId, active: false } as MachinesResponse['machines'][number];
+  return <Modal title={`${member.name} · 执行详情`} close={close}><div className="detail-profile"><RobotAvatar id={member.id} avatarId={displayAvatarId(member, profiles)} large/><div><h3>{member.name}</h3><p>{memberStatusLabel(member.status)}</p></div></div><p>{member.instructions}</p><dl className="configuration-summary"><dt>执行配置快照</dt><dd>{member.model} · {member.effort}</dd><dt>执行设备</dt><dd>{machineLabel(executionMachine)}</dd><dt>工作目录</dt><dd>{member.directory ?? room.directory}</dd></dl>{member.sessionId && <a href={`https://47.115.228.20:8443/session/${encodeURIComponent(member.sessionId)}`} target="_blank" rel="noreferrer">在 Paws 打开完整会话 ↗</a>}<p className="muted">以下是实际收到的执行记录，不保证包含隐藏推理。停止协调不等于终止远端进程。</p>{!!page?.requests.length && <p role="status">有待授权操作，请在 Paws 原始会话处理。</p>}{records.map(record => <details key={record.id}><summary>记录 #{record.seq}</summary><pre>{JSON.stringify(record.content, null, 2)}</pre></details>)}{error && <p role="alert">{error}</p>}<button disabled={busy} onClick={() => void load()}>{busy ? '读取中…' : page?.hasMore ? '加载更多' : '刷新记录'}</button></Modal>;
 }
 
 function InviteDialog({ room, agents, machines, sessions, api, refresh, close }: { room: GroupRoomSnapshot; agents: AgentProfile[]; machines: MachinesResponse['machines']; sessions: ConfigurationSession[]; api: ReturnType<typeof createApi>; refresh(): Promise<void>; close(): void }) {

@@ -3,9 +3,17 @@ import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { GroupChatApp, MessageCard } from '../src/web/GroupChatApp.js';
+import { reconcileRoomList } from '../src/web/group-stream.js';
 
 vi.mock('../src/web/lib/crypto.js', () => ({ decrypt: async (_key: string, text: string) => text }));
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+it('reconciles full room lists authoritatively while preserving newer surviving snapshots', () => {
+  const old = fixture('old') as never; const survivor = { ...fixture('keep'), updatedAt: 10 } as never;
+  const incoming = { ...fixture('keep'), updatedAt: 5, title: 'stale' } as never;
+  expect(reconcileRoomList([old, survivor], [incoming]).map(room => room.id)).toEqual(['keep']);
+  expect(reconcileRoomList([old, survivor], [incoming])[0]?.updatedAt).toBe(10);
+});
 
 function fixture(id = 'one') {
   return { id, partyId: id, title: `Room ${id}`, members: [{ id: 'a', name: '研究员', engine: 'codex', model: 'luna', status: 'running' }], turns: [], createdAt: 1, updatedAt: 1, maxRounds: 10, autoDebate: true };

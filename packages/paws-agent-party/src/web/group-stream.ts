@@ -12,6 +12,15 @@ export function mergeRooms(current: GroupRoomSnapshot[], incoming: GroupRoomSnap
   return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Full-list polling is authoritative for membership; SSE snapshots remain additive via mergeRooms. */
+export function reconcileRoomList(current: GroupRoomSnapshot[], incoming: GroupRoomSnapshot[]): GroupRoomSnapshot[] {
+  const currentById = new Map(current.map(room => [room.id, room]));
+  return incoming.map(room => {
+    const previous = currentById.get(room.id);
+    return previous && previous.updatedAt > room.updatedAt ? previous : room;
+  }).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export function timelineMessages(room: GroupRoomSnapshot, messages: VisibleMessage[]): VisibleMessage[] {
   const published = new Set(messages.map(message => message.id));
   const result: VisibleMessage[] = messages.map(message => ({ ...message, taskMessageId: room.turns.find(turn => turn.publicMessageId === message.id || (turn.taskMessageId === message.replyTo && turn.participant === message.from))?.taskMessageId }));
