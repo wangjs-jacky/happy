@@ -31,4 +31,13 @@ describe('Codex group-chat profiles', () => {
     });
     await expect(service.create({ name: '旧 Agent', instructions: '不应创建。', engine: 'claude' })).rejects.toThrow('Codex Agent profiles only');
   });
+
+  it('validates avatar and paired machine configuration while preserving legacy defaults', async () => {
+    const service = await createService();
+    await expect(service.create({ name: '远端研究员', instructions: '核查来源。', avatarId: 23, machineId: 'machine-2', directory: '/srv/repo' }))
+      .resolves.toMatchObject({ avatarId: 23, machineId: 'machine-2', directory: '/srv/repo' });
+    await expect(service.create({ name: '坏头像', instructions: '拒绝。', avatarId: 24 })).rejects.toThrow('avatarId');
+    await expect(service.create({ name: '半配置', instructions: '拒绝。', machineId: 'machine-2' })).rejects.toThrow('machineId and directory');
+    expect(service.list().find(profile => profile.name === '产品经理')).toMatchObject({ avatarId: 0 });
+  });
 });

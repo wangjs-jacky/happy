@@ -53,6 +53,8 @@ export class TestOnlySdk {
   async disconnect(): Promise<void> {}
   async dispose(): Promise<void> {}
   async machines(): Promise<Machine[]> { return [machine('machine-1')]; }
+  async browseDirectory(_machineId: string, path = '') { return { success: true as const, path, parent: null, home: '/tmp', directories: [] }; }
+  async configuration(_machineId: string, _sessionId?: string) { return { available: false as const, reason: 'Session required.' }; }
 
   async spawn(input: SpawnSessionInput & { role?: string }): Promise<SpawnSessionResult> {
     if (!input.role) throw new Error('test SDK requires the role boundary field');

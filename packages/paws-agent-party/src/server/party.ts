@@ -20,6 +20,8 @@ export type DecodedPartyMessage = Omit<PartyMessage, 'text'> & { text: string; i
 export type PartyBus = {
   create(title: string): Promise<string>;
   createGroup(input: { title: string; participants: Array<{ id: string; description: string }> }): Promise<string>;
+  join(partyId: string, participant: { id: string; description: string }): Promise<void>;
+  delete(partyId: string): Promise<void>;
   send(input: { partyId: string; from: string; to: Recipients; text: string; images?: ImageRef[]; replyTo?: string }): Promise<PartyMessage>;
   read(partyId: string, options?: { since?: string }): Promise<DecodedPartyMessage[]>;
 };
@@ -83,6 +85,11 @@ export async function createPartyService(dataDir: string, accessToken: string): 
       }
       return partyId;
     },
+    async join(partyId, participant) {
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(participant.id)) throw new Error('A group needs safe participant identifiers.');
+      await call(`/api/parties/${partyId}/join`, { method: 'POST', body: JSON.stringify({ name: participant.id, desc: participant.description.slice(0, 500) }) });
+    },
+    async delete(partyId) { await call(`/api/parties/${partyId}`, { method: 'DELETE' }); },
     async send(input) {
       const envelope: PartyEnvelope = { v: 1, text: input.text, images: input.images ?? [] };
       const encrypted = await encryptText(await keyFor(input.partyId), JSON.stringify(envelope));

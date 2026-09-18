@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir, { re
 
 function party(failTerminal: boolean, calls: string[]): PartyBus {
   return {
-    create: async () => 'party-1', createGroup: async () => 'party-1', read: async () => [],
+    create: async () => 'party-1', createGroup: async () => 'party-1', join: async () => undefined, delete: async () => undefined, read: async () => [],
     send: async input => {
       calls.push(input.text);
       if (failTerminal && input.text.startsWith('辩论已')) throw new Error('party temporarily unavailable');
