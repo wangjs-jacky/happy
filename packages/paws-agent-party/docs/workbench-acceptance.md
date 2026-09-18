@@ -29,3 +29,8 @@ The complete-diff review requested six integration corrections: ordinary-work st
 - Confirmed deletion of the newly created fixture room removed its sidebar entry while existing room and Agent library remained. This fixture-room deletion is irreversible locally; no remote session was deleted.
 - Execution details showed `fixture-mac-mini.local · 在线`, `gpt-5.6-luna · low`, `/tmp` and the original session link.
 - Final verified state was reported textually before closing Ego task122; no screenshots or visual-panel receipts were generated (consent unanswered). Fixture server stopped after verification. Local test URLs are not external handoff links.
+
+## PR preparation follow-up
+- Fresh suite runs exposed a first-open race: the passive room-change cleanup could close a member panel opened immediately after the header appeared. Moved only that cleanup to a layout effect, added an expanded-state regression assertion, and received independent approval of the fix.
+- Corrected the external-deletion test to await fallback room selection (a separate asynchronous state update), keeping the same expected room rather than weakening the behavior.
+- Fresh final suite: 153/153 passed across 28 files (41.72s). Typecheck and standalone `/agent-party/` production build/smoke passed; gateway suites passed 11/11. No production release performed during preparation.

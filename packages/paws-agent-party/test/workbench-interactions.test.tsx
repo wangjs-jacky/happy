@@ -125,7 +125,8 @@ it('removes a room deleted by another client on authoritative list refresh', asy
   const fixture = setup(); await screen.findByRole('heading', { name: '讨论 one' });
   fixture.removeRoomExternally('one');
   await vi.waitFor(() => expect(screen.queryByRole('button', { name: '讨论 one 的更多操作' })).toBeNull(), { timeout: 3500 });
-  expect(screen.getByRole('heading', { name: '讨论 two' })).toBeTruthy();
+  // Removal and fallback selection are separate state updates; wait for the result.
+  expect(await screen.findByRole('heading', { name: '讨论 two' })).toBeTruthy();
 });
 
 it('offers a temporary member without writing to the reusable agent library', async () => {

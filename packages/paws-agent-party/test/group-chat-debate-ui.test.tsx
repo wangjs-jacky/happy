@@ -90,7 +90,9 @@ it('shows a manually stopped member as a neutral Chinese state, not a failure', 
   }));
 
   render(<GroupChatApp />);
-  fireEvent.click(await screen.findByRole('button', { name: /成员 · 2/ }));
+  const membersButton = await screen.findByRole('button', { name: /成员 · 2/ });
+  fireEvent.click(membersButton);
+  expect(membersButton.getAttribute('aria-expanded')).toBe('true');
   expect(await screen.findByText('已停止')).toBeTruthy();
   expect(screen.queryByText('Debate stopped')).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();

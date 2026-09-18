@@ -98,7 +98,9 @@ export function GroupChatApp() {
     } catch (error) { if (selectedRoom.current === id) setError((error as Error).message); }
     finally { sendLocks.current.delete(id); setSendingRooms(new Set(sendLocks.current)); }
   };
-  useEffect(() => { setMembersOpen(false); setDetailMember(null); setInvite(false); setMenuRoom(null); setError(''); setMentionRequest(0); }, [roomId]);
+  // Reset the previous room's overlays before the new room is interactive.
+  // A passive effect can otherwise overwrite a click made as the new header appears.
+  useLayoutEffect(() => { setMembersOpen(false); setDetailMember(null); setInvite(false); setMenuRoom(null); setError(''); setMentionRequest(0); }, [roomId]);
   useEffect(() => {
     if (membersOpen) { setMembersRendered(true); return; }
     const timer = setTimeout(() => setMembersRendered(false), 200); return () => clearTimeout(timer);
