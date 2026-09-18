@@ -145,7 +145,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
         timer = undefined;
         if (ended || blocked) { dirty = true; return; }
         try { dirty = false; blocked = !response.write(`data: ${JSON.stringify(groups.get(id))}\n\n`); }
-        catch (error) { if (error instanceof RunError && error.status === 404) finish(); else throw error; }
+        catch (error) { if (error instanceof RunError && error.status === 404) { finish(); response.end(); } else throw error; }
       };
       const schedule = () => { dirty = true; if (!timer && !blocked && !ended) timer = setTimeout(write, 100); };
       const unsubscribe = groups.subscribe(id, schedule);

@@ -80,7 +80,7 @@ describe('durable room deletion', () => {
     await eventually(() => expect(service.get(room.id).debate?.status).toBe('completed'));
     await expect(service.delete(room.id)).rejects.toMatchObject({ status: 409 });
     release(); await eventually(() => expect(service.get(room.id).debate?.terminalMessageId).toBeTruthy());
-    await service.delete(room.id); await service.close();
+    await eventually(() => service.delete(room.id)); await service.close();
   });
 
   it('retries Party cleanup from the tombstone without resurrecting the room', async () => {
@@ -93,6 +93,22 @@ describe('durable room deletion', () => {
     expect(service.list()).toHaveLength(0);
     await expect(service.delete(room.id)).resolves.toBeUndefined(); expect(attempts).toBe(2);
     await service.close();
+  });
+
+  it('does not delete Party until a failed tombstone write succeeds on retry', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'paws-room-delete-persist-retry-')); dirs.push(dataDir);
+    const profiles = await ProfileService.create(dataDir); const assets = new AssetStore(dataDir); const bus = party(false, []); let partyDeletes = 0;
+    bus.delete = async () => { partyDeletes += 1; };
+    const service = await GroupRoomService.create({ dataDir, sdk: new TestOnlySdk() as never, assets, party: bus, profiles });
+    const room = await service.create({ requestId: 'delete-persist-retry', title: '落盘重试', memberIds: [profiles.list()[0]!.id], machineId: 'machine-1', directory: '/tmp/work' });
+    const mutable = service as unknown as { persist: () => Promise<void>; persistQueue: Promise<void> }; const persist = mutable.persist.bind(service); let fail = true;
+    mutable.persist = async () => { if (fail) { fail = false; const rejected = Promise.reject(new Error('injected first tombstone write failure')); mutable.persistQueue = rejected; return rejected; } await persist(); };
+    await expect(service.delete(room.id)).rejects.toThrow('injected first tombstone write failure');
+    expect(partyDeletes).toBe(0);
+    expect(JSON.parse(await readFile(join(dataDir, 'group-chat-rooms.json'), 'utf8')).rooms).toHaveLength(1);
+    await service.delete(room.id); expect(partyDeletes).toBe(1); await service.close();
+    const reopened = await GroupRoomService.create({ dataDir, sdk: new TestOnlySdk() as never, assets, party: party(false, []), profiles });
+    expect(reopened.list()).toHaveLength(0); await reopened.close();
   });
 });
 
