@@ -62,6 +62,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
   let closed = false;
   let listeningPort = 0;
   let accountTransition: symbol | null = null;
+  const eventResponses = new Set<ServerResponse>();
 
   const server = createServer((request, response) => {
     void handle(request, response).catch(error => {
@@ -128,6 +129,25 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     if (request.method === 'POST' && url.pathname === '/api/group-chat/rooms') {
       if (accountTransition) return sendJson(response, 409, { error: 'Wait for the Paws account transition to finish.' });
       return sendJson(response, 200, await groups.create(await readJson(request, 64 * 1024) as CreateGroupRoomInput));
+    }
+    const groupEventsMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)\/events$/);
+    if (request.method === 'GET' && groupEventsMatch) {
+      const id = decodeURIComponent(groupEventsMatch[1]); groups.get(id);
+      response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
+      eventResponses.add(response);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let blocked = false; let dirty = false; let ended = false;
+      const write = () => {
+        timer = undefined;
+        if (ended || blocked) { dirty = true; return; }
+        dirty = false; blocked = !response.write(`data: ${JSON.stringify(groups.get(id))}\n\n`);
+      };
+      const schedule = () => { dirty = true; if (!timer && !blocked && !ended) timer = setTimeout(write, 100); };
+      const unsubscribe = groups.subscribe(id, schedule);
+      response.on('drain', () => { blocked = false; if (dirty) schedule(); });
+      const heartbeat = setInterval(() => { if (!blocked && !ended) blocked = !response.write(': heartbeat\n\n'); }, 15_000);
+      response.once('close', () => { ended = true; clearTimeout(timer); clearInterval(heartbeat); unsubscribe(); eventResponses.delete(response); });
+      write(); return;
     }
     const groupRoomMatch = url.pathname.match(/^\/api\/group-chat\/rooms\/([^/]+)$/);
     if (request.method === 'GET' && groupRoomMatch) return sendJson(response, 200, groups.get(decodeURIComponent(groupRoomMatch[1])));
@@ -241,6 +261,7 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     async close() {
       if (closed) return;
       closed = true;
+      for (const response of eventResponses) response.end();
       await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()));
       await Promise.allSettled([runs.close(), groups.close()]);
       await Promise.allSettled([party.close(), sdk.dispose()]);

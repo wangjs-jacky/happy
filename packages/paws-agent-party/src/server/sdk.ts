@@ -15,10 +15,12 @@ import {
   type Session,
   type SpawnSessionInput,
   type SpawnSessionResult,
+  type PawsAgentEvent,
 } from '@wangjs-jacky/paws-agent/browser';
 import type { ConnectionStatus } from '../contracts.js';
 
 export interface PawsSdkBoundary {
+  subscribeText?(listener: (event: Extract<PawsAgentEvent, { type: 'text-delta' }>) => void): () => void;
   status(): ConnectionStatus;
   link(serverUrl: string): Promise<ConnectionStatus>;
   recover(serverUrl: string, recoveryCode: string): Promise<ConnectionStatus>;
@@ -170,6 +172,7 @@ export function createRealPawsSdk(): PawsSdkBoundary {
       }
     },
     disconnect,
+    subscribeText: listener => readyClient().subscribe(event => { if (event.type === 'text-delta') listener(event); }),
     machines: () => readyClient().machines.list({ active: true }),
     spawn: ({ role: _role, ...input }) => readyClient().sessions.spawn(input),
     watch: (sessionId, options) => readyClient().messages.watch(sessionId, options),
