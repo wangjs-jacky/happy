@@ -10,6 +10,7 @@ import { refreshNativeUpdateStatus } from '@/sync/nativeUpdate';
 import { checkAppUpdates } from '@/utils/checkAppUpdates';
 import { useAuth } from '@/auth/AuthContext';
 import { Typography } from "@/constants/Typography";
+import { DeliverySettingsRows } from './DeliverySettings';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -339,6 +340,7 @@ export const SettingsView = React.memo(function SettingsView() {
                     detail={languageDetailText}
                     onPress={() => router.push('/settings/language')}
                 />
+                <DeliverySettingsRows />
             </ItemGroup>
 
             <ItemGroup title={t('settings.connectedAccounts')}>

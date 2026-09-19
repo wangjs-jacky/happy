@@ -446,8 +446,10 @@ export async function startHappyServer(
                 return { success: false, error: 'At most three Cloudflare previews can run in one session' };
             }
             previewPublications.add(previewId);
+            let previewTitle: string | undefined;
             try {
                 const workspace = await previewWorkspaces.resolveForPublish(client.sessionId, previewId);
+                previewTitle = workspace.manifest.title;
                 if (mode === 'tunnel') {
                     const running = await startCloudflarePreview(workspace, (expired) => {
                         cloudflarePreviews.delete(previewId);
@@ -470,6 +472,10 @@ export async function startHappyServer(
                 await previewWorkspaces.remove(client.sessionId, previewId);
                 return { success: true, url: preview.url, expiresAt: preview.expiresAt, provider: 'cloudflare', mode, lifetime: '24 hours (cloud hosted)' };
             } catch (error) {
+                if (previewTitle && (mode === 'tunnel' || error instanceof Error && error.message.startsWith('Connect Cloudflare in Settings'))) {
+                    client.reportInteractivePreview({ version: 1, id: previewId, title: previewTitle, mode, provider: 'cloudflare', state: 'failed',
+                        errorCode: mode === 'hosted' ? 'CLOUDFLARE_NOT_CONNECTED' : error instanceof Error && error.message.includes('Install cloudflared') ? 'CLOUDFLARED_MISSING' : 'PUBLISH_FAILED' });
+                }
                 return { success: false, error: error instanceof Error ? error.message : String(error) };
             } finally {
                 previewPublications.delete(previewId);

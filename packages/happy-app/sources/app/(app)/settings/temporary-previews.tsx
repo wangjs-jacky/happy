@@ -1,5 +1,8 @@
+import { useLocalSearchParams } from 'expo-router';
+import { sync } from '@/sync/sync';
+import { cloudflareStatusLabel } from '@/utils/cloudflareStatusLabel';
 import * as React from 'react';
-import { ActivityIndicator, Platform, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
@@ -9,7 +12,7 @@ import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import {
-    connectCloudflarePreview, disconnectCloudflarePreview, getCloudflarePreviewStatus,
+    checkCloudflarePreview, connectCloudflarePreview, disconnectCloudflarePreview, getCloudflarePreviewStatus,
     CloudflarePreviewApiError, isCloudflareConnectionSecure, type CloudflarePreviewStatus,
 } from '@/sync/apiInteractivePreviews';
 import { createPreviewE2EFixture, resolvePreviewE2EFixture } from '@/sync/previewE2EFixture';
@@ -17,6 +20,7 @@ import { createPreviewE2EFixture, resolvePreviewE2EFixture } from '@/sync/previe
 type LoadState = { kind: 'loading' } | { kind: 'ready'; status: CloudflarePreviewStatus } | { kind: 'error' };
 
 export default React.memo(function TemporaryPreviewsSettings() {
+    const { selectHosted } = useLocalSearchParams<{ selectHosted?: string }>();
     const { theme } = useUnistyles();
     const { credentials } = useAuth();
     const [loadState, setLoadState] = React.useState<LoadState>({ kind: 'loading' });
@@ -46,7 +50,9 @@ export default React.memo(function TemporaryPreviewsSettings() {
     React.useEffect(() => {
         mounted.current = true;
         void refresh();
-        return () => { mounted.current = false; generation.current++; };
+        const subscription = AppState.addEventListener('change', state => { if (state === 'active' && !actionLock.current) void refresh(); });
+        const timer = setInterval(() => { if (!actionLock.current) void refresh(); }, 30_000);
+        return () => { mounted.current = false; generation.current++; subscription.remove(); clearInterval(timer); };
     }, [refresh]);
 
     const configure = () => {
@@ -71,6 +77,7 @@ export default React.memo(function TemporaryPreviewsSettings() {
             else await connectCloudflarePreview(credentials, accountId.trim(), apiToken.trim());
             if (mounted.current) setEditing(false);
             await refresh();
+            if (selectHosted === '1') sync.applySettings({ previewDeliveryMode: 'hosted' });
         } catch (error) {
             if (mounted.current) Modal.alert(t('interactivePreviews.title'), t(error instanceof CloudflarePreviewApiError && error.kind === 'insecure'
                 ? 'interactivePreviews.secureConnectionRequired' : error instanceof CloudflarePreviewApiError && error.kind === 'credentials'
@@ -79,6 +86,23 @@ export default React.memo(function TemporaryPreviewsSettings() {
             // Tokens never enter persistent settings, URLs or browser storage.
             if (mounted.current) { setApiToken(''); setBusy(false); }
             actionLock.current = false;
+        }
+    };
+    const check = async () => {
+        if (!credentials || actionLock.current) return;
+        actionLock.current = true;
+        setBusy(true);
+        generation.current++;
+        try {
+            const verification = await checkCloudflarePreview(credentials);
+            if (mounted.current) setLoadState(previous => previous.kind === 'ready'
+                ? { kind: 'ready', status: { ...previous.status, verification } } : previous);
+        } catch {
+            await refresh();
+            if (mounted.current) Modal.alert(t('delivery.check'), t('delivery.verificationUnavailable'));
+        } finally {
+            actionLock.current = false;
+            if (mounted.current) setBusy(false);
         }
     };
     const disconnect = async () => {
@@ -106,8 +130,8 @@ export default React.memo(function TemporaryPreviewsSettings() {
             <Text style={styles.title}>{t('interactivePreviews.title')}</Text>
             <Text style={styles.copy}>{t('interactivePreviews.disclosure')}</Text>
         </View>
-        <ItemGroup title={t('interactivePreviews.tunnelProvider')}>
-            <Item title={t('interactivePreviews.tunnelProvider')} showChevron={false}
+        <ItemGroup title={t('delivery.tunnel')}>
+            <Item title={t('delivery.tunnel')} showChevron={false}
                 icon={<Ionicons color={theme.colors.accent} name="cloud-outline" size={28} />} testID="temporary-previews-cloudflare" />
             <Text style={styles.description}>{t('interactivePreviews.cloudflareDescription')}</Text>
             <Text style={styles.description}>{t('interactivePreviews.sessionLifetime')}</Text>
@@ -125,15 +149,17 @@ export default React.memo(function TemporaryPreviewsSettings() {
                 <Item title={t('interactivePreviews.connection')} testID="temporary-previews-status" showChevron={false}
                     icon={<Ionicons color={status.connected ? theme.colors.status.connected : theme.colors.textSecondary} name="cloud-done-outline" size={28} />} />
                 <Text style={styles.description}>{!status.available ? t('interactivePreviews.unavailable')
-                    : status.connected ? t('interactivePreviews.connected', { name: status.account?.accountId ?? 'Cloudflare' })
-                    : t('interactivePreviews.disconnected')}</Text>
+                    : cloudflareStatusLabel(status)}</Text>
             </> : null}
+            {status?.verification ? <Text style={styles.description}>{t('delivery.checkedAt', { time: new Date(status.verification.checkedAt).toLocaleString() })}</Text> : null}
+            {status?.connected && status.available ? <Item title={t(busy ? 'delivery.checking' : 'delivery.check')} onPress={() => void check()} disabled={busy} testID="temporary-previews-check" /> : null}
             {status?.connected && status.account?.projectId ? <Item showChevron={false} subtitle={status.account.projectId}
                 testID="temporary-previews-project" title={t('interactivePreviews.project')} /> : null}
             {status?.available && !editing ? <Item disabled={busy} onPress={configure} showChevron={false}
                 testID={status.connected ? 'temporary-previews-reconnect' : 'temporary-previews-connect'}
                 title={t(status.connected ? 'interactivePreviews.reconnect' : 'interactivePreviews.configure')} /> : null}
             {editing ? <View style={styles.form}>
+                <Text style={styles.help}>{t('delivery.tokenConnection')}</Text>
                 <Text style={styles.label}>{t('interactivePreviews.accountId')}</Text>
                 <TextInput accessibilityLabel={t('interactivePreviews.accountId')} autoCapitalize="none" autoCorrect={false}
                     editable={!busy} maxLength={32} onChangeText={setAccountId} style={styles.input} value={accountId} testID="temporary-previews-account-id" />
@@ -143,7 +169,7 @@ export default React.memo(function TemporaryPreviewsSettings() {
                     style={styles.input} value={apiToken} testID="temporary-previews-api-token" />
                 <Text style={styles.help}>{t('interactivePreviews.tokenHelp')}</Text>
                 <Item disabled={busy} loading={busy} onPress={() => void connect()} showChevron={false}
-                    testID="temporary-previews-save" title={t('interactivePreviews.saveConnection')} />
+                    testID="temporary-previews-save" title={t('delivery.saveAndCheck')} />
                 <Item disabled={busy} onPress={() => { setEditing(false); setApiToken(''); }} showChevron={false} title={t('common.cancel')} />
             </View> : null}
             {status?.connected ? <Item destructive disabled={busy} loading={busy} onPress={() => void disconnect()} showChevron={false}

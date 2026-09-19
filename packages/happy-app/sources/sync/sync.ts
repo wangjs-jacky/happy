@@ -79,6 +79,7 @@ import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 import { Message } from './typesMessage';
 import { EncryptionCache } from './encryption/encryptionCache';
 import { systemPrompt } from './prompt/systemPrompt';
+import { deliveryPrompt } from './prompt/deliveryPrompt';
 import { fetchArtifact, fetchArtifacts, createArtifact, updateArtifact } from './apiArtifacts';
 import { DecryptedArtifact, Artifact, ArtifactCreateRequest, ArtifactUpdateRequest } from './artifactTypes';
 import { ArtifactEncryption } from './encryption/artifactEncryption';
@@ -1886,7 +1887,7 @@ class Sync {
             },
             meta: {
                 sentFrom,
-                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
+                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim(), deliveryPrompt(storage.getState().settings)].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.permissionModeExplicit ? { permissionModeExplicit: true } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),

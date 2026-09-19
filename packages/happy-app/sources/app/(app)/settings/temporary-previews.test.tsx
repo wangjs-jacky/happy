@@ -16,12 +16,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({
+    AppState: { addEventListener: () => ({ remove() {} }) },
     ActivityIndicator: 'ActivityIndicator',
     Platform: { OS: 'web' },
     Text: 'Text', TextInput: 'TextInput',
     View: 'View',
 }));
-vi.mock('expo-router', () => ({ Stack: { Screen: 'StackScreen' } }));
+vi.mock('expo-router', () => ({ Stack: { Screen: 'StackScreen' }, useLocalSearchParams: () => ({}) }));
+vi.mock('@/sync/sync', () => ({ sync: { applySettings: vi.fn() } }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: mocks.credentials }) }));
 vi.mock('@/components/Item', () => ({ Item: (props: any) => React.createElement('Item', props) }));
@@ -32,6 +34,7 @@ vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: mocks.external }));
 vi.mock('@/sync/apiInteractivePreviews', () => ({
     isCloudflareConnectionSecure: () => true,
     getCloudflarePreviewStatus: mocks.status,
+    checkCloudflarePreview: vi.fn(async () => ({ state: 'verified', checkedAt: 100 })),
     connectCloudflarePreview: mocks.connectUrl,
     disconnectCloudflarePreview: mocks.disconnect,
     CloudflarePreviewApiError: class CloudflarePreviewApiError extends Error {},

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { type Fastify } from '../types';
 import { previewService } from '@/app/previews/previewService';
 
+import { CloudflareApiError } from '@/app/previews/cloudflareClient';
+
 const previewIdSchema = z.uuid();
 const assetIdSchema = interactivePreviewAssetIdSchema;
 const uploadSchema = z.object({ assetId: assetIdSchema, method: z.literal('POST'), uploadUrl: z.string(), formFields: z.record(z.string(), z.string()) });
@@ -56,12 +58,13 @@ export function interactivePreviewRoutes(app: Fastify, dependencies: Interactive
 
     app.post('/v1/sessions/:sessionId/previews/:previewId/publish', {
         preHandler: app.authenticate,
-        schema: { params: previewParams, response: { 200: z.object({ preview: interactivePreviewEventSchema }), 404: z.object({ error: z.string() }) } },
+        schema: { params: previewParams, response: { 200: z.object({ preview: interactivePreviewEventSchema }), 502: z.object({ error: z.string() }), 404: z.object({ error: z.string() }) } },
     }, async (request, reply) => {
         if (!await dependencies.sessionOwnedBy(request.userId, request.params.sessionId)) return reply.code(404).send({ error: 'Session not found' });
         try {
             return reply.send({ preview: await dependencies.publish(request.userId, request.params.sessionId, request.params.previewId) });
         } catch (error) {
+            if (error instanceof CloudflareApiError) return reply.code(502).send({ error: [401, 403].includes(error.status) ? 'CLOUDFLARE_AUTHORIZATION_FAILED' : 'CLOUDFLARE_PUBLICATION_FAILED' });
             if (isPreviewNotFound(error)) return reply.code(404).send({ error: 'Preview not found' });
             throw error;
         }

@@ -9,7 +9,13 @@ const draftResponseSchema = z.object({ previewId: z.uuid(), uploads: z.array(z.o
 })) });
 
 async function expectOk(response: Response, phase: string): Promise<Response> {
-    if (!response.ok) throw new Error(`Interactive preview ${phase} failed (HTTP ${response.status})`);
+    if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: unknown } | null;
+        const reason = body?.error === 'CLOUDFLARE_AUTHORIZATION_FAILED'
+            ? 'Cloudflare authorization failed. Update the Account ID/API Token and Pages permissions in Settings > Temporary previews. Do not fall back to a tunnel without the user choosing it.'
+            : `Interactive preview ${phase} failed (HTTP ${response.status}). Retry or check configuration; do not assume the preview is accessible.`;
+        throw new Error(reason);
+    }
     return response;
 }
 

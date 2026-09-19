@@ -1,9 +1,10 @@
+import { cloudflareVerificationStore, classifyCloudflareFailure } from './cloudflareVerification';
 import { createHash, randomUUID } from 'node:crypto';
 import { type InteractivePreviewEvent, type InteractivePreviewManifest, validateInteractivePreviewManifest } from '@slopus/happy-wire';
 import { db } from '@/storage/db';
 import { isLegacyPreviewStorageKey, previewStorage } from '@/app/previews/previewStorage';
 import { cloudflareCredentialStore, type CloudflareCredential } from '@/app/previews/cloudflareCredentialStore';
-import { createCloudflareClient, type CloudflareDeployment } from '@/app/previews/cloudflareClient';
+import { createCloudflareClient, CloudflareApiError, type CloudflareDeployment } from '@/app/previews/cloudflareClient';
 
 const DRAFT_TTL_MS = 60 * 60 * 1000;
 const PUBLISHED_TTL_MS = 24 * 60 * 60 * 1000;
@@ -83,6 +84,7 @@ export function createPreviewService(dependencies: {
     storage: typeof previewStorage;
     credentialStore: typeof cloudflareCredentialStore;
     clientFactory: typeof createCloudflareClient;
+    verificationStore?: typeof cloudflareVerificationStore;
     now?: () => Date;
 }) {
     const database = dependencies.database;
@@ -333,8 +335,10 @@ export function createPreviewService(dependencies: {
                 });
                 if (bound.count !== 1) throw new Error('Preview publication was fenced before deployment tracking');
             };
+            let publicationCredential: CloudflareCredential | null = null;
             try {
                 const credential = await activeCredential(accountId);
+                publicationCredential = credential;
                 if (!credential) throw new Error('CLOUDFLARE_NOT_CONNECTED');
                 if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Cloudflare connection changed during publication');
                 const scoped = await database.interactivePreview.updateMany({ where: publicationWhere, data: { cloudflareTeamId: credential.teamId ?? null, cloudflareScopeKnown: true } });
@@ -418,13 +422,17 @@ export function createPreviewService(dependencies: {
                         data: { stagingCleanupPending: false, cleanupRetryCount: 0, cleanupNextAttemptAt: null },
                     });
                 } catch { /* ready rows retain a durable, immediately due staging cleanup obligation */ }
+                if (publicationCredential) await dependencies.verificationStore?.save(accountId, publicationCredential, { state: 'verified', checkedAt: claimTime.getTime(), source: 'publication' }).catch(() => {});
                 return previewRowToEvent(updated);
             } catch (error) {
+                if (publicationCredential && error instanceof CloudflareApiError) {
+                    await dependencies.verificationStore?.save(accountId, publicationCredential, { state: classifyCloudflareFailure(error), checkedAt: claimTime.getTime(), source: 'publication' }).catch(() => {});
+                }
                 await database.interactivePreview.updateMany({
                     where: { stagingGeneration: { startsWith: 'cf-' }, ...publicationWhere, ...(createdDeploymentId ? { OR: [{ cloudflareDeploymentId: null }, { cloudflareDeploymentId: createdDeploymentId }] } : {}) },
                     data: publicationInconclusive || publicationCreateStarted
                         ? { status: 'publishing', errorCode: 'PUBLISH_RECONCILIATION_PENDING', publicationReconcileRetryCount: { increment: 1 }, publicationReconcileNextAttemptAt: now() }
-                        : { status: 'failed', errorCode: 'PUBLISH_FAILED', ...(createdDeploymentId ? { cloudflareDeploymentId: createdDeploymentId } : {}) },
+                        : { status: 'failed', errorCode: error instanceof CloudflareApiError && [401, 403].includes(error.status) ? 'CLOUDFLARE_AUTHORIZATION_FAILED' : 'PUBLISH_FAILED', ...(createdDeploymentId ? { cloudflareDeploymentId: createdDeploymentId } : {}) },
                 });
                 throw error;
             }
@@ -1056,4 +1064,4 @@ export function createPreviewService(dependencies: {
     };
 }
 
-export const previewService = createPreviewService({ database: db, storage: previewStorage, credentialStore: cloudflareCredentialStore, clientFactory: createCloudflareClient });
+export const previewService = createPreviewService({ database: db, storage: previewStorage, credentialStore: cloudflareCredentialStore, clientFactory: createCloudflareClient, verificationStore: cloudflareVerificationStore });
