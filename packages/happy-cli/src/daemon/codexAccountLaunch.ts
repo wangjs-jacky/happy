@@ -6,7 +6,7 @@ import { CodexAccountRequestError } from '@/api/codexAccountTypes';
 import { codexAccountAuthSchema, readCodexAccountAuth, type CodexAccountAuth } from '@/codex/codexAccountAuth';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, type CodexUsageRateLimitWindow, type CodexUsageRateLimits } from '@/codex/codexUsage';
-import { retainCodexAccountHistory, restoreCodexAccountHistory, rememberCodexAccountSession, copyCodexSourceThread, getCodexSourceAccountProfileId, CodexSourceHistoryUnavailableError, CodexSourceAccountMismatchError } from '@/codex/codexAccountHistory';
+import { retainCodexAccountHistory, rememberCodexAccountSession, copyCodexSourceThread, getCodexSourceAccountProfileId, CodexSourceHistoryUnavailableError, CodexSourceAccountMismatchError } from '@/codex/codexAccountHistory';
 import { configuration } from '@/configuration';
 import type { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
 import { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
@@ -81,9 +81,10 @@ export class CodexAccountLaunch {
     const home = await prepareCodexHomeWithAuth(JSON.stringify(parsed.data), options);
     const historyRoot = options?.historyRoot ?? join(configuration.happyHomeDir, 'codex-session-cache');
     try {
-      if (!options?.skipHistory) {
-        await restoreCodexAccountHistory(historyRoot, redeemed.profile.id, home);
-        if (options?.sourceThreadId) await copyCodexSourceThread(historyRoot, options.sourceSessionId ?? '', options.sourceThreadId, home, redeemed.profile.id);
+      // Fresh sessions need no history. Import only an explicit resume/fork
+      // source and its ancestors, never the entire account cache.
+      if (!options?.skipHistory && options?.sourceThreadId) {
+        await copyCodexSourceThread(historyRoot, options.sourceSessionId ?? '', options.sourceThreadId, home, redeemed.profile.id);
       }
       const launch = new CodexAccountLaunch(api, machineId, home, {
         schemaVersion: 1, daemonPid: process.pid, machineId, profileId: redeemed.profile.id, launchId: redeemed.launchId,
