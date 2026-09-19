@@ -6,7 +6,7 @@ import { CodexAccountLaunch, withCodexAccountLaunch } from './codexAccountLaunch
 import { CodexAccountRequestError } from '@/api/codexAccountTypes';
 import { configuration } from '@/configuration';
 import { cleanupOrphanedCodexAccountHome } from '@/codex/codexAccountWorker';
-import { rememberCodexAccountSession, restoreCodexAccountHistory } from '@/codex/codexAccountHistory';
+import { rememberCodexAccountSession, restoreCodexAccountHistory, retainCodexAccountHistory } from '@/codex/codexAccountHistory';
 
 const auth = { tokens: { id_token: 'id-secret', access_token: 'access-secret', refresh_token: 'refresh-secret', account_id: 'account-secret' } };
 const dirs: string[] = [];
@@ -24,6 +24,33 @@ function api() {
   };
 }
 describe('Codex account launch lifecycle', () => {
+  it('starts a fresh session without importing unrelated account history', async () => {
+    const historyRoot = await home(); const previous = await home();
+    await mkdir(join(previous, 'sessions'));
+    await writeFile(join(previous, 'sessions', 'rollout-old-thread.jsonl'), 'old account conversation');
+    await retainCodexAccountHistory(historyRoot, 'profile-1', previous);
+    const launch = await CodexAccountLaunch.prepare(api(), 'machine-1', 'g'.repeat(43), { sourceHome: await home(), historyRoot });
+    try {
+      await expect(stat(join(launch.home, 'sessions', 'rollout-old-thread.jsonl'))).rejects.toThrow();
+      expect(JSON.parse(await readFile(join(launch.home, 'auth.json'), 'utf8'))).toEqual(auth);
+    } finally { await launch.finish(); }
+  });
+  it('restores only the requested source thread during a managed launch', async () => {
+    const historyRoot = await home(); const previous = await home();
+    await mkdir(join(previous, 'sessions'));
+    await writeFile(join(previous, 'sessions', 'rollout-requested.jsonl'), 'requested conversation');
+    await writeFile(join(previous, 'sessions', 'rollout-unrelated.jsonl'), 'unrelated conversation');
+    await retainCodexAccountHistory(historyRoot, 'profile-1', previous);
+    await rememberCodexAccountSession(historyRoot, 'old-session', 'profile-1');
+    const launch = await CodexAccountLaunch.prepare(api(), 'machine-1', 'g'.repeat(43), {
+      sourceHome: await home(), historyRoot, sourceSessionId: 'old-session', sourceThreadId: 'requested',
+    });
+    try {
+      expect(await readFile(join(launch.home, 'sessions', 'rollout-requested.jsonl'), 'utf8')).toBe('requested conversation');
+      await expect(stat(join(launch.home, 'sessions', 'rollout-unrelated.jsonl'))).rejects.toThrow();
+    } finally { await launch.finish(); }
+  });
+
   it('preserves orphan-exit rotation and immutable final quota attribution before cleanup', async () => {
     const a = api(); const sourceHome = await home();
     const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome });
