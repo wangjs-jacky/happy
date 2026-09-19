@@ -1,5 +1,7 @@
 import { AgentContentView } from '@/components/AgentContentView';
 import { MessageComposer } from '@/components/MessageComposer';
+import { MessageStagingQueueView } from '@/components/MessageStagingQueueView';
+import { messageStagingQueue, stageSessionMessage } from '@/sync/messageStagingQueueRuntime';
 import type { SessionComposerDirectorySelectorConfig } from '@/components/SessionComposerDirectorySelector';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
@@ -1517,6 +1519,7 @@ function SessionViewLoaded({
     // handleSend reads the live message via the composer ref, so it doesn't
     // need to re-create on every keystroke.
     const sendInFlight = React.useRef(false);
+    const stagedSnapshot = React.useSyncExternalStore(messageStagingQueue.subscribe, messageStagingQueue.getSnapshot, messageStagingQueue.getSnapshot);
     const handleSend = React.useCallback(() => {
         if (sendInFlight.current) return;
         const composer = composerHandleRef.current;
@@ -1526,7 +1529,7 @@ function SessionViewLoaded({
             sendInFlight.current = true;
             void (async () => {
                 try {
-                    await sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
+                    await stageSessionMessage(sessionId, liveMessage, attachments);
                     if (Platform.OS === 'web') setFollowLatestRequest(value => value + 1);
                     if (composerHandleRef.current !== composer) return;
                     if (composer?.getMessage() === liveMessage) composer.clearMessage();
@@ -1694,6 +1697,25 @@ function SessionViewLoaded({
                         <Ionicons color={theme.colors.textLink} name="add" size={18} />
                     </Pressable>
                 </View>
+            </CenteredInputWidth>
+            <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
+                <MessageStagingQueueView
+                    messages={stagedSnapshot.messages.filter(m => m.sessionId === sessionId)}
+                    connected={!isDisconnected}
+                    onSteer={id => { void messageStagingQueue.steer(id); }}
+                    onRemove={messageStagingQueue.remove}
+                    onEdit={message => {
+                        if (composerHandleRef.current?.getMessage().trim() || selectedImages.length) {
+                            Modal.alert(t('messageQueue.title'), t('messageQueue.occupied'));
+                            return;
+                        }
+                        if (!composerHandleRef.current) return;
+                        const recovered = messageStagingQueue.take(message.id);
+                        if (!recovered) return;
+                        composerHandleRef.current.setMessage(recovered.text);
+                        if (recovered.attachments?.length) addImages(recovered.attachments);
+                    }}
+                />
             </CenteredInputWidth>
             {composer}
         </>
