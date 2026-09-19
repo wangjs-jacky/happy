@@ -71,6 +71,11 @@ Paws Web origin：`https://47.115.228.20:8443`。
 
 ## 三、日常开发流程
 
+### Feature 档案（Happy 专用，必须执行）
+
+每次功能开发、Bug 修复与上线，先读 [Feature 开发与上线档案规范](docs/process/feature-records.md)，再读取 Obsidian Happy 项目下 `Features/index.md` 及对应档案。按开始、讨论、设计、实现、测试、上线阶段增量记录，不只在结束时补总结。测试以 Ego 浏览器 E2E 为主（适用 UI 时），同时保留前端设计、给人看的代码导读、问题/决定和本地 JSONL 来源。只约束 Happy，不修改全局 Skill 或其他项目。
+
+
 ```bash
 # 1. 先把根仓库恢复到干净的 main
 git switch main
@@ -530,6 +535,7 @@ git tag cli-vX.Y.Z <发布时的 main tip> && git push origin cli-vX.Y.Z
 
 | 文件 | 主题 | 何时读取 |
 |------|------|----------|
+| Features/index.md | 功能全过程档案、测试和上线追踪 | 每次 Happy 功能开发、修复、验证、上线或接续会话前 |
 | 如何让会话刷新后仍像本地应用一样可读.md | 本地历史库与低流量增量同步 | 修改历史加载、刷新恢复、删除同步或附件持久缓存时 |
 | Happy 手机 E2E 视频验收与 PR 交付 SOP.md | 从需求到手机 MP4、Obsidian 双端同步与 PR 证据的完整验收 SOP | 用户要求手机回归、E2E 录屏、MP4 交付或 PR 携带视频证据时 |
 | Happy 桌面三栏侧边栏交互验收.md | PC Web 左右侧边栏折叠、快捷键、拖拽及中间区约束的视频验收证据 | 回归桌面三栏布局、复跑侧边栏 Playwright Case 或查验录屏时 |
