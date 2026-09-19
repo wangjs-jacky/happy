@@ -8,11 +8,16 @@ import TestRenderer from 'react-test-renderer';
 import { InteractivePreviewCard } from './InteractivePreviewCard';
 
 const mocks = vi.hoisted(() => ({
+    send: vi.fn(async (_session: string, _text: string) => {}),
     copy: vi.fn(async () => undefined),
     open: vi.fn(async () => undefined),
     theme: null as any,
     themes: null as any,
 }));
+
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('@/sync/sync', () => ({ sync: { sendMessage: mocks.send } }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 
 vi.mock('react-native', () => ({
     Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
@@ -31,8 +36,8 @@ vi.mock('@/text', () => ({
         'interactivePreviews.copy': 'Copy preview link',
         'interactivePreviews.expiresAt': 'Expires at',
         'interactivePreviews.title': 'Temporary previews',
-        'interactivePreviews.hostedProvider': 'Cloudflare hosted',
-        'interactivePreviews.tunnelProvider': 'Cloudflare tunnel',
+        'delivery.hosted': 'Cloudflare hosted',
+        'delivery.tunnel': 'Cloudflare tunnel',
         'interactivePreviews.cloudflareProvider': 'Cloudflare',
         'interactivePreviews.sessionLifetime': 'Session lifetime, up to 24 hours',
     })[key] ?? key,
@@ -138,4 +143,14 @@ describe('InteractivePreviewCard', () => {
             act(() => renderer.unmount());
         }
     });
+});
+
+it('requests a one-time tunnel explicitly without writing global preferences', async () => {
+    const tool = preview('failed'); tool.input.mode = 'hosted'; tool.input.errorCode = 'CLOUDFLARE_AUTHORIZATION_FAILED';
+    let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(<InteractivePreviewCard tool={tool} sessionId="isolated-session" metadata={null} messages={[]} />); });
+    await act(async () => { renderer.root.findByProps({ testID: 'interactive-preview-tunnel-once' }).props.onPress(); });
+    expect(mocks.send).toHaveBeenCalledWith('isolated-session', expect.stringContaining('delivery.tunnelOnceRequest'));
+    expect(mocks.send.mock.calls[0]?.[1]).toContain(tool.input.id);
+    act(() => renderer.unmount());
 });

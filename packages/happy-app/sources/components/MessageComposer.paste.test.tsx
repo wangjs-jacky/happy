@@ -1,3 +1,4 @@
+vi.mock('./DeliverySettings', () => ({ DeliveryModeButton: 'DeliveryModeButton' }));
 // @vitest-environment jsdom
 import * as React from 'react';
 import { act } from 'react';

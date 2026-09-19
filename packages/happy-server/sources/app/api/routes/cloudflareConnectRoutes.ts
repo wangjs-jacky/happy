@@ -1,3 +1,4 @@
+import { cloudflareVerificationSchema, cloudflareVerificationStore, classifyCloudflareFailure, type CloudflareVerification } from '@/app/previews/cloudflareVerification';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { type Fastify } from '@/app/api/types';
@@ -7,6 +8,7 @@ import { isPreviewStorageConfigured } from '@/app/previews/previewStorage';
 import { previewService } from '@/app/previews/previewService';
 
 export interface CloudflareConnectDependencies {
+    verification?: typeof cloudflareVerificationStore;
     available(): boolean;
     activeCredential(accountId: string): Promise<CloudflareCredential | null>;
     disconnect(accountId: string): Promise<{ warning?: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' }>;
@@ -14,6 +16,7 @@ export interface CloudflareConnectDependencies {
     verify(token: string, accountId: string, configurationId: string): Promise<{ id: string }>;
 }
 const defaults: CloudflareConnectDependencies = {
+    verification: cloudflareVerificationStore,
     available: isPreviewStorageConfigured,
     activeCredential: accountId => previewService.getActiveCloudflareCredential(accountId),
     disconnect: accountId => previewService.disconnectCloudflare(accountId),
@@ -31,15 +34,40 @@ export function cloudflareConnectRoutes(app: Fastify, dependencies: CloudflareCo
     app.get('/v1/connect/cloudflare/status', {
         preHandler: app.authenticate,
         schema: { response: { 200: z.object({
-            available: z.boolean(), connected: z.boolean(),
+            available: z.boolean(), connected: z.boolean(), verification: cloudflareVerificationSchema.optional(),
             account: z.object({ accountId: z.string(), projectId: z.string().optional() }).optional(),
         }) } },
     }, async (request, reply) => {
         const credential = await dependencies.activeCredential(request.userId);
         return reply.send({
             available: dependencies.available(), connected: credential !== null,
+            ...(credential && dependencies.verification ? { verification: await dependencies.verification.get(request.userId, credential) } : {}),
             ...(credential?.teamId ? { account: { accountId: credential.teamId, projectId: credential.projectId } } : {}),
         });
+    });
+    app.post('/v1/connect/cloudflare/check', {
+        preHandler: app.authenticate,
+        schema: { response: { 200: z.object({ verification: cloudflareVerificationSchema }),
+            409: z.object({ error: z.string() }), 503: z.object({ error: z.string() }) } },
+    }, async (request, reply) => {
+        if (!dependencies.available()) return reply.code(503).send({ error: 'CLOUDFLARE_NOT_CONFIGURED' });
+        const credential = await dependencies.activeCredential(request.userId);
+        if (!credential?.teamId) return reply.code(409).send({ error: 'CLOUDFLARE_NOT_CONNECTED' });
+        const checkedAt = Date.now();
+        let verification: CloudflareVerification;
+        try {
+            await dependencies.verify(credential.accessToken, credential.teamId, credential.configurationId);
+            verification = { state: 'verified', checkedAt };
+        } catch (error) {
+            verification = { state: classifyCloudflareFailure(error), checkedAt };
+        }
+        const current = await dependencies.activeCredential(request.userId);
+        if (!current || current.accessToken !== credential.accessToken || current.connectionEpoch !== credential.connectionEpoch
+            || current.connectionNonce !== credential.connectionNonce || current.configurationId !== credential.configurationId) {
+            return reply.code(409).send({ error: 'CLOUDFLARE_CONNECTION_CHANGED' });
+        }
+        await dependencies.verification?.save(request.userId, credential, verification);
+        return reply.send({ verification });
     });
     app.post('/v1/connect/cloudflare', {
         preHandler: app.authenticate,
@@ -51,16 +79,22 @@ export function cloudflareConnectRoutes(app: Fastify, dependencies: CloudflareCo
     }, async (request, reply) => {
         if (!dependencies.available()) return reply.code(503).send({ error: 'CLOUDFLARE_NOT_CONFIGURED' });
         const configurationId = createHash('sha256').update(`paws-pages:${request.userId}:${request.body.accountId}`).digest('hex');
+        const checkedAt = Date.now();
         try {
             const project = await dependencies.verify(request.body.apiToken, request.body.accountId, configurationId);
             const current = await dependencies.activeCredential(request.userId);
             if (current?.accessToken === request.body.apiToken && current.teamId === request.body.accountId
                 && current.configurationId === configurationId && current.projectId === project.id) {
+                await dependencies.verification?.save(request.userId, current, { state: 'verified', checkedAt });
                 return reply.send({ success: true as const });
             }
             await dependencies.reconnect(request.userId, {
                 version: 1, accessToken: request.body.apiToken, teamId: request.body.accountId, configurationId, projectId: project.id,
             });
+            const connected = await dependencies.activeCredential(request.userId);
+            if (connected?.accessToken === request.body.apiToken && connected.teamId === request.body.accountId) {
+                await dependencies.verification?.save(request.userId, connected, { state: 'verified', checkedAt });
+            }
             return reply.send({ success: true as const });
         } catch (error) {
             if (error instanceof CloudflareApiError && [400, 401, 403].includes(error.status)) {

@@ -23,6 +23,8 @@ vi.mock('expo-updates', () => ({
 }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: {} }) }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
+// Delivery settings are covered separately; this harness isolates settings navigation.
+vi.mock('@/components/DeliverySettings', () => ({ DeliverySettingsRows: () => null }));
 vi.mock('@/components/Item', () => ({ Item: 'Item' }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: 'ItemGroup' }));
 vi.mock('@/components/ItemList', () => ({ ItemList: 'ItemList' }));

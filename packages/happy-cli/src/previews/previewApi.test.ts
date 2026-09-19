@@ -35,3 +35,13 @@ describe('publishPreviewWorkspace', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 });
+
+it('surfaces only the safe provider authorization classification', async () => {
+    const fetchImpl = async (url: string) => url.endsWith('/status')
+        ? new Response(JSON.stringify({ available: true, connected: true }))
+        : new Response(JSON.stringify({ error: 'CLOUDFLARE_AUTHORIZATION_FAILED', details: 'private-token' }), { status: 502 });
+    const attempt = publishPreviewWorkspace({ serverUrl: 'https://happy.test', token: 'happy', sessionId: 'session',
+        workspace: { manifest: { previewId: '11111111-1111-4111-8111-111111111111' } } as any, fetchImpl });
+    await expect(attempt).rejects.toThrow('Cloudflare authorization failed');
+    await expect(attempt).rejects.not.toThrow('private-token');
+});

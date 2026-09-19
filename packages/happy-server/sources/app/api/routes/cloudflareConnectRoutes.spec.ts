@@ -56,3 +56,40 @@ describe('Cloudflare connection', () => {
         } finally { await app.close(); }
     });
 });
+
+describe('Cloudflare connection check', () => {
+    const credential = { version: 1 as const, accessToken: 'secret', configurationId: 'config', teamId: 'a'.repeat(32), connectionEpoch: 1 };
+    it.each([[401, 'authorization_error'], [403, 'authorization_error'], [429, 'unavailable'], [503, 'unavailable']] as const)('classifies %s without leaking provider details', async (status, state) => {
+        const save = vi.fn(async () => {});
+        const { app } = await setup({ activeCredential: vi.fn(async () => credential),
+            verify: vi.fn(async () => { throw new CloudflareApiError('secret-provider-detail', status); }),
+            verification: { save, get: vi.fn() } });
+        try {
+            const result = await app.inject({ method: 'POST', url: '/v1/connect/cloudflare/check', headers: { 'x-user-id': 'u1' } });
+            expect(result.statusCode).toBe(200);
+            expect(result.json().verification.state).toBe(state);
+            expect(result.body).not.toContain('secret');
+            expect(save).toHaveBeenCalledWith('u1', credential, expect.objectContaining({ state }));
+        } finally { await app.close(); }
+    });
+    it('does not probe without authentication and rejects a replaced credential', async () => {
+        const read = vi.fn().mockResolvedValueOnce(credential).mockResolvedValue({ ...credential, accessToken: 'replacement', connectionEpoch: 2 });
+        const save = vi.fn(async () => {});
+        const { app, dependencies } = await setup({ activeCredential: read, verification: { save, get: vi.fn() } });
+        try {
+            expect((await app.inject({ method: 'POST', url: '/v1/connect/cloudflare/check' })).statusCode).toBe(401);
+            expect(dependencies.verify).not.toHaveBeenCalled();
+            const response = await app.inject({ method: 'POST', url: '/v1/connect/cloudflare/check', headers: { 'x-user-id': 'u1' } });
+            expect(response.statusCode).toBe(409);
+            expect(save).not.toHaveBeenCalled();
+        } finally { await app.close(); }
+    });
+    it('returns shared evidence without a new provider request on GET', async () => {
+        const { app, dependencies } = await setup({ activeCredential: vi.fn(async () => credential), verification: { save: vi.fn(), get: vi.fn(async () => ({ state: 'verified' as const, checkedAt: 123 })) } });
+        try {
+            const result = await app.inject({ method: 'GET', url: '/v1/connect/cloudflare/status', headers: { 'x-user-id': 'u1' } });
+            expect(result.json().verification).toEqual({ state: 'verified', checkedAt: 123 });
+            expect(dependencies.verify).not.toHaveBeenCalled();
+        } finally { await app.close(); }
+    });
+});

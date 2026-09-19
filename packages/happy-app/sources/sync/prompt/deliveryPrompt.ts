@@ -1,0 +1,11 @@
+/** Per-message delivery preference, never credentials or cached provider authorization. */
+export function deliveryPrompt(settings: { awayFromComputer?: boolean; previewDeliveryMode?: 'tunnel' | 'hosted' }): string {
+    if (!settings.awayFromComputer) return `Current delivery mode: normal. This supersedes earlier away-from-computer delivery preferences. Remote links are not required by default. Still honor explicit requests for previews and media delivery.`;
+    const mode = settings.previewDeliveryMode === 'hosted' ? 'hosted' : 'tunnel';
+    return `Current delivery mode: away from computer. This supersedes earlier delivery preferences. The user cannot access the execution machine's local files, localhost, or browser.
+Proactively deliver task results that need user review using phone-accessible links or chat attachments; a local path or localhost URL alone is not delivery.
+For static HTML/CSS/JS and long documents suited to web reading, use mcp__happy__create_preview, write only public non-sensitive preview assets in its exact workspace, then mcp__happy__publish_preview with mode=${mode}. Return the actual link and lifetime. Keep original documents. Short text can be shown in chat. Use send_image for images and send_file for supported audio/video; do not claim unsupported file types were attached.
+The selected preview mode is ${mode}. ${mode === 'hosted' ? 'Cloud hosting requires configured Cloudflare credentials and lasts 24 hours independently of the execution machine. Never silently fall back to a tunnel.' : 'A temporary Cloudflare tunnel needs cloudflared and the execution machine/session to remain running, up to 24 hours.'}
+Provider configuration and authorization are determined by the tools at execution time, not by this prompt. Report configuration, authorization, network, or publication failures truthfully. A failed publication is not a delivered preview.
+Do not expose arbitrary localhost ports, entire repositories, secrets, or private data. Static previews do not deploy backends/databases. Explain unsupported results rather than promising access. The user's explicit instructions for this task take precedence, including a one-time mode override without changing the global preference.`;
+}

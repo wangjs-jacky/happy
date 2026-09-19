@@ -1,3 +1,6 @@
+import { useRouter } from 'expo-router';
+import { sync } from '@/sync/sync';
+import { useHappyAction } from '@/hooks/useHappyAction';
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,8 +21,15 @@ function safePreviewUrl(value: unknown): string | null {
     }
 }
 
-export const InteractivePreviewCard = React.memo(function InteractivePreviewCard({ tool }: ToolViewProps) {
+export const InteractivePreviewCard = React.memo(function InteractivePreviewCard({ tool, sessionId }: ToolViewProps) {
     const { theme } = useUnistyles();
+    const router = useRouter();
+    const [sending, retry] = useHappyAction(async (tunnelOnce: boolean) => {
+        if (!sessionId) return;
+        const result = interactivePreviewEventSchema.safeParse(tool.input);
+        if (!result.success) return;
+        await sync.sendMessage(sessionId, `${t(tunnelOnce ? 'delivery.tunnelOnceRequest' : 'delivery.retryRequest')}\nRequested mode=${tunnelOnce ? 'tunnel' : result.data.mode ?? 'tunnel'} (this request only; preserve the global preference). Preview: ${result.data.title} (${result.data.id}). If expired or switching mode, create a new managed workspace. Otherwise retry the existing preview.`);
+    });
     const parsed = interactivePreviewEventSchema.safeParse(tool.input);
     const expiresAt = parsed.success ? parsed.data.expiresAt : undefined;
     const [now, setNow] = React.useState(Date.now());
@@ -46,7 +56,7 @@ export const InteractivePreviewCard = React.memo(function InteractivePreviewCard
                 <View style={[styles.icon, { backgroundColor: theme.colors.surface }]}><Ionicons color={theme.colors.text} name="desktop-outline" size={18} /></View>
                 <View style={styles.copy}>
                     <Text numberOfLines={1} style={[styles.title, { color: theme.colors.text }]}>{preview.title}</Text>
-                    <Text style={[styles.provider, { color: theme.colors.textSecondary }]}>{t(preview.mode === 'hosted' ? 'interactivePreviews.hostedProvider' : preview.provider === 'cloudflare' ? 'interactivePreviews.tunnelProvider' : 'interactivePreviews.title')}</Text>
+                    <Text style={[styles.provider, { color: theme.colors.textSecondary }]}>{t(preview.mode === 'hosted' ? 'delivery.hosted' : preview.provider === 'cloudflare' ? 'delivery.tunnel' : 'interactivePreviews.title')}</Text>
                     <Text style={[styles.status, { color: theme.colors.textSecondary }]}>{label}</Text>
                 </View>
             </View>
@@ -70,6 +80,20 @@ export const InteractivePreviewCard = React.memo(function InteractivePreviewCard
                     testID="interactive-preview-copy"
                 ><Ionicons color={theme.colors.text} name="copy-outline" size={16} /></Pressable>
             </View> : null}
+            {state === 'failed' ? <Text style={[styles.status, { color: theme.colors.textSecondary }]}>{t(preview.errorCode === 'CLOUDFLARE_AUTHORIZATION_FAILED' ? 'delivery.publicationAuthError' : preview.errorCode === 'CLOUDFLARED_MISSING' ? 'delivery.tunnelMissing' : preview.errorCode === 'CLOUDFLARE_NOT_CONNECTED' ? 'delivery.hostingUnconfigured' : 'delivery.publicationFailed')}</Text> : null}
+            {state === 'failed' || state === 'expired' ? <View style={styles.recovery}>
+                {preview.mode === 'hosted' ? <Pressable accessibilityRole="button" onPress={() => router.push('/settings/temporary-previews')} style={({ pressed }) => [styles.recoveryButton, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}>
+                    <Text style={{ color: theme.colors.text }}>{t('delivery.configure')}</Text>
+                </Pressable> : null}
+                {sessionId ? <>
+                    <Pressable testID="interactive-preview-retry" disabled={sending} accessibilityRole="button" onPress={() => retry(false)} style={({ pressed }) => [styles.recoveryButton, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}>
+                        <Text style={{ color: theme.colors.text }}>{t('delivery.retryPublication')}</Text>
+                    </Pressable>
+                    {preview.mode === 'hosted' ? <Pressable testID="interactive-preview-tunnel-once" disabled={sending} accessibilityRole="button" onPress={() => retry(true)} style={({ pressed }) => [styles.recoveryButton, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}>
+                        <Text style={{ color: theme.colors.text }}>{t('delivery.useTunnelOnce')}</Text>
+                    </Pressable> : null}
+                </> : null}
+            </View> : null}
             {preview.provider === 'cloudflare' && preview.mode !== 'hosted' ? <Text style={[styles.expiry, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.sessionLifetime')}</Text> : null}
             {preview.expiresAt ? <Text style={[styles.expiry, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.expiresAt')} {new Date(preview.expiresAt).toLocaleString()}</Text> : null}
         </View>
@@ -77,6 +101,8 @@ export const InteractivePreviewCard = React.memo(function InteractivePreviewCard
 });
 
 const styles = StyleSheet.create(() => ({
+    recovery: { gap: 8 },
+    recoveryButton: { padding: 12, minHeight: 44, borderRadius: 9, justifyContent: 'center' },
     card: { borderRadius: 12, borderWidth: 1, gap: 12, padding: 14 },
     titleRow: { alignItems: 'center', flexDirection: 'row', gap: 10 }, icon: { alignItems: 'center', borderRadius: 9, height: 36, justifyContent: 'center', width: 36 }, copy: { flex: 1 },
     title: { fontSize: 15, fontWeight: '700' }, provider: { fontSize: 11, marginTop: 1 }, status: { fontSize: 12, marginTop: 2 }, actions: { flexDirection: 'row', gap: 8 },

@@ -93,6 +93,8 @@ export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
 
+    awayFromComputer: z.boolean(),
+    previewDeliveryMode: z.enum(['tunnel', 'hosted']),
     customInstructions: z.string().describe('User-defined instructions appended to the system prompt of every message'),
     viewInline: z.boolean().describe('Whether to view inline tool calls'),
     inferenceOpenAIKey: z.string().nullish().describe('OpenAI API key for inference'),
@@ -176,6 +178,8 @@ export type QuickPrompt = z.infer<typeof QuickPromptSchema>;
 
 export const settingsDefaults: Settings = {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    awayFromComputer: false,
+    previewDeliveryMode: 'tunnel',
     customInstructions: '',
     viewInline: false,
     inferenceOpenAIKey: null,

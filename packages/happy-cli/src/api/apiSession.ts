@@ -1,3 +1,4 @@
+import { interactivePreviewEventSchema } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
 import { readFile, stat, unlink } from 'node:fs/promises'
@@ -858,14 +859,32 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     async publishInteractivePreview(workspace: ResolvedPreviewWorkspace) {
-        const preview = await publishPreviewWorkspace({
-            serverUrl: configuration.serverUrl,
-            token: this.token,
-            sessionId: this.sessionId,
-            workspace,
-        });
-        this.reportInteractivePreview(preview);
-        return preview;
+        try {
+            const preview = await publishPreviewWorkspace({
+                serverUrl: configuration.serverUrl,
+                token: this.token,
+                sessionId: this.sessionId,
+                workspace,
+            });
+            this.reportInteractivePreview(preview);
+            return preview;
+        } catch (error) {
+            // The server may be reconciling an ambiguous deployment. Report its
+            // persisted state instead of inventing a terminal failure locally.
+            try {
+                const response = await fetch(`${configuration.serverUrl.replace(/\/$/, '')}/v1/sessions/${encodeURIComponent(this.sessionId)}/previews`, {
+                    headers: { Authorization: `Bearer ${this.token}` }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+                });
+                if (response.ok) {
+                    const body = await response.json() as { previews?: unknown[] };
+                    for (const candidate of body.previews ?? []) {
+                        const parsed = interactivePreviewEventSchema.safeParse(candidate);
+                        if (parsed.success && parsed.data.id === workspace.manifest.previewId) this.reportInteractivePreview(parsed.data);
+                    }
+                }
+            } catch { /* Keep the original publication error if status cannot be read. */ }
+            throw error;
+        }
     }
 
     /**

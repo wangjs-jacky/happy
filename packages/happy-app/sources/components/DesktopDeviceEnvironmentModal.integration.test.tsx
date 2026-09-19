@@ -68,6 +68,8 @@ vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async (
 vi.mock('expo-secure-store', () => ({ getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: {} }) }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
+// Delivery settings are covered separately; this harness isolates settings navigation.
+vi.mock('@/components/DeliverySettings', () => ({ DeliverySettingsRows: () => null }));
 vi.mock('@/components/Item', () => ({ Item: 'Item' }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: 'ItemGroup' }));
 vi.mock('@/components/ItemList', () => ({ ItemList: 'ItemList' }));

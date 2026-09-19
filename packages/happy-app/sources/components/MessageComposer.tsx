@@ -1,3 +1,4 @@
+import { DeliveryModeButton } from './DeliverySettings';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import * as React from 'react';
 import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable } from 'react-native';
@@ -892,6 +893,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                     <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
                                 )}
 
+                                <DeliveryModeButton />
                                 </View>}
 
                                 {/* Right cluster: image picker + send (image sits at far right, next to send) */}

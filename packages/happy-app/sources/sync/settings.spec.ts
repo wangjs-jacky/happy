@@ -12,6 +12,16 @@ import {
 } from './settings';
 
 describe('settings', () => {
+    it('preserves phone delivery preferences through unrelated edits and sync serialization', () => {
+        const enabled = applySettings(settingsParse({}), { awayFromComputer: true, previewDeliveryMode: 'hosted' });
+        const edited = applySettings(enabled, { viewInline: true });
+        const restored = settingsParse(settingsToSyncPayload(edited));
+        expect(restored.awayFromComputer).toBe(true);
+        expect(restored.previewDeliveryMode).toBe('hosted');
+        expect(settingsParse({}).awayFromComputer).toBe(false);
+        expect(settingsParse({}).previewDeliveryMode).toBe('tunnel');
+    });
+
     describe('settingsParse', () => {
         it('should return defaults when given invalid input', () => {
             expect(settingsParse(null)).toEqual(settingsDefaults);
@@ -331,6 +341,8 @@ describe('settings', () => {
             expect(settingsDefaults).toEqual({
                 schemaVersion: 2,
                 customInstructions: '',
+                awayFromComputer: false,
+                previewDeliveryMode: 'tunnel',
                 viewInline: false,
                 expandTodos: true,
                 showLineNumbers: true,

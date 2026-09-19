@@ -2,7 +2,10 @@ import type { AuthCredentials } from '@/auth/tokenStorage';
 import { getHappyClientId } from './apiSocket';
 import { getServerUrl } from './serverConfig';
 
+export type CloudflareVerification = { state: 'verified' | 'authorization_error' | 'unavailable'; checkedAt: number; source?: 'check' | 'publication' };
+
 export type CloudflarePreviewStatus = {
+    verification?: CloudflareVerification;
     available: boolean;
     connected: boolean;
     account?: { accountId?: string; teamName?: string; projectId?: string };
@@ -50,6 +53,7 @@ function isStatus(value: unknown): value is CloudflarePreviewStatus {
     if (!value || typeof value !== 'object') return false;
     const status = value as Record<string, unknown>;
     if (typeof status.available !== 'boolean' || typeof status.connected !== 'boolean') return false;
+    if (status.verification !== undefined && !isVerification(status.verification)) return false;
     if (status.account === undefined) return true;
     if (!status.account || typeof status.account !== 'object') return false;
     return ['accountId', 'teamName', 'projectId'].every((key) => {
@@ -92,4 +96,20 @@ export async function disconnectCloudflarePreview(credentials: AuthCredentials):
     return (value as { warning?: unknown }).warning === 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING'
         ? { warning: 'CLOUDFLARE_DEPLOYMENT_CLEANUP_PENDING' }
         : {};
+}
+
+function isVerification(value: unknown): value is CloudflareVerification {
+    if (!value || typeof value !== 'object') return false;
+    const result = value as Record<string, unknown>;
+    return (result.source === undefined || result.source === 'check' || result.source === 'publication')
+        && ['verified', 'authorization_error', 'unavailable'].includes(result.state as string)
+        && typeof result.checkedAt === 'number' && Number.isSafeInteger(result.checkedAt) && result.checkedAt >= 0;
+}
+
+export async function checkCloudflarePreview(credentials: AuthCredentials): Promise<CloudflareVerification> {
+    const response = await request(credentials, '/v1/connect/cloudflare/check', { method: 'POST' });
+    if (!response.ok) throw errorForResponse(response);
+    const value = await response.json().catch(() => null);
+    if (!isVerification(value?.verification)) throw new CloudflarePreviewApiError('server', 'Invalid verification response.');
+    return value.verification;
 }

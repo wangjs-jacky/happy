@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./serverConfig', () => ({ getServerUrl: vi.fn(() => 'https://happy.test') }));
 vi.mock('./apiSocket', () => ({ getHappyClientId: () => 'web-test' }));
-import { connectCloudflarePreview, disconnectCloudflarePreview, getCloudflarePreviewStatus } from './apiInteractivePreviews';
+import { checkCloudflarePreview, connectCloudflarePreview, disconnectCloudflarePreview, getCloudflarePreviewStatus } from './apiInteractivePreviews';
 import { getServerUrl } from './serverConfig';
 
 describe('Cloudflare preview API', () => {
@@ -38,4 +38,17 @@ describe('Cloudflare preview API', () => {
         vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ url: 'javascript:alert(1)' }))));
         await expect(connectCloudflarePreview({ token: 'token' } as any, 'account', 'token')).rejects.toMatchObject({ kind: 'server' });
     });
+});
+
+it('checks through Happy without sending Cloudflare credentials from the client', async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ verification: { state: 'authorization_error', checkedAt: 100 } })));
+    vi.stubGlobal('fetch', request);
+    await expect(checkCloudflarePreview({ token: 'happy-token' } as any)).resolves.toEqual({ state: 'authorization_error', checkedAt: 100 });
+    expect(request).toHaveBeenCalledWith('https://happy.test/v1/connect/cloudflare/check', expect.objectContaining({ method: 'POST' }));
+    vi.unstubAllGlobals();
+});
+it('rejects malformed verification evidence instead of displaying success', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ available: true, connected: true, verification: { state: 'verified', checkedAt: 'yesterday' } }))));
+    await expect(getCloudflarePreviewStatus({ token: 'token' } as any)).rejects.toMatchObject({ kind: 'server' });
+    vi.unstubAllGlobals();
 });
