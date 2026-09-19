@@ -17,6 +17,7 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHans: TranslationStructure = {
+    messageQueue: { title: '待发送', hint: '当前任务结束后逐条发送；请保持本机 Paws 打开。', steer: '提前引导', steerHint: '中断当前任务，优先发送这条消息', sending: '发送中…', failed: '发送失败或结果待确认，请先检查聊天记录再重试。', attachments: '附件', edit: '取回编辑', occupied: '请先发送或清空输入框中的草稿，再取回排队消息。' },
     accounts: {
         attachmentWarning: "切换账号会重新加载。文字草稿将保留，但尚未发送的附件需要重新选择。是否继续？",
         title: "Paws 账号",
