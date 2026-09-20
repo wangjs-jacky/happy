@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { CodexAccountProfile, CodexQuotaSnapshot, Machine, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { db } from '@/storage/db';
@@ -197,9 +198,18 @@ export const codexAccountStore = {
     async updateCredential(accountId: string, id: string, input: UpdateCodexCredentialRequest) {
         return transaction(accountId, async (tx) => {
             const profile = await ownedProfile(tx, accountId, id);
-            const launch = await tx.codexSessionGrant.findFirst({ where: { id: input.launchId, accountId, machineId: input.machineId, codexAccountProfileId: id, redeemedAt: { not: null }, lastCredentialVersion: input.expectedVersion } });
+            const launch = await tx.codexSessionGrant.findFirst({ where: { id: input.launchId, accountId, machineId: input.machineId, codexAccountProfileId: id, redeemedAt: { not: null } } });
             if (!launch) return fail(409, 'credential-version-conflict');
             await ownedMachine(tx, accountId, input.machineId);
+            // A committed write may lose its response. Only acknowledge the exact
+            // current credential committed by this launch; never advance a stale writer.
+            if (launch.lastCredentialVersion === input.expectedVersion + 1
+                && launch.credentialVersion <= input.expectedVersion
+                && profile.credentialVersion === launch.lastCredentialVersion
+                && isDeepStrictEqual(JSON.parse(decryptString(path(accountId, id), profile.credential)), input.auth)) {
+                return { profile: profileView(profile) };
+            }
+            if (launch.lastCredentialVersion !== input.expectedVersion) return fail(409, 'credential-version-conflict');
             if (fingerprint(accountId, input.auth) !== profile.externalAccountFingerprint) return fail(400, 'credential-identity-mismatch');
             const changed = await tx.codexAccountProfile.updateMany({ where: { id, accountId, credentialVersion: input.expectedVersion }, data: { credential: encryptString(path(accountId, id), JSON.stringify(input.auth)), credentialVersion: { increment: 1 }, status: 'available', lastValidatedAt: new Date() } });
             if (changed.count !== 1) return fail(409, 'credential-version-conflict');

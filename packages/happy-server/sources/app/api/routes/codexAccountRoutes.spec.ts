@@ -188,12 +188,50 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         const { profile, launchId } = await launch();
         const update = (expectedVersion: number, auth = fakeAuth()) => request('PUT', `/v1/codex-accounts/${profile.id}/credential`, { machineId, launchId, expectedVersion, auth });
         expect((await update(1, fakeAuth('wrong-profile'))).statusCode).toBe(400);
-        const [a, b] = await Promise.all([update(1), update(1)]);
+        const [a, b] = await Promise.all([update(1), update(1, { ...fakeAuth(), tokens: { ...fakeAuth().tokens, refresh_token: 'competing-refresh' } })]);
         expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
         expect((await update(2)).statusCode).toBe(200);
         const row = await (state.database as any).codexSessionGrant.findUnique({ where: { id: launchId } });
         expect(row.credentialVersion).toBe(1);
         expect(row.lastCredentialVersion).toBe(3);
+    });
+
+    it('acknowledges an identical committed refresh retry without rotating the version or duplicating its audit', async () => {
+        const { profile, launchId } = await launch();
+        const auth = { ...fakeAuth(), tokens: { ...fakeAuth().tokens, refresh_token: 'rotated-refresh' } };
+        const body = { machineId, launchId, expectedVersion: 1, auth };
+        const url = `/v1/codex-accounts/${profile.id}/credential`;
+        expect((await request('PUT', url, body)).statusCode).toBe(200);
+        const laterLaunch = await redeem((await issue()).grant);
+        expect((await request('PUT', url, { ...body, launchId: laterLaunch.json().launchId })).statusCode).toBe(409);
+        const before = await state.database.codexAccountProfile.findUniqueOrThrow({ where: { id: profile.id } });
+        for (let i = 0; i < 2; i++) {
+            const retry = await request('PUT', url, body);
+            expect(retry.statusCode, retry.body).toBe(200);
+            expect(retry.json().profile.credentialVersion).toBe(2);
+            expect(retry.body).not.toContain('rotated-refresh');
+        }
+        expect(await state.database.codexAccountProfile.findUniqueOrThrow({ where: { id: profile.id } })).toEqual(before);
+        expect(await state.database.codexAccountAudit.count({ where: { accountId, action: 'credential-refresh' } })).toBe(1);
+        expect((await request('PUT', url, { ...body, expectedVersion: 2, auth: { ...auth, tokens: { ...auth.tokens, refresh_token: 'next-generation' } } })).statusCode).toBe(200);
+        expect((await request('PUT', url, body)).statusCode).toBe(409);
+    });
+
+    it('does not acknowledge a retry from another launch or with different credentials', async () => {
+        const { profile, launchId } = await launch();
+        const other = await redeem((await issue()).grant);
+        const auth = { ...fakeAuth(), tokens: { ...fakeAuth().tokens, refresh_token: 'committed-refresh' } };
+        const body = { machineId, launchId, expectedVersion: 1, auth };
+        const url = `/v1/codex-accounts/${profile.id}/credential`;
+        expect((await request('PUT', url, body)).statusCode).toBe(200);
+        for (const override of [
+            { launchId: other.json().launchId },
+            { machineId: 'wrong-machine' },
+            { auth: fakeAuth() },
+            { auth: { ...auth, tokens: { ...auth.tokens, access_token: 'different-access' } } },
+        ]) expect((await request('PUT', url, { ...body, ...override })).statusCode).toBe(409);
+        expect((await request('POST', '/v1/codex-accounts/upload', { auth })).statusCode).toBe(200);
+        expect((await request('PUT', url, body)).statusCode).toBe(409);
     });
 
     it('accepts only newer quota observations attributed to the redeemed and registered session', async () => {
