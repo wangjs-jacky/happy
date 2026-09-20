@@ -260,6 +260,16 @@ export const codexAccountStore = {
                 return { result: { accessToken: auth.tokens.access_token, chatgptAccountId: auth.tokens.account_id,
                     chatgptPlanType: null, credentialVersion: profile.credentialVersion } } as const;
             }
+            // Operationally restoring valid access must never authorize replaying
+            // a refresh token whose previous outcome was uncertain or rejected.
+            const unresolved = await tx.codexAccountAudit.findFirst({ where: { accountId, profileId: id,
+                credentialVersion: profile.credentialVersion,
+                action: { in: ['credential-refresh-uncertain', 'credential-refresh-rejected'] },
+            } });
+            if (unresolved) {
+                await tx.codexAccountProfile.update({ where: { id }, data: { status: 'needs-refresh' } });
+                return { error: 'credential-needs-refresh' } as const;
+            }
             // Commit intent BEFORE consuming an upstream single-use token. A crash is not permission to retry it.
             const intent = await tx.codexAccountAudit.create({ data: { accountId, profileId: id, machineId: input.machineId,
                 credentialVersion: profile.credentialVersion, action: 'credential-refresh-started' } });

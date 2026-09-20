@@ -237,6 +237,23 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         } finally { laterExpiry.mockRestore(); }
     });
 
+    it('allows restored access use but never reconsumes an uncertain generation after operational reopening', async () => {
+        const { profile, launchId } = await launch();
+        const auth = fakeAuth();
+        auth.tokens.access_token = `e30.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.sig`;
+        await state.database.codexAccountProfile.update({ where: { id: profile.id }, data: {
+            status: 'available', credential: encryptString(['user', accountId, 'codex-accounts', profile.id, 'credential'], JSON.stringify(auth)),
+        } });
+        await state.database.codexAccountAudit.create({ data: { accountId, profileId: profile.id, machineId, credentialVersion: 1, action: 'credential-refresh-uncertain' } });
+        const next = await issue();
+        expect((await redeem(next.grant)).statusCode).toBe(200);
+        const get = (forceRefresh: boolean) => request('POST', `/v1/codex-accounts/${profile.id}/access-token`, { machineId, launchId, previousVersion: 1, forceRefresh });
+        expect((await get(false)).statusCode).toBe(200);
+        expect((await get(true)).statusCode).toBe(409);
+        expect(refreshCodexOAuth).not.toHaveBeenCalled();
+        expect(await state.database.codexAccountAudit.count({ where: { profileId: profile.id, action: 'credential-refresh-started' } })).toBe(0);
+    });
+
     it('denies access-token reads using another machine or unredeemed launch', async () => {
         const { profile, launchId } = await launch();
         const res = await request('POST', `/v1/codex-accounts/${profile.id}/access-token`, {
