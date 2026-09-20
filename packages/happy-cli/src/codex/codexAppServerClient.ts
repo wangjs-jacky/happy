@@ -1760,6 +1760,7 @@ export class CodexAppServerClient {
      * Returns when task_complete or turn_aborted is received.
      */
     async sendTurn(prompt: string, opts?: {
+        onTurnAccepted?: (turnId: string) => void;
         model?: string;
         cwd?: string;
         approvalPolicy?: ApprovalPolicy;
@@ -1813,6 +1814,7 @@ export class CodexAppServerClient {
             const resolvedTurnId = typeof turnId === 'string' && turnId.length > 0 ? turnId : null;
             this.settlePawsTurnStart(resolvedTurnId, true);
             if (resolvedTurnId) {
+                opts?.onTurnAccepted?.(resolvedTurnId);
                 if (this.pendingTurnCompletion) {
                     this.pendingTurnCompletion.turnId = resolvedTurnId;
                 }
@@ -1835,6 +1837,7 @@ export class CodexAppServerClient {
      * Returns { aborted: true } if the turn was aborted (user cancel, permission reject, etc.).
      */
     async sendTurnAndWait(prompt: string, opts?: {
+        onTurnAccepted?: (turnId: string) => void;
         model?: string;
         cwd?: string;
         approvalPolicy?: ApprovalPolicy;

@@ -14,6 +14,7 @@ async function checkpointFixture() {
   const auth = { tokens: { id_token: 'synthetic-id', access_token: 'synthetic-access', refresh_token: 'refresh-v1', account_id: 'synthetic-account' } };
   let version = 1;
   let savedAuth = auth;
+  let status = "available";
   const acceptedVersions: number[] = [];
   const api: AccountApi = {
     redeemCodexSessionGrant: async () => ({ auth, launchId: 'launch-a', profile: { id: 'profile-a', displayName: 'Work', credentialVersion: 1 } }),
@@ -25,12 +26,16 @@ async function checkpointFixture() {
       return { profile: { id: 'profile-a', displayName: 'Work', status: 'available', credentialVersion: version } };
     },
     reportCodexAccountQuota: async () => ({ accepted: true }),
-    reportCodexAccountStatus: async () => ({ profile: { id: 'profile-a', displayName: 'Work', status: 'needs-refresh', credentialVersion: version } }),
+    reportCodexAccountStatus: async (_profileId, input) => {
+      if (input.credentialVersion !== version || input.launchId !== 'launch-a' || input.machineId !== 'machine-a') throw new CodexAccountRequestError('status-attribution-mismatch');
+      status = input.status;
+      return { profile: { id: 'profile-a', displayName: 'Work', status: input.status, credentialVersion: version } };
+    },
   };
   const launch = await CodexAccountLaunch.prepare(api, 'machine-a', 'g'.repeat(43), { sourceHome: root, historyRoot: join(root, 'cache') });
   dirs.push(launch.home);
   await launch.attach('session-a');
-  return { api, auth, launch, acceptedVersions, getVersion: () => version, getSavedAuth: () => savedAuth };
+  return { api, auth, launch, acceptedVersions, getVersion: () => version, getStatus: () => status, getSavedAuth: () => savedAuth };
 }
 
 function pauseFirstCheckpointRead() {
@@ -48,6 +53,55 @@ function pauseFirstCheckpointRead() {
 }
 
 describe('Codex worker account lifecycle', () => {
+  it('marks an explicitly revoked login as needing refresh even while its daemon is alive', async () => {
+    const f = await checkpointFixture();
+    const worker = startCodexAccountWorkerObserver(f.api, f.launch.home);
+    await worker.prepareTurn();
+    await worker.bindTurn('turn-a');
+    await worker.handleEvent({ type: 'task_complete', turn_id: 'turn-a', status: 'failed', error: { message: 'Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.', codexErrorInfo: 'unauthorized' } });
+    expect(f.getStatus()).toBe('needs-refresh');
+    expect(f.getVersion()).toBe(1);
+    expect((await stat(join(f.launch.home, 'auth.json'))).isFile()).toBe(true);
+    await worker.finish(); await f.launch.finish();
+  });
+
+  it('reports a fast rejected turn even when completion arrives without a started event', async () => {
+    const f = await checkpointFixture();
+    const worker = startCodexAccountWorkerObserver(f.api, f.launch.home);
+    await worker.prepareTurn();
+    await worker.handleEvent({ type: 'task_complete', turn_id: 'fast-turn', status: 'failed', error: { message: 'Your refresh token was revoked.' } });
+    expect(f.getStatus()).toBe('available');
+    await worker.bindTurn('fast-turn');
+    expect(f.getStatus()).toBe('needs-refresh');
+    await worker.finish(); await f.launch.finish();
+  });
+
+  it('ignores an old completion drained before the new turn is identified', async () => {
+    const f = await checkpointFixture();
+    const worker = startCodexAccountWorkerObserver(f.api, f.launch.home);
+    await worker.prepareTurn();
+    await worker.handleEvent({ type: 'task_complete', turn_id: 'old-turn', status: 'failed', error: { message: 'Your refresh token was revoked.' } });
+    await worker.bindTurn('new-turn');
+    expect(f.getStatus()).toBe('available');
+    await worker.handleEvent({ type: 'task_complete', turn_id: 'new-turn', status: 'failed', error: { message: 'Your refresh token was revoked.' } });
+    expect(f.getStatus()).toBe('needs-refresh');
+    await worker.finish(); await f.launch.finish();
+  });
+
+  it.each(['normal-error', 'new-credential', 'different-turn'])('does not quarantine a login for %s', async (scenario) => {
+    const f = await checkpointFixture();
+    const worker = startCodexAccountWorkerObserver(f.api, f.launch.home);
+    await worker.prepareTurn();
+    await worker.bindTurn('turn-a');
+    if (scenario === 'new-credential') {
+      await writeFile(join(f.launch.home, 'auth.json'), JSON.stringify({ tokens: { ...f.auth.tokens, refresh_token: 'refresh-v2' } }));
+      await f.launch.sync();
+    }
+    await worker.handleEvent({ type: 'task_complete', turn_id: scenario === 'different-turn' ? 'turn-old' : 'turn-a', status: 'failed', error: { message: scenario === 'normal-error' ? 'Upstream request timed out' : 'Your refresh token was revoked.', codexErrorInfo: 'unauthorized' } });
+    expect(f.getStatus()).toBe('available');
+    await worker.finish(); await f.launch.finish();
+  });
+
   it('rereads the final checkpoint after daemon death before cadence CAS and later exit flush', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const f = await checkpointFixture();

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readCodexAccountAuth } from './codexAccountAuth';
 import { readFile, lstat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { retainCodexAccountHistory } from './codexAccountHistory';
@@ -21,8 +23,38 @@ async function recoverOrphanedObserver(home: string | undefined, api: AccountApi
 }
 
 /** Survives daemon replacement because the observer runs in the session worker. */
-export function startCodexAccountWorkerObserver(api: AccountApi, home = process.env.CODEX_HOME): { finish(): Promise<void> } {
+export function startCodexAccountWorkerObserver(api: AccountApi, home = process.env.CODEX_HOME): { finish(): Promise<void>; prepareTurn(): Promise<void>; bindTurn(turnId: string): Promise<void>; handleEvent(event: { type?: string; turn_id?: string; status?: string; error?: unknown }): Promise<void> } {
   let pending = Promise.resolve();
+  let turn: { id?: string; state: Awaited<ReturnType<typeof readCodexAccountLaunchState>> } | undefined;
+  const earlyCompletions = new Map<string, { type?: string; turn_id?: string; status?: string; error?: unknown }>();
+  const handleEvent = async (event: { type?: string; turn_id?: string; status?: string; error?: unknown }) => {
+    if (!home || !basename(home).startsWith('happy-codex-home-')) return;
+    if (event.type !== 'task_complete' && event.type !== 'turn_aborted') return;
+    if (!turn || !event.turn_id) return;
+    if (!turn.id) {
+      // A completion may beat the turn/start RPC response. Wait for its authoritative ID.
+      if (earlyCompletions.size < 16) earlyCompletions.set(event.turn_id, event);
+      return;
+    }
+    if (event.turn_id !== turn.id) return;
+    const snapshot = turn.state;
+    turn = undefined;
+    const error = event.error;
+    const message = typeof error === 'string' ? error : error && typeof error === 'object' && 'message' in error ? error.message : undefined;
+    // Do not quarantine an account for a generic provider 401, timeout, or model error.
+    if (typeof message !== 'string' || !/refresh token (?:was revoked|has been revoked|has expired|has already been used)/i.test(message)) return;
+    if (!snapshot.sourceSessionId) return;
+    const current = await readCodexAccountLaunchState(home);
+    const auth = await readCodexAccountAuth(home);
+    const digest = createHash('sha256').update(JSON.stringify(auth)).digest('hex');
+    // A delayed failure for an old turn must not invalidate a newer login.
+    if (current.launchId !== snapshot.launchId || current.currentVersion !== snapshot.currentVersion
+      || current.authFingerprint !== snapshot.authFingerprint || digest !== snapshot.authFingerprint) return;
+    await api.reportCodexAccountStatus(snapshot.profileId, {
+      machineId: snapshot.machineId, launchId: snapshot.launchId,
+      credentialVersion: snapshot.currentVersion, status: 'needs-refresh',
+    });
+  };
   let finishing: Promise<void> | undefined;
   const observe = async () => {
     const observer = await recoverOrphanedObserver(home, api);
@@ -32,7 +64,28 @@ export function startCodexAccountWorkerObserver(api: AccountApi, home = process.
     pending = pending.then(observe).catch(() => undefined);
   }, 60_000) : undefined;
   timer?.unref();
-  return { finish: () => {
+  return { prepareTurn: () => {
+    pending = pending.then(async () => {
+      turn = undefined;
+      earlyCompletions.clear();
+      if (home && basename(home).startsWith('happy-codex-home-')) {
+        turn = { state: await readCodexAccountLaunchState(home) };
+      }
+    }).catch(() => undefined);
+    return pending;
+  }, bindTurn: turnId => {
+    pending = pending.then(async () => {
+      if (!turn || !turnId) return;
+      turn.id = turnId;
+      const completion = earlyCompletions.get(turnId);
+      earlyCompletions.clear();
+      if (completion) await handleEvent(completion);
+    }).catch(() => undefined);
+    return pending;
+  }, handleEvent: event => {
+    pending = pending.then(() => handleEvent(event)).catch(() => undefined);
+    return pending;
+  }, finish: () => {
     clearInterval(timer);
     return finishing ??= pending.then(() => cleanupOrphanedCodexAccountHome(home, api)).catch(() => undefined);
   } };

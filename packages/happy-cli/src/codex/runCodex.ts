@@ -986,6 +986,7 @@ export async function runCodex(opts: {
     let bufferCodexEvents = Boolean(opts.resumeThreadId);
     const bufferedCodexEvents: any[] = [];
     const handleCodexEvent = (msg: any) => {
+        void accountObserver.handleEvent(msg);
         logger.debug(formatCodexEventForLog(msg));
 
         // Add messages to the ink UI buffer based on message type
@@ -1552,7 +1553,9 @@ export async function runCodex(opts: {
                     logger.debug(`[Codex] Attaching ${turnPayload.images.length} image(s) to turn`);
                 }
 
+                await accountObserver.prepareTurn();
                 const result = await client.sendTurnAndWait(turnPayload.prompt, {
+                    onTurnAccepted: turnId => { void accountObserver.bindTurn(turnId); },
                     model: opts.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
