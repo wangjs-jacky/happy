@@ -1,3 +1,4 @@
+import type { CodexManagedAccessProvider } from '@/codex/codexManagedAccess';
 import { ApiSessionClient } from '@/api/apiSession';
 import { query, type SDKMessage, type SDKResultMessage } from '@/claude/sdk';
 import { CodexAppServerClient } from '@/codex/codexAppServerClient';
@@ -133,8 +134,10 @@ async function generateClaudeSessionTitle(request: RegenerateSessionTitleRequest
     return title;
 }
 
-async function generateCodexSessionTitle(request: RegenerateSessionTitleRequest): Promise<string> {
+async function generateCodexSessionTitle(request: RegenerateSessionTitleRequest, managedAccess?: () => Promise<CodexManagedAccessProvider>): Promise<string> {
     const client = new CodexAppServerClient();
+    if (process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && !managedAccess) throw new Error('Managed Codex credentials are required for account title generation');
+    if (managedAccess) client.setManagedAccessProvider(await managedAccess());
     let output = '';
 
     client.setEventHandler((message) => {
@@ -181,12 +184,13 @@ function isReasoningEffort(value: string | null | undefined): value is Reasoning
 async function generateSessionTitle(
     provider: TitleWorkerProvider,
     request: RegenerateSessionTitleRequest,
+    managedAccess?: () => Promise<CodexManagedAccessProvider>,
 ): Promise<string> {
     if (provider === 'claude') {
         return generateClaudeSessionTitle(request);
     }
     if (provider === 'codex') {
-        return generateCodexSessionTitle(request);
+        return generateCodexSessionTitle(request, managedAccess);
     }
     throw new Error(`Title regeneration is not supported for ${provider} sessions yet`);
 }
@@ -194,6 +198,7 @@ async function generateSessionTitle(
 export function registerSessionTitleWorker(
     session: ApiSessionClient,
     provider: TitleWorkerProvider,
+    managedAccess?: () => Promise<CodexManagedAccessProvider>,
 ) {
     if (supportsTitleRegeneration(provider)) {
         session.updateMetadata((metadata) => ({
@@ -217,7 +222,7 @@ export function registerSessionTitleWorker(
                 const title = await generateSessionTitle(provider, {
                     ...request,
                     transcript,
-                });
+                }, managedAccess);
                 await session.updateMetadataAndAwait((metadata) => ({
                     ...metadata,
                     summary: {

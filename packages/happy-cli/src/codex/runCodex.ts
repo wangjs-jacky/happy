@@ -879,7 +879,8 @@ export async function runCodex(opts: {
     // Register abort handler
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
 
-    registerSessionTitleWorker(session, 'codex');
+    registerSessionTitleWorker(session, 'codex', process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+        ? () => createCodexManagedAccess(api, process.env.CODEX_HOME!) : undefined);
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
     //
