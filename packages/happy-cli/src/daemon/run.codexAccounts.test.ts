@@ -237,6 +237,25 @@ describe('real daemon Codex spawn paths', () => {
     expect(resumed).toEqual({ type: 'error', errorMessage: expect.stringContaining('cannot be safely restarted remotely') });
     expect(state.spawned).toHaveLength(1);
   });
+  it('retries a finished ordinary session on the daemon heartbeat after an upload outage', async () => {
+    state.tmux = false;
+    const spawning = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    state.control.onHappySessionWebhook('recovery-session', { hostPid: 987601, flavor: 'codex', startedBy: 'daemon' });
+    await spawning;
+    const home = state.spawned[0].CODEX_HOME;
+    const auth = JSON.parse(await readFile(join(home, 'auth.json'), 'utf8'));
+    const rotated = { ...auth, tokens: { ...auth.tokens, refresh_token: 'pending-exit-refresh' } };
+    await writeFile(join(home, 'auth.json'), JSON.stringify(rotated));
+    state.api.updateCodexAccountCredential.mockRejectedValue(new Error('upload unavailable'));
+    state.children[0].emit('exit', 0);
+    await vi.waitFor(async () => expect((await stat(join(home, '.paws-session-finished'))).isFile()).toBe(true));
+    expect(JSON.parse(await readFile(join(home, 'auth.json'), 'utf8'))).toEqual(rotated);
+    state.api.updateCodexAccountCredential.mockResolvedValue({ profile: { credentialVersion: 2 } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(async () => { await expect(stat(home)).rejects.toThrow(); });
+    expect(state.api.updateCodexAccountCredential).toHaveBeenLastCalledWith('profile-1', expect.objectContaining({ launchId: 'launch-1', expectedVersion: 1, auth: rotated }));
+  });
   it.each([false, true])('redeems and attaches the actual direct/tmux spawn (tmux=%s)', async tmux => {
     state.tmux = tmux;
     const result = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'g'.repeat(43), environmentVariables: { TMUX_SESSION_NAME: 'test', CODEX_HOME: sourceHome, OPENAI_API_KEY: 'caller-secret' } });
