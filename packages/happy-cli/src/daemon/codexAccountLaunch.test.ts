@@ -130,6 +130,30 @@ describe('Codex account launch lifecycle', () => {
       await expect(stat(join(restored, 'auth.json'))).rejects.toThrow();
     } finally { kill.mockRestore(); await launch.finish(); }
   });
+  it('uses a session-scoped grant when the default machine account changed', async () => {
+    const original = api();
+    const a = { ...original, createCodexSessionGrant: vi.fn(async () => ({ grant: 's'.repeat(43) })) };
+    a.redeemCodexSessionGrant.mockResolvedValueOnce({ auth, launchId: 'wrong-launch', profile: { id: 'new-default', displayName: 'New', credentialVersion: 1 } });
+    const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), {
+      sourceHome: await home(), historyRoot: await home(), sourceSessionId: 'original-session', sourceProfileId: 'profile-1', resumeExistingSession: true,
+    });
+    try {
+      expect(launch.profileId).toBe('profile-1');
+      expect(a.createCodexSessionGrant).toHaveBeenCalledWith({ machineId: 'machine-1', sourceSessionId: 'original-session' });
+      expect(a.redeemCodexSessionGrant).toHaveBeenLastCalledWith({ machineId: 'machine-1', grant: 's'.repeat(43) });
+    } finally { await launch.finish(); }
+  });
+  it('rejects a cross-account fork before spawning even when scoped grants are supported', async () => {
+    const original = api();
+    const a = { ...original, createCodexSessionGrant: vi.fn(async () => ({ grant: 's'.repeat(43) })) };
+    const spawn = vi.fn(async () => ({ type: 'success' as const, sessionId: 'child' }));
+    const result = await withCodexAccountLaunch({ agent: 'codex', codexSessionGrant: 'g'.repeat(43) }, a, 'machine-1', spawn, {
+      sourceHome: await home(), historyRoot: await home(), sourceSessionId: 'parent', sourceProfileId: 'different-profile',
+    });
+    expect(result).toMatchObject({ type: 'error', errorMessage: expect.stringContaining('different account') });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(a.createCodexSessionGrant).not.toHaveBeenCalled();
+  });
   it('waits for an in-flight attachment before deleting its home and never resurrects its timer', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const a = api(); const launch = await CodexAccountLaunch.prepare(a, 'machine-1', 'g'.repeat(43), { sourceHome: await home() });

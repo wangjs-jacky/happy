@@ -152,6 +152,39 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         expect((await request('POST', '/v1/codex-session-grants', { machineId })).statusCode).toBe(409);
     });
 
+    it('resumes with the recorded session account without changing the machine binding', async () => {
+        const original = await launch();
+        const current = await upload('second-account');
+        await bind(current.id, 1);
+        const issued = await request('POST', '/v1/codex-session-grants', { machineId, sourceSessionId: original.sourceSessionId });
+        expect(issued.statusCode, issued.body).toBe(200);
+        expect(issued.json().profile.id).toBe(original.profile.id);
+        const resumed = await redeem(issued.json().grant);
+        expect(resumed.statusCode, resumed.body).toBe(200);
+        expect(resumed.json().auth).toEqual(fakeAuth());
+        expect((await request('POST', `/v1/codex-session-grants/${resumed.json().launchId}/session`, { machineId, sourceSessionId: 'another-session' })).statusCode).toBe(409);
+        expect((await request('POST', `/v1/codex-session-grants/${resumed.json().launchId}/session`, { machineId, sourceSessionId: original.sourceSessionId })).statusCode).toBe(200);
+        expect((await request('GET', '/v1/codex-accounts')).json().bindings).toContainEqual({ machineId, profileId: current.id, version: 2 });
+        expect((await issue()).profile.id).toBe(current.id);
+    });
+
+    it('does not issue session account grants for missing audit, foreign sessions, or another machine', async () => {
+        const original = await launch();
+        const other = `${accountId}-other-machine`;
+        await state.database.machine.create({ data: { id: other, accountId, metadata: 'encrypted' } });
+        for (const payload of [{ machineId, sourceSessionId: 'unknown' }, { machineId: other, sourceSessionId: original.sourceSessionId }]) {
+            const response = await request('POST', '/v1/codex-session-grants', payload);
+            expect(response.statusCode).toBe(409);
+        }
+        const foreign = 'resume-foreign-user';
+        await state.database.account.create({ data: { id: foreign, publicKey: foreign } });
+        expect((await request('POST', '/v1/codex-session-grants', { machineId, sourceSessionId: original.sourceSessionId }, foreign)).statusCode).toBe(404);
+        const issued = await request('POST', '/v1/codex-session-grants', { machineId, sourceSessionId: original.sourceSessionId });
+        expect(issued.statusCode).toBe(200);
+        await state.database.session.delete({ where: { id: original.sourceSessionId } });
+        expect((await redeem(issued.json().grant)).statusCode).toBe(409);
+    });
+
     it('atomically redeems a high entropy grant once and never persists its raw value', async () => {
         const profile = await upload();
         await bind(profile.id);

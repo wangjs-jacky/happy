@@ -15,8 +15,8 @@ import { createCodexSessionHome, preserveFinishedCodexSession } from '@/codex/co
 export { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
 
 export type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>
-  & Partial<Pick<ApiClient, 'reportCodexAccountQuotaProbe'>>;
-type PrepareOptions = NonNullable<Parameters<typeof prepareCodexHomeWithAuth>[1]> & { historyRoot?: string; sourceSessionId?: string; sourceThreadId?: string; sourceProfileId?: string; skipHistory?: boolean };
+  & Partial<Pick<ApiClient, 'reportCodexAccountQuotaProbe' | 'createCodexSessionGrant'>>;
+type PrepareOptions = NonNullable<Parameters<typeof prepareCodexHomeWithAuth>[1]> & { historyRoot?: string; sourceSessionId?: string; sourceThreadId?: string; sourceProfileId?: string; resumeExistingSession?: boolean; skipHistory?: boolean };
 const fingerprint = (auth: CodexAccountAuth) => createHash('sha256').update(JSON.stringify(auth)).digest('hex');
 const identityFingerprint = (launchId: string, accountId: string) => createHash('sha256').update(`${launchId}\0${accountId}`).digest('hex');
 
@@ -74,7 +74,18 @@ export class CodexAccountLaunch {
 
   static async prepare(api: AccountApi, machineId: string, grant: string | undefined, options?: PrepareOptions): Promise<CodexAccountLaunch> {
     if (typeof grant !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(grant)) throw new Error('A fresh Codex session grant is required. Check the binding in Settings → Device Environment.');
-    const redeemed = await api.redeemCodexSessionGrant({ machineId, grant });
+    let redeemed = await api.redeemCodexSessionGrant({ machineId, grant });
+    const historyRoot = options?.historyRoot ?? join(configuration.happyHomeDir, 'codex-session-cache');
+    const sourceProfileId = options?.sourceProfileId ?? (options?.sourceSessionId
+      ? await getCodexSourceAccountProfileId(historyRoot, options.sourceSessionId) : undefined);
+    if (sourceProfileId && sourceProfileId !== redeemed.profile?.id) {
+      if (!options?.resumeExistingSession || !options.sourceSessionId || !api.createCodexSessionGrant) throw new CodexSourceAccountMismatchError();
+      // The relay authorizes this against its original launch audit. Never
+      // rebind the machine or import history into another provider account.
+      const scoped = await api.createCodexSessionGrant({ machineId, sourceSessionId: options.sourceSessionId });
+      redeemed = await api.redeemCodexSessionGrant({ machineId, grant: scoped.grant });
+      if (redeemed.profile?.id !== sourceProfileId) throw new CodexSourceAccountMismatchError();
+    }
     const parsed = codexAccountAuthSchema.safeParse(redeemed.auth);
     if (!parsed.success || !redeemed.launchId || !redeemed.profile?.id || !Number.isInteger(redeemed.profile.credentialVersion) || redeemed.profile.credentialVersion < 1) {
       throw new Error('Invalid Codex grant response');
@@ -82,7 +93,6 @@ export class CodexAccountLaunch {
     const home = await prepareCodexHomeWithAuth(JSON.stringify(parsed.data), {
       ...options, createTempDir: options?.createTempDir ?? createCodexSessionHome,
     });
-    const historyRoot = options?.historyRoot ?? join(configuration.happyHomeDir, 'codex-session-cache');
     try {
       // Fresh sessions need no history. Import only an explicit resume/fork
       // source and its ancestors, never the entire account cache.
