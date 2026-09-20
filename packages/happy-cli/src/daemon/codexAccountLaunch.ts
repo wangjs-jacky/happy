@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { lstat, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ApiClient } from '@/api/api';
 import { CodexAccountRequestError } from '@/api/codexAccountTypes';
@@ -11,6 +11,7 @@ import { configuration } from '@/configuration';
 import type { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
 import { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
 import { writeCodexAccountLaunchState, type CodexAccountLaunchState } from '@/codex/codexAccountLaunchState';
+import { createCodexSessionHome, preserveFinishedCodexSession } from '@/codex/codexSessionHome';
 export { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
 
 export type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>
@@ -78,7 +79,9 @@ export class CodexAccountLaunch {
     if (!parsed.success || !redeemed.launchId || !redeemed.profile?.id || !Number.isInteger(redeemed.profile.credentialVersion) || redeemed.profile.credentialVersion < 1) {
       throw new Error('Invalid Codex grant response');
     }
-    const home = await prepareCodexHomeWithAuth(JSON.stringify(parsed.data), options);
+    const home = await prepareCodexHomeWithAuth(JSON.stringify(parsed.data), {
+      ...options, createTempDir: options?.createTempDir ?? createCodexSessionHome,
+    });
     const historyRoot = options?.historyRoot ?? join(configuration.happyHomeDir, 'codex-session-cache');
     try {
       if (!options?.skipHistory) {
@@ -223,17 +226,44 @@ export class CodexAccountLaunch {
   finish(): Promise<void> {
     if (!this.finishing) {
       clearInterval(this.timer);
-      this.finishing = Promise.allSettled([this.pending, this.attaching]).then(() => this.syncOnce()).catch(() => undefined)
+      this.finishing = Promise.allSettled([this.pending, this.attaching]).then(() => this.sourceSessionId
+        ? this.syncOnce()
+        : !this.writeDisabled ? this.syncProbeCredential() : undefined).catch(() => undefined)
         .then(async () => {
-          try { if (this.sourceSessionId && !this.identityInvalid) await retainCodexAccountHistory(this.historyRoot, this.profileId, this.home); }
-          finally { await rm(this.home, { recursive: true, force: true }); }
+          if (!await lstat(this.home).then(() => true).catch(error => {
+            if (error.code === 'ENOENT') return false;
+            throw error;
+          })) return; // Another lifecycle owner already completed cleanup.
+          try {
+            // Persist the last acknowledged version before any later process retries.
+            await this.checkpoint();
+            const auth = await readCodexAccountAuth(this.home).catch(() => undefined);
+            if (this.sourceSessionId && !this.identityInvalid) await retainCodexAccountHistory(this.historyRoot, this.profileId, this.home);
+            if (auth && !this.identityInvalid && fingerprint(auth) === this.authFingerprint) {
+              await rm(this.home, { recursive: true, force: true });
+            } else {
+              await preserveFinishedCodexSession(this.home);
+            }
+          } catch (error) {
+            // A history/checkpoint failure must not destroy the only refreshed login either.
+            await preserveFinishedCodexSession(this.home).catch(() => undefined);
+            throw error;
+          }
         });
     }
     return this.finishing;
   }
 
   async abort(): Promise<void> {
-    if (this.pid) { try { process.kill(this.pid, 'SIGTERM'); } catch { /* Already gone. */ } }
+    if (this.pid) {
+      try { process.kill(this.pid, 'SIGTERM'); } catch { /* Verify death below. */ }
+      try {
+        process.kill(this.pid, 0);
+        return; // The registered exit/heartbeat handler will finalize after the worker stops.
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return;
+      }
+    }
     await this.finish();
   }
 }

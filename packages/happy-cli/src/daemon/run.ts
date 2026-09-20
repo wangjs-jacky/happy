@@ -34,6 +34,7 @@ import { refreshCodexAccountQuota } from './codexQuotaProbe';
 import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
 import { collectRetainedCodexAccountUsage } from '@/codex/codexAccountHistory';
 import { retryPendingCodexProbeCredentials } from './codexQuotaProbeRecovery';
+import { retryPendingCodexSessionCredentials } from './codexSessionCredentialRecovery';
 import { AsyncLock } from '@/utils/lock';
 import {
   buildSessionWorkerEnvironment,
@@ -1176,6 +1177,7 @@ export async function startDaemon(): Promise<void> {
 
     const initialCodexUsageTimer = setTimeout(() => {
       void retryPendingCodexProbeCredentials(api, machineId);
+      void retryPendingCodexSessionCredentials(api, machineId);
       syncCodexUsage(true).catch((error) => {
         logger.debug('[DAEMON RUN] Initial Codex usage sync failed', error);
       });
@@ -1194,6 +1196,7 @@ export async function startDaemon(): Promise<void> {
       }
       heartbeatRunning = true;
       void retryPendingCodexProbeCredentials(api, machineId);
+      void retryPendingCodexSessionCredentials(api, machineId);
 
       if (process.env.DEBUG) {
         logger.debug(`[DAEMON RUN] Health check started at ${new Date().toLocaleString()}`);
