@@ -158,7 +158,7 @@ describe('Codex worker account lifecycle', () => {
     await cleanupOrphanedCodexAccountHome(home); expect(await readFile(join(home, 'auth.json'), 'utf8')).toBe('credential');
   });
   it('only exposes non-secret profile attribution from valid launch environment', () => {
-    expect(codexAccountSessionMetadata({ HAPPY_CODEX_ACCOUNT_PROFILE_ID: '00000000-0000-4000-8000-000000000001', HAPPY_CODEX_ACCOUNT_CREDENTIAL_VERSION: '3', SECRET: 'secret' })).toEqual({ codexAccountProfileId: '00000000-0000-4000-8000-000000000001', codexAccountCredentialVersion: 3 });
+    expect(codexAccountSessionMetadata({ HAPPY_CODEX_ACCOUNT_PROFILE_ID: '00000000-0000-4000-8000-000000000001', HAPPY_CODEX_ACCOUNT_CREDENTIAL_VERSION: '3', SECRET: 'secret' })).toEqual({ codexAccountProfileId: '00000000-0000-4000-8000-000000000001', codexAccountCredentialVersion: 3, codexCredentialProtocol: 'managed-v1' });
     expect(codexAccountSessionMetadata({ HAPPY_CODEX_ACCOUNT_PROFILE_ID: 'bad', HAPPY_CODEX_ACCOUNT_CREDENTIAL_VERSION: 'NaN' })).toEqual({});
   });
 });

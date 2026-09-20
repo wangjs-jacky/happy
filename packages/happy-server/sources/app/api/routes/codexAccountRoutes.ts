@@ -42,6 +42,7 @@ export function codexAccountRoutes(app: Fastify): void {
         const input = registerCodexSessionSchema.parse(req.body);
         return codexAccountStore.registerSession(req.userId, profileId.parse(req.params.id), input.machineId, input.sourceSessionId);
     }));
+    app.post<{ Params: { id: string } }>('/v1/codex-accounts/:id/access-token', options, (req, reply) => guarded(reply, () => codexAccountStore.accessToken(req.userId, profileId.parse(req.params.id), z.object({ machineId, launchId: profileId, previousVersion: z.number().int().positive().optional(), forceRefresh: z.boolean().default(false) }).strict().parse(req.body))));
     app.put<{ Params: { id: string } }>('/v1/codex-accounts/:id/credential', options, (req, reply) => guarded(reply, () => codexAccountStore.updateCredential(req.userId, profileId.parse(req.params.id), updateCodexCredentialSchema.parse(req.body))));
     app.put<{ Params: { id: string } }>('/v1/codex-accounts/:id/quota-snapshot', options, (req, reply) => guarded(reply, () => codexAccountStore.reportQuota(req.userId, profileId.parse(req.params.id), reportCodexQuotaSchema.parse(req.body))));
     app.put<{ Params: { id: string } }>('/v1/codex-accounts/:id/quota-probe', options, (req, reply) => guarded(reply, () => codexAccountStore.reportQuotaProbe(req.userId, profileId.parse(req.params.id), reportCodexQuotaProbeSchema.parse(req.body))));

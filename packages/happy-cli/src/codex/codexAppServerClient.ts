@@ -1,3 +1,4 @@
+import type { CodexManagedAccessProvider } from './codexManagedAccess';
 /**
  * Codex App Server Client — drives Codex via the v2 JSON-RPC protocol
  * (`codex app-server`), replacing the legacy MCP-based CodexMcpClient.
@@ -393,6 +394,22 @@ export class CodexAppServerClient {
         private readonly processEnv: NodeJS.ProcessEnv = process.env,
     ) {
         this.sandboxConfig = sandboxConfig;
+    }
+
+    private managedAccessProvider?: CodexManagedAccessProvider;
+    private managedAccessToken?: string;
+
+    setManagedAccessProvider(provider: CodexManagedAccessProvider): void {
+        this.managedAccessProvider = provider;
+    }
+
+    private async adoptManagedAccess(): Promise<void> {
+        if (!this.managedAccessProvider) return;
+        const access = await this.managedAccessProvider(false);
+        if (access.accessToken === this.managedAccessToken) return;
+        await this.request('account/login/start', { type: 'chatgptAuthTokens', accessToken: access.accessToken,
+            chatgptAccountId: access.chatgptAccountId, chatgptPlanType: access.chatgptPlanType });
+        this.managedAccessToken = access.accessToken;
     }
 
     get threadId(): string | null {
@@ -970,6 +987,8 @@ export class CodexAppServerClient {
 
         try {
             await this.connectWithCapabilityFallback(codexCommand);
+            this.managedAccessToken = undefined;
+            await this.adoptManagedAccess();
             if (this.processEnv.HAPPY_CODEX_ACCOUNT_PROFILE_ID) await this.assertAccountConfig();
         } catch (error) {
             await this.disconnectInternal({ preserveThreadState: this._threadId !== null });
@@ -1772,6 +1791,8 @@ export class CodexAppServerClient {
             throw new Error('No active thread. Call startThread first.');
         }
 
+        await this.adoptManagedAccess();
+
         // Images first, then text — mirrors the Claude path's ordering and is
         // what Codex expects (visual context precedes the instruction).
         const input: InputItem[] = [
@@ -2203,6 +2224,20 @@ export class CodexAppServerClient {
     }
 
     private async handleServerRequest(id: number, method: string, params: any): Promise<void> {
+        if (method === 'account/chatgptAuthTokens/refresh') {
+            try {
+                if (!this.managedAccessProvider) throw new Error('Managed credentials unavailable');
+                const access = await this.managedAccessProvider(true);
+                if (params?.previousAccountId && params.previousAccountId !== access.chatgptAccountId) throw new Error('Account identity mismatch');
+                this.respond(id, { accessToken: access.accessToken, chatgptAccountId: access.chatgptAccountId, chatgptPlanType: access.chatgptPlanType });
+                this.managedAccessToken = access.accessToken;
+            } catch {
+                // Never let native Codex silently fall back to refreshing a private-home copy.
+                if (this.canWriteToTransport()) this.writeTransportMessage(JSON.stringify({ jsonrpc: '2.0', id,
+                    error: { code: -32000, message: 'Paws could not obtain the current account credential' } }));
+            }
+            return;
+        }
         const isApprovalRequest = method === 'mcpServer/elicitation/request'
             || method === 'item/commandExecution/requestApproval'
             || method === 'execCommandApproval'

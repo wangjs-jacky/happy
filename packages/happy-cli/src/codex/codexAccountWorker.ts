@@ -110,9 +110,9 @@ export async function cleanupOrphanedCodexAccountHome(home = process.env.CODEX_H
   } catch { /* Best effort when another cleanup already owns this home. */ }
 }
 
-export function codexAccountSessionMetadata(env = process.env): { codexAccountProfileId?: string; codexAccountCredentialVersion?: number } {
+export function codexAccountSessionMetadata(env = process.env): { codexAccountProfileId?: string; codexAccountCredentialVersion?: number; codexCredentialProtocol?: 'managed-v1' } {
   const profileId = env.HAPPY_CODEX_ACCOUNT_PROFILE_ID;
   const version = Number(env.HAPPY_CODEX_ACCOUNT_CREDENTIAL_VERSION);
   if (!profileId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileId) || !Number.isInteger(version) || version < 1) return {};
-  return { codexAccountProfileId: profileId, codexAccountCredentialVersion: version };
+  return { codexAccountProfileId: profileId, codexAccountCredentialVersion: version, codexCredentialProtocol: 'managed-v1' };
 }

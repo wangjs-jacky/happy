@@ -309,6 +309,7 @@ export class ApiClient {
       const code = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
       const safeCodes = ['invalid-request', 'credential-identity-mismatch', 'profile-not-found', 'machine-not-found',
         'credential-version-conflict', 'grant-unavailable', 'launch-unavailable', 'session-unavailable',
+        'credential-refresh-busy', 'credential-refresh-uncertain', 'credential-needs-refresh',
         'quota-attribution-mismatch', 'status-attribution-mismatch', 'invalid-quota-time'];
       throw new CodexAccountRequestError(safeCodes.includes(code) ? code : 'codex-account-request-failed');
     }
@@ -325,6 +326,9 @@ export class ApiClient {
   }
   attachCodexSession(launchId: string, request: { machineId: string; sourceSessionId: string }): Promise<{ success: true }> {
     return this.codexAccountRequest('POST', `codex-session-grants/${encodeURIComponent(launchId)}/session`, request);
+  }
+  getCodexAccountAccessToken(profileId: string, request: CodexLaunchAttribution & { previousVersion?: number; forceRefresh: boolean }): Promise<{ accessToken: string; chatgptAccountId: string; chatgptPlanType: string | null; credentialVersion: number }> {
+    return this.codexAccountRequest('POST', `codex-accounts/${encodeURIComponent(profileId)}/access-token`, request);
   }
   updateCodexAccountCredential(profileId: string, request: CodexLaunchAttribution & { expectedVersion: number; auth: CodexAccountAuth }): Promise<{ profile: CodexAccountProfile }> {
     return this.codexAccountRequest('PUT', `codex-accounts/${encodeURIComponent(profileId)}/credential`, request);

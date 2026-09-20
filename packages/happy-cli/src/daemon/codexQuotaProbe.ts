@@ -1,3 +1,4 @@
+import { createCodexManagedAccess } from '@/codex/codexManagedAccess';
 import { tmpdir } from 'node:os';
 import { CodexAppServerClient } from '@/codex/codexAppServerClient';
 import type { AccountApi } from './codexAccountLaunch';
@@ -13,11 +14,13 @@ function applyCodexNetworkEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return proxyUrl ? { ...env, HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl } : env;
 }
 
-async function runProbeTurn(environment: NodeJS.ProcessEnv): Promise<void> {
+async function runProbeTurn(environment: NodeJS.ProcessEnv, api: AccountApi): Promise<void> {
   // App-server is the same protocol used by Paws Codex sessions. Unlike
   // `codex exec`, it persists the token-count notification (including the
   // weekly rate-limit snapshot) in this temporary CODEX_HOME.
   const client = new CodexAppServerClient(undefined, { type: 'spawn' }, environment);
+  if (!api.getCodexAccountAccessToken || !environment.CODEX_HOME) throw new Error('Managed Codex access is required');
+  client.setManagedAccessProvider(await createCodexManagedAccess({ getCodexAccountAccessToken: api.getCodexAccountAccessToken.bind(api) }, environment.CODEX_HOME));
   try {
     await client.connect();
     await client.startThread({ cwd: tmpdir(), approvalPolicy: 'never', sandbox: 'read-only' });
@@ -37,7 +40,7 @@ export type CodexQuotaProbeResult = { type: 'success'; accepted: boolean } | { t
 
 /** Runs one explicitly requested, isolated Codex turn. It creates no Paws chat session or retained history. */
 export async function refreshCodexAccountQuota(api: AccountApi, machineId: string, grant: string): Promise<CodexQuotaProbeResult> {
-  return withCodexQuotaProbe(api, machineId, grant, runProbeTurn);
+  return withCodexQuotaProbe(api, machineId, grant, env => runProbeTurn(env, api));
 }
 
 /** Keep credential finalization independent from model, quota parsing and reporting failures. */

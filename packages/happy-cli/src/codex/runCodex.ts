@@ -1,3 +1,4 @@
+import { createCodexManagedAccess } from './codexManagedAccess';
 import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
@@ -920,6 +921,9 @@ export async function runCodex(opts: {
 
     session.processorStarting?.();
     client = new CodexAppServerClient(sandboxConfig, resolveCodexAppServerConnection());
+    if (process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME) {
+        client.setManagedAccessProvider(await createCodexManagedAccess(api, process.env.CODEX_HOME));
+    }
 
     permissionHandler = new CodexPermissionHandler(session, (notification) => {
         api.push().sendSessionNotification(notification);

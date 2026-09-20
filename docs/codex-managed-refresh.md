@@ -1,0 +1,13 @@
+# Codex account refresh authority
+
+Paws account sessions use native `chatgptAuthTokens` authentication. The server owns OAuth rotation; native processes receive access tokens through their authenticated, immutable launch attribution. A running thread adopts current access before each turn and answers native `account/chatgptAuthTokens/refresh` requests without creating another conversation.
+
+The `/v1/codex-accounts/:id/access-token` endpoint checks the caller, redeemed launch, owned machine and profile. An account-row transaction commits a refresh intent before contacting OAuth. Other machines wait on that intent. The resulting credential is encrypted in a private, fsynced recovery journal under `DATA_DIR/codex-refresh-journal`, then committed with a version check. HTTP acknowledgment loss returns the committed generation on retry. A database failure can recover the journal without consuming the previous token twice; expired recovered access is refreshed before being returned. A newer upload fences out an older in-flight result.
+
+An upstream response lost before the rotated token reaches Paws is intrinsically ambiguous. Paws marks that generation as requiring authentication instead of replaying a possibly consumed token. An actually revoked provider token also requires authentication. Server restarts require persistent DATA_DIR and the existing encryption master secret; the journal never stores plaintext credentials.
+
+Quota probes use the same managed authority. Legacy upload recovery remains supported so pending pre-upgrade credentials are not discarded. Old live workers must be upgraded at a safe boundary, retaining their Paws session and Codex thread IDs; replacing the daemon alone is insufficient. Metadata `codexCredentialProtocol: managed-v1` identifies the upgraded worker. Unmanaged Codex clients outside Paws are outside this coordinator and should not share a rotating refresh-token copy.
+
+Verified native version: Codex 0.153.4. External token login is experimental upstream, so unsupported native versions fail rather than falling back to independent refresh. OAuth test override is loopback-only and is never configured in production.
+
+Validation on 2026-09-20: CLI 140 files / 1,386 tests; server 57 files / 601 tests plus final focused 38-test account suite. Authentication E2E includes original C0–C9, C10 same-thread 401 recovery, C11 managed HTTP response loss, C12 process replacement on the same native thread. C0 is a negative control, not a product acceptance case. The fixture uses a single-use synthetic OAuth service and a synthetic Responses stream with real native Codex and Paws HTTP/database paths. No production model calls are needed by the fixture.
