@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { CodexAccountProfile, CodexQuotaSnapshot, Machine, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { readRefreshJournal, writeRefreshJournal, removeRefreshJournal } from './codexRefreshJournal';
-import { refreshCodexOAuth, codexAccessNeedsRefresh, CodexOAuthRefreshError } from './codexOAuthRefresh';
+import { refreshCodexOAuth, codexAccessNeedsRefresh, codexAccessIsUnexpired, CodexOAuthRefreshError } from './codexOAuthRefresh';
 import { db } from '@/storage/db';
 import { decryptString, encryptString } from '@/modules/encrypt';
 import {
@@ -252,9 +252,10 @@ export const codexAccountStore = {
                 // Keep the pending intent: a late successful result can still safely commit.
                 return { error: 'credential-refresh-uncertain' } as const;
             }
-            if (profile.status !== 'available') return { error: 'credential-needs-refresh' } as const;
+            const retainAccess = profile.status === 'needs-refresh' && !input.forceRefresh && codexAccessIsUnexpired(auth);
+            if (profile.status !== 'available' && !retainAccess) return { error: 'credential-needs-refresh' } as const;
             const newer = input.previousVersion !== undefined && input.previousVersion < profile.credentialVersion;
-            if (!codexAccessNeedsRefresh(auth) && (newer || !input.forceRefresh)) {
+            if (retainAccess || (!codexAccessNeedsRefresh(auth) && (newer || !input.forceRefresh))) {
                 await tx.codexSessionGrant.update({ where: { id: launch.id }, data: { lastCredentialVersion: profile.credentialVersion } });
                 return { result: { accessToken: auth.tokens.access_token, chatgptAccountId: auth.tokens.account_id,
                     chatgptPlanType: null, credentialVersion: profile.credentialVersion } } as const;

@@ -8,6 +8,10 @@ An upstream response lost before the rotated token reaches Paws is intrinsically
 
 Quota probes use the same managed authority. Legacy upload recovery remains supported so pending pre-upgrade credentials are not discarded. Old live workers must be upgraded at a safe boundary, retaining their Paws session and Codex thread IDs; replacing the daemon alone is insufficient. Metadata `codexCredentialProtocol: managed-v1` identifies the upgraded worker. Unmanaged Codex clients outside Paws are outside this coordinator and should not share a rotating refresh-token copy.
 
+OAuth uses Undici's environment proxy agent so HTTPS establishes a CONNECT tunnel through HTTP proxies. The regression test runs a real TLS OAuth fixture behind a CONNECT-only proxy: the old Axios forward-proxy transport fails and the fixed transport retains the rotated token. A direct-loopback OAuth fixture alone does not verify production proxy behavior.
+
+When refresh is uncertain, an already redeemed launch may continue using access with an explicit finite JWT expiry and at least 60 seconds remaining. This does not clear `needs-refresh`, issue new grants, retry OAuth, or treat an `invalid` profile as usable. A forced refresh or subsequent provider 401 still requires authentication. This continuity path is not proof that the refresh token works.
+
 Verified native version: Codex 0.153.4. External token login is experimental upstream, so unsupported native versions fail rather than falling back to independent refresh. OAuth test override is loopback-only and is never configured in production.
 
 Validation on 2026-09-20: CLI 140 files / 1,386 tests; server 57 files / 601 tests plus final focused 38-test account suite. Authentication E2E includes original C0–C9, C10 same-thread 401 recovery, C11 managed HTTP response loss, C12 process replacement on the same native thread. C0 is a negative control, not a product acceptance case. The fixture uses a single-use synthetic OAuth service and a synthetic Responses stream with real native Codex and Paws HTTP/database paths. No production model calls are needed by the fixture.

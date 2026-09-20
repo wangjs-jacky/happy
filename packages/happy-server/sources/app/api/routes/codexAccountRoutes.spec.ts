@@ -22,6 +22,7 @@ vi.mock('@/utils/log', () => ({ log: vi.fn() }));
 import { codexAccountRoutes } from './codexAccountRoutes';
 import { writeRefreshJournal } from './codexRefreshJournal';
 import { refreshCodexOAuth } from './codexOAuthRefresh';
+import * as oauthModule from './codexOAuthRefresh';
 vi.mock('./codexOAuthRefresh', async importOriginal => ({ ...await importOriginal<typeof import('./codexOAuthRefresh')>(), refreshCodexOAuth: vi.fn() }));
 
 const fakeAuth = (account = 'openai-private-account') => ({
@@ -194,6 +195,46 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         expect(res.json().error).toBe('credential-refresh-uncertain');
         expect(refreshCodexOAuth).not.toHaveBeenCalled();
         expect((await state.database.codexAccountProfile.findUniqueOrThrow({ where: { id: profile.id } })).status).toBe('needs-refresh');
+    });
+
+    it.each(['valid', 'expired', 'unknown-expiry', 'invalid-profile', 'wrong-machine'])('retains access after an uncertain refresh only for a still-authorized unexpired launch: %s', async scenario => {
+        const { profile, launchId } = await launch();
+        const auth = { ...fakeAuth(), last_refresh: new Date().toISOString() };
+        const exp = Math.floor(Date.now() / 1000) + (scenario === 'expired' ? -1 : 3600);
+        auth.tokens.access_token = scenario === 'unknown-expiry' ? 'opaque-access' : `e30.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.sig`;
+        await state.database.codexAccountProfile.update({ where: { id: profile.id }, data: {
+            status: scenario === 'invalid-profile' ? 'invalid' : 'needs-refresh',
+            credential: encryptString(['user', accountId, 'codex-accounts', profile.id, 'credential'], JSON.stringify(auth)),
+        } });
+        const intent = await state.database.codexAccountAudit.create({ data: { accountId, profileId: profile.id, machineId, credentialVersion: 1, action: 'credential-refresh-uncertain' } });
+        const get = (forceRefresh: boolean) => request('POST', `/v1/codex-accounts/${profile.id}/access-token`, {
+            machineId: scenario === 'wrong-machine' ? 'different-machine' : machineId, launchId, previousVersion: 1, forceRefresh,
+        });
+        const result = await get(false);
+        expect(result.statusCode).toBe(scenario === 'valid' ? 200 : 409);
+        if (scenario === 'valid') expect(result.json()).toMatchObject({ accessToken: auth.tokens.access_token, credentialVersion: 1 });
+        expect((await get(true)).statusCode).toBe(409);
+        expect((await request('POST', '/v1/codex-session-grants', { machineId })).statusCode).toBe(409);
+        expect(refreshCodexOAuth).not.toHaveBeenCalled();
+        expect((await state.database.codexAccountAudit.findUniqueOrThrow({ where: { id: intent.id } })).action).toBe('credential-refresh-uncertain');
+        expect((await state.database.codexAccountProfile.findUniqueOrThrow({ where: { id: profile.id } })).credentialVersion).toBe(1);
+    });
+
+    it('cannot fall through to uncertain rotation when access crosses the expiry safety margin between checks', async () => {
+        const { profile, launchId } = await launch();
+        const auth = fakeAuth();
+        auth.tokens.access_token = `e30.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.sig`;
+        await state.database.codexAccountProfile.update({ where: { id: profile.id }, data: {
+            status: 'needs-refresh', credential: encryptString(['user', accountId, 'codex-accounts', profile.id, 'credential'], JSON.stringify(auth)),
+        } });
+        // Model time advancing past the safety margin before the second predicate.
+        const laterExpiry = vi.spyOn(oauthModule, 'codexAccessNeedsRefresh').mockReturnValue(true);
+        try {
+            const result = await request('POST', `/v1/codex-accounts/${profile.id}/access-token`, { machineId, launchId, forceRefresh: false });
+            expect(result.statusCode, result.body).toBe(200);
+            expect(refreshCodexOAuth).not.toHaveBeenCalled();
+            expect(await state.database.codexAccountAudit.count({ where: { profileId: profile.id, action: 'credential-refresh-started' } })).toBe(0);
+        } finally { laterExpiry.mockRestore(); }
     });
 
     it('denies access-token reads using another machine or unredeemed launch', async () => {
