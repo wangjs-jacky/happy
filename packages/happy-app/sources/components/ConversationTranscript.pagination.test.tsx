@@ -35,7 +35,7 @@ vi.mock('react-native', () => ({
     AppState: { addEventListener: () => ({ remove: vi.fn() }) },
     ActivityIndicator: 'ActivityIndicator',
     FlatList: React.forwardRef((props: any, ref: any) => React.createElement('FlatList', { ...props, ref },
-        liveState.renderEdges ? props.ListHeaderComponent : null,
+        liveState.renderEdges || props.testID === 'anchor-list' ? props.ListHeaderComponent : null,
         grouped.renderRows ? props.data.map((item: any) => React.cloneElement(props.renderItem({ item }), { key: item.renderKey })) : null,
         liveState.renderEdges ? props.ListFooterComponent : null)),
     Platform: { OS: 'web' },
@@ -403,11 +403,12 @@ describe('ConversationTranscript older history pagination', () => {
         await act(async () => renderer.update(render(page(stop === 'wire-only' ? 5 : 6), undefined, 6)));
         await flushFrame(); await flushFrame();
         if (stop === 'capturing-reverse') {
-            expect(held.length).toBeGreaterThan(0);
+            // Web history no longer waits on asynchronous reading measurements.
+            expect(held.length).toBe(0);
             await act(async () => node.dispatchEvent(new WheelEvent('wheel', { deltaY: direction === 'newer' ? -1 : 1, cancelable: true })));
             holdCapture = false;
             await act(async () => { held.splice(0).forEach(finish => finish()); });
-            expect(load).toHaveBeenCalledTimes(1);
+            expect(load).toHaveBeenCalledTimes(2);
             act(() => renderer.unmount());
             return;
         }
@@ -547,14 +548,14 @@ describe('ConversationTranscript older history pagination', () => {
             expect(older).not.toHaveBeenCalled();
             expect(newer).not.toHaveBeenCalled();
         }
-        act(() => { intent(-100); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onEndReached(); });
+        act(() => { intent(-200); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onEndReached(); });
         expect(older).toHaveBeenCalledOnce();
         expect(newer).not.toHaveBeenCalled();
         // Layout and vendor boundary callbacks cannot reverse/rearm a gesture.
         await act(async () => { renderer.update(render('previous-page', false)); });
         act(() => { emitScroll(); byId(renderer, 'conversation-transcript-list').props.onEndReached(); });
         expect(newer).not.toHaveBeenCalled();
-        act(() => { intent(100); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onStartReached(); });
+        act(() => { intent(250); emitScroll(); byId(renderer, 'conversation-transcript-list').props.onStartReached(); });
         expect(older).toHaveBeenCalledOnce();
         expect(newer).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
@@ -641,14 +642,14 @@ describe('ConversationTranscript older history pagination', () => {
                     : { measureInWindow: (cb: any) => cb(0, element.props.onLayout ? 150 : 100, 800, 200) } },
             );
         });
-        expect(node.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), { passive: false });
+        expect(node.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), { passive: true });
         const wheel = listeners.get('wheel');
         expect(wheel).toBeDefined();
         wheel!({ shiftKey: false, deltaX: 0, deltaY: 120, preventDefault: vi.fn() });
         const preventDefault = vi.fn();
         wheel!({ shiftKey: true, deltaX: 40, deltaY: 0, preventDefault });
-        expect(node.scrollTop).toBe(140);
-        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(node.scrollTop).toBe(100);
+        expect(preventDefault).not.toHaveBeenCalled();
         await act(async () => { resolveRead(saved); await read; });
         await act(async () => { byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(100, 2000); });
         expect(scrollToOffset).not.toHaveBeenCalled();
@@ -1191,7 +1192,7 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
-    it('prefetches the next older page two viewports before the visual top', async () => {
+    it('limits Web history prefetch to half a viewport and requires user intent', async () => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         const onLoadOlder = vi.fn();
         let renderer: any;
@@ -1202,11 +1203,38 @@ describe('ConversationTranscript older history pagination', () => {
         });
 
         const list = renderer.root.findByType('FlatList');
-        expect(list.props.onEndReachedThreshold).toBe(2);
+        expect(list.props.onEndReachedThreshold).toBe(0.5);
         act(() => list.props.onStartReached());
         expect(onLoadOlder).not.toHaveBeenCalled();
         act(() => reachOlder(list));
         expect(onLoadOlder).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('a 60px upward wheel at offset 900 neither loads history nor writes scroll position', async () => {
+        const node = document.createElement('div');
+        Object.defineProperties(node, { scrollHeight: { value: 5000 }, clientHeight: { value: 800 } });
+        node.scrollTop = 900;
+        const older = vi.fn(); const scrollToOffset = vi.fn(); const scrollToEnd = vi.fn();
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="light-scroll" messages={[userMessage('one')]} hasMoreOlder onLoadOlder={older} />, {
+            createNodeMock: (element: any) => element.type === 'FlatList'
+                ? { getScrollableNode: () => node, scrollToOffset, scrollToEnd } : null,
+        }); });
+        await flushFrame();
+        scrollToOffset.mockClear(); scrollToEnd.mockClear();
+        act(() => {
+            node.dispatchEvent(new WheelEvent('wheel', { deltaY: -60 }));
+            node.scrollTop = 840;
+            byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+                contentOffset: { y: 840 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 800 },
+            } });
+        });
+        await flushFrame();
+        expect(older).not.toHaveBeenCalled();
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        expect(scrollToEnd).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
 
@@ -1376,7 +1404,7 @@ describe('ConversationTranscript older history pagination', () => {
         const selected = oldSheet.anchors.find((anchor: any) => anchor.id === 'u2');
         act(() => renderer.update(render([userMessage('u3'), userMessage('u2'), userMessage('u1'), userMessage('u0')])));
         act(() => oldSheet.onSelect(selected));
-        expect(scrollToIndex).toHaveBeenLastCalledWith({ index: inverted ? 1 : 2, animated: true, viewPosition: 0.5 });
+        expect(scrollToIndex).toHaveBeenLastCalledWith({ index: inverted ? 1 : 2, animated: false, viewPosition: 0.5 });
         scrollToEnd.mockClear();
         act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(800, 4000));
         expect(scrollToEnd).not.toHaveBeenCalled();
