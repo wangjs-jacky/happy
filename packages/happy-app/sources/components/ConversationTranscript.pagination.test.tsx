@@ -1503,6 +1503,31 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('claims latest navigation before its asynchronous history load finishes', async () => {
+        let finish!: () => void;
+        const jump = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+        const older = vi.fn(); const scrollToOffset = vi.fn();
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="latest-ownership" messages={[userMessage('old')]} isAtLatest={false}
+            hasMoreOlder onLoadOlder={older} onJumpToLatest={jump} />, {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { scrollToOffset } : null,
+        }); });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => reachOlder(list));
+        const coordinator = list.props.scrollCoordinator;
+        const transaction = coordinator.history.id;
+        act(() => byId(renderer, 'conversation-scroll-to-bottom').props.onPress());
+        expect(coordinator.history).toBeNull();
+        expect(coordinator.interaction).toBe('programmaticJump');
+        expect(coordinator.compensate(transaction, 5000)).toBe(false);
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        act(() => list.props.onStartReached());
+        expect(older).toHaveBeenCalledTimes(1);
+        await act(async () => finish());
+        act(() => renderer.unmount());
+    });
+
     it('gates current-turn, footer and latest edit controls in a historical ChatList', async () => {
         Object.assign(sessionState, { isAtLatest: false }); let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<ChatList session={{ id: 'session', metadata: null } as any} />); });

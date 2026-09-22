@@ -665,11 +665,16 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const session = props.sessionId;
         const request = {}; jumpRequest.current = request;
         boundaryFill.current = null;
+        if (coordinator) {
+            coordinator.jump();
+            userScrollStarted.current = false;
+            reading.jumpLatest();
+        }
         jumpPending.current = true;
         try { await props.onJumpToLatest(); }
         catch { if (sessionRef.current === session) jumpPending.current = false; }
         finally { if (jumpRequest.current === request) jumpRequest.current = null; }
-    }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId]);
+    }, [isAtLatest, scrollLatest, props.onJumpToLatest, props.sessionId, coordinator, reading]);
     const followLatestRequestRef = React.useRef(props.followLatestRequest ?? 0);
     React.useEffect(() => {
         const request = props.followLatestRequest ?? 0;
@@ -952,7 +957,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                         anchors={anchors}
                         hasMoreOlder={props.hasMoreOlder}
                         isLoadingOlder={props.isLoadingOlder}
-                        onLoadOlder={() => loadBoundary('older', true)}
+                        onLoadOlder={props.onLoadOlder ? () => loadBoundary('older', true) : undefined}
                         onSelect={scrollToAnchor}
                         onClose={closeAnchorSheet}
                     />
