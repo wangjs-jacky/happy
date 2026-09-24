@@ -2311,7 +2311,9 @@ describe('CodexAppServerClient sandbox integration', () => {
             sandbox: 'danger-full-access',
         });
 
-        await expect(client.sendTurnAndWait('finish immediately')).resolves.toEqual({ aborted: false });
+        const acceptedTurns: string[] = [];
+        await expect(client.sendTurnAndWait('finish immediately', { onTurnAccepted: id => acceptedTurns.push(id) })).resolves.toEqual({ aborted: false });
+        expect(acceptedTurns).toEqual(['turn-fast']);
 
         expect(events.filter((event) => event.type === 'task_started')).toHaveLength(0);
         expect(events.filter((event) => event.type === 'task_complete')).toEqual([

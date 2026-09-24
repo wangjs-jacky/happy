@@ -15,7 +15,7 @@ import { createCodexSessionHome, preserveFinishedCodexSession } from '@/codex/co
 export { CODEX_ACCOUNT_UNSET_ENV } from '@/codex/codexAccountConfig';
 
 export type AccountApi = Pick<ApiClient, 'redeemCodexSessionGrant' | 'attachCodexSession' | 'updateCodexAccountCredential' | 'reportCodexAccountQuota' | 'reportCodexAccountStatus'>
-  & Partial<Pick<ApiClient, 'reportCodexAccountQuotaProbe' | 'createCodexSessionGrant'>>;
+  & Partial<Pick<ApiClient, 'reportCodexAccountQuotaProbe' | 'createCodexSessionGrant' | 'getCodexAccountAccessToken'>>;
 type PrepareOptions = NonNullable<Parameters<typeof prepareCodexHomeWithAuth>[1]> & { historyRoot?: string; sourceSessionId?: string; sourceThreadId?: string; sourceProfileId?: string; resumeExistingSession?: boolean; skipHistory?: boolean };
 const fingerprint = (auth: CodexAccountAuth) => createHash('sha256').update(JSON.stringify(auth)).digest('hex');
 const identityFingerprint = (launchId: string, accountId: string) => createHash('sha256').update(`${launchId}\0${accountId}`).digest('hex');

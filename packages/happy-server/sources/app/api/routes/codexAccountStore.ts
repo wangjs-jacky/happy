@@ -2,6 +2,8 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { CodexAccountProfile, CodexQuotaSnapshot, Machine, Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { readRefreshJournal, writeRefreshJournal, removeRefreshJournal } from './codexRefreshJournal';
+import { refreshCodexOAuth, codexAccessNeedsRefresh, codexAccessIsUnexpired, CodexOAuthRefreshError } from './codexOAuthRefresh';
 import { db } from '@/storage/db';
 import { decryptString, encryptString } from '@/modules/encrypt';
 import {
@@ -12,6 +14,7 @@ import {
 } from './codexAccountTypes';
 
 type Tx = Prisma.TransactionClient;
+type ManagedAccess = { accessToken: string; chatgptAccountId: string; chatgptPlanType: null; credentialVersion: number };
 export class CodexAccountError extends Error {
     constructor(public readonly status: number, public readonly code: string) { super(code); }
 }
@@ -61,6 +64,18 @@ async function ownedProfile(tx: Tx, accountId: string, id: string) {
 }
 async function ownedMachine(tx: Tx, accountId: string, id: string) {
     return await tx.machine.findFirst({ where: { accountId, id } }) ?? fail(404, 'machine-not-found');
+}
+
+async function commitManagedRefresh(tx: Tx, accountId: string, profile: CodexAccountProfile, launchId: string, intentId: string, auth: CodexAuth) {
+    if (fingerprint(accountId, auth) !== profile.externalAccountFingerprint) return fail(400, 'credential-identity-mismatch');
+    const updated = await tx.codexAccountProfile.update({ where: { id: profile.id }, data: {
+        credential: encryptString(path(accountId, profile.id), JSON.stringify(auth)), credentialVersion: { increment: 1 },
+        status: 'available', lastValidatedAt: new Date(),
+    } });
+    await tx.codexAccountAudit.update({ where: { id: intentId }, data: { action: 'credential-refresh-completed' } });
+    await tx.codexSessionGrant.update({ where: { id: launchId }, data: { lastCredentialVersion: updated.credentialVersion } });
+    return { accessToken: auth.tokens.access_token, chatgptAccountId: auth.tokens.account_id,
+        chatgptPlanType: null, credentialVersion: updated.credentialVersion };
 }
 
 async function saveUpload(tx: Tx, accountId: string, auth: CodexAuth) {
@@ -217,6 +232,84 @@ export const codexAccountStore = {
             await audit(tx, accountId, 'session-register', launch.codexAccountProfileId, machineId, launch.credentialVersion);
             return { success: true as const };
         });
+    },
+    /** Durable single writer, shared by all machines and all existing launches. */
+    async accessToken(accountId: string, id: string, input: { machineId: string; launchId: string; previousVersion?: number; forceRefresh: boolean }): Promise<ManagedAccess> {
+        const attempt = await transaction(accountId, async (tx) => {
+            const profile = await ownedProfile(tx, accountId, id);
+            const launch = await tx.codexSessionGrant.findFirst({ where: { id: input.launchId, accountId,
+                machineId: input.machineId, codexAccountProfileId: id, redeemedAt: { not: null } } });
+            if (!launch) return fail(409, 'launch-unavailable');
+            await ownedMachine(tx, accountId, input.machineId);
+            const auth = codexAuthSchema.parse(JSON.parse(decryptString(path(accountId, id), profile.credential)));
+            const pending = await tx.codexAccountAudit.findFirst({ where: { accountId, profileId: id,
+                credentialVersion: profile.credentialVersion, action: 'credential-refresh-started' } });
+            if (pending) {
+                const recovered = await readRefreshJournal(accountId, id, pending.id);
+                if (recovered) return { result: await commitManagedRefresh(tx, accountId, profile, launch.id, pending.id, recovered), recoveredIntentId: pending.id, recoveredExpired: codexAccessNeedsRefresh(recovered) } as const;
+                if (Date.now() - pending.createdAt.getTime() < 60_000) return { error: 'credential-refresh-busy' } as const;
+                await tx.codexAccountProfile.update({ where: { id }, data: { status: 'needs-refresh' } });
+                // Keep the pending intent: a late successful result can still safely commit.
+                return { error: 'credential-refresh-uncertain' } as const;
+            }
+            const retainAccess = profile.status === 'needs-refresh' && !input.forceRefresh && codexAccessIsUnexpired(auth);
+            if (profile.status !== 'available' && !retainAccess) return { error: 'credential-needs-refresh' } as const;
+            const newer = input.previousVersion !== undefined && input.previousVersion < profile.credentialVersion;
+            if (retainAccess || (!codexAccessNeedsRefresh(auth) && (newer || !input.forceRefresh))) {
+                await tx.codexSessionGrant.update({ where: { id: launch.id }, data: { lastCredentialVersion: profile.credentialVersion } });
+                return { result: { accessToken: auth.tokens.access_token, chatgptAccountId: auth.tokens.account_id,
+                    chatgptPlanType: null, credentialVersion: profile.credentialVersion } } as const;
+            }
+            // Operationally restoring valid access must never authorize replaying
+            // a refresh token whose previous outcome was uncertain or rejected.
+            const unresolved = await tx.codexAccountAudit.findFirst({ where: { accountId, profileId: id,
+                credentialVersion: profile.credentialVersion,
+                action: { in: ['credential-refresh-uncertain', 'credential-refresh-rejected'] },
+            } });
+            if (unresolved) {
+                await tx.codexAccountProfile.update({ where: { id }, data: { status: 'needs-refresh' } });
+                return { error: 'credential-needs-refresh' } as const;
+            }
+            // Commit intent BEFORE consuming an upstream single-use token. A crash is not permission to retry it.
+            const intent = await tx.codexAccountAudit.create({ data: { accountId, profileId: id, machineId: input.machineId,
+                credentialVersion: profile.credentialVersion, action: 'credential-refresh-started' } });
+            return { auth, version: profile.credentialVersion, intentId: intent.id } as const;
+        });
+        if ('error' in attempt) return fail(409, attempt.error!);
+        if ('result' in attempt) {
+            if ('recoveredIntentId' in attempt) await removeRefreshJournal(attempt.recoveredIntentId!).catch(() => undefined);
+            if ('recoveredExpired' in attempt && attempt.recoveredExpired) return this.accessToken(accountId, id, { ...input, previousVersion: attempt.result!.credentialVersion, forceRefresh: true });
+            return attempt.result!;
+        }
+        let refreshed: CodexAuth;
+        try { refreshed = await refreshCodexOAuth(attempt.auth); }
+        catch (error) {
+            await transaction(accountId, async tx => {
+                const profile = await ownedProfile(tx, accountId, id);
+                if (profile.credentialVersion !== attempt.version) return;
+                await tx.codexAccountProfile.update({ where: { id }, data: { status: 'needs-refresh' } });
+                await tx.codexAccountAudit.update({ where: { id: attempt.intentId }, data: {
+                    action: error instanceof CodexOAuthRefreshError && error.definitive ? 'credential-refresh-rejected' : 'credential-refresh-uncertain',
+                } });
+            });
+            return fail(409, 'credential-needs-refresh');
+        }
+        // A local disk failure must not prevent a healthy database from saving the result.
+        await writeRefreshJournal(accountId, id, attempt.intentId, refreshed).catch(() => undefined);
+        const result = await transaction(accountId, async tx => {
+            const profile = await ownedProfile(tx, accountId, id);
+            // A different request may have recovered this journal while our commit was delayed.
+            const intent = await tx.codexAccountAudit.findUniqueOrThrow({ where: { id: attempt.intentId } });
+            if (intent.action === 'credential-refresh-completed' && profile.credentialVersion === attempt.version + 1) {
+                const current = codexAuthSchema.parse(JSON.parse(decryptString(path(accountId, id), profile.credential)));
+                if (isDeepStrictEqual(current, refreshed)) return { accessToken: current.tokens.access_token,
+                    chatgptAccountId: current.tokens.account_id, chatgptPlanType: null, credentialVersion: profile.credentialVersion };
+            }
+            if (profile.credentialVersion !== attempt.version) return fail(409, 'credential-version-conflict');
+            return commitManagedRefresh(tx, accountId, profile, input.launchId, attempt.intentId, refreshed);
+        });
+        await removeRefreshJournal(attempt.intentId).catch(() => undefined);
+        return result;
     },
     async updateCredential(accountId: string, id: string, input: UpdateCodexCredentialRequest) {
         return transaction(accountId, async (tx) => {

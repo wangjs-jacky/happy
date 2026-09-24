@@ -388,6 +388,7 @@ export type Metadata = {
   codexThreadId?: string, // Codex app-server thread ID
   codexAccountProfileId?: string,
   codexAccountCredentialVersion?: number,
+  codexCredentialProtocol?: 'managed-v1',
   /** Last Codex turn mirrored into this Paws session, used for reconnect catch-up. */
   codexSyncCursor?: {
     threadId: string
