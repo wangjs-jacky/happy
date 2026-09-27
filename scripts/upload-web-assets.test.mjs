@@ -16,6 +16,7 @@ async function createFixture(marker = revision) {
     const logPath = join(directory, 'aliyun.log');
     await mkdir(join(dist, '_expo', 'static'), { recursive: true });
     await mkdir(join(dist, 'assets', 'fonts'), { recursive: true });
+    await mkdir(join(dist, 'desktop-skins', 'dreamskin'), { recursive: true });
     await mkdir(join(dist, '.well-known'), { recursive: true });
     await mkdir(fakeBin, { recursive: true });
     await Promise.all([
@@ -23,6 +24,7 @@ async function createFixture(marker = revision) {
         writeFile(join(dist, '.paws-release-revision'), `${marker}\n`),
         writeFile(join(dist, '_expo', 'static', 'app.js'), 'app'),
         writeFile(join(dist, 'assets', 'fonts', 'Ionicons.abc.ttf'), 'font'),
+        writeFile(join(dist, 'desktop-skins', 'dreamskin', 'background.png'), 'photo'),
         writeFile(join(dist, 'canvaskit.wasm'), 'wasm'),
         writeFile(join(dist, 'favicon.ico'), 'icon'),
         writeFile(join(dist, 'metadata.json'), '{}'),
@@ -67,6 +69,7 @@ test('uploads a complete immutable release without inspecting object ACLs', asyn
     assert.ok(expoPosition > releasePosition, result.log);
     assert.match(result.log, /oss:\/\/test-web-bucket\/_expo\/.*--cache-control public,max-age=31536000,immutable/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/assets\/.*--cache-control public,max-age=31536000,immutable/);
+    assert.match(result.log, /oss:\/\/test-web-bucket\/desktop-skins\/.*--cache-control no-cache/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/metadata\.json.*--cache-control no-cache/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/\.well-known\/.*--cache-control no-cache/);
     assert.doesNotMatch(result.log, /ossutil stat/);

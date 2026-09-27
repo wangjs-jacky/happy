@@ -71,6 +71,7 @@ upload_directory \
 
 upload_directory "$DIST_DIR/_expo" "oss://$OSS_BUCKET/_expo/" "$IMMUTABLE_CACHE_CONTROL"
 upload_directory "$DIST_DIR/assets" "oss://$OSS_BUCKET/assets/" "$IMMUTABLE_CACHE_CONTROL"
+upload_directory "$DIST_DIR/desktop-skins" "oss://$OSS_BUCKET/desktop-skins/" "$REVALIDATE_CACHE_CONTROL"
 
 for source_file in "$DIST_DIR/.well-known"/*; do
     [[ -f "$source_file" ]] || continue
