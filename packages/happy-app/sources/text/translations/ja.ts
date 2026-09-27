@@ -613,6 +613,12 @@ export const ja: TranslationStructure = {
     },
 
     settingsAppearance: {
+        desktopSkinTitle: 'デスクトップのスキン',
+        desktopSkinDescription: 'PC Web の外観を選択',
+        desktopSkinDefault: '元の外観',
+        desktopSkinDefaultDescription: '保存済みの配色と明暗設定を維持',
+        desktopSkinDreamskin: 'くつろぎの室内',
+        desktopSkinDreamskinDescription: '写真の背景と暗い閲覧面',
         mascot: 'マスコット',
         mascotDescription: 'ホーム画面で迎えるマーモットを選びましょう',
         mascotOptions: {

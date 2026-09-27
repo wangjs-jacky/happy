@@ -612,6 +612,12 @@ export const es: TranslationStructure = {
     },
 
     settingsAppearance: {
+        desktopSkinTitle: 'Tema de escritorio',
+        desktopSkinDescription: 'Elige el aspecto de Paws para PC',
+        desktopSkinDefault: 'Aspecto original',
+        desktopSkinDefaultDescription: 'Conserva los colores y el modo de luz guardados',
+        desktopSkinDreamskin: 'Interior acogedor',
+        desktopSkinDreamskinDescription: 'Fondo fotográfico y lectura oscura',
         mascot: 'Mascota',
         mascotDescription: 'Elige la marmota que te recibe en la pantalla de inicio',
         mascotOptions: {

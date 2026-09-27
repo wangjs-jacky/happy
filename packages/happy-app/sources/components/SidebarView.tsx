@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { Text, View, Pressable, ScrollView } from 'react-native';
+import { Text, View, Pressable, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useProfile, useLocalSettingMutable } from '@/sync/storage';
+import { useRealtimeStatus, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { getDisplayName } from '@/sync/profile';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -391,6 +392,9 @@ export const SidebarView = React.memo(({
     const realtimeStatus = useRealtimeStatus();
     const profile = useProfile();
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const dreamskin = Platform.OS === 'web' && desktopDensity && desktopSkinId === 'dreamskin';
+    const reducedTransparency = useReducedTransparency();
     const [desktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
@@ -682,6 +686,7 @@ export const SidebarView = React.memo(({
             style={[
                 styles.container,
                 (desktopDensity || railNavigation) && styles.containerDesktop,
+                dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? '#171C23' : 'transparent', borderColor: 'rgba(255,255,255,0.12)' },
                 { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
             ]}
             testID={desktopDensity ? 'sidebar-desktop-density' : 'sidebar-mobile-rail-layout'}
@@ -698,7 +703,7 @@ export const SidebarView = React.memo(({
 
             {railNavigation ? (
                 <>
-                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
+                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : dreamskin ? [styles.desktopPrimaryColumn, { backgroundColor: reducedTransparency ? '#101419' : 'rgba(16, 20, 25, 0.90)' }] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
                         {mobileNavigation ? (
                             <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                                 {desktopNavigationRail}
@@ -707,7 +712,7 @@ export const SidebarView = React.memo(({
                         {footerNavigation}
                     </View>
                     <View
-                        style={[styles.desktopSecondaryColumn, desktopPrimaryNavigation && {
+                        style={[styles.desktopSecondaryColumn, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? '#181D24' : 'rgba(24, 29, 36, 0.78)' }, desktopPrimaryNavigation && {
                             position: 'absolute', left: DESKTOP_PRIMARY_NAVIGATION_WIDTH,
                             top: 0, bottom: 0, width: desktopSecondaryWidth,
                             pointerEvents: desktopSecondaryVisible ? 'auto' : 'none',

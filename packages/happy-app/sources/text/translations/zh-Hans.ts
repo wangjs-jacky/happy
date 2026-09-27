@@ -658,6 +658,12 @@ export const zhHans: TranslationStructure = {
     },
 
     settingsAppearance: {
+        desktopSkinTitle: 'PC 端皮肤',
+        desktopSkinDescription: '选择 PC 网页版的整体外观',
+        desktopSkinDefault: '原有外观',
+        desktopSkinDefaultDescription: '保留当前配色与明暗偏好',
+        desktopSkinDreamskin: '休闲室内居家',
+        desktopSkinDreamskinDescription: '照片背景与深色阅读面',
         mascot: '吉祥物',
         mascotDescription: '选择主屏迎接你的土拨鼠形象',
         mascotOptions: {

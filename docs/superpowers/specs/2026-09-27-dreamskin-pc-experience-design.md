@@ -1,7 +1,7 @@
 # Paws PC「休闲室内居家」沉浸皮肤设计
 
 **日期：** 2026-09-27
-**状态：** 基于线上 PC 实例和源码修订，待评审；仅设计，未实现
+**状态：** 设计已批准；PC Web 实现位于 DreamSkin 功能分支，验收记录见 `2026-09-28-dreamskin-implementation-validation.md`
 
 ## 目标
 

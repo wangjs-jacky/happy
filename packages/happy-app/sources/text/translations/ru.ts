@@ -591,6 +591,12 @@ export const ru: TranslationStructure = {
     },
 
     settingsAppearance: {
+        desktopSkinTitle: 'Тема рабочего стола',
+        desktopSkinDescription: 'Выберите оформление Paws на ПК',
+        desktopSkinDefault: 'Исходный вид',
+        desktopSkinDefaultDescription: 'Сохранить выбранные цвета и режим яркости',
+        desktopSkinDreamskin: 'Уютный интерьер',
+        desktopSkinDreamskinDescription: 'Фотофон и тёмные поверхности',
         mascot: 'Маскот',
         mascotDescription: 'Выберите сурка, который встречает вас на главном экране',
         mascotOptions: {

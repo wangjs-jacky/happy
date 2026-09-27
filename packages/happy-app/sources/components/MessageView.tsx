@@ -1,6 +1,6 @@
 import * as React from "react";
 import { TranscriptReadOnlyContext } from "./TranscriptReadOnlyContext";
-import { ActivityIndicator, View, Text, Pressable, Platform, TextInput } from "react-native";
+import { ActivityIndicator, Image, View, Text, Pressable, Platform, TextInput } from "react-native";
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -25,6 +25,7 @@ import { getUserMessageDisplayText } from './messageDisplayText';
 
 export const MessageView = React.memo((props: {
   message: Message;
+  turnAvatar?: { id: string; imageUrl: string | null; thumbhash?: string | null };
   metadata: Metadata | null;
   sessionId?: string;
   getMessageById?: (id: string) => Message | null;
@@ -47,11 +48,33 @@ export const MessageView = React.memo((props: {
   canEditUserMessage?: boolean;
   onEditUserMessage?: (messageId: string, messageText: string) => Promise<void> | void;
 }) => {
+  const [avatarImageFailed, setAvatarImageFailed] = React.useState(false);
+  React.useEffect(() => setAvatarImageFailed(false), [props.turnAvatar?.imageUrl]);
   return (
     <View
-      style={styles.messageContainer}
+      style={[styles.messageContainer, props.turnAvatar && styles.turnMessageContainer]}
       renderToHardwareTextureAndroid={Platform.OS !== 'web'}
     >
+      {props.turnAvatar && (
+        <View style={styles.turnAvatar} testID={`dreamskin-turn-avatar-${props.message.id}`}>
+          {props.message.kind === 'user-text' ? (
+            <View style={[styles.userTurnAvatar, styles.userTurnAvatarFallback]}>
+              <Text style={styles.userTurnAvatarInitial}>{props.turnAvatar.id.slice(0, 1).toUpperCase()}</Text>
+              {props.turnAvatar.imageUrl && !avatarImageFailed && (
+                <Image
+                  source={{ uri: props.turnAvatar.imageUrl }}
+                  onError={() => setAvatarImageFailed(true)}
+                  style={[styles.userTurnAvatar, { position: 'absolute', inset: 0 } as any]}
+                />
+              )}
+            </View>
+          ) : (
+            <View style={styles.pawsTurnAvatar}>
+              <Ionicons name="sparkles" size={16} color="#9ABCE0" />
+            </View>
+          )}
+        </View>
+      )}
       <View
         style={[
           styles.messageContent,
@@ -712,6 +735,41 @@ const styles = StyleSheet.create((theme) => ({
   messageContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
+  },
+  turnMessageContainer: {
+    alignSelf: 'center',
+    maxWidth: layout.maxWidth,
+    position: 'relative',
+    width: '100%',
+  },
+  turnAvatar: {
+    left: -36,
+    position: 'absolute',
+    top: 2,
+    zIndex: 2,
+  },
+  pawsTurnAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#263746',
+    borderRadius: 15,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  userTurnAvatar: {
+    borderRadius: 14,
+    height: 28,
+    width: 28,
+  },
+  userTurnAvatarFallback: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceHighest,
+    justifyContent: 'center',
+  },
+  userTurnAvatarInitial: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: '600',
   },
   messageContent: {
     flexDirection: 'column',

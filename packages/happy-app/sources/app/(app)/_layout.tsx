@@ -8,6 +8,8 @@ import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { CardStackScene } from '@/components/CardStackScene';
+import { useIsTablet } from '@/utils/responsive';
+import { useLocalSetting } from '@/sync/storage';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -17,6 +19,12 @@ export default function RootLayout() {
     // Use custom header on Android and Mac Catalyst, native header on iOS (non-Catalyst)
     const shouldUseCustomHeader = Platform.OS === 'android' || isRunningOnMac() || Platform.OS === 'web';
     const { theme } = useUnistyles();
+    const isTablet = useIsTablet();
+    const isDesktopWeb = Platform.OS === 'web' && isTablet;
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const photoSceneStyle = isDesktopWeb && desktopSkinId === 'dreamskin'
+        ? { backgroundColor: 'transparent' as const }
+        : undefined;
 
     return (
         <CardStackScene>
@@ -44,7 +52,8 @@ export default function RootLayout() {
                 name="index"
                 options={{
                     headerShown: false,
-                    headerTitle: ''
+                    headerTitle: '',
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
             <Stack.Screen
@@ -95,7 +104,8 @@ export default function RootLayout() {
             <Stack.Screen
                 name="session/[id]"
                 options={{
-                    headerShown: false
+                    headerShown: false,
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
             <Stack.Screen
@@ -371,6 +381,7 @@ export default function RootLayout() {
                     // Hide the native stack header to avoid stacking two headers —
                     // same pattern as the "index" home screen above.
                     headerShown: false,
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
         </Stack>

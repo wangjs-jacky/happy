@@ -629,6 +629,12 @@ export const pl: TranslationStructure = {
     },
 
     settingsAppearance: {
+        desktopSkinTitle: 'Motyw pulpitu',
+        desktopSkinDescription: 'Wybierz wygląd Paws na PC',
+        desktopSkinDefault: 'Oryginalny wygląd',
+        desktopSkinDefaultDescription: 'Zachowaj zapisane kolory i tryb jasny/ciemny',
+        desktopSkinDreamskin: 'Przytulne wnętrze',
+        desktopSkinDreamskinDescription: 'Tło ze zdjęciem i ciemne powierzchnie',
         mascot: 'Maskotka',
         mascotDescription: 'Wybierz świstaka, który wita Cię na ekranie głównym',
         mascotOptions: {

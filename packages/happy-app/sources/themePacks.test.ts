@@ -8,6 +8,7 @@ vi.mock('react-native', () => ({
 }));
 
 import { appThemes, resolveDesktopThemeName, resolveThemeName, THEME_PACK_IDS } from './themePacks';
+import { desktopNavigationBackground } from './desktopSkin';
 
 function relativeLuminance(color: string): number {
     const [red, green, blue] = color
@@ -65,10 +66,18 @@ describe('theme pack interactive surfaces', () => {
 });
 
 describe('DreamSkin desktop theme', () => {
+    it('opens the outer navigation background only for a normal-transparency PC workspace', () => {
+        expect(desktopNavigationBackground('#131313', 'dreamskin', 'web', 1200, false)).toBe('transparent');
+        expect(desktopNavigationBackground('#131313', 'dreamskin', 'web', 799, false)).toBe('#131313');
+        expect(desktopNavigationBackground('#131313', 'dreamskin', 'ios', 1200, false)).toBe('#131313');
+        expect(desktopNavigationBackground('#131313', 'dreamskin', 'web', 1200, true)).toBe('#131313');
+    });
     it('uses the independent dark skin only on Web and restores the saved theme otherwise', () => {
-        expect(resolveDesktopThemeName('gingham', false, 'dreamskin', 'web')).toBe('dreamskinDark');
-        expect(resolveDesktopThemeName('gingham', false, 'default', 'web')).toBe('ginghamLight');
-        expect(resolveDesktopThemeName('gingham', true, 'dreamskin', 'ios')).toBe('ginghamDark');
+        expect(resolveDesktopThemeName('gingham', false, 'dreamskin', 'web', 1200)).toBe('dreamskinDark');
+        expect(resolveDesktopThemeName('gingham', false, 'default', 'web', 1200)).toBe('ginghamLight');
+        expect(resolveDesktopThemeName('gingham', true, 'dreamskin', 'ios', 1200)).toBe('ginghamDark');
+        expect(resolveDesktopThemeName('gingham', false, 'dreamskin', 'web', 799)).toBe('ginghamLight');
+        expect(resolveDesktopThemeName('gingham', false, 'dreamskin', 'web', 1200, '/share/public-id')).toBe('ginghamLight');
     });
 
     it('maps interactive surfaces to the DreamSkin palette', () => {

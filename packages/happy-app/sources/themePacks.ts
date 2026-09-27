@@ -85,8 +85,10 @@ export function resolveDesktopThemeName(
     isDark: boolean,
     skin: DesktopSkinId,
     platform: string,
+    viewportWidth: number,
+    pathname = '',
 ): AppThemeName {
-    return isDreamSkinActive(skin, platform) ? 'dreamskinDark' : resolveThemeName(pack, isDark);
+    return isDreamSkinActive(skin, platform, viewportWidth, pathname) ? 'dreamskinDark' : resolveThemeName(pack, isDark);
 }
 
 /** 保留当前主题包，仅切换亮暗模式。 */
