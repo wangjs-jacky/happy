@@ -58,6 +58,8 @@ DreamSkin「休闲室内居家」，主题 ID `cecilylove002`，作者 `cecilylo
 
 输入框沿用真实附件拖入/粘贴、自动补全、目录/权限/模型选择、Enter/Esc、流式停止和离线恢复；采用高不透明度浮层，避免图像透过文本输入。顶栏、会话信息、右侧能力/文件面板、diff 与文件预览、弹窗和悬浮菜单分别使用内容或浮层材质。右栏收合、持久显示、抽屉、宽度调整及可访问性隐藏逻辑继续由原有布局系统控制。
 
+第一版概念图中值得保留的**身份与操作层**纳入会话设计，但按真实功能落地：在每轮对话起点展示小尺寸用户头像和 Paws 标识，连续工具行不重复头像；头像放在消息边缘，不能侵占 800px 正文宽度或改变虚拟列表的滚动锚点。用户头像可复用现有 `Avatar`/个人资料资源；Paws 使用已有的图标语言。会话页眉宽屏显示分享、星标、更多与右侧面板入口；分享复用现有 `PublicSessionShareDialog` 的确认流程，星标对应现有「置顶会话」而非新建一个独立收藏库。现有消息复制、编辑、分叉等操作继续放在消息附近，悬停/键盘聚焦时出现。窄宽或右栏打开时把次要页眉操作收进更多菜单，避免挤压标题。星标的已置顶状态、分享进行中/失败、只读会话中的可用性都要有明确反馈。
+
 ### 4. 颜色、字体与状态
 
 把原始颜色作为来源数据，映射到 Paws 语义 token。`accent` 用于主要操作；`accentAlt`、`highlight` 用于链接、焦点和少量高亮。成功、警告、错误保留各自语义，不直接改成主题蓝。交互表面区分 `surface`、`surfacePressed`、`surfaceSelected`，深色主题下不能残留焦糖主题的暖底。引用原图的暖色只用作克制的装饰。
@@ -93,9 +95,9 @@ PC 文本采用现有字体体系：问候语显著、会话正文稳定、标�
 | S1 会话初始 | 加载、缓存重验证、失败重试、删除/空会话 | 无浅色闪烁；空态和重试按钮仍可见 |
 | S2 运行中 | 流式文本、命令/权限待决、停止、离线与恢复 | 状态实时可读，输入与停止动作始终可用 |
 | S3 用户红框对应的长会话 | 多个工具/Skills 分组，逐项展开，错误输出，子代理 | 紧凑密度、折叠层级、命令等宽、权限和滚动位置不变 |
-| S4 历史与操作 | 分页/锚点/跳最新、只读历史/续接、复制/编辑/分叉、长提示折叠 | 不因材质变化触发列表重排或丢失键盘/鼠标操作 |
+| S4 历史与操作 | 分页/锚点/跳最新、只读历史/续接、复制/编辑/分叉、长提示折叠、轮次头像 | 不因材质变化触发列表重排或丢失键盘/鼠标操作；头像不逐行重复 |
 | S5 富内容 | Markdown、长代码、横滚表格、图片、Mermaid、金融图、OTA 卡 | 内容表面实色，选区/链接/搜索命中、横滚及图像边界明确 |
-| S6 组合工作区 | 左栏固定/悬停/禅、右栏收合/抽屉/拖宽、文件/diff 覆盖层 | 主区宽度始终达现有下限，照片退让，面板操作不变 |
+| S6 组合工作区 | 左栏固定/悬停/禅、右栏收合/抽屉/拖宽、文件/diff 覆盖层、页眉分享/星标 | 主区宽度始终达现有下限，照片退让；分享进入原确认弹窗，星标与左栏置顶同步 |
 | S7 会话输入 | 粘贴/拖入附件、自动补全、配置选择器、长草稿、Enter/Esc | 输入不卡在视口外，焦点与弹层可访问性正常 |
 | R1 其他入口 | 搜索、收件箱、设置/外观、插件市场、图库、资料/文件/差异 | 主题色一致，实色阅读面覆盖加载/空/错误/表单 |
 
@@ -143,5 +145,6 @@ PC 文本采用现有字体体系：问候语显著、会话正文稳定、标�
 - Paws 当前主题：`packages/happy-app/sources/themePacksData.ts`、`themePacks.ts`、`unistyles.ts`。
 - 首页与工作区：`packages/happy-app/sources/components/ComposeHome.tsx`、`SidebarNavigator.tsx`、`SidebarView.tsx`、`MessageComposer.tsx`、`SessionConfigPanel.tsx`、`packages/happy-app/sources/hooks/useDesktopWorkspaceLayout.tsx`、`utils/desktopNavigationLayout.ts`。
 - 会话核心：`packages/happy-app/sources/-session/SessionView.tsx`、`components/ConversationTranscript.tsx`、`ToolGroupView.tsx`、`ToolView.tsx`、`DesktopRightPanel.tsx`、`layout.ts`。
+- 会话身份与操作：`packages/happy-app/sources/components/Avatar.tsx`、`MessageView.tsx`、`SessionInfoDropdown.tsx`、`PublicSessionShareDialog.tsx`、`SessionRowChrome.tsx`、`hooks/useSessionManagementPreferences.ts`。
 - 路由与弹层：`packages/happy-app/sources/app/(app)/_layout.tsx`、`components/DesktopAppStack.tsx`、`DesktopSettingsModal.tsx`、`DesktopSidebarSessionsNavigation.tsx`、`app/(app)/session/search.tsx`。
 - Paws PC 视觉经验：`.agents/skills/happy-app-experience/references/pc-web-visual-baseline.md`。
