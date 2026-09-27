@@ -32,6 +32,8 @@ describe('buildCodexTurnPrompt', () => {
             `${CODEX_HAPPY_SYSTEM_PROMPT_END}\n\n` +
             'inspect the installed WebSearch Skill',
         );
+        expect(prompt).toContain('`$CODEX_HOME/skills/<skill-name>/SKILL.md`');
+        expect(prompt).toContain('may differ from `~/.codex`');
     });
 
     it('does not repeat the Skill path rule on an existing Codex thread', () => {

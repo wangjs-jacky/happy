@@ -67,6 +67,20 @@ describe('prepareCodexHomeWithAuth', () => {
         await expect(readFile(join(tempHome, 'history.jsonl'), 'utf8')).rejects.toThrow();
     });
 
+    it('makes bundled plugin Skills readable from a private session home', async () => {
+        const sourceHome = await makeTempDir('codex-source-');
+        const tempHome = await makeTempDir('codex-private-');
+        const pluginSkill = join(sourceHome, 'plugins', 'cache', 'openai-primary-runtime', 'pdf', '1.0.0', 'skills', 'pdf');
+        await mkdir(pluginSkill, { recursive: true });
+        await writeFile(join(pluginSkill, 'SKILL.md'), '# bundled pdf\n');
+
+        await prepareCodexHomeWithAuth('cloud-auth', { sourceHome, createTempDir: () => tempHome });
+
+        await expect(readFile(join(tempHome, 'skills', 'pdf', 'SKILL.md'), 'utf8')).resolves.toBe('# bundled pdf\n');
+        await expect(readFile(join(tempHome, 'auth.json'), 'utf8')).resolves.toBe('cloud-auth');
+        await expect(readFile(join(sourceHome, 'auth.json'), 'utf8')).rejects.toThrow();
+    });
+
     it('still creates an auth-only Codex home when the source home does not exist', async () => {
         const tempHome = await makeTempDir('codex-auth-only-');
         const result = await prepareCodexHomeWithAuth('cloud-auth', {

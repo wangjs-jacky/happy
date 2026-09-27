@@ -2,6 +2,7 @@ import { chmod, cp, lstat, mkdir, readdir, rm, stat, symlink, writeFile } from '
 import os from 'node:os';
 import { join, resolve } from 'node:path';
 import * as tmp from 'tmp';
+import { ensurePrimaryRuntimeSkillAliases } from './codexSkillAliases';
 
 const INHERITED_CODEX_HOME_ENTRIES = new Set([
     'AGENTS.md',
@@ -77,6 +78,13 @@ export async function prepareCodexHomeWithAuth(authJson: string, opts: {
         await chmod(tempHome, 0o700);
 
         if (await sourceExists(sourceHome)) {
+            try {
+                await ensurePrimaryRuntimeSkillAliases(sourceHome);
+            } catch (error) {
+                // Skill fallback links are optional; a read-only Codex home must
+                // not prevent the user from starting an authenticated session.
+                console.warn('Could not prepare Codex plugin Skill aliases', error);
+            }
             const entries = await readdir(sourceHome, { withFileTypes: true });
             for (const entry of entries) {
                 if (entry.name === 'auth.json' || !shouldInheritCodexHomeEntry(entry.name)) {
