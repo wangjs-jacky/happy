@@ -83,6 +83,21 @@ it('does not create an empty successor when source history cannot be read', asyn
     expect(spawn).not.toHaveBeenCalled();
 });
 
+it('loads the latest history before continuing when the visible window has a stale latest flag', async () => {
+    const id = source();
+    state.sessionMessages[id].isAtLatest = false;
+    state.sessionMessages[id].hasMoreNewer = false;
+    const jump = (await import('./sync')).sync.jumpToLatestMessages as ReturnType<typeof vi.fn>;
+    jump.mockImplementation(async () => {
+        state.sessionMessages[id].isAtLatest = true;
+    });
+
+    await (await import('./sessionContinuation')).createSessionContinuation(id);
+
+    expect(jump).toHaveBeenCalledWith(id);
+    expect(spawn).toHaveBeenCalledTimes(1);
+});
+
 it('reads past a latest page containing only tool calls before saving the handoff', async () => {
     const id = source();
     state.sessionMessages[id] = { isLoaded: true, isAtLatest: true, hasMoreOlder: true, messages: [{ id: 'tool', kind: 'tool-call', createdAt: 2 }] };
