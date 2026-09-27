@@ -23,7 +23,7 @@ vi.mock('@/utils/machineUtils', () => ({ isMachineOnline: () => true }));
 vi.mock('@/utils/sessionUtils', () => ({ getSessionName: () => 'Original task' }));
 let sourceCounter = 0;
 beforeEach(() => {
-    vi.resetModules(); vi.clearAllMocks();
+    vi.resetModules(); vi.resetAllMocks();
     state.sessions = {}; state.sessionMessages = {};
     load.mockResolvedValue(undefined);
     hydrate.mockResolvedValue(true);
@@ -96,6 +96,29 @@ it('loads the latest history before continuing when the visible window has a sta
 
     expect(jump).toHaveBeenCalledWith(id);
     expect(spawn).toHaveBeenCalledTimes(1);
+});
+
+it('keeps refreshing when a page reports newer history despite a latest flag', async () => {
+    const id = source();
+    state.sessionMessages[id].hasMoreNewer = true;
+    const jump = (await import('./sync')).sync.jumpToLatestMessages as ReturnType<typeof vi.fn>;
+    jump.mockImplementation(async () => {
+        state.sessionMessages[id].hasMoreNewer = false;
+    });
+
+    await (await import('./sessionContinuation')).createSessionContinuation(id);
+
+    expect(jump).toHaveBeenCalledWith(id);
+});
+
+it('does not continue when a jump leaves newer history unread', async () => {
+    const id = source();
+    state.sessionMessages[id].hasMoreNewer = true;
+
+    await expect((await import('./sessionContinuation')).createSessionContinuation(id))
+        .rejects.toThrow('continuation-history-unavailable');
+
+    expect(spawn).not.toHaveBeenCalled();
 });
 
 it('reads past a latest page containing only tool calls before saving the handoff', async () => {
