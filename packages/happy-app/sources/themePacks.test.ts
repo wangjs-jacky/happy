@@ -7,7 +7,7 @@ vi.mock('react-native', () => ({
     },
 }));
 
-import { appThemes, resolveThemeName, THEME_PACK_IDS } from './themePacks';
+import { appThemes, resolveDesktopThemeName, resolveThemeName, THEME_PACK_IDS } from './themePacks';
 
 function relativeLuminance(color: string): number {
     const [red, green, blue] = color
@@ -29,7 +29,7 @@ function contrastRatio(first: string, second: string): number {
 }
 
 describe('theme pack interactive surfaces', () => {
-    it('registers exactly the seven public-share packs in both visitor modes', () => {
+    it('keeps the seven public-share packs separate from the PC-only skin', () => {
         expect(THEME_PACK_IDS).toEqual([
             'caramel', 'gingham', 'terminal', 'acorn', 'sage', 'sakura', 'grape',
         ]);
@@ -41,6 +41,7 @@ describe('theme pack interactive surfaces', () => {
             'sageLight', 'sageDark',
             'sakuraLight', 'sakuraDark',
             'grapeLight', 'grapeDark',
+            'dreamskinDark',
         ]);
         expect(resolveThemeName('gingham', false)).toBe('ginghamLight');
         expect(resolveThemeName('gingham', true)).toBe('ginghamDark');
@@ -60,5 +61,22 @@ describe('theme pack interactive surfaces', () => {
         expect(backgroundPressed).toBe('#E05A52');
         expect(contrastRatio(background, tint)).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(backgroundPressed, tint)).toBeGreaterThanOrEqual(4.5);
+    });
+});
+
+describe('DreamSkin desktop theme', () => {
+    it('uses the independent dark skin only on Web and restores the saved theme otherwise', () => {
+        expect(resolveDesktopThemeName('gingham', false, 'dreamskin', 'web')).toBe('dreamskinDark');
+        expect(resolveDesktopThemeName('gingham', false, 'default', 'web')).toBe('ginghamLight');
+        expect(resolveDesktopThemeName('gingham', true, 'dreamskin', 'ios')).toBe('ginghamDark');
+    });
+
+    it('maps interactive surfaces to the DreamSkin palette', () => {
+        const colors = appThemes.dreamskinDark.colors;
+        expect(colors.groupped.background).toBe('#131313');
+        expect(colors.surface).toBe('#2A2A2A');
+        expect(colors.surfacePressed).toBe('#343A41');
+        expect(colors.surfaceSelected).toBe('#404A55');
+        expect(contrastRatio(colors.text, colors.surface)).toBeGreaterThanOrEqual(4.5);
     });
 });

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { localSettingsDefaults, localSettingsParse } from './localSettings';
 
+it('keeps the desktop skin independent of the saved color pack and light preference', () => {
+    expect(localSettingsDefaults.desktopSkinId).toBe('default');
+    expect(localSettingsParse({ desktopSkinId: 'dreamskin', themePack: 'gingham', themePreference: 'light' })).toMatchObject({
+        desktopSkinId: 'dreamskin', themePack: 'gingham', themePreference: 'light',
+    });
+    expect(localSettingsParse({ desktopSkinId: 'unknown' }).desktopSkinId).toBe('default');
+});
+
 it('preserves local advisor image keys across persistence and accepts legacy image counts', () => {
     const messages = [
         { id: 'new', role: 'user', text: '', imageCount: 1, imageKeys: ['image-1.jpg'], createdAt: 1 },

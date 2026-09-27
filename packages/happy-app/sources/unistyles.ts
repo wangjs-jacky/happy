@@ -1,6 +1,6 @@
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
-import { appThemes, resolveThemeName, type ThemePackId, type AppThemeName } from './themePacks';
-import { loadThemePreference, loadThemePack } from './sync/persistence';
+import { appThemes, resolveDesktopThemeName, type ThemePackId, type AppThemeName } from './themePacks';
+import { loadThemePreference, loadThemePack, loadDesktopSkinId } from './sync/persistence';
 import { Appearance, Platform } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
@@ -33,7 +33,7 @@ function isDarkFor(pref: ThemePref): boolean {
 const themePreference = loadThemePreference();
 const themePack = loadThemePack();
 
-const initialThemeName: AppThemeName = resolveThemeName(themePack, isDarkFor(themePreference));
+const initialThemeName: AppThemeName = resolveDesktopThemeName(themePack, isDarkFor(themePreference), loadDesktopSkinId(), Platform.OS);
 
 //
 // Bootstrap
@@ -61,7 +61,7 @@ StyleSheet.configure({
  * 同时更新根视图背景色，避免切换时闪白/闪黑。
  */
 export function applyTheme(pack: ThemePackId, pref: ThemePref) {
-    const name = resolveThemeName(pack, isDarkFor(pref));
+    const name = resolveDesktopThemeName(pack, isDarkFor(pref), loadDesktopSkinId(), Platform.OS);
     UnistylesRuntime.setTheme(name);
     const color = appThemes[name].colors.groupped.background;
     UnistylesRuntime.setRootViewBackgroundColor(color);

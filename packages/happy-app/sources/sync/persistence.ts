@@ -234,6 +234,10 @@ export function loadThemePack(): LocalSettings['themePack'] {
     return localSettingsDefaults.themePack;
 }
 
+export function loadDesktopSkinId(): LocalSettings['desktopSkinId'] {
+    return loadLocalSettings().desktopSkinId;
+}
+
 export function loadPurchases(): Purchases {
     const purchases = mmkv.getString('purchases');
     if (purchases) {
