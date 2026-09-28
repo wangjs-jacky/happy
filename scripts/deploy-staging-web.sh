@@ -26,21 +26,21 @@ verify_live() {
     local marker
     local html
     local party_html
-    marker="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/.paws-release-revision")"
+    marker="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/.paws-release-revision")" || return 1
     [[ "$marker" == "$revision" ]] || { echo "Staging revision mismatch: expected $revision, got $marker" >&2; return 1; }
-    curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/health" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{let j=JSON.parse(s);if(j.status!=="ok"||j.service!=="happy-server")process.exit(1)})'
-    html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/restore")"
-    [[ "$html" == *"name=\"paws-release-revision\" content=\"$revision\""* ]]
+    curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/health" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{let j=JSON.parse(s);if(j.status!=="ok"||j.service!=="happy-server")process.exit(1)})' || return 1
+    html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/restore")" || return 1
+    [[ "$html" == *"name=\"paws-release-revision\" content=\"$revision\""* ]] || { echo 'Staging HTML revision mismatch' >&2; return 1; }
     if [[ "$level" == basic ]]; then
         echo "Verified basic $STAGING_ORIGIN at $revision"
         return
     fi
-    party_html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/")"
-    [[ "$party_html" == *'/agent-party/assets/'* ]]
-    [[ "$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/api/access/config")" == '{"accountMode":true}' ]]
-    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST --header 'Origin: https://evil.invalid' "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]]
-    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]]
-    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' "$STAGING_ORIGIN/_expo/missing.js")" == 404 ]]
+    party_html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/")" || return 1
+    [[ "$party_html" == *'/agent-party/assets/'* ]] || { echo 'AgentParty static UI missing' >&2; return 1; }
+    [[ "$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/api/access/config")" == '{"accountMode":true}' ]] || { echo 'AgentParty gateway unavailable' >&2; return 1; }
+    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST --header 'Origin: https://evil.invalid' "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]] || { echo 'Foreign Origin was not rejected' >&2; return 1; }
+    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]] || { echo 'Missing Origin was not rejected' >&2; return 1; }
+    [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' "$STAGING_ORIGIN/_expo/missing.js")" == 404 ]] || { echo 'Missing static asset did not return 404' >&2; return 1; }
     echo "Verified $STAGING_ORIGIN at $revision"
 }
 

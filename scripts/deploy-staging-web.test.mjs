@@ -27,3 +27,22 @@ test('staging release script targets only the independent site and validates bef
     assert.match(source, /--rollback/);
     assert.doesNotMatch(source, /STAGING_ORIGIN=.*:8443/);
 });
+
+test('staging validation fails on an HTML mismatch even when called from a conditional', async () => {
+    const source = await readFile(script, 'utf8');
+    const prelude = source.slice(0, source.indexOf("if [[ \"$mode\" == '--rollback' ]]"));
+    const revision = '0'.repeat(40);
+    const probe = `
+curl() {
+    case "$*" in
+        *'.paws-release-revision'*) printf '%s' '${revision}' ;;
+        *'/health'*) printf '%s' '{"status":"ok","service":"happy-server"}' ;;
+        *'/restore'*) printf '%s' '<html>wrong version</html>' ;;
+    esac
+}
+if verify_live '${revision}'; then exit 43; else exit 0; fi
+`;
+    const result = spawnSync('bash', ['-s'], { input: prelude + probe, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /HTML revision mismatch/);
+});
