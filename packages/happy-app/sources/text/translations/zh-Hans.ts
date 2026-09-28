@@ -311,6 +311,7 @@ export const zhHans: TranslationStructure = {
         showPanel: ({ panel }: { panel: string }) => `展开${panel}`,
         hidePanel: ({ panel }: { panel: string }) => `收起${panel}`,
         resizePanel: ({ panel }: { panel: string }) => `调整${panel}宽度`,
+        readingWidth: '正文宽度',
         hidePanelShort: '收起',
         forward: '前进',
     },

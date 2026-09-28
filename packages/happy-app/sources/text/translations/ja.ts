@@ -291,6 +291,7 @@ export const ja: TranslationStructure = {
         showPanel: ({ panel }: { panel: string }) => `${panel}を表示`,
         hidePanel: ({ panel }: { panel: string }) => `${panel}を非表示`,
         resizePanel: ({ panel }: { panel: string }) => `${panel}の幅を変更`,
+        readingWidth: '本文の幅',
         hidePanelShort: '非表示',
         forward: '進む',
     },

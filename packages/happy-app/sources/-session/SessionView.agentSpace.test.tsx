@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
     runningOnMac: false,
     windowWidth: 390,
     desktopSkinId: 'default',
+    desktopReadingWidth: 960,
+    setDesktopReadingWidth: vi.fn(),
     isTablet: false,
     focusContext: null as unknown as React.Context<boolean>,
     rightPanelRoute: true,
@@ -116,7 +118,7 @@ vi.mock('react-native-reanimated', () => ({
     useSharedValue: (value: unknown) => ({ value }),
     withTiming: (value: unknown) => value,
 }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         dark: true,
@@ -195,7 +197,7 @@ vi.mock('@/components/AgentContentView', async () => {
     };
 });
 vi.mock('@/components/MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
-vi.mock('@/components/layout', () => ({ layout: { headerMaxWidth: 800 } }));
+vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800, headerMaxWidth: 800 } }));
 vi.mock('@/components/autocomplete/suggestions', () => ({ getSuggestions: () => [] }));
 vi.mock('@/components/ChatHeaderView', async () => {
     const ReactModule = await import('react');
@@ -335,6 +337,7 @@ vi.mock('@/sync/storage', () => ({
         if (key === 'acknowledgedCliVersions') return {};
         if (key === 'desktopRightPanelCollapsed') return mocks.desktopRightPanelCollapsed;
         if (key === 'desktopSkinId') return mocks.desktopSkinId;
+        if (key === 'desktopReadingWidth') return mocks.desktopReadingWidth;
         if (key === 'sidebarOrganization') return mocks.sidebarOrganization;
         return false;
     },
@@ -342,6 +345,7 @@ vi.mock('@/sync/storage', () => ({
         if (key === 'desktopRightPanelCollapsed') {
             return [mocks.desktopRightPanelCollapsed, mocks.setDesktopRightPanelCollapsed];
         }
+        if (key === 'desktopReadingWidth') return [mocks.desktopReadingWidth, mocks.setDesktopReadingWidth];
         return [false, vi.fn()];
     },
     useSettingUpdater: () => mocks.updateSidebarOrganization,
@@ -441,6 +445,7 @@ describe('SessionView Agent-space boundary', () => {
         mocks.runningOnMac = false;
         mocks.windowWidth = 390;
         mocks.desktopSkinId = 'default';
+        mocks.desktopReadingWidth = 960;
         mocks.isTablet = false;
         mocks.rightPanelRoute = true;
         mocks.platformOS = 'android';
@@ -729,6 +734,27 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findByType('RightSwipePanelHost').props.transparentBackground).toBe(true);
         expect(renderer.root.findByProps({ testID: 'desktop-workspace-main' })).toBeDefined();
         expect(renderer.root.findByType('DesktopSkinCanvas').props).toMatchObject({ reading: true, photo: false });
+        act(() => renderer.unmount());
+    });
+
+    it('uses the sidebar pin glyph and exposes a persistent body-width control in a wide DreamSkin session', () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 1600;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.desktopSkinId = 'dreamskin';
+        mocks.desktopRightPanelCollapsed = true;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-workspace-main' }).props.onLayout({ nativeEvent: { layout: { width: 1360 } } }));
+        const pin = renderer.root.findByProps({ testID: 'dreamskin-session-pin' });
+        expect(pin.findByType('Octicons').props.name).toBe('pin');
+        const widthButton = renderer.root.findByProps({ testID: 'dreamskin-reading-width-button' });
+        act(() => widthButton.props.onPress());
+        expect(renderer.root.findByProps({ testID: 'dreamskin-reading-width-menu' })).toBeDefined();
+        act(() => renderer.root.findByProps({ testID: 'dreamskin-reading-width-increase' }).props.onPress());
+        expect(mocks.setDesktopReadingWidth).toHaveBeenCalledWith(1040);
+        expect(renderer.root.findByType('DesktopSkinCanvas').props.readingWidth).toBe(960);
         act(() => renderer.unmount());
     });
 

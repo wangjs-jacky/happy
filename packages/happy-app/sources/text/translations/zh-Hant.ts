@@ -290,6 +290,7 @@ export const zhHant: TranslationStructure = {
         showPanel: ({ panel }: { panel: string }) => `展開${panel}`,
         hidePanel: ({ panel }: { panel: string }) => `收起${panel}`,
         resizePanel: ({ panel }: { panel: string }) => `調整${panel}寬度`,
+        readingWidth: '正文寬度',
         hidePanelShort: '收起',
         forward: '前進',
     },

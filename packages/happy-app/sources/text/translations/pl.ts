@@ -299,6 +299,7 @@ export const pl: TranslationStructure = {
         showPanel: ({ panel }: { panel: string }) => `Pokaż ${panel}`,
         hidePanel: ({ panel }: { panel: string }) => `Ukryj ${panel}`,
         resizePanel: ({ panel }: { panel: string }) => `Zmień szerokość ${panel}`,
+        readingWidth: 'Szerokość tekstu',
         hidePanelShort: 'Ukryj',
         forward: 'Dalej',
     },

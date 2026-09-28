@@ -3,10 +3,10 @@ import { ImageBackground, View, type LayoutChangeEvent } from 'react-native';
 import { DREAMSKIN_BACKGROUND_URL } from '@/desktopSkin';
 import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 
-type Props = { reading?: boolean; photo?: boolean };
+type Props = { reading?: boolean; photo?: boolean; readingWidth?: number };
 
 /** A single, inert photo layer per desktop route. It never participates in chat layout. */
-export function DesktopSkinCanvas({ reading = false, photo = true }: Props) {
+export function DesktopSkinCanvas({ reading = false, photo = true, readingWidth = 800 }: Props) {
     const reducedTransparency = useReducedTransparency();
     const [width, setWidth] = React.useState(0);
     const onLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -39,7 +39,7 @@ export function DesktopSkinCanvas({ reading = false, photo = true }: Props) {
                 : reducedTransparency ? 'none' : 'linear-gradient(135deg, #151B22, #1D252E)', backgroundColor: reducedTransparency ? '#13171D' : 'transparent' } as any} />}
             {reading && (
                 <View
-                    style={{ alignSelf: 'center', backgroundColor: reducedTransparency ? '#151A21' : !showAtmosphere ? 'rgba(21,26,33,0.92)' : compactReading ? 'rgba(21,26,33,0.70)' : 'rgba(21,26,33,0.51)', borderRadius: 18, height: '100%', maxWidth: 1050, width: '100%' }}
+                    style={{ alignSelf: 'center', backgroundColor: reducedTransparency ? '#151A21' : !showAtmosphere ? 'rgba(21,26,33,0.92)' : compactReading ? 'rgba(21,26,33,0.70)' : 'rgba(21,26,33,0.51)', borderRadius: 18, height: '100%', maxWidth: readingWidth + 250, width: '100%' }}
                     testID="dreamskin-reading-surface"
                 />
             )}

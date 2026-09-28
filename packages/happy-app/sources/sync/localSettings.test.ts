@@ -9,6 +9,13 @@ it('keeps the desktop skin independent of the saved color pack and light prefere
     expect(localSettingsParse({ desktopSkinId: 'unknown' }).desktopSkinId).toBe('default');
 });
 
+it('keeps a device-local reading width within the supported range', () => {
+    expect(localSettingsParse({}).desktopReadingWidth).toBe(960);
+    expect(localSettingsParse({ desktopReadingWidth: 1120 }).desktopReadingWidth).toBe(1120);
+    expect(localSettingsParse({ desktopReadingWidth: 500 }).desktopReadingWidth).toBe(960);
+    expect(localSettingsParse({ desktopReadingWidth: 'wide' }).desktopReadingWidth).toBe(960);
+});
+
 it('preserves local advisor image keys across persistence and accepts legacy image counts', () => {
     const messages = [
         { id: 'new', role: 'user', text: '', imageCount: 1, imageKeys: ['image-1.jpg'], createdAt: 1 },

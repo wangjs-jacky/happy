@@ -37,6 +37,12 @@ describe('DesktopSkinCanvas', () => {
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-photo' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
+    it('expands the reading surface with the chosen transcript width', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSkinCanvas reading photo={false} readingWidth={1120} />); });
+        expect(renderer.root.findByProps({ testID: 'dreamskin-reading-surface' }).props.style.maxWidth).toBe(1370);
+        act(() => renderer.unmount());
+    });
     it('uses solid surfaces when the user requests reduced transparency', () => {
         prefs.reducedTransparency = true;
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

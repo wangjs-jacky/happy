@@ -13,6 +13,7 @@ import { ToolView } from "./tools/ToolView";
 import { sync } from '@/sync/sync';
 import { Option } from './markdown/MarkdownView';
 import { layout } from "./layout";
+import { useDesktopReadingWidth } from './DesktopReadingWidth';
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
 import { getAutoFoldPromptBodyRenderState, getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
 import { ConversationActivityStrip } from './ConversationActivityStrip';
@@ -50,10 +51,11 @@ export const MessageView = React.memo((props: {
 }) => {
   const [avatarImageFailed, setAvatarImageFailed] = React.useState(false);
   const { theme } = useUnistyles();
+  const readingWidth = useDesktopReadingWidth();
   React.useEffect(() => setAvatarImageFailed(false), [props.turnAvatar?.imageUrl]);
   return (
     <View
-      style={[styles.messageContainer, props.turnAvatar && styles.turnMessageContainer]}
+      style={[styles.messageContainer, props.turnAvatar && styles.turnMessageContainer, props.turnAvatar && { maxWidth: readingWidth }]}
       renderToHardwareTextureAndroid={Platform.OS !== 'web'}
     >
       {props.turnAvatar && (
@@ -79,6 +81,7 @@ export const MessageView = React.memo((props: {
       <View
         style={[
           styles.messageContent,
+          { maxWidth: readingWidth },
           Platform.OS === 'web' && props.message.kind === 'agent-text' && styles.agentMessageContent,
         ]}
       >
