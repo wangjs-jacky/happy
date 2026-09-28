@@ -46,18 +46,13 @@ function importedPalette(source: typeof importedDesktopSkins[number]) {
     const background = hex(colors.background.startsWith('rgba(') ? colors.panelAlt : colors.background);
     const text = hex(colors.text);
     const secondary = hex(colors.muted);
-    const subdued = contrast(secondary, surface) > contrast(text, surface) ? mix(text, surface, 0.35) : secondary;
+    let subdued = contrast(secondary, surface) > contrast(text, surface) ? mix(text, surface, 0.35) : secondary;
     const high = light ? mix(surface, text, 0.055) : hex(colors.panelAlt);
     const highest = mix(high, text, light ? 0.09 : 0.11);
     const primary = hex(colors.accent);
     const onPrimary = contrast(primary, '#111111') >= contrast(primary, '#FFFFFF') ? '#111111' : '#FFFFFF';
     let link = hex(colors.secondary);
     for (let step = 0; step < 8 && contrast(link, surface) < 4.5; step++) link = mix(link, light ? '#172A32' : '#FFFFFF', 0.16);
-    const accent: AccentMode = {
-        primary, primaryPressed: mix(primary, light ? text : surface, 0.16), onPrimary, link,
-        bg: background, surface, surfaceHigh: high, surfaceHighest: highest,
-        text, textSecondary: subdued, particleA: primary, particleB: hex(colors.secondary),
-    };
     const desktopSkin = {
         frame: 'transparent', border: rgba(text, light ? 0.17 : 0.15),
         rail: rgba(surface, light ? 0.94 : 0.92), sidebar: rgba(surface, light ? 0.85 : 0.82),
@@ -65,6 +60,18 @@ function importedPalette(source: typeof importedDesktopSkins[number]) {
         canvas: background, readingSolid: surface,
         readingHidden: rgba(surface, 0.96), readingCompact: rgba(surface, light ? 0.86 : 0.81),
         readingWide: rgba(surface, light ? 0.75 : 0.72),
+    };
+    const worstBackdrop = light ? '#000000' : '#FFFFFF';
+    const secondarySurfaces = [surface, high, highest,
+        mix(surface, worstBackdrop, light ? 0.25 : 0.28),
+        mix(surface, worstBackdrop, light ? 0.15 : 0.18)];
+    for (let step = 0; step < 24 && secondarySurfaces.some((target) => contrast(subdued, target) < 4.5); step++) {
+        subdued = mix(subdued, text, 0.18);
+    }
+    const accent: AccentMode = {
+        primary, primaryPressed: mix(primary, light ? text : surface, 0.16), onPrimary, link,
+        bg: background, surface, surfaceHigh: high, surfaceHighest: highest,
+        text, textSecondary: subdued, particleA: primary, particleB: hex(colors.secondary),
     };
     return {
         ...source, themeName: `${source.id}${light ? 'Light' : 'Dark'}` as `${typeof source.id}${'Light' | 'Dark'}`, accent, desktopSkin,
@@ -116,6 +123,12 @@ export const isPhotoDesktopSkin = (skin: DesktopSkinId): skin is Exclude<Desktop
 export const photoDesktopSkin = (skin: DesktopSkinId) => PHOTO_DESKTOP_SKINS.find((item) => item.id === skin);
 export const isPhotoDesktopTheme = (themeName: string) => PHOTO_DESKTOP_SKINS.some((skin) => skin.themeName === themeName);
 export function desktopSkinBackgroundUrl(skin: DesktopSkinId): string | null { return photoDesktopSkin(skin)?.backgroundUrl ?? null; }
+export function desktopSkinBackgroundPosition(skin: DesktopSkinId): string {
+    const visual = photoDesktopSkin(skin);
+    const x = visual && 'focusX' in visual ? visual.focusX : 0.5;
+    const y = visual && 'focusY' in visual ? visual.focusY : 0.5;
+    return `${Math.round(x * 100)}% ${Math.round(y * 100)}%`;
+}
 
 export function isPhotoSkinActive(skin: DesktopSkinId, platform: string, viewportWidth: number, pathname = ''): boolean {
     return isPhotoDesktopSkin(skin) && platform === 'web' && viewportWidth >= WEB_TABLET_MIN_WIDTH

@@ -8,7 +8,7 @@ vi.mock('react-native', () => ({
 }));
 
 import { appThemes, resolveDesktopThemeName, resolveThemeName, THEME_PACK_IDS } from './themePacks';
-import { desktopNavigationBackground } from './desktopSkin';
+import { desktopNavigationBackground, desktopSkinBackgroundPosition } from './desktopSkin';
 
 function relativeLuminance(color: string): number {
     const [red, green, blue] = color
@@ -136,10 +136,18 @@ describe('DreamSkin desktop theme', () => {
             const worstImage = name.endsWith('Dark') ? '#FFFFFF' : '#000000';
             expect(contrastRatio(colors.text, blendReadingSurface(colors.desktopSkin.readingWide, worstImage))).toBeGreaterThanOrEqual(4.5);
             expect(contrastRatio(colors.text, blendReadingSurface(colors.desktopSkin.sidebar, worstImage))).toBeGreaterThanOrEqual(4.5);
+            for (const surface of [colors.surface, colors.surfacePressed, colors.surfaceSelected,
+                blendReadingSurface(colors.desktopSkin.readingWide, worstImage),
+                blendReadingSurface(colors.desktopSkin.sidebar, worstImage)]) {
+                expect(contrastRatio(colors.textSecondary, surface)).toBeGreaterThanOrEqual(4.5);
+            }
             expect(contrastRatio(colors.textLink, colors.surface)).toBeGreaterThanOrEqual(4.5);
             expect(resolveDesktopThemeName('gingham', false, skin, 'ios', 1200)).toBe('ginghamLight');
         }
         expect(appThemes.fireflyLight.colors.text).toBe('#263B42');
         expect(appThemes.evaWarmLight.colors.text).toBe('#3D3A33');
+        expect(desktopSkinBackgroundPosition('wukong')).toBe('0% 50%');
+        expect(desktopSkinBackgroundPosition('firefly')).toBe('8% 50%');
+        expect(desktopSkinBackgroundPosition('dreamskin')).toBe('50% 50%');
     });
 });

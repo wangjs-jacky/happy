@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { ImageBackground, View, type LayoutChangeEvent } from 'react-native';
-import { desktopSkinBackgroundUrl, photoDesktopSkin, type DesktopSkinId } from '@/desktopSkin';
+import { View, type LayoutChangeEvent } from 'react-native';
+import { desktopSkinBackgroundPosition, desktopSkinBackgroundUrl, photoDesktopSkin, type DesktopSkinId } from '@/desktopSkin';
 import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { useUnistyles } from 'react-native-unistyles';
 
@@ -32,11 +32,11 @@ export function DesktopSkinCanvas({ reading = false, photo = true, readingWidth 
             testID="dreamskin-photo-canvas"
         >
             {photo && showAtmosphere && (
-                <ImageBackground
-                    source={{ uri: desktopSkinBackgroundUrl(skin) ?? '' }}
-                    resizeMode="cover"
-                    style={{ position: 'absolute', inset: 0 } as any}
-                    imageStyle={{ opacity: visual?.photoOpacity ?? 0.88 }}
+                <View
+                    style={{ position: 'absolute', inset: 0, opacity: visual?.photoOpacity ?? 0.88,
+                        backgroundImage: `url("${desktopSkinBackgroundUrl(skin)}")`, backgroundSize: 'cover',
+                        backgroundPosition: desktopSkinBackgroundPosition(skin), backgroundRepeat: 'no-repeat',
+                    } as any}
                     testID="dreamskin-photo"
                 />
             )}

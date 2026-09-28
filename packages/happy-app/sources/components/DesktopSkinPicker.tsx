@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { ImageBackground, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import { PHOTO_DESKTOP_SKINS, type DesktopSkinId } from '@/desktopSkin';
+import { PHOTO_DESKTOP_SKINS, desktopSkinBackgroundPosition, type DesktopSkinId } from '@/desktopSkin';
 import { t } from '@/text';
 
 type Props = { value: DesktopSkinId; onChange: (id: DesktopSkinId) => void };
@@ -40,11 +40,12 @@ export function DesktopSkinPicker({ value, onChange }: Props) {
                         style={({ pressed }) => [styles.option, value === skin.id && styles.selected, pressed && styles.pressed]}
                         testID={`desktop-skin-${skin.assetId}`}
                     >
-                        <ImageBackground source={{ uri: skin.backgroundUrl }} resizeMode="cover" style={styles.preview} imageStyle={styles.photo}>
+                        <View style={[styles.preview, { backgroundImage: `url("${skin.backgroundUrl}")`,
+                            backgroundSize: 'cover', backgroundPosition: desktopSkinBackgroundPosition(skin.id), backgroundRepeat: 'no-repeat' } as any]}>
                             <View style={[styles.photoVeil, { backgroundImage: skin.photoScrim } as any]} />
                             <View style={[styles.photoSidebar, { backgroundColor: skin.desktopSkin.sidebar }]} />
                             <View style={[styles.photoContent, { backgroundColor: skin.desktopSkin.readingCompact }]} />
-                        </ImageBackground>
+                        </View>
                         <Text style={styles.title}>{title}</Text>
                         <Text style={styles.description}>{description}{'publisher' in skin ? ` · ${skin.publisher}` : ''}</Text>
                     </Pressable>
@@ -72,7 +73,6 @@ const styles = StyleSheet.create((theme) => ({
     defaultPreview: { backgroundColor: theme.colors.groupped.background, flexDirection: 'row' },
     defaultPreviewSidebar: { backgroundColor: theme.colors.surfaceHigh, width: 38 },
     defaultPreviewContent: { alignSelf: 'center', backgroundColor: theme.colors.surface, borderRadius: 5, height: 44, marginLeft: 15, width: 92 },
-    photo: { borderRadius: 8 },
     photoVeil: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
     photoSidebar: { bottom: 0, left: 0, position: 'absolute', top: 0, width: 38 },
     photoContent: { alignSelf: 'center', borderRadius: 5, height: 44, marginLeft: 54, width: 92 },
