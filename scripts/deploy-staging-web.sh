@@ -146,7 +146,7 @@ require_revision "$revision"
 readonly temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/paws-staging-deploy.XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
 
-CI=1 APP_ENV=production EXPO_PUBLIC_HAPPY_SERVER_URL="$STAGING_ORIGIN" \
+CI=1 APP_ENV=production EXPO_PUBLIC_HAPPY_SERVER_URL="$STAGING_ORIGIN" EXPO_PUBLIC_DREAMSKIN_STAGING_DEFAULT=1 \
     HAPPY_BUILD_COMMIT_SHA="$revision" HAPPY_BUILD_COMMIT_TIMESTAMP="$(git show -s --format=%cI HEAD)" \
     pnpm --filter happy-app export:web
 node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html

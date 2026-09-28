@@ -17,6 +17,7 @@ test('staging release script parses and rejects invalid rollback revisions befor
 test('staging release script targets only the independent site and validates before switching', async () => {
     const source = await readFile(script, 'utf8');
     assert.match(source, /STAGING_ORIGIN='https:\/\/47\.115\.228\.20:8444'/);
+    assert.match(source, /EXPO_PUBLIC_DREAMSKIN_STAGING_DEFAULT=1/);
     assert.match(source, /caddy validate --config/);
     assert.match(source, /sha256sum "\$caddy_file"/);
     assert.match(source, /prepare_current_release "\$old_revision"/);
