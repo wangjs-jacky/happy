@@ -68,6 +68,7 @@ import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, Octicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { useRouter, useNavigation } from 'expo-router';
 import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
@@ -441,17 +442,28 @@ function DesktopReadingWidthControl() {
     const { theme } = useUnistyles();
     const [width, setWidth] = useLocalSettingMutable('desktopReadingWidth');
     const pendingWidth = React.useRef<number | null>(null);
-    const commitWidth = React.useCallback(() => {
-        if (pendingWidth.current === null) return;
-        setWidth(pendingWidth.current);
+    const previewWidth = React.useCallback((value: number) => {
+        if (!Number.isFinite(value)) return;
+        const nextWidth = Math.min(1280, Math.max(800, Math.round(value)));
+        pendingWidth.current = nextWidth;
+        storage.setState((state) => ({ localSettings: { ...state.localSettings, desktopReadingWidth: nextWidth } }));
+    }, []);
+    const commitWidth = React.useCallback((value?: number) => {
+        const nextWidth = typeof value === 'number' && Number.isFinite(value)
+            ? Math.min(1280, Math.max(800, Math.round(value)))
+            : pendingWidth.current;
+        if (nextWidth === null) return;
+        setWidth(nextWidth);
         pendingWidth.current = null;
     }, [setWidth]);
     // Keep dragging cheap: preview in memory and persist once the interaction ends.
-    const previewWidth = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const nextWidth = Math.min(1280, Math.max(800, Math.round(Number(event.currentTarget.value))));
-        if (!Number.isFinite(nextWidth)) return;
-        pendingWidth.current = nextWidth;
-        storage.setState((state) => ({ localSettings: { ...state.localSettings, desktopReadingWidth: nextWidth } }));
+    const adjustWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        const change = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[event.key];
+        if (change === undefined && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const nextWidth = event.key === 'Home' ? 800 : event.key === 'End' ? 1280 : width + (change ?? 0);
+        previewWidth(nextWidth);
+        commitWidth(nextWidth);
     };
     React.useEffect(() => commitWidth, [commitWidth]);
     const [open, setOpen] = React.useState(false);
@@ -501,27 +513,31 @@ function DesktopReadingWidthControl() {
                 </Text>
                 <Text style={{ color: theme.colors.text, fontSize: 14, fontVariant: ['tabular-nums'] }}>{width} px</Text>
             </View>
-            {Platform.OS === 'web' && React.createElement('input', {
-                type: 'range',
-                min: 800,
-                max: 1280,
-                step: 1,
-                value: width,
+            {Platform.OS === 'web' && React.createElement('div', {
+                role: 'slider',
+                tabIndex: 0,
                 'aria-label': t('desktopWorkspace.readingWidth'),
+                'aria-valuemin': 800,
+                'aria-valuemax': 1280,
+                'aria-valuenow': width,
                 'aria-valuetext': `${width} px`,
-                'data-testid': 'dreamskin-reading-width-slider',
-                onChange: previewWidth,
-                onPointerDown: (event: React.PointerEvent<HTMLInputElement>) => event.currentTarget.setPointerCapture(event.pointerId),
-                onPointerUp: commitWidth,
-                onPointerCancel: commitWidth,
-                onKeyUp: commitWidth,
-                onBlur: commitWidth,
-                style: { width: '100%', height: 28, margin: 0, cursor: 'pointer', accentColor: theme.colors.accent },
-            })}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>800 px</Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>1280 px</Text>
-            </View>
+                onKeyDown: adjustWithKeyboard,
+                onBlur: () => commitWidth(),
+                style: { width: '100%', borderRadius: 8, outlineColor: theme.colors.accent },
+            }, <Slider
+                testID="dreamskin-reading-width-slider"
+                accessible={false}
+                minimumValue={800}
+                maximumValue={1280}
+                step={1}
+                value={width}
+                minimumTrackTintColor={theme.colors.accent}
+                maximumTrackTintColor={theme.colors.divider}
+                thumbTintColor={theme.colors.accent}
+                onValueChange={previewWidth}
+                onSlidingComplete={(value) => { previewWidth(value); commitWidth(value); }}
+                style={{ width: '100%', height: 28 }}
+            />)}
         </View>}
     </View>;
 }
