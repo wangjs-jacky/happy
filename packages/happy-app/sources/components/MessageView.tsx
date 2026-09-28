@@ -57,7 +57,7 @@ export const MessageView = React.memo((props: {
       renderToHardwareTextureAndroid={Platform.OS !== 'web'}
     >
       {props.turnAvatar && (
-        <View style={styles.turnAvatar} testID={`dreamskin-turn-avatar-${props.message.id}`}>
+        <View style={[styles.turnAvatar, props.message.kind === 'user-text' ? styles.userTurnAvatarPosition : styles.pawsTurnAvatarPosition]} testID={`dreamskin-turn-avatar-${props.message.id}`}>
           {props.message.kind === 'user-text' ? (
             <View style={[styles.userTurnAvatar, styles.userTurnAvatarFallback]}>
               <Text style={styles.userTurnAvatarInitial}>{props.turnAvatar.id.slice(0, 1).toUpperCase()}</Text>
@@ -744,10 +744,15 @@ const styles = StyleSheet.create((theme) => ({
     width: '100%',
   },
   turnAvatar: {
-    left: -36,
     position: 'absolute',
     top: 2,
     zIndex: 2,
+  },
+  pawsTurnAvatarPosition: {
+    left: -36,
+  },
+  userTurnAvatarPosition: {
+    right: -36,
   },
   pawsTurnAvatar: {
     alignItems: 'center',

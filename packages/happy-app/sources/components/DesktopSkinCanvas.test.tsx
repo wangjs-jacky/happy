@@ -25,6 +25,7 @@ describe('DesktopSkinCanvas', () => {
         act(() => { renderer = TestRenderer.create(<DesktopSkinCanvas reading photo={false} />); });
         const canvas = renderer.root.findByProps({ testID: 'dreamskin-photo-canvas' });
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-photo' })).toHaveLength(0);
+        expect(renderer.root.findAll((node: any) => typeof node.props.style?.backgroundImage === 'string')).toHaveLength(0);
         act(() => canvas.props.onLayout({ nativeEvent: { layout: { width: 1200 } } }));
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-photo' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-surface' })).toHaveLength(1);

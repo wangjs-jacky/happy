@@ -34,13 +34,9 @@ export function DesktopSkinCanvas({ reading = false, photo = true }: Props) {
                     testID="dreamskin-photo"
                 />
             )}
-            <View style={{ position: 'absolute', inset: 0, backgroundImage: showAtmosphere
-                ? reading
-                    ? compactReading
-                        ? 'linear-gradient(90deg, rgba(13,17,23,.60) 0%, rgba(13,17,23,.49) 55%, rgba(13,17,23,.32) 100%)'
-                        : 'linear-gradient(90deg, rgba(13,17,23,.36) 0%, rgba(13,17,23,.22) 55%, rgba(13,17,23,.07) 100%)'
-                    : 'linear-gradient(90deg, rgba(13,17,23,.50) 0%, rgba(13,17,23,.34) 51%, rgba(13,17,23,.10) 100%)'
-                : reducedTransparency ? 'none' : 'linear-gradient(135deg, #151B22, #1D252E)' , backgroundColor: reducedTransparency ? '#13171D' : 'transparent' } as any} />
+            {photo && <View style={{ position: 'absolute', inset: 0, backgroundImage: showAtmosphere
+                ? 'linear-gradient(90deg, rgba(13,17,23,.50) 0%, rgba(13,17,23,.34) 51%, rgba(13,17,23,.10) 100%)'
+                : reducedTransparency ? 'none' : 'linear-gradient(135deg, #151B22, #1D252E)', backgroundColor: reducedTransparency ? '#13171D' : 'transparent' } as any} />}
             {reading && (
                 <View
                     style={{ alignSelf: 'center', backgroundColor: reducedTransparency ? '#151A21' : !showAtmosphere ? 'rgba(21,26,33,0.92)' : compactReading ? 'rgba(21,26,33,0.70)' : 'rgba(21,26,33,0.51)', borderRadius: 18, height: '100%', maxWidth: 1050, width: '100%' }}

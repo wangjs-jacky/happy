@@ -970,7 +970,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     style={({ pressed }) => [workspaceStyles.headerIconButton, isSessionPinned && workspaceStyles.headerIconButtonSelected, pressed && workspaceStyles.headerIconButtonPressed]}
                     testID="dreamskin-session-pin"
                 >
-                    <Ionicons name={isSessionPinned ? 'star' : 'star-outline'} size={20} color={theme.colors.header.tint} />
+                    <Ionicons name={isSessionPinned ? 'pin' : 'pin-outline'} size={20} color={isSessionPinned ? theme.colors.accent : theme.colors.header.tint} />
                 </Pressable>
             </View>
         </>
@@ -1042,7 +1042,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     zIndex: 1000
                 }}>
                     <ChatHeaderView
-                        backgroundColor={dreamskin ? 'rgba(19, 24, 30, 0.68)' : undefined}
+                        backgroundColor={dreamskin ? 'transparent' : undefined}
                         title={headerProps.title}
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
