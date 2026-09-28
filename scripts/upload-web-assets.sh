@@ -25,8 +25,7 @@ if [[ ! "$RELEASE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
     exit 1
 fi
 
-# Validate content-addressed shared assets before the first OSS write. A stale
-# filename must never overwrite an existing immutable URL.
+# Validate the immutable skin URL before the first OSS write.
 skin_dir="$DIST_DIR/desktop-skins/dreamskin"
 [[ -d "$skin_dir" ]] || { echo '错误：缺少 DreamSkin 背景资源。' >&2; exit 1; }
 skin_count="$(find "$DIST_DIR/desktop-skins" -type f | wc -l | tr -d '[:space:]')"
@@ -49,11 +48,18 @@ upload_directory() {
     local cache_control="$3"
 
     if [[ -d "$source_dir" ]]; then
-        echo "==> 上传 $source_dir 到 $destination"
-        aliyun ossutil cp -r "$source_dir/" "$destination" --force \
-            --cache-control "$cache_control" \
-            --endpoint "$OSS_UPLOAD_ENDPOINT" --addressing-style "$OSS_ADDRESSING_STYLE"
+        echo "==> 校验并补传 $source_dir 到 $destination"
+        node scripts/oss-upload-sync.cjs "$source_dir" "$OSS_BUCKET" \
+            "${destination#"oss://$OSS_BUCKET/"}" "$cache_control"
     fi
+}
+
+copy_directory_with_checksum() {
+    local source="$1"
+    local destination="$2"
+    echo "==> OSS 内部复用 $source 到 $destination"
+    aliyun ossutil cp -r "$source" "$destination" --checksum --force \
+        --endpoint "$OSS_UPLOAD_ENDPOINT" --addressing-style "$OSS_ADDRESSING_STYLE"
 }
 
 upload_file() {
@@ -82,8 +88,16 @@ upload_directory \
     "oss://$OSS_BUCKET/web/releases/$RELEASE_REVISION/" \
     "$IMMUTABLE_CACHE_CONTROL"
 
-upload_directory "$DIST_DIR/_expo" "oss://$OSS_BUCKET/_expo/" "$IMMUTABLE_CACHE_CONTROL"
-upload_directory "$DIST_DIR/assets" "oss://$OSS_BUCKET/assets/" "$IMMUTABLE_CACHE_CONTROL"
+if [[ -d "$DIST_DIR/_expo" ]]; then
+    copy_directory_with_checksum \
+        "oss://$OSS_BUCKET/web/releases/$RELEASE_REVISION/_expo/" \
+        "oss://$OSS_BUCKET/_expo/"
+fi
+if [[ -d "$DIST_DIR/assets" ]]; then
+    copy_directory_with_checksum \
+        "oss://$OSS_BUCKET/web/releases/$RELEASE_REVISION/assets/" \
+        "oss://$OSS_BUCKET/assets/"
+fi
 upload_file "$skin_path" "oss://$OSS_BUCKET/desktop-skins/dreamskin/$skin_name" "$IMMUTABLE_CACHE_CONTROL" "image/webp"
 
 for source_file in "$DIST_DIR/.well-known"/*; do
@@ -95,7 +109,23 @@ done
 for source_file in "$DIST_DIR"/*; do
     if [[ -f "$source_file" && "$(basename -- "$source_file")" != "index.html" ]]; then
         filename="$(basename -- "$source_file")"
-        upload_file "$source_file" "oss://$OSS_BUCKET/$filename" "$REVALIDATE_CACHE_CONTROL"
+        if [[ "$filename" == "canvaskit.wasm" ]]; then
+            echo "==> OSS 内部复制 $filename"
+            aliyun ossutil cp \
+                "oss://$OSS_BUCKET/web/releases/$RELEASE_REVISION/$filename" \
+                "oss://$OSS_BUCKET/$filename" --force --copy-props none \
+                --cache-control "$REVALIDATE_CACHE_CONTROL" \
+                --content-type application/wasm \
+                --endpoint "$OSS_UPLOAD_ENDPOINT" --addressing-style "$OSS_ADDRESSING_STYLE"
+            # ossutil cp can omit Cache-Control on an OSS-to-OSS copy even when
+            # passed above. Update the destination's properties explicitly.
+            aliyun ossutil set-props "oss://$OSS_BUCKET/$filename" \
+                --cache-control "$REVALIDATE_CACHE_CONTROL" \
+                --content-type application/wasm --metadata-directive update --force \
+                --endpoint "$OSS_UPLOAD_ENDPOINT" --addressing-style "$OSS_ADDRESSING_STYLE"
+        else
+            upload_file "$source_file" "oss://$OSS_BUCKET/$filename" "$REVALIDATE_CACHE_CONTROL"
+        fi
     fi
 done
 

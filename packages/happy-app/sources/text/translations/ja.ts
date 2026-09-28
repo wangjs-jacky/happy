@@ -781,6 +781,7 @@ export const ja: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'セッション履歴',
+        failedToRefreshSessions: 'セッション一覧の更新に失敗しました',
         failedToLoadMore: 'さらに古いセッション履歴を読み込めませんでした',
         empty: 'セッションが見つかりません',
         archiveTitle: 'アーカイブ済みセッション',
@@ -818,6 +819,10 @@ export const ja: TranslationStructure = {
         inputPlaceholder: 'メッセージを入力...',
         inactiveArchived: 'このセッションは非アクティブです。',
         failedRecoveryAvailable: 'このタスクは失敗しました。この端末から再開すると、Paws が元のマシンでプロセスを再起動します。',
+        failedConnected: "前回の作業は失敗しましたが、セッションは接続中です。新しいメッセージを送るか、下のボタンで未完了の作業を続けてください。",
+failedContinueTask: "未完了の作業を続ける",
+        failedContinueViewLatest: "先に最新のメッセージを確認",
+        failedContinuePrompt: "前回未完了の作業を続けてください。既存の変更と実行結果を先に確認し、重複作業を避けてから残りを完了してください。",
         resumeFromTerminal: 'ターミナルから再開するには:',
         newChat: '新規チャット',
         forkAction: 'セッションをフォーク',

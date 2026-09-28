@@ -759,6 +759,7 @@ export const ru: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'История сессий',
+        failedToRefreshSessions: 'Не удалось обновить список сессий',
         failedToLoadMore: 'Не удалось загрузить более раннюю историю сессий',
         empty: 'Сессии не найдены',
         archiveTitle: 'Архивные сессии',
@@ -1042,6 +1043,10 @@ export const ru: TranslationStructure = {
         inputPlaceholder: 'Введите сообщение...',
         inactiveArchived: 'Эта сессия неактивна.',
         failedRecoveryAvailable: 'Эта задача завершилась с ошибкой. Возобновите её с этого устройства, и Paws перезапустит процесс на исходной машине.',
+        failedConnected: "Предыдущая попытка завершилась ошибкой, но сеанс по-прежнему подключён. Отправьте сообщение или продолжите незавершённую задачу.",
+failedContinueTask: "Продолжить незавершённую задачу",
+        failedContinueViewLatest: "Сначала проверьте последние сообщения",
+        failedContinuePrompt: "Продолжите незавершённую задачу с предыдущей попытки. Сначала проверьте имеющиеся изменения и результаты, чтобы не повторять работу, затем завершите оставшееся.",
         resumeFromTerminal: 'Чтобы возобновить её из терминала:',
         newChat: 'Новый чат',
         forkAction: 'Форкнуть сессию',

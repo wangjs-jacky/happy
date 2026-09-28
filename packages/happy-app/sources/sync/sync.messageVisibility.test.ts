@@ -1168,7 +1168,7 @@ describe('message visibility synchronization', () => {
                 await vi.waitFor(() => expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBe(101), { timeout: 300 });
             } else {
                 expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBe(100);
-                await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?after_seq=100&limit=100'));
+                await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?after_seq=100&limit=100', expect.anything()));
             }
         } finally {
             http.resolve(response({ messages: [apiMessage(101), apiMessage(102), apiMessage(103)], hasMore: false }));
@@ -1207,7 +1207,7 @@ describe('message visibility synchronization', () => {
         try {
             await syncForTest.handleUpdate(newMessageUpdate('spawned-session', 101));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
         } finally {
             http.resolve(response({ messages: [apiMessage(99), apiMessage(100), apiMessage(101)], hasMore: true }));
             await syncForTest.getMessagesSync('spawned-session').awaitQueue();
@@ -1236,7 +1236,7 @@ describe('message visibility synchronization', () => {
         mocks.apiRequest.mockReturnValueOnce(http.promise);
         const opening = syncForTest.openSession('spawned-session');
         try {
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
         } finally {
             http.resolve(response({ messages: [apiMessage(99), apiMessage(100)], hasMore: true }));
@@ -1258,7 +1258,7 @@ describe('message visibility synchronization', () => {
         try {
             await syncForTest.handleUpdate(newMessageUpdate('spawned-session', 103));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
         } finally {
             http.resolve(response({ messages: [apiMessage(100), apiMessage(101), apiMessage(102), apiMessage(103)], hasMore: true }));
             await syncForTest.messagesSync.get('spawned-session')?.awaitQueue();
@@ -1393,7 +1393,7 @@ describe('message visibility synchronization', () => {
         const after = syncForTest.historyWindows.get('web-forward-history');
         expect(after.messages.map((message: ApiMessage) => message.seq))
             .toEqual(before.messages.map((message: ApiMessage) => message.seq));
-        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-forward-history/messages?after_seq=301&limit=100');
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-forward-history/messages?after_seq=301&limit=100', expect.anything());
     }, 20000);
 
     it('keeps visited Web history when a consecutive realtime row reaches the latest window', async () => {
@@ -1443,6 +1443,33 @@ describe('message visibility synchronization', () => {
         expect(after.messages.map((message: ApiMessage) => message.seq)).toEqual([...before, 302]);
         expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-reconciled-history/messages?after_seq=301&limit=100');
     }, 20000);
+
+    it('fetches results when session metadata is newer than the Web history change cursor', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('stale-change');
+        const history = (await openLocalHistory('server|stale-change'))!;
+        await history.commitPage('stale-change', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(75)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'stale-change', revision: '1', deleted: false,
+            lastMessageSeq: 75, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('stale-change')).resolves.toBe('ready');
+        expect(mocks.state.sessionMessages['stale-change'].latestAppliedSeq).toBe(75);
+        mocks.state.sessions['stale-change'].seq = 86;
+        mocks.apiRequest.mockResolvedValue(response({
+            messages: Array.from({ length: 11 }, (_, index) => apiMessage(76 + index)), hasMore: false,
+        }));
+
+        await syncForTest.ensureMessagesLoaded('stale-change');
+
+        expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/stale-change/messages?after_seq=75&limit=100',
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+        expect(mocks.state.sessionMessages['stale-change'].latestAppliedSeq).toBe(86);
+    });
 
     it('keeps a restored Web history island reachable when a disconnected latest window is applied', async () => {
         globalThis.indexedDB = new IDBFactory();
@@ -2510,7 +2537,7 @@ describe('message visibility synchronization', () => {
         await syncForTest.loadOlderMessages('bounded-initial');
 
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(1,
-            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25');
+            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25', expect.anything());
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(2,
             '/v3/sessions/bounded-initial/messages?before_seq=101&limit=100');
         expect(syncForTest.sessionMessageFrontiers.get('bounded-initial')?.olderBeforeSeq).toBe(1);
@@ -2532,6 +2559,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
+            expect.anything(),
         );
         expect(mocks.state.sessionMessages['warm-route'].latestVerifiedOwnerEpoch).not.toBeNull();
     });
@@ -3293,7 +3321,37 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/visible-session/messages?after_seq=4&limit=100',
+            expect.anything(),
         );
+    });
+
+    it('abandons a hung message request and fetches the missing result again', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            installSession('visible-session');
+            mocks.state.currentViewingSessionId = 'visible-session';
+            seedProjectedFrontier('visible-session', { latestSeq: 75, olderBeforeSeq: null, hasMoreOlder: false });
+            const hung = deferred<Response>();
+            let signal: AbortSignal | undefined;
+            mocks.apiRequest
+                .mockImplementationOnce((_path: string, options: RequestInit) => {
+                    signal = options.signal ?? undefined;
+                    return hung.promise;
+                })
+                .mockResolvedValueOnce(response({ messages: [apiMessage(76), apiMessage(77), apiMessage(78)], hasMore: false }));
+
+            await syncForTest.handleUpdate(newMessageUpdate('visible-session', 78));
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            await vi.advanceTimersByTimeAsync(22_000);
+            await syncForTest.messagesSync.get('visible-session').awaitQueue();
+
+            expect(signal?.aborted).toBe(true);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-78']).toBeDefined();
+            expect(mocks.state.sessionMessages['visible-session']?.latestAppliedSeq).toBe(78);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('coalesces concurrent visible gaps into one forward operation', async () => {
@@ -3344,6 +3402,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(
             2,
             '/v3/sessions/visible-session/messages?after_seq=7&limit=100',
+            expect.anything(),
         );
         expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-8']).toBeDefined();
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(8);
@@ -3804,6 +3863,9 @@ describe('message visibility synchronization', () => {
         });
 
     it.each(['web', 'android'] as const)('renders a retryable no-IDB older failure on %s through mounted ChatList and clears it after retry', async platform => {
+        // The React renderer has no browser frame scheduler; this case does not exercise auto-fill.
+        vi.stubGlobal('requestAnimationFrame', (_callback: FrameRequestCallback) => 1);
+        vi.stubGlobal('cancelAnimationFrame', (_frame: number) => {});
         const { Platform } = await import('react-native');
         const previousPlatform = Platform.OS;
         (Platform as any).OS = platform;

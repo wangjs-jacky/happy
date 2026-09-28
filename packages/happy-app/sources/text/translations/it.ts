@@ -778,6 +778,7 @@ export const it: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'Cronologia sessioni',
+        failedToRefreshSessions: 'Impossibile aggiornare la lista delle sessioni',
         failedToLoadMore: 'Impossibile caricare altra cronologia delle sessioni',
         empty: 'Nessuna sessione trovata',
         archiveTitle: 'Sessioni archiviate',
@@ -815,6 +816,10 @@ export const it: TranslationStructure = {
         inputPlaceholder: 'Scrivi un messaggio ...',
         inactiveArchived: 'Questa sessione è inattiva.',
         failedRecoveryAvailable: 'Questa attività non è riuscita. Riprendila da questo dispositivo e Paws riavvierà il processo sul computer originale.',
+        failedConnected: "Il tentativo precedente è fallito, ma la sessione è ancora connessa. Invia un messaggio o continua il lavoro in sospeso.",
+failedContinueTask: "Continua il lavoro in sospeso",
+        failedContinueViewLatest: "Controlla prima i messaggi più recenti",
+        failedContinuePrompt: "Continua il lavoro non completato nel tentativo precedente. Controlla prima le modifiche e i risultati esistenti per evitare duplicazioni, poi termina il resto.",
         resumeFromTerminal: 'Per riprenderla dal terminale:',
         newChat: 'Nuova chat',
         forkAction: 'Biforca sessione',

@@ -146,6 +146,7 @@ function expectedMimePattern(pathname) {
     if (pathname.endsWith('.wasm')) return /^application\/wasm\b/i;
     if (pathname.endsWith('.ttf')) return /^(?:font\/ttf|application\/(?:x-font-ttf|font-sfnt))\b/i;
     if (pathname.endsWith('.woff2')) return /^font\/woff2\b/i;
+    if (pathname.endsWith('.wav')) return /^audio\/(?:wav|wave|x-wav|vnd\.wave)\b/i;
     if (pathname.endsWith('.ico')) return /^image\/(?:x-icon|vnd\.microsoft\.icon)\b/i;
     if (pathname.endsWith('.svg')) return /^image\/svg\+xml\b/i;
     if (pathname.endsWith('.png')) return /^image\/png\b/i;
@@ -235,6 +236,21 @@ for (const skinPath of skinFiles) {
     assertCachePolicy('desktop skin background', pathname, response);
     const remoteHash = createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
     if (remoteHash !== expectedHash) throw new Error(`desktop skin background SHA-256 mismatch: ${pathname}`);
+}
+
+const requiredSoundPaths = ['approval', 'complete', 'error', 'start', 'submit']
+    .map((name) => `assets/sounds/codeisland/8bit_${name}.wav`);
+for (const soundPath of requiredSoundPaths) {
+    const filePath = join(distDirectory, ...soundPath.split('/'));
+    if (!assetFiles.includes(filePath)) throw new Error(`required audio asset missing from Web export: ${soundPath}`);
+    const url = `${normalizedOrigin}/${soundPath}`;
+    const response = await fetchRequired(`audio asset ${soundPath}`, url);
+    assertMime(`audio asset ${soundPath}`, soundPath, response);
+    assertCachePolicy(`audio asset ${soundPath}`, `/${soundPath}`, response);
+    const [expectedBytes, remoteBytes] = await Promise.all([readFile(filePath), response.arrayBuffer()]);
+    if (!expectedBytes.equals(Buffer.from(remoteBytes))) {
+        throw new Error(`audio asset ${soundPath} content mismatch`);
+    }
 }
 
 if (immutableMode) {

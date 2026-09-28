@@ -780,6 +780,7 @@ export const zhHant: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: '工作階段歷史',
+        failedToRefreshSessions: '會話清單重新整理失敗',
         failedToLoadMore: '載入更多歷史記錄失敗',
         empty: '未找到工作階段',
         archiveTitle: '已封存的工作階段',
@@ -817,6 +818,10 @@ export const zhHant: TranslationStructure = {
         inputPlaceholder: '輸入訊息...',
         inactiveArchived: '此會話處於非活動狀態。',
         failedRecoveryAvailable: '此工作已失敗。可從目前裝置發起恢復，Paws 會在原主機重新啟動執行程序。',
+        failedConnected: "上一輪工作失敗，但工作階段仍在線。傳送新訊息，或點擊下方按鈕繼續未完成的工作。",
+failedContinueTask: "繼續未完成的工作",
+        failedContinueViewLatest: "請先查看最新訊息",
+        failedContinuePrompt: "請繼續上一輪未完成的工作。先檢查已有變更和執行結果，避免重複操作，再完成剩餘工作。",
         resumeFromTerminal: '若要從終端恢復它：',
         newChat: '新對話',
         forkAction: '分叉會話',

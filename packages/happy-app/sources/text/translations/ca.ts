@@ -780,6 +780,7 @@ export const ca: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: 'Historial de sessions',
+        failedToRefreshSessions: 'No s’ha pogut actualitzar la llista de sessions',
         failedToLoadMore: "No s'ha pogut carregar més historial de sessions",
         empty: 'No s\'han trobat sessions',
         archiveTitle: 'Sessions arxivades',
@@ -817,6 +818,10 @@ export const ca: TranslationStructure = {
         inputPlaceholder: 'Escriu un missatge...',
         inactiveArchived: 'Aquesta sessió està inactiva.',
         failedRecoveryAvailable: 'Aquesta tasca ha fallat. Reprèn-la des d’aquest dispositiu i Paws reiniciarà el procés a la màquina original.',
+        failedConnected: "L'intent anterior ha fallat, però la sessió continua connectada. Envia un missatge o continua la tasca pendent.",
+failedContinueTask: "Continua la tasca pendent",
+        failedContinueViewLatest: "Consulta primer els missatges més recents",
+        failedContinuePrompt: "Continua la tasca pendent de l'intent anterior. Revisa primer els canvis i els resultats existents per evitar repetir feina i després acaba el que falta.",
         resumeFromTerminal: 'Per reprendre-la des del terminal:',
         newChat: 'Nou xat',
         forkAction: 'Bifurca la sessió',

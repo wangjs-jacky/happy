@@ -826,6 +826,7 @@ export const zhHans: TranslationStructure = {
     sessionHistory: {
         // Used by session history screen
         title: '会话历史',
+        failedToRefreshSessions: '会话列表刷新失败',
         failedToLoadMore: '加载更多历史记录失败',
         empty: '未找到会话',
         archiveTitle: '已归档会话',
@@ -863,6 +864,10 @@ export const zhHans: TranslationStructure = {
         inputPlaceholder: '输入消息...',
         inactiveArchived: '此会话处于非活动状态。',
         failedRecoveryAvailable: '此任务已失败。可从当前设备发起恢复，Paws 会在原主机重启执行进程。',
+        failedConnected: "上一轮任务失败，但会话仍在线。发送新消息，或点击下方按钮继续未完成的任务。",
+failedContinueTask: "继续未完成的任务",
+        failedContinueViewLatest: "请先查看最新消息",
+        failedContinuePrompt: "请接着上一轮未完成的任务继续。先检查已有改动和执行结果，避免重复操作，然后完成剩余工作。",
         resumeFromTerminal: '要从终端恢复它：',
         newChat: '新对话',
         forkAction: '分叉会话',
