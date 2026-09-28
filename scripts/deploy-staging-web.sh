@@ -35,6 +35,16 @@ verify_live() {
         echo "Verified basic $STAGING_ORIGIN at $checked_revision"
         return
     fi
+    local skin_file skin_url skin_cache skin_hash remote_skin_hash
+    skin_file="$(find "$repo_root/packages/happy-app/dist/desktop-skins/dreamskin" -maxdepth 1 -type f -name 'background.*.webp' -print -quit)"
+    [[ -n "$skin_file" ]] || { echo 'Optimized DreamSkin background missing from build' >&2; return 1; }
+    skin_url="/desktop-skins/dreamskin/${skin_file##*/}"
+    [[ "$html" == *"$skin_url"* ]] || { echo 'DreamSkin preload missing from staging HTML' >&2; return 1; }
+    skin_cache="$(curl --fail --silent --show-error --insecure --head "$STAGING_ORIGIN$skin_url" | tr -d '\r' | awk 'tolower($1) == "cache-control:" { print $2, $3, $4 }')" || return 1
+    [[ "$skin_cache" == *max-age=31536000* && "$skin_cache" == *immutable* && "$skin_cache" != *no-store* ]] || { echo "DreamSkin cache policy is not immutable: $skin_cache" >&2; return 1; }
+    skin_hash="$(shasum -a 256 "$skin_file" | cut -d ' ' -f 1)"
+    remote_skin_hash="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN$skin_url" | shasum -a 256 | cut -d ' ' -f 1)" || return 1
+    [[ "$skin_hash" == "$remote_skin_hash" ]] || { echo 'DreamSkin background hash mismatch' >&2; return 1; }
     party_html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/")" || return 1
     [[ "$party_html" == *'/agent-party/assets/'* ]] || { echo 'AgentParty static UI missing' >&2; return 1; }
     [[ "$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/api/access/config")" == '{"accountMode":true}' ]] || { echo 'AgentParty gateway unavailable' >&2; return 1; }

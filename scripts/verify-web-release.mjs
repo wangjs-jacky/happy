@@ -226,7 +226,7 @@ if (skinFiles.length !== 1) throw new Error(`desktop skin background missing or 
 for (const skinPath of skinFiles) {
     const relativePath = relative(skinDirectory, skinPath).split(sep).join('/');
     const expectedHash = createHash('sha256').update(await readFile(skinPath)).digest('hex');
-    if (relativePath !== `dreamskin/background.${expectedHash.slice(0, 16)}.png`) {
+    if (relativePath !== `dreamskin/background.${expectedHash.slice(0, 16)}.webp`) {
         throw new Error(`desktop skin background is not content-addressed: ${relativePath}`);
     }
     const pathname = `/desktop-skins/${relativePath}`;

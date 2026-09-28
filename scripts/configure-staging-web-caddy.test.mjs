@@ -30,6 +30,8 @@ test('adds one complete same-origin staging site and preserves production verbat
     assert.match(result, /@public_session_share path \/share\/\*/);
     assert.match(result, /Content-Security-Policy .*frame-ancestors 'none'/);
     assert.match(result, /@static_asset path \/_expo\/\* \/assets\/\* \/desktop-skins\/\*/);
+    assert.match(result, /@immutable_static path \/_expo\/\* \/assets\/\* \/desktop-skins\/\* \/agent-party\/assets\/\*/);
+    assert.match(result, /header @immutable_static Cache-Control "public, max-age=31536000, immutable" \{\s+match status 2xx\s+\}/);
     assert.match(result, /handle @static_asset \{\s+root \* \/var\/www\/paws-web-staging\/current\s+file_server/s);
     assert.equal(configureStagingWebCaddy(result), result);
 });

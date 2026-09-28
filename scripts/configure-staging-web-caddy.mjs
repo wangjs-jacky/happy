@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 export const STAGING_WEB_BLOCK_START = '# paws-web-staging:start';
 export const STAGING_WEB_BLOCK_END = '# paws-web-staging:end';
 export const STAGING_WEB_ORIGIN = 'https://47.115.228.20:8444';
-const PREVIOUS_MANAGED_BLOCK_SHA256 = 'b75fa426e7fa10ee38489eb1bdc90953e3a5b0d3fde279160a5c9b26ff396d79';
+const PREVIOUS_MANAGED_BLOCK_SHA256 = '6cddf75112fa26a8ebca1baa97d72a4a8a60fdc34cc0a0463dec1481aa728fd9';
 
 const STAGING_WEB_BLOCK = `${STAGING_WEB_BLOCK_START}
 47.115.228.20:8444 {
@@ -16,6 +16,10 @@ const STAGING_WEB_BLOCK = `${STAGING_WEB_BLOCK_START}
         X-Content-Type-Options "nosniff"
         Referrer-Policy "no-referrer"
         Cache-Control "no-store"
+    }
+    @immutable_static path /_expo/* /assets/* /desktop-skins/* /agent-party/assets/*
+    header @immutable_static Cache-Control "public, max-age=31536000, immutable" {
+        match status 2xx
     }
     @public_session_share path /share/*
     header @public_session_share {

@@ -22,7 +22,7 @@ async function createDist(includeSkin = true) {
     await writeFile(join(directory, 'assets', 'Octicons.def456.ttf'), 'octicons');
     await writeFile(join(directory, 'assets', 'fixture.abc123.png'), 'image');
     await writeFile(join(directory, '_expo', 'app.js'), 'app');
-    if (includeSkin) await writeFile(join(directory, 'desktop-skins', 'dreamskin', 'background.55c64d0fcd6f9d5f.png'), 'photo');
+    if (includeSkin) await writeFile(join(directory, 'desktop-skins', 'dreamskin', 'background.55c64d0fcd6f9d5f.webp'), 'photo');
     await writeFile(join(directory, 'metadata.json'), '{}');
     await writeFile(join(directory, 'canvaskit.wasm'), 'wasm');
     await writeFile(join(directory, '.well-known', 'apple-app-site-association'), '{}');
@@ -63,9 +63,9 @@ async function runVerifier({
             response.end('font');
             return;
         }
-        if (request.url?.endsWith('.png')) {
+        if (request.url?.endsWith('.png') || request.url?.endsWith('.webp')) {
             response.statusCode = 200;
-            response.setHeader('Content-Type', 'image/png');
+            response.setHeader('Content-Type', request.url?.endsWith('.webp') ? 'image/webp' : 'image/png');
             response.setHeader('Cache-Control', request.url?.startsWith('/desktop-skins/') && !skinCacheImmutable ? 'no-cache' : 'public,max-age=31536000,immutable');
             response.end(request.url?.startsWith('/desktop-skins/') ? skinContentMatches ? 'photo' : 'changed' : 'image');
             return;

@@ -13,9 +13,11 @@ test('Caddy rejects foreign and missing mutation origins before proxying AgentPa
     const root = await mkdtemp(join(tmpdir(), 'paws-caddy-staging-'));
     t.after(() => rm(root, { recursive: true, force: true }));
     await mkdir(join(root, 'agent-party', 'assets'), { recursive: true });
+    await mkdir(join(root, 'desktop-skins', 'dreamskin'), { recursive: true });
     await writeFile(join(root, 'index.html'), '<html>web</html>');
     await writeFile(join(root, 'agent-party', 'index.html'), '<html>party</html>');
     await writeFile(join(root, 'agent-party', 'assets', 'app.js'), 'party-script');
+    await writeFile(join(root, 'desktop-skins', 'dreamskin', 'background.1234567890abcdef.webp'), 'skin');
 
     const seen = [];
     const upstream = createServer((req, res) => {
@@ -63,5 +65,12 @@ test('Caddy rejects foreign and missing mutation origins before proxying AgentPa
     assert.equal((await fetch(`${url}/agent-party/assets/missing.js`)).status, 404);
     assert.equal(await (await fetch(`${url}/agent-party/`)).text(), '<html>party</html>');
     assert.equal(await (await fetch(`${url}/agent-party/assets/app.js`)).text(), 'party-script');
+    const skinCache = (await fetch(`${url}/desktop-skins/dreamskin/background.1234567890abcdef.webp`)).headers.get('cache-control') ?? '';
+    assert.match(skinCache, /max-age=31536000, immutable/);
+    assert.doesNotMatch(skinCache, /no-store/);
+    assert.equal((await fetch(`${url}/desktop-skins/dreamskin/background.1234567890abcdef.webp`)).headers.get('content-type'), 'image/webp');
+    assert.match((await fetch(`${url}/agent-party/assets/app.js`)).headers.get('cache-control') ?? '', /max-age=31536000, immutable/);
+    assert.equal((await fetch(`${url}/desktop-skins/dreamskin/missing.webp`)).headers.get('cache-control'), 'no-store');
+    assert.equal((await fetch(`${url}/agent-party/`)).headers.get('cache-control'), 'no-store');
     assert.match((await fetch(`${url}/share/probe`)).headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
 });

@@ -1,4 +1,5 @@
 import { ScrollViewStyleReset } from 'expo-router/html';
+import { DREAMSKIN_BACKGROUND_URL } from '@/desktopSkin';
 import '../unistyles';
 
 // This file is web-only and used to configure the root HTML for every
@@ -21,6 +22,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
 
         {/* Using raw CSS styles as an escape-hatch to ensure the background color never flickers in dark-mode. */}
         <style dangerouslySetInnerHTML={{ __html: responsiveBackground }} />
+        {process.env.EXPO_PUBLIC_DREAMSKIN_STAGING_DEFAULT === '1' && (
+          <link rel="preload" as="image" href={DREAMSKIN_BACKGROUND_URL} fetchPriority="high" />
+        )}
         {/* Add any additional <head> elements that you want globally available on web... */}
       </head>
       <body>{children}</body>
