@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Read the downloaded DreamSkin package as design data. Never execute its CSS
-// or copy its third-party background into the app's distributable assets.
+// Read the downloaded DreamSkin package as design data. Never execute its CSS.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -63,5 +62,5 @@ console.log(JSON.stringify({
     colors: theme.colors,
     pawsSemanticTokens: normalized,
     cssUse: 'review only; do not inject',
-    backgroundUse: 'not redistributed; app uses an independently generated image',
+    backgroundUse: 'quality-92 WebP derivative of the reviewed background.jpg; see asset provenance',
 }, null, 2));

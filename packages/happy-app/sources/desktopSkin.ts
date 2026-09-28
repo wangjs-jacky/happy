@@ -3,7 +3,7 @@ import { WEB_TABLET_MIN_WIDTH } from './utils/deviceCalculations';
 import reviewedTokens from './desktopSkinTokens.json';
 
 export type DesktopSkinId = 'default' | 'dreamskin';
-export const DREAMSKIN_BACKGROUND_URL = '/desktop-skins/dreamskin/background.804fdea2203cbde0.webp';
+export const DREAMSKIN_BACKGROUND_URL = '/desktop-skins/dreamskin/background.c3c07e0cc5cb266a.webp';
 
 // DreamSkin cecilylove002 supplies the palette. Paws supplies the interaction
 // states that the source package does not define.
