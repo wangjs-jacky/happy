@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     desktopSkinId: 'default',
     desktopReadingWidth: 960,
     setDesktopReadingWidth: vi.fn(),
+    previewLocalSettings: vi.fn(),
     isTablet: false,
     focusContext: null as unknown as React.Context<boolean>,
     rightPanelRoute: true,
@@ -334,6 +335,7 @@ vi.mock('@/hooks/useAgentSpace', () => ({
 }));
 vi.mock('@/sync/storage', () => ({
     storage: {
+        setState: (updater: any) => mocks.previewLocalSettings(updater({ localSettings: { desktopReadingWidth: mocks.desktopReadingWidth } })),
         getState: () => ({
             sessions: { 'session-1': { draft: '' } },
             currentViewingSessionId: null,
@@ -907,8 +909,23 @@ describe('SessionView Agent-space boundary', () => {
         const widthButton = renderer.root.findByProps({ testID: 'dreamskin-reading-width-button' });
         act(() => widthButton.props.onPress());
         expect(renderer.root.findByProps({ testID: 'dreamskin-reading-width-menu' })).toBeDefined();
-        act(() => renderer.root.findByProps({ testID: 'dreamskin-reading-width-increase' }).props.onPress());
-        expect(mocks.setDesktopReadingWidth).toHaveBeenCalledWith(1040);
+        const slider = renderer.root.findByProps({ 'data-testid': 'dreamskin-reading-width-slider' });
+        expect(slider.props).toMatchObject({ type: 'range', min: 800, max: 1280, step: 1, value: 960, 'aria-valuetext': '960 px' });
+        for (const value of [800, 1037, 1280]) {
+            act(() => slider.props.onChange({ currentTarget: { value: String(value) } }));
+            expect(mocks.previewLocalSettings).toHaveBeenLastCalledWith({ localSettings: { desktopReadingWidth: value } });
+        }
+        expect(mocks.setDesktopReadingWidth).not.toHaveBeenCalled();
+        act(() => slider.props.onPointerUp());
+        expect(mocks.setDesktopReadingWidth).toHaveBeenCalledExactlyOnceWith(1280);
+        act(() => slider.props.onChange({ currentTarget: { value: '1279' } }));
+        act(() => slider.props.onKeyUp());
+        expect(mocks.setDesktopReadingWidth).toHaveBeenLastCalledWith(1279);
+        act(() => slider.props.onChange({ currentTarget: { value: '1001' } }));
+        act(() => slider.props.onBlur());
+        expect(mocks.setDesktopReadingWidth).toHaveBeenLastCalledWith(1001);
+        expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-increase' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-decrease' })).toHaveLength(0);
         expect(renderer.root.findByType('DesktopSkinCanvas').props.readingWidth).toBe(960);
         act(() => renderer.unmount());
     });

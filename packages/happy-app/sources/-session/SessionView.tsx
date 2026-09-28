@@ -440,6 +440,20 @@ function SessionHeaderMoreAction({
 function DesktopReadingWidthControl() {
     const { theme } = useUnistyles();
     const [width, setWidth] = useLocalSettingMutable('desktopReadingWidth');
+    const pendingWidth = React.useRef<number | null>(null);
+    const commitWidth = React.useCallback(() => {
+        if (pendingWidth.current === null) return;
+        setWidth(pendingWidth.current);
+        pendingWidth.current = null;
+    }, [setWidth]);
+    // Keep dragging cheap: preview in memory and persist once the interaction ends.
+    const previewWidth = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const nextWidth = Math.min(1280, Math.max(800, Math.round(Number(event.currentTarget.value))));
+        if (!Number.isFinite(nextWidth)) return;
+        pendingWidth.current = nextWidth;
+        storage.setState((state) => ({ localSettings: { ...state.localSettings, desktopReadingWidth: nextWidth } }));
+    };
+    React.useEffect(() => commitWidth, [commitWidth]);
     const [open, setOpen] = React.useState(false);
     const rootRef = React.useRef<View>(null);
 
@@ -447,10 +461,10 @@ function DesktopReadingWidthControl() {
         if (!open || Platform.OS !== 'web' || typeof document === 'undefined') return;
         const closeOutside = (event: PointerEvent) => {
             const root = rootRef.current as unknown as HTMLElement | null;
-            if (event.target instanceof Node && !root?.contains(event.target)) setOpen(false);
+            if (event.target instanceof Node && !root?.contains(event.target)) { commitWidth(); setOpen(false); }
         };
         const closeOnEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setOpen(false);
+            if (event.key === 'Escape') { commitWidth(); setOpen(false); }
         };
         document.addEventListener('pointerdown', closeOutside);
         document.addEventListener('keydown', closeOnEscape);
@@ -458,7 +472,7 @@ function DesktopReadingWidthControl() {
             document.removeEventListener('pointerdown', closeOutside);
             document.removeEventListener('keydown', closeOnEscape);
         };
-    }, [open]);
+    }, [open, commitWidth]);
 
     return <View ref={rootRef} style={[workspaceStyles.headerIconWrapper, { zIndex: open ? 1300 : 0 }]}>
         <Pressable
@@ -481,29 +495,32 @@ function DesktopReadingWidthControl() {
             }}
             testID="dreamskin-reading-width-menu"
         >
-            <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>
-                {t('desktopWorkspace.readingWidth')}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <Pressable
-                    accessibilityLabel={`${t('desktopWorkspace.readingWidth')} −`}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: width <= 800 }}
-                    disabled={width <= 800}
-                    onPress={() => setWidth(Math.max(800, width - 80))}
-                    style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: width <= 800 ? 0.45 : 1 })}
-                    testID="dreamskin-reading-width-decrease"
-                ><Ionicons name="remove" size={19} color={theme.colors.text} /></Pressable>
-                <Text accessibilityLabel={`${width} px`} style={{ color: theme.colors.text, fontSize: 15, fontVariant: ['tabular-nums'], textAlign: 'center', flex: 1 }}>{width} px</Text>
-                <Pressable
-                    accessibilityLabel={`${t('desktopWorkspace.readingWidth')} +`}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: width >= 1280 }}
-                    disabled={width >= 1280}
-                    onPress={() => setWidth(Math.min(1280, width + 80))}
-                    style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: width >= 1280 ? 0.45 : 1 })}
-                    testID="dreamskin-reading-width-increase"
-                ><Ionicons name="add" size={19} color={theme.colors.text} /></Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>
+                    {t('desktopWorkspace.readingWidth')}
+                </Text>
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontVariant: ['tabular-nums'] }}>{width} px</Text>
+            </View>
+            {Platform.OS === 'web' && React.createElement('input', {
+                type: 'range',
+                min: 800,
+                max: 1280,
+                step: 1,
+                value: width,
+                'aria-label': t('desktopWorkspace.readingWidth'),
+                'aria-valuetext': `${width} px`,
+                'data-testid': 'dreamskin-reading-width-slider',
+                onChange: previewWidth,
+                onPointerDown: (event: React.PointerEvent<HTMLInputElement>) => event.currentTarget.setPointerCapture(event.pointerId),
+                onPointerUp: commitWidth,
+                onPointerCancel: commitWidth,
+                onKeyUp: commitWidth,
+                onBlur: commitWidth,
+                style: { width: '100%', height: 28, margin: 0, cursor: 'pointer', accentColor: theme.colors.accent },
+            })}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>800 px</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>1280 px</Text>
             </View>
         </View>}
     </View>;
