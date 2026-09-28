@@ -33,6 +33,11 @@ test('staging validation fails on an HTML mismatch even when called from a condi
     const prelude = source.slice(0, source.indexOf("if [[ \"$mode\" == '--rollback' ]]"));
     const revision = '0'.repeat(40);
     const probe = `
+readonly revision='${revision}' original_sha='before' candidate_sha='after'
+remote() { cat >/dev/null; }
+prepare_current_release '${revision}'
+install_caddy 'before' 'after' '${revision}' '/tmp/candidate' '/tmp/backup'
+activate '${revision}' '${revision}'
 curl() {
     case "$*" in
         *'.paws-release-revision'*) printf '%s' '${revision}' ;;

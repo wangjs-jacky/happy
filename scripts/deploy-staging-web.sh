@@ -21,18 +21,18 @@ require_revision() {
 }
 
 verify_live() {
-    local revision="$1"
+    local checked_revision="$1"
     local level="${2:-full}"
     local marker
     local html
     local party_html
     marker="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/.paws-release-revision")" || return 1
-    [[ "$marker" == "$revision" ]] || { echo "Staging revision mismatch: expected $revision, got $marker" >&2; return 1; }
+    [[ "$marker" == "$checked_revision" ]] || { echo "Staging revision mismatch: expected $checked_revision, got $marker" >&2; return 1; }
     curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/health" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{let j=JSON.parse(s);if(j.status!=="ok"||j.service!=="happy-server")process.exit(1)})' || return 1
     html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/restore")" || return 1
-    [[ "$html" == *"name=\"paws-release-revision\" content=\"$revision\""* ]] || { echo 'Staging HTML revision mismatch' >&2; return 1; }
+    [[ "$html" == *"name=\"paws-release-revision\" content=\"$checked_revision\""* ]] || { echo 'Staging HTML revision mismatch' >&2; return 1; }
     if [[ "$level" == basic ]]; then
-        echo "Verified basic $STAGING_ORIGIN at $revision"
+        echo "Verified basic $STAGING_ORIGIN at $checked_revision"
         return
     fi
     party_html="$(curl --fail --silent --show-error --insecure "$STAGING_ORIGIN/agent-party/")" || return 1
@@ -41,13 +41,13 @@ verify_live() {
     [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST --header 'Origin: https://evil.invalid' "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]] || { echo 'Foreign Origin was not rejected' >&2; return 1; }
     [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' --request POST "$STAGING_ORIGIN/agent-party/api/access/ticket")" == 403 ]] || { echo 'Missing Origin was not rejected' >&2; return 1; }
     [[ "$(curl --silent --insecure --output /dev/null --write-out '%{http_code}' "$STAGING_ORIGIN/_expo/missing.js")" == 404 ]] || { echo 'Missing static asset did not return 404' >&2; return 1; }
-    echo "Verified $STAGING_ORIGIN at $revision"
+    echo "Verified $STAGING_ORIGIN at $checked_revision"
 }
 
 prepare_current_release() {
-    local revision="$1"
-    require_revision "$revision"
-    remote "bash -s -- '$revision'" <<'REMOTE_PREPARE'
+    local existing_revision="$1"
+    require_revision "$existing_revision"
+    remote "bash -s -- '$existing_revision'" <<'REMOTE_PREPARE'
 set -euo pipefail
 revision="$1"; root='/var/www/paws-web-staging'
 exec 9> "$root/.deploy.lock"; flock -x 9
@@ -66,8 +66,8 @@ REMOTE_PREPARE
 }
 
 install_caddy() {
-    local original_sha="$1" candidate_sha="$2" expected_revision="$3" candidate="$4" backup="$5"
-    remote "bash -s -- '$original_sha' '$candidate_sha' '$expected_revision' '$candidate' '$backup'" <<'REMOTE_CADDY'
+    local before_sha="$1" after_sha="$2" expected_revision="$3" candidate="$4" backup="$5"
+    remote "bash -s -- '$before_sha' '$after_sha' '$expected_revision' '$candidate' '$backup'" <<'REMOTE_CADDY'
 set -euo pipefail
 original_sha="$1"; candidate_sha="$2"; expected="$3"; candidate="$4"; backup="$5"
 root='/var/www/paws-web-staging'; caddy_file='/etc/caddy/Caddyfile'
@@ -107,11 +107,11 @@ REMOTE_CADDY_RESTORE
 }
 
 activate() {
-    local revision="$1"
+    local next_revision="$1"
     local expected_current="$2"
-    require_revision "$revision"
+    require_revision "$next_revision"
     require_revision "$expected_current"
-    remote "bash -s -- '$revision' '$expected_current'" <<'REMOTE_ACTIVATE'
+    remote "bash -s -- '$next_revision' '$expected_current'" <<'REMOTE_ACTIVATE'
 set -euo pipefail
 revision="$1"; expected="$2"; root='/var/www/paws-web-staging'
 exec 9> "$root/.deploy.lock"
