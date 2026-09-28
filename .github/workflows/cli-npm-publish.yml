@@ -1,18 +1,11 @@
 name: CLI npm publish
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/verify-npm-publication.mjs'
-      - 'scripts/verify-npm-publication.test.mjs'
-      - '.github/workflows/cli-npm-publish.yml'
   push:
     branches: [main]
     paths:
       - 'packages/happy-cli/**'
       - 'packages/happy-wire/**'
-      - 'scripts/verify-npm-publication.mjs'
-      - 'scripts/verify-npm-publication.test.mjs'
       - '.github/workflows/cli-npm-publish.yml'
   workflow_dispatch:
 
@@ -24,24 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verification-test:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Test npm publication verification
-        run: node --test scripts/verify-npm-publication.test.mjs
-
   publish:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -59,19 +35,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Check npm CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm --version
-          node --version
-
-      - name: Test npm publication verification
-        run: node --test scripts/verify-npm-publication.test.mjs
 
       - name: Read package version
         id: pkg
@@ -94,6 +57,10 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "@wangjs-jacky/paws@${{ steps.pkg.outputs.version }} is not on npm yet."
           fi
+
+      - name: Install dependencies
+        if: steps.npm.outputs.exists == 'false'
+        run: pnpm install --frozen-lockfile
 
       - name: Test package
         if: steps.npm.outputs.exists == 'false'
@@ -144,16 +111,6 @@ jobs:
             echo "Publishing with npm trusted publishing (GitHub OIDC)."
           fi
           npm publish "${{ steps.pack.outputs.tarball }}" --access public
-
-      - name: Verify published package
-        env:
-          NPM_VERIFY_TIMEOUT_MS: '900000'
-          NPM_VERIFY_INTERVAL_MS: '10000'
-        run: |
-          node scripts/verify-npm-publication.mjs \
-            '@wangjs-jacky/paws' \
-            '${{ steps.pkg.outputs.version }}' \
-            latest
 
       - name: Report skipped publish
         if: steps.npm.outputs.exists == 'true'

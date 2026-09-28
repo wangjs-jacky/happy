@@ -498,24 +498,10 @@ App 内 `useUpdates`（`sources/hooks/useUpdates.ts`）在**每次启动 + 每�
 
 ### 发布流程
 
-```bash
-# 1. 从 main 顶点建 release worktree（发布内容必须 = origin/main tip）
-git worktree add ../happy--release-x.y.z -b release-x.y.z origin/main
-cd ../happy--release-x.y.z && pnpm install
-
-# 2. 先构建 happy-wire（其 exports 指向 dist/，不先构建 CLI 编译会失败）
-pnpm --filter @slopus/happy-wire run build
-
-# 3. 升 packages/happy-cli/package.json 的 version（提 PR 合入 main 后再发）
-
-# 4. 发布（prepublishOnly 自动跑 build + 全量单测；node 用 v20+，本机默认 /usr/local/bin/node 是 v14 会挂）
-cd packages/happy-cli
-pnpm publish --publish-branch release-x.y.z
-
-# 5. 打 tag（cli-v 前缀，与 android-v 系列区分）并推送
-git tag cli-vX.Y.Z <发布时的 main tip> && git push origin cli-vX.Y.Z
-# 到此完成版本追溯；不要为 CLI 创建 GitHub Release。
-```
+1. 在 CLI PR 中升级 `packages/happy-cli/package.json` 的版本，合并到 `main`。
+2. `.github/workflows/cli-npm-publish.yml` 会在 `main` 上自动运行单测、构建、打包、安装冒烟并发布 npm；正常情况下**不要再手动发布同一版本**。`npm publish` 成功即表示上传完成，registry 元数据可稍后才显示新版本，CI 不为传播延迟等待 15 分钟。
+3. 发布成功后，用发布时的 `main` commit 打不可变 tag：`git tag cli-vX.Y.Z <commit> && git push origin cli-vX.Y.Z`。不要为 CLI 创建 GitHub Release。
+4. 只有自动发布失败时，才从干净的 `origin/main` release worktree 排查并恢复；发布前先构建 `happy-wire`，不要从功能分支或旧构建产物发布。
 
 ### 注意事项
 
