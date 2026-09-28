@@ -159,6 +159,7 @@ trap 'rm -rf "$temp_dir"' EXIT
 CI=1 APP_ENV=production EXPO_PUBLIC_HAPPY_SERVER_URL="$STAGING_ORIGIN" EXPO_PUBLIC_DREAMSKIN_STAGING_DEFAULT=1 \
     HAPPY_BUILD_COMMIT_SHA="$revision" HAPPY_BUILD_COMMIT_TIMESTAMP="$(git show -s --format=%cI HEAD)" \
     pnpm --filter happy-app export:web
+node scripts/inject-staging-dreamskin-preload.mjs packages/happy-app/dist/index.html
 node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html
 node scripts/stamp-web-release.mjs packages/happy-app/dist/index.html packages/happy-app/dist/.paws-release-revision "$revision"
 PAWS_AGENT_PARTY_BASE_PATH=/agent-party/ pnpm --filter @wangjs-jacky/paws-agent-party exec vite build --config vite.config.ts
