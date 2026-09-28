@@ -25,7 +25,7 @@ vi.mock('@/components/CardStackScene', () => ({ CardStackScene: ({ children }: a
 vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: { surface: '#222', header: { background: '#222', tint: '#fff' } } } }),
 }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/text', () => ({ t: (key: string) => key, getCurrentLanguage: () => 'en' }));
 
 import RootLayout from './_layout';
 
