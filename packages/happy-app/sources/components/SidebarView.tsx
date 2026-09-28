@@ -7,7 +7,7 @@ import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { getDisplayName } from '@/sync/profile';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -378,6 +378,7 @@ export const SidebarView = React.memo(({
 }: SidebarViewProps) => {
     useDrawerHaptics();
     const styles = stylesheet;
+    const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
     const pathname = usePathname();
@@ -686,7 +687,7 @@ export const SidebarView = React.memo(({
             style={[
                 styles.container,
                 (desktopDensity || railNavigation) && styles.containerDesktop,
-                dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? '#171C23' : 'transparent', borderColor: 'rgba(255,255,255,0.12)' },
+                dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedFrame : theme.colors.desktopSkin.frame, borderColor: theme.colors.desktopSkin.border },
                 { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
             ]}
             testID={desktopDensity ? 'sidebar-desktop-density' : 'sidebar-mobile-rail-layout'}
@@ -703,7 +704,7 @@ export const SidebarView = React.memo(({
 
             {railNavigation ? (
                 <>
-                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : dreamskin ? [styles.desktopPrimaryColumn, { backgroundColor: reducedTransparency ? '#101419' : 'rgba(16, 20, 25, 0.90)' }] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
+                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : dreamskin ? [styles.desktopPrimaryColumn, { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedRail : theme.colors.desktopSkin.rail }] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
                         {mobileNavigation ? (
                             <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                                 {desktopNavigationRail}
@@ -712,7 +713,7 @@ export const SidebarView = React.memo(({
                         {footerNavigation}
                     </View>
                     <View
-                        style={[styles.desktopSecondaryColumn, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? '#181D24' : 'rgba(24, 29, 36, 0.78)' }, desktopPrimaryNavigation && {
+                        style={[styles.desktopSecondaryColumn, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedSidebar : theme.colors.desktopSkin.sidebar }, desktopPrimaryNavigation && {
                             position: 'absolute', left: DESKTOP_PRIMARY_NAVIGATION_WIDTH,
                             top: 0, bottom: 0, width: desktopSecondaryWidth,
                             pointerEvents: desktopSecondaryVisible ? 'auto' : 'none',

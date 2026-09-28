@@ -1173,8 +1173,21 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 panelAccessibilityLabel={compactPanelLabel}
                 panelContent={rightPanel}
                 showEdgeHandle={false}
+                transparentBackground={dreamskin}
             >
-                {mainContent}
+                {dreamskin ? (
+                    <View
+                        onLayout={(event) => {
+                            const width = Math.round(event.nativeEvent.layout.width);
+                            setDesktopMainWidth((current) => current === width ? current : width);
+                        }}
+                        style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}
+                        testID="desktop-workspace-main"
+                    >
+                        <DesktopSkinCanvas reading photo={false} />
+                        {mainContent}
+                    </View>
+                ) : mainContent}
             </RightSwipePanelHost>
         );
     }

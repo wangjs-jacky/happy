@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(new URL('./upload-web-assets.sh', import.meta.url));
 const revision = '1234567890abcdef1234567890abcdef12345678';
 
-async function createFixture(marker = revision) {
+async function createFixture(marker = revision, skinName = 'background.55c64d0fcd6f9d5f.png') {
     const directory = await mkdtemp(join(tmpdir(), 'paws-web-upload-'));
     const dist = join(directory, 'dist');
     const fakeBin = join(directory, 'bin');
@@ -24,7 +24,7 @@ async function createFixture(marker = revision) {
         writeFile(join(dist, '.paws-release-revision'), `${marker}\n`),
         writeFile(join(dist, '_expo', 'static', 'app.js'), 'app'),
         writeFile(join(dist, 'assets', 'fonts', 'Ionicons.abc.ttf'), 'font'),
-        writeFile(join(dist, 'desktop-skins', 'dreamskin', 'background.png'), 'photo'),
+        writeFile(join(dist, 'desktop-skins', 'dreamskin', skinName), 'photo'),
         writeFile(join(dist, 'canvaskit.wasm'), 'wasm'),
         writeFile(join(dist, 'favicon.ico'), 'icon'),
         writeFile(join(dist, 'metadata.json'), '{}'),
@@ -37,8 +37,8 @@ async function createFixture(marker = revision) {
     return { directory, dist, fakeBin, logPath };
 }
 
-async function runUpload(marker = revision) {
-    const fixture = await createFixture(marker);
+async function runUpload(marker = revision, skinName) {
+    const fixture = await createFixture(marker, skinName);
     try {
         const result = spawnSync('bash', [scriptPath, fixture.dist], {
             encoding: 'utf8',
@@ -69,7 +69,7 @@ test('uploads a complete immutable release without inspecting object ACLs', asyn
     assert.ok(expoPosition > releasePosition, result.log);
     assert.match(result.log, /oss:\/\/test-web-bucket\/_expo\/.*--cache-control public,max-age=31536000,immutable/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/assets\/.*--cache-control public,max-age=31536000,immutable/);
-    assert.match(result.log, /oss:\/\/test-web-bucket\/desktop-skins\/.*--cache-control no-cache/);
+    assert.match(result.log, /oss:\/\/test-web-bucket\/desktop-skins\/.*--cache-control public,max-age=31536000,immutable/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/metadata\.json.*--cache-control no-cache/);
     assert.match(result.log, /oss:\/\/test-web-bucket\/\.well-known\/.*--cache-control no-cache/);
     assert.doesNotMatch(result.log, /ossutil stat/);
@@ -80,5 +80,12 @@ test('rejects an invalid release marker before invoking OSS', async () => {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /40-character lowercase Git SHA/);
+    assert.equal(result.log, '');
+});
+
+test('rejects a stale DreamSkin hash before invoking OSS', async () => {
+    const result = await runUpload(revision, 'background.0000000000000000.png');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /SHA-256 不一致/);
     assert.equal(result.log, '');
 });

@@ -8,11 +8,11 @@ type Props = { value: DesktopSkinId; onChange: (id: DesktopSkinId) => void };
 
 export function DesktopSkinPicker({ value, onChange }: Props) {
     return (
-        <View style={styles.row} testID="desktop-skin-picker">
+        <View style={styles.row} testID="desktop-skin-picker" {...({ role: 'radiogroup' } as any)}>
             <Pressable
                 accessibilityRole="radio"
                 accessibilityLabel={t('settingsAppearance.desktopSkinDefault')}
-                accessibilityState={{ selected: value === 'default' }}
+                accessibilityState={{ selected: value === 'default', checked: value === 'default' }}
                 onPress={() => onChange('default')}
                 style={({ pressed }) => [styles.option, value === 'default' && styles.selected, pressed && styles.pressed]}
                 testID="desktop-skin-default"
@@ -27,7 +27,7 @@ export function DesktopSkinPicker({ value, onChange }: Props) {
             <Pressable
                 accessibilityRole="radio"
                 accessibilityLabel={t('settingsAppearance.desktopSkinDreamskin')}
-                accessibilityState={{ selected: value === 'dreamskin' }}
+                accessibilityState={{ selected: value === 'dreamskin', checked: value === 'dreamskin' }}
                 onPress={() => onChange('dreamskin')}
                 style={({ pressed }) => [styles.option, value === 'dreamskin' && styles.selected, pressed && styles.pressed]}
                 testID="desktop-skin-dreamskin"

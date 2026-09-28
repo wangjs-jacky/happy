@@ -87,5 +87,8 @@ describe('DreamSkin desktop theme', () => {
         expect(colors.surfacePressed).toBe('#343A41');
         expect(colors.surfaceSelected).toBe('#404A55');
         expect(contrastRatio(colors.text, colors.surface)).toBeGreaterThanOrEqual(4.5);
+        expect(colors.desktopSkin.rail).toMatch(/^rgba\(/);
+        expect(colors.desktopSkin.sidebar).toMatch(/^rgba\(/);
+        expect(colors.modal.backdrop).toBe('rgba(0, 0, 0, 0.66)');
     });
 });

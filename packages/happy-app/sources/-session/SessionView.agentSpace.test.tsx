@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     fileDiffsSidebarEnabled: false,
     runningOnMac: false,
     windowWidth: 390,
+    desktopSkinId: 'default',
     isTablet: false,
     focusContext: null as unknown as React.Context<boolean>,
     rightPanelRoute: true,
@@ -155,6 +156,7 @@ vi.mock('react-native-unistyles', () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
+vi.mock('@/components/DesktopSkinCanvas', () => ({ DesktopSkinCanvas: (props: any) => React.createElement('DesktopSkinCanvas', props) }));
 vi.mock('@/components/rightPanel/SessionCapabilityHub', () => ({ SessionCapabilityHub: 'SessionCapabilityHub' }));
 vi.mock('@/components/RightSwipePanelHost', async () => {
     const ReactModule = await import('react');
@@ -332,6 +334,7 @@ vi.mock('@/sync/storage', () => ({
     useLocalSetting: (key: string) => {
         if (key === 'acknowledgedCliVersions') return {};
         if (key === 'desktopRightPanelCollapsed') return mocks.desktopRightPanelCollapsed;
+        if (key === 'desktopSkinId') return mocks.desktopSkinId;
         if (key === 'sidebarOrganization') return mocks.sidebarOrganization;
         return false;
     },
@@ -437,6 +440,7 @@ describe('SessionView Agent-space boundary', () => {
         mocks.fileDiffsSidebarEnabled = false;
         mocks.runningOnMac = false;
         mocks.windowWidth = 390;
+        mocks.desktopSkinId = 'default';
         mocks.isTablet = false;
         mocks.rightPanelRoute = true;
         mocks.platformOS = 'android';
@@ -711,6 +715,20 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findAllByType('RightSwipePanelHost')).toHaveLength(1);
         expect(renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' }).props['aria-expanded']).toBe(false);
 
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the photo-backed reading canvas in a 960px DreamSkin session', () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 960;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.desktopSkinId = 'dreamskin';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        expect(renderer.root.findByType('RightSwipePanelHost').props.transparentBackground).toBe(true);
+        expect(renderer.root.findByProps({ testID: 'desktop-workspace-main' })).toBeDefined();
+        expect(renderer.root.findByType('DesktopSkinCanvas').props).toMatchObject({ reading: true, photo: false });
         act(() => renderer.unmount());
     });
 

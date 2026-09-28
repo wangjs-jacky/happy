@@ -49,6 +49,7 @@ export const MessageView = React.memo((props: {
   onEditUserMessage?: (messageId: string, messageText: string) => Promise<void> | void;
 }) => {
   const [avatarImageFailed, setAvatarImageFailed] = React.useState(false);
+  const { theme } = useUnistyles();
   React.useEffect(() => setAvatarImageFailed(false), [props.turnAvatar?.imageUrl]);
   return (
     <View
@@ -70,7 +71,7 @@ export const MessageView = React.memo((props: {
             </View>
           ) : (
             <View style={styles.pawsTurnAvatar}>
-              <Ionicons name="sparkles" size={16} color="#9ABCE0" />
+              <Ionicons name="sparkles" size={16} color={theme.colors.accent} />
             </View>
           )}
         </View>
@@ -750,7 +751,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   pawsTurnAvatar: {
     alignItems: 'center',
-    backgroundColor: '#263746',
+    backgroundColor: theme.colors.surfaceHigh,
     borderRadius: 15,
     height: 28,
     justifyContent: 'center',

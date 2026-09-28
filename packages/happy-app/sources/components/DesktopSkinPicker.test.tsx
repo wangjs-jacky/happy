@@ -30,10 +30,13 @@ describe('DesktopSkinPicker', () => {
         const dreamskin = renderer.root.findByProps({ testID: 'desktop-skin-dreamskin' });
         expect(standard.props.accessibilityState.selected).toBe(true);
         expect(dreamskin.props.accessibilityState.selected).toBe(false);
+        expect(standard.props.accessibilityState.checked).toBe(true);
+        expect(dreamskin.props.accessibilityState.checked).toBe(false);
         act(() => dreamskin.props.onPress());
         expect(onChange).toHaveBeenCalledWith('dreamskin');
         act(() => renderer.update(<DesktopSkinPicker value="dreamskin" onChange={onChange} />));
         expect(renderer.root.findByProps({ testID: 'desktop-skin-dreamskin' }).props.accessibilityState.selected).toBe(true);
+        expect(renderer.root.findByProps({ testID: 'desktop-skin-dreamskin' }).props.accessibilityState.checked).toBe(true);
         act(() => renderer.root.findByProps({ testID: 'desktop-skin-default' }).props.onPress());
         expect(onChange).toHaveBeenLastCalledWith('default');
         act(() => renderer.unmount());

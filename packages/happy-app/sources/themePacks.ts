@@ -61,6 +61,12 @@ builtThemes.dreamskinDark = {
     ...dreamskinBase,
     colors: {
         ...dreamskinBase.colors,
+        desktopSkin: {
+            frame: 'transparent', border: 'rgba(255, 255, 255, 0.12)',
+            rail: 'rgba(16, 20, 25, 0.90)', sidebar: 'rgba(24, 29, 36, 0.78)',
+            reducedFrame: '#171C23', reducedRail: '#101419', reducedSidebar: '#181D24',
+        },
+        modal: { ...dreamskinBase.colors.modal, backdrop: 'rgba(0, 0, 0, 0.66)' },
         divider: '#3F3F3F',
         header: { ...darkTheme.colors.header, background: '#1D2024', tint: DREAMSKIN_ACCENT.text },
         button: {

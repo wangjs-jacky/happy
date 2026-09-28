@@ -1,9 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 export const STAGING_WEB_BLOCK_START = '# paws-web-staging:start';
 export const STAGING_WEB_BLOCK_END = '# paws-web-staging:end';
 export const STAGING_WEB_ORIGIN = 'https://47.115.228.20:8444';
+const PREVIOUS_MANAGED_BLOCK_SHA256 = 'b75fa426e7fa10ee38489eb1bdc90953e3a5b0d3fde279160a5c9b26ff396d79';
 
 const STAGING_WEB_BLOCK = `${STAGING_WEB_BLOCK_START}
 47.115.228.20:8444 {
@@ -14,6 +16,41 @@ const STAGING_WEB_BLOCK = `${STAGING_WEB_BLOCK_START}
         X-Content-Type-Options "nosniff"
         Referrer-Policy "no-referrer"
         Cache-Control "no-store"
+    }
+    @public_session_share path /share/*
+    header @public_session_share {
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; media-src 'self' blob: https: http:; connect-src 'self' https: http:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    }
+    @party_invalid_origin {
+        path /agent-party/api/* /agent-party/revision
+        header Origin *
+        not header Origin ${STAGING_WEB_ORIGIN}
+    }
+    @party_missing_mutation_origin {
+        path /agent-party/api/* /agent-party/revision
+        method POST PATCH PUT DELETE
+        not header Origin ${STAGING_WEB_ORIGIN}
+    }
+    @paws_agent_party_api path /agent-party/api/* /agent-party/revision
+    handle @paws_agent_party_api {
+        respond @party_invalid_origin 403
+        respond @party_missing_mutation_origin 403
+        reverse_proxy 127.0.0.1:3847 {
+            header_up Host 47.115.228.20:8443
+            header_up Origin https://47.115.228.20:8443
+        }
+    }
+    @paws_agent_party_assets path /agent-party/assets/*
+    handle @paws_agent_party_assets {
+        root * /var/www/paws-web-staging/current
+        file_server
+    }
+    @paws_agent_party_app path /agent-party /agent-party/*
+    header @paws_agent_party_app Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    handle @paws_agent_party_app {
+        root * /var/www/paws-web-staging/current
+        try_files {path} /agent-party/index.html
+        file_server
     }
     @backend path /v1/* /v2/* /v3/* /v4/* /files/* /health /socket.io/* /socket/*
     handle @backend {
@@ -29,6 +66,11 @@ const STAGING_WEB_BLOCK = `${STAGING_WEB_BLOCK_START}
         reverse_proxy 100.116.134.122:3305 {
             stream_close_delay 5m
         }
+    }
+    @static_asset path /_expo/* /assets/* /desktop-skins/* /.well-known/* /canvaskit.wasm /favicon.ico /favicon-active.ico /metadata.json
+    handle @static_asset {
+        root * /var/www/paws-web-staging/current
+        file_server
     }
     handle {
         root * /var/www/paws-web-staging/current
@@ -48,10 +90,14 @@ export function configureStagingWebCaddy(source) {
     if (startCount === 1) {
         const start = source.indexOf(STAGING_WEB_BLOCK_START);
         const end = source.indexOf(STAGING_WEB_BLOCK_END, start) + STAGING_WEB_BLOCK_END.length;
-        if (source.slice(start, end) !== STAGING_WEB_BLOCK) {
+        const current = source.slice(start, end);
+        if (current === STAGING_WEB_BLOCK) return source;
+        if (createHash('sha256').update(current).digest('hex') === PREVIOUS_MANAGED_BLOCK_SHA256) {
+            return source.slice(0, start) + STAGING_WEB_BLOCK + source.slice(end);
+        }
+        if (current !== STAGING_WEB_BLOCK) {
             throw new Error('Existing staging Caddy block differs from the expected configuration');
         }
-        return source;
     }
     if (/^\s*[^\n#]*:8444\s*\{/m.test(source)) {
         throw new Error('Port 8444 is already used by an unmanaged Caddy site');
