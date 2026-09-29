@@ -18,7 +18,7 @@ import { SessionView } from './SessionView';
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
 import TestRenderer from 'react-test-renderer';
 
-vi.mock('@react-native-community/slider', () => ({ default: 'ReadingWidthSlider' }));
+vi.mock('@/components/ReadingWidthRail', () => ({ ReadingWidthRail: 'ReadingWidthRail' }));
 
 const mocks = vi.hoisted(() => ({
     closePanel: vi.fn(),
@@ -911,23 +911,18 @@ describe('SessionView Agent-space boundary', () => {
         const widthButton = renderer.root.findByProps({ testID: 'dreamskin-reading-width-button' });
         act(() => widthButton.props.onPress());
         expect(renderer.root.findByProps({ testID: 'dreamskin-reading-width-menu' })).toBeDefined();
-        const slider = renderer.root.findByProps({ testID: 'dreamskin-reading-width-slider' });
-        expect(slider.props).toMatchObject({ minimumValue: 800, maximumValue: 1280, step: 1, value: 960 });
-        const keyboardControl = renderer.root.findByProps({ 'aria-valuemin': 800 });
-        expect(keyboardControl.props).toMatchObject({ 'aria-valuenow': 960, 'aria-valuetext': '960 px' });
+        const slider = renderer.root.findByType('ReadingWidthRail');
+        expect(slider.props).toMatchObject({ min: 800, max: 1280, value: 960 });
+        expect(renderer.root.findByProps({ testID: 'desktop-right-panel-motion' }).props.style).toContainEqual({ display: 'none' });
         for (const value of [800, 1037, 1280]) {
             act(() => slider.props.onValueChange(value));
             expect(mocks.previewLocalSettings).toHaveBeenLastCalledWith({ localSettings: { desktopReadingWidth: value } });
         }
         expect(mocks.setDesktopReadingWidth).not.toHaveBeenCalled();
-        act(() => slider.props.onSlidingComplete(1280));
+        act(() => slider.props.onValueCommit(1280));
         expect(mocks.setDesktopReadingWidth).toHaveBeenCalledExactlyOnceWith(1280);
-        const preventDefault = vi.fn();
-        act(() => keyboardControl.props.onKeyDown({ key: 'ArrowRight', preventDefault }));
-        expect(preventDefault).toHaveBeenCalled();
-        expect(mocks.setDesktopReadingWidth).toHaveBeenLastCalledWith(961);
         act(() => slider.props.onValueChange(1001));
-        act(() => keyboardControl.props.onBlur());
+        act(() => slider.props.onValueCommit(1001));
         expect(mocks.setDesktopReadingWidth).toHaveBeenLastCalledWith(1001);
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-increase' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-decrease' })).toHaveLength(0);

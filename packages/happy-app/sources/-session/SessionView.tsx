@@ -68,7 +68,7 @@ import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, Octicons } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
+import { ReadingWidthRail } from '@/components/ReadingWidthRail';
 import { useRouter, useNavigation } from 'expo-router';
 import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
@@ -457,14 +457,6 @@ function DesktopReadingWidthControl() {
         pendingWidth.current = null;
     }, [setWidth]);
     // Keep dragging cheap: preview in memory and persist once the interaction ends.
-    const adjustWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
-        const change = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[event.key];
-        if (change === undefined && event.key !== 'Home' && event.key !== 'End') return;
-        event.preventDefault();
-        const nextWidth = event.key === 'Home' ? 800 : event.key === 'End' ? 1280 : width + (change ?? 0);
-        previewWidth(nextWidth);
-        commitWidth(nextWidth);
-    };
     React.useEffect(() => commitWidth, [commitWidth]);
     const [open, setOpen] = React.useState(false);
     const rootRef = React.useRef<View>(null);
@@ -500,7 +492,7 @@ function DesktopReadingWidthControl() {
         {open && <View
             accessibilityLabel={t('desktopWorkspace.readingWidth')}
             style={{
-                position: 'absolute', top: 44, right: 0, width: 240, padding: 14, borderRadius: 12,
+                position: 'absolute', top: 44, right: 0, width: 280, padding: 16, borderRadius: 12,
                 backgroundColor: theme.colors.surface, borderColor: theme.colors.divider, borderWidth: StyleSheet.hairlineWidth,
                 shadowColor: theme.colors.shadow.color, shadowOffset: { width: 0, height: 8 },
                 shadowOpacity: theme.colors.shadow.opacity, shadowRadius: 18, elevation: 12,
@@ -513,31 +505,17 @@ function DesktopReadingWidthControl() {
                 </Text>
                 <Text style={{ color: theme.colors.text, fontSize: 14, fontVariant: ['tabular-nums'] }}>{width} px</Text>
             </View>
-            {Platform.OS === 'web' && React.createElement('div', {
-                role: 'slider',
-                tabIndex: 0,
-                'aria-label': t('desktopWorkspace.readingWidth'),
-                'aria-valuemin': 800,
-                'aria-valuemax': 1280,
-                'aria-valuenow': width,
-                'aria-valuetext': `${width} px`,
-                onKeyDown: adjustWithKeyboard,
-                onBlur: () => commitWidth(),
-                style: { width: '100%', borderRadius: 8, outlineColor: theme.colors.accent },
-            }, <Slider
-                testID="dreamskin-reading-width-slider"
-                accessible={false}
-                minimumValue={800}
-                maximumValue={1280}
-                step={1}
+            {Platform.OS === 'web' && <ReadingWidthRail
                 value={width}
-                minimumTrackTintColor={theme.colors.accent}
-                maximumTrackTintColor={theme.colors.divider}
-                thumbTintColor={theme.colors.accent}
+                min={800}
+                max={1280}
+                label={t('desktopWorkspace.readingWidth')}
+                accentColor={theme.colors.accent}
+                trackColor={theme.colors.divider}
+                iconColor={theme.colors.textSecondary}
                 onValueChange={previewWidth}
-                onSlidingComplete={(value) => { previewWidth(value); commitWidth(value); }}
-                style={{ width: '100%', height: 28 }}
-            />)}
+                onValueCommit={(value) => { previewWidth(value); commitWidth(value); }}
+            />}
         </View>}
     </View>;
 }
@@ -729,7 +707,6 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const animatedRightPanelStyle = useAnimatedStyle(() => ({
         width: rightPanelAnim.value * rightPanelWidth,
         opacity: Platform.OS === 'web' ? 1 : rightPanelAnim.value,
-        overflow: Platform.OS === 'web' ? 'visible' as const : 'hidden' as const,
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
@@ -1396,6 +1373,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         workspaceStyles.desktopPanel,
                         { width: rightPanelWidth },
                         Platform.OS === 'web' && workspaceStyles.desktopPanelWeb,
+                        Platform.OS === 'web' && !showDesktopRightPanel && { display: 'none' },
                     ]}
                     testID="desktop-right-panel-motion"
                 >
