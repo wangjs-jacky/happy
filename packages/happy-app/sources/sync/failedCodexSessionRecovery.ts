@@ -9,8 +9,9 @@ export class FailedCodexSessionRecovery {
         const metadata = session?.metadata;
         const turn = session?.agentState?.turnStatus;
         if (!session || metadata?.flavor !== 'codex' || !metadata.codexAccountProfileId
-            || !metadata.codexThreadId || turn?.status !== 'failed') return;
-        const key = `${turn.turnId ?? ''}:${turn.updatedAt}`;
+            || !metadata.codexThreadId || !turn || turn.status === 'running') return;
+        if (turn.status !== 'failed' && (metadata.capabilities?.codexCredentialRecovery === true || !metadata.hostPid)) return;
+        const key = `${metadata.hostPid ?? ''}:${turn.status}:${turn.turnId ?? ''}:${turn.updatedAt}`;
         const current = this.attempts.get(session.id);
         if (current?.owner === owner && current.key === key) return current.pending;
         const pending = (async () => {

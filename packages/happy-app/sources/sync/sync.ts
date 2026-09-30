@@ -1832,7 +1832,9 @@ class Sync {
             const modes = resolveMessageModeMeta(failedSession!, storage.getState().settings);
             return machineResumeSession({ machineId: failedSession!.metadata!.machineId!, sessionId, agent: 'codex',
                 model: modes.model ?? undefined, permissionMode: modes.permissionMode, effort: modes.effort,
-                expectedFailedTurn: failedSession!.agentState!.turnStatus! });
+                ...(failedSession!.agentState!.turnStatus!.status === 'failed'
+                    ? { expectedFailedTurn: failedSession!.agentState!.turnStatus! }
+                    : { expectedWorkerPid: failedSession!.metadata!.hostPid }) });
         });
         if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) {
             throw new Error('local-message-session-unavailable');

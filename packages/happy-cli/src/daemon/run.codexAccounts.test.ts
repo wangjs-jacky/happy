@@ -252,6 +252,25 @@ describe('real daemon Codex spawn paths', () => {
     expect(state.api.redeemCodexSessionGrant).toHaveBeenCalledTimes(1);
     expect(stopDetachedCodexWorker).not.toHaveBeenCalled();
   });
+  it('keeps a legacy worker when an idle-upgrade request races a newly started turn', async () => {
+    state.tmux = false;
+    const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    const home = state.spawned[0].CODEX_HOME;
+    const metadata = { hostPid: 987601, flavor: 'codex', startedBy: 'daemon', path: sourceHome, codexThreadId: 'thread-source' };
+    const encryption = { encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const, seq: 0, metadataVersion: 1, agentStateVersion: 1 };
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption); await first;
+    await mkdir(join(home, 'sessions')); await writeFile(join(home, 'sessions', 'rollout-thread-source.jsonl'), 'source-native-thread');
+    const encrypted = (value: unknown) => encodeBase64(encrypt(encryption.encryptionKey, 'legacy', value));
+    const snapshot = (status: string) => ({ data: { sessions: [{ id: 'paws-session', active: true, metadata: encrypted(metadata), seq: 4, metadataVersion: 2,
+      agentState: encrypted({ turnStatus: { status, updatedAt: 1, turnId: 'turn' } }) }] } });
+    vi.mocked(axios.get).mockResolvedValueOnce(snapshot('completed')).mockResolvedValue(snapshot('running'));
+    const result = await state.handlers.resumeSession('paws-session', { codexSessionGrant: 'b'.repeat(43), expectedWorkerPid: 987601 });
+    expect(result).toEqual({ type: 'success', sessionId: 'paws-session' });
+    expect(state.children[0].kill).not.toHaveBeenCalled();
+    expect(state.spawned).toHaveLength(1);
+    expect(state.api.attachCodexSession).not.toHaveBeenCalledWith('launch-2', expect.anything());
+  });
   it('deduplicates the same failed-turn recovery after the first replacement has finished starting', async () => {
     state.tmux = false;
     const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });

@@ -843,7 +843,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSessionUnlocked = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number } }): Promise<SpawnSessionResult> => {
+    const resumeSessionUnlocked = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number }; expectedWorkerPid?: number }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -891,6 +891,15 @@ export async function startDaemon(): Promise<void> {
           tracked.encryption.encryptionKey,
           tracked.encryption.encryptionVariant,
         );
+        if (options?.expectedWorkerPid && serverSnapshot?.active
+            && (serverSnapshot.metadata.hostPid !== options.expectedWorkerPid
+              || serverSnapshot.agentState?.turnStatus?.status === 'running'
+              || serverSnapshot.metadata.capabilities?.codexCredentialRecovery === true)) {
+          return { type: 'success', sessionId: happySessionId };
+        }
+        if (options?.expectedFailedTurn || options?.expectedWorkerPid) {
+          if (!serverSnapshot) throw new Error('Cannot verify the current worker before recovery.');
+        }
         if (options?.expectedFailedTurn) {
           if (!serverSnapshot) throw new Error('Cannot verify the current failed turn before recovery.');
           const currentTurn = serverSnapshot.agentState?.turnStatus;
@@ -952,11 +961,14 @@ export async function startDaemon(): Promise<void> {
         const agent = metadata?.flavor === 'codex' || metadata?.codexThreadId ? 'codex' : 'claude';
         let recoverySuperseded = false;
         const resumed = await withCodexAccountLaunch({ agent, codexSessionGrant: options?.codexSessionGrant }, api, machineId, async (codexLaunch) => {
-        if (options?.expectedFailedTurn) {
+        if (options?.expectedFailedTurn || options?.expectedWorkerPid) {
           const latest = await fetchServerSessionSnapshot(happySessionId, tracked.encryption!.encryptionKey, tracked.encryption!.encryptionVariant);
           if (!latest) return { type: 'error', errorMessage: 'Cannot verify the failed turn before stopping its worker.' };
           const turn = latest.agentState?.turnStatus;
-          if (latest.active && (turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn))) {
+          if (latest.active && (options?.expectedFailedTurn
+            ? turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn)
+            : latest.metadata.hostPid !== options.expectedWorkerPid || turn?.status === 'running'
+              || latest.metadata.capabilities?.codexCredentialRecovery === true)) {
             recoverySuperseded = true;
             // 返回错误使未使用的新凭证目录被清理，不把它关联到正在工作的原会话。
             return { type: 'error', errorMessage: 'Recovery was superseded by a newer turn.' };
@@ -1019,7 +1031,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number } }): Promise<SpawnSessionResult> => {
+    const resumeSession = (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number }; expectedWorkerPid?: number }): Promise<SpawnSessionResult> => {
       const existing = resumeSessionInFlight.get(happySessionId);
       if (existing) return existing;
       const pending = resumeSessionUnlocked(happySessionId, options);

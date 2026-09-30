@@ -423,6 +423,8 @@ export async function runCodex(opts: {
     const metadata = {
         ...hydratedMetadata,
         ...codexAccountSessionMetadata(),
+        capabilities: { ...hydratedMetadata.capabilities, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+            && basename(process.env.CODEX_HOME).startsWith('happy-codex-home-')) },
         codexPawsOriginToken,
         ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle
             ? { summary: { text: importedSessionTitle, updatedAt: Date.now() } }

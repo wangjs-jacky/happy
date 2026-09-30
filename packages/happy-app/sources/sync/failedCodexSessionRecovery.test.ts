@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Session } from './storageTypes';
 import { FailedCodexSessionRecovery } from './failedCodexSessionRecovery';
 
-const session = (updatedAt = 1) => ({ id: 'original', metadata: { flavor: 'codex', machineId: 'machine',
-    codexThreadId: 'original-thread', codexAccountProfileId: 'original-account' },
+const session = (updatedAt = 1) => ({ id: 'original', metadata: { flavor: 'codex', machineId: 'machine', hostPid: 1234,
+    codexThreadId: 'original-thread', codexAccountProfileId: 'original-account', capabilities: { codexCredentialRecovery: true } },
     agentState: { turnStatus: { status: 'failed', updatedAt, turnId: 'turn' } },
 }) as Session;
 
@@ -41,6 +41,14 @@ describe('failed account session recovery before delivery', () => {
         const resume = vi.fn(async () => ({ type: 'success' as const, sessionId: 'original' }));
         await recovery.ensure(session(), {}, resume); await recovery.ensure(session(), {}, resume);
         expect(resume).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['completed', 'cancelled'])('upgrades an idle legacy %s worker before the first new message', async status => {
+        const value = session(); value.agentState!.turnStatus!.status = status as 'completed';
+        value.metadata!.capabilities = {};
+        const resume = vi.fn(async () => ({ type: 'success' as const, sessionId: 'original' }));
+        await new FailedCodexSessionRecovery().ensure(value, {}, resume);
+        expect(resume).toHaveBeenCalledTimes(1);
     });
 
     it.each(['running', 'completed', 'cancelled'])('keeps a %s worker running', async status => {
