@@ -252,6 +252,29 @@ describe('real daemon Codex spawn paths', () => {
     expect(state.api.redeemCodexSessionGrant).toHaveBeenCalledTimes(1);
     expect(stopDetachedCodexWorker).not.toHaveBeenCalled();
   });
+  it('deduplicates the same failed-turn recovery after the first replacement has finished starting', async () => {
+    state.tmux = false;
+    const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    const home = state.spawned[0].CODEX_HOME;
+    const metadata = { hostPid: 987601, flavor: 'codex', startedBy: 'daemon', path: sourceHome, codexThreadId: 'thread-source' };
+    const encryption = { encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const, seq: 0, metadataVersion: 1, agentStateVersion: 1 };
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption); await first;
+    await mkdir(join(home, 'sessions')); await writeFile(join(home, 'sessions', 'rollout-thread-source.jsonl'), 'source-native-thread');
+    const encrypted = (value: unknown) => encodeBase64(encrypt(encryption.encryptionKey, 'legacy', value));
+    vi.mocked(axios.get).mockResolvedValue({ data: { sessions: [{ id: 'paws-session', active: true, metadata: encrypted(metadata), seq: 4, metadataVersion: 2,
+      agentState: encrypted({ turnStatus: { status: 'failed', updatedAt: 1, turnId: 'failed-turn' } }) }] } });
+    const options = { codexSessionGrant: 'b'.repeat(43), expectedFailedTurn: { turnId: 'failed-turn', updatedAt: 1 } };
+    const resume = state.handlers.resumeSession('paws-session', options);
+    await vi.waitFor(() => expect(state.children[0].kill).toHaveBeenCalledOnce());
+    state.children[0].emit('exit', 0);
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(2));
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption);
+    await expect(resume).resolves.toEqual({ type: 'success', sessionId: 'paws-session' });
+    await expect(state.handlers.resumeSession('paws-session', options)).resolves.toEqual({ type: 'success', sessionId: 'paws-session' });
+    expect(state.spawned).toHaveLength(2);
+    expect(state.children[1].kill).not.toHaveBeenCalled();
+  });
   it('does not spawn a replacement when the live worker misses the stop deadline', async () => {
     state.tmux = false;
     const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });

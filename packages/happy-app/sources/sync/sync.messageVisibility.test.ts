@@ -758,6 +758,24 @@ describe('message visibility synchronization', () => {
         } finally { view.close(); }
     });
 
+    it('verifies the network fallback on a warm reopen when durable message writes fail', async () => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ complete: true });
+        try {
+            await act(async () => { await view.opening; });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+            await view.history.invalidateMessages('paint-history');
+            vi.spyOn(view.history, 'commitPage').mockResolvedValue(false);
+            mocks.apiRequest.mockResolvedValue(response({ messages: view.page(40, 40), hasMore: false }));
+            sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+            await expect(sync.openSession('paint-history')).resolves.toBe('ready');
+            expect(view.storage.getState().sessionMessages['paint-history']).toMatchObject({
+                isAtLatest: true, latestVerifiedOwnerEpoch: syncForTest.activeOpenSession.owner.ownerEpoch,
+            });
+            expect(await view.history.readWindow('paint-history')).toBeNull();
+        } finally { view.close(); }
+    });
+
     it('updates the retained Deferred consumer only after failed stale-tail verification is retried and committed', async () => {
         const tail = deferred<Response>();
         mocks.apiRequest.mockReturnValueOnce(tail.promise);

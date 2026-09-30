@@ -990,6 +990,7 @@ class Sync {
                         if (!owner.isCurrent()) return;
                         if (response.status === 404) { this.removeSessionLocally(id); return; }
                         if (!response.ok) throw new Error(`History ${direction} failed: ${response.status}`);
+                        if (direction === 'latest') verifiedLatestFromNetwork = true;
                         const data = await response.json() as V3GetSessionMessagesResponse;
                         if (!owner.isCurrent()) return;
                         page = { direction: direction === 'newer' ? 'newer' : 'older', boundary: boundary!, ...data };

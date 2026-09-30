@@ -279,6 +279,8 @@ export async function startDaemon(): Promise<void> {
     // Pre-populate from disk so sessions survive daemon restarts.
     const sessionIdToFinishedSession = new Map<string, TrackedSession>();
     const resumeSessionInFlight = new Map<string, Promise<SpawnSessionResult>>();
+    const recoveredFailedTurns = new Map<string, { key: string; worker: TrackedSession }>();
+    const failedTurnKey = (turn: { turnId?: string; updatedAt: number }) => `${turn.turnId ?? ''}:${turn.updatedAt}`;
     const persisted = readPersistedSessions();
     for (const [id, s] of Object.entries(persisted)) {
       sessionIdToFinishedSession.set(id, {
@@ -868,6 +870,11 @@ export async function startDaemon(): Promise<void> {
           }
           return { type: 'error', errorMessage: `Session ${happySessionId} is not tracked by this daemon. It may have been started before the daemon or on another machine.` };
         }
+        const recovered = recoveredFailedTurns.get(happySessionId);
+        if (options?.expectedFailedTurn && recovered?.key === failedTurnKey(options.expectedFailedTurn)
+            && recovered.worker === tracked && pidToTrackedSession.get(tracked.pid) === tracked) {
+          return { type: 'success', sessionId: happySessionId };
+        }
         if (!tracked.happySessionMetadataFromLocalWebhook) {
           return { type: 'error', errorMessage: `Session ${happySessionId} has no metadata. Cannot resume.` };
         }
@@ -943,7 +950,18 @@ export async function startDaemon(): Promise<void> {
         await fs.access(launch.cwd);
 
         const agent = metadata?.flavor === 'codex' || metadata?.codexThreadId ? 'codex' : 'claude';
-        return withCodexAccountLaunch({ agent, codexSessionGrant: options?.codexSessionGrant }, api, machineId, async (codexLaunch) => {
+        let recoverySuperseded = false;
+        const resumed = await withCodexAccountLaunch({ agent, codexSessionGrant: options?.codexSessionGrant }, api, machineId, async (codexLaunch) => {
+        if (options?.expectedFailedTurn) {
+          const latest = await fetchServerSessionSnapshot(happySessionId, tracked.encryption!.encryptionKey, tracked.encryption!.encryptionVariant);
+          if (!latest) return { type: 'error', errorMessage: 'Cannot verify the failed turn before stopping its worker.' };
+          const turn = latest.agentState?.turnStatus;
+          if (latest.active && (turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn))) {
+            recoverySuperseded = true;
+            // 返回错误使未使用的新凭证目录被清理，不把它关联到正在工作的原会话。
+            return { type: 'error', errorMessage: 'Recovery was superseded by a newer turn.' };
+          }
+        }
         // Do this only after metadata, cwd, and (for a bound Codex account) the
         // fresh launch credential/history have been validated. Never allow the
         // old and replacement wrappers to own one Happy session concurrently.
@@ -990,6 +1008,7 @@ export async function startDaemon(): Promise<void> {
           sourceThreadId: metadata.codexThreadId,
           sourceProfileId: metadata.codexAccountProfileId,
         });
+        return recoverySuperseded ? { type: 'success', sessionId: happySessionId } : resumed;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : (error && typeof error === 'object' ? JSON.stringify(error) : String(error));
         logger.debug(`[DAEMON RUN] Failed to resume session: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
@@ -1006,7 +1025,13 @@ export async function startDaemon(): Promise<void> {
       const pending = resumeSessionUnlocked(happySessionId, options);
       resumeSessionInFlight.set(happySessionId, pending);
       void pending.then(
-        () => resumeSessionInFlight.delete(happySessionId),
+        result => {
+          resumeSessionInFlight.delete(happySessionId);
+          const worker = findTrackedSessionById(happySessionId);
+          if (result.type === 'success' && options?.expectedFailedTurn && worker && pidToTrackedSession.get(worker.pid) === worker) {
+            recoveredFailedTurns.set(happySessionId, { key: failedTurnKey(options.expectedFailedTurn), worker });
+          }
+        },
         () => resumeSessionInFlight.delete(happySessionId),
       );
       return pending;
