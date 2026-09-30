@@ -420,7 +420,7 @@ async function seedLocalProjectionSession() {
     return storage;
 }
 
-async function localHistoryViewHarness(options: { historical?: boolean; holdLocalApply?: boolean } = {}) {
+async function localHistoryViewHarness(options: { historical?: boolean; holdLocalApply?: boolean; complete?: boolean } = {}) {
     globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
     const storage = await useRealMessageComposition();
     storage.getState().applySessions([hydrated(snapshot('paint-history', 40))]);
@@ -447,7 +447,7 @@ async function localHistoryViewHarness(options: { historical?: boolean; holdLoca
     const reading = { version: 1 as const, anchorId: 'message-150', anchorSeq: 150, offset: 12, expandedGroupIds: [] };
     if (options.historical) await history.writeReadingState('paint-history', reading);
     else await history.commitReconciliation({ changes: [{ sessionId: 'paint-history', revision: '1', deleted: false,
-        lastMessageSeq: 42, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        lastMessageSeq: options.complete ? 40 : 42, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
     const probe = installPhase2Probe('deep-link', { mountsRoute: true });
     const marker = vi.fn(probe.markFreshLatestMessageComplete);
     (globalThis as any).__happySessionCriticalPathProbe = { ...probe, markFreshLatestMessageComplete: marker };
@@ -737,6 +737,24 @@ describe('message visibility synchronization', () => {
             expect(await view.history.readReadingState('paint-history')).toEqual(view.reading);
             expect(view.marker).not.toHaveBeenCalled();
             expect(mocks.apiRequest).not.toHaveBeenCalled();
+        } finally { view.close(); }
+    });
+
+    it('verifies a complete local tail before enabling failed-turn actions, including a warm reopen', async () => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ complete: true });
+        try {
+            await act(async () => { await expect(view.opening).resolves.toBe('ready'); });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+            await view.paint(); await view.paint();
+            expect(view.marker).toHaveBeenCalledTimes(1);
+            expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/paint-history/messages?after_seq=40&limit=100');
+            const originalEpoch = view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch;
+            sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+            await expect(sync.openSession('paint-history')).resolves.toBe('ready');
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBe(originalEpoch);
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
         } finally { view.close(); }
     });
 
@@ -1780,7 +1798,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
     });
 
-    it('makes zero body requests across ten cached opens, visibility signals and unchanged reconnect reconciliations', async () => {
+    it('verifies each cached latest open with one incremental request and keeps unchanged reconnects local', async () => {
         globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
         installSession('budget');
         const history = (await openLocalHistory('server|account'))!;
@@ -1796,19 +1814,22 @@ describe('message visibility synchronization', () => {
         });
         syncForTest.localHistory = history;
         mocks.state.currentViewingSessionId = 'budget';
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         for (let i = 0; i < 10; i++) {
             await syncForTest.openSession('budget');
+            await vi.waitFor(() => expect(mocks.state.sessionMessages.budget.latestVerifiedOwnerEpoch).not.toBeNull());
             syncForTest.onSessionVisible('budget');
             await syncForTest.getMessagesSync('budget').awaitQueue();
             await syncForTest.fetchSessions(); // reconnect's existing invalidator target
         }
         expect(reconciliations).toBe(10);
-        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(10);
+        expect(mocks.apiRequest.mock.calls.every(([url]) => url === '/v3/sessions/budget/messages?after_seq=40&limit=100')).toBe(true);
         expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
         expect(mocks.state.sessionMessages.budget.isLoaded).toBe(true);
         syncForTest.releaseSessionMessageCache('budget');
         await syncForTest.ensureMessagesLoaded('budget');
-        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(10);
     });
 
     it('keeps realtime tail windows bounded and gives replayed rows stable wire identity', async () => {

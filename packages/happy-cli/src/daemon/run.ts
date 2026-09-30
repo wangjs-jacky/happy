@@ -6,7 +6,7 @@ import type { SpawnOptions } from 'node:child_process';
 
 import { ApiClient } from '@/api/api';
 import { TrackedSession, SessionEncryptionData } from './types';
-import { MachineMetadata, DaemonState, Metadata } from '@/api/types';
+import { MachineMetadata, DaemonState, Metadata, AgentState } from '@/api/types';
 import { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
 import { logger } from '@/ui/logger';
 import { authAndSetupMachineIfNeeded } from '@/ui/auth';
@@ -28,6 +28,7 @@ import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
 import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { isUnusedCodexSession } from './emptyCodexSession';
+import { stopDetachedCodexWorker } from './stopDetachedCodexWorker';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
@@ -809,7 +810,7 @@ export async function startDaemon(): Promise<void> {
       sessionId: string,
       encryptionKey: Uint8Array,
       encryptionVariant: 'legacy' | 'dataKey',
-    ): Promise<{ metadata: Metadata; seq: number; metadataVersion: number; active: boolean } | null> => {
+    ): Promise<{ metadata: Metadata; seq: number; metadataVersion: number; active: boolean; agentState: AgentState | null } | null> => {
       try {
         const response = await axios.get(`${configuration.serverUrl}/v1/sessions`, {
           headers: { Authorization: `Bearer ${credentials.token}` },
@@ -821,6 +822,7 @@ export async function startDaemon(): Promise<void> {
           metadata: string;
           seq: number;
           metadataVersion: number;
+          agentState?: string | null;
         }> }).sessions;
         const matched = sessions.find(s => s.id === sessionId);
         if (!matched) return null;
@@ -829,6 +831,7 @@ export async function startDaemon(): Promise<void> {
         return {
           metadata: decrypted as Metadata,
           active: matched.active,
+          agentState: matched.agentState ? decrypt(encryptionKey, encryptionVariant, decodeBase64(matched.agentState)) as AgentState | null : null,
           seq: matched.seq,
           metadataVersion: matched.metadataVersion,
         };
@@ -838,7 +841,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSessionUnlocked = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string }): Promise<SpawnSessionResult> => {
+    const resumeSessionUnlocked = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number } }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -881,6 +884,16 @@ export async function startDaemon(): Promise<void> {
           tracked.encryption.encryptionKey,
           tracked.encryption.encryptionVariant,
         );
+        if (options?.expectedFailedTurn) {
+          if (!serverSnapshot) throw new Error('Cannot verify the current failed turn before recovery.');
+          const currentTurn = serverSnapshot.agentState?.turnStatus;
+          // 其他设备可能已恢复或开始新回合，不能再次重启正在工作的执行进程。
+          if (serverSnapshot.active && (currentTurn?.status !== 'failed'
+              || currentTurn.turnId !== options.expectedFailedTurn.turnId
+              || currentTurn.updatedAt !== options.expectedFailedTurn.updatedAt)) {
+            return { type: 'success', sessionId: happySessionId };
+          }
+        }
         if (serverSnapshot) {
           metadata = serverSnapshot.metadata;
           tracked.happySessionMetadataFromLocalWebhook = serverSnapshot.metadata;
@@ -950,6 +963,10 @@ export async function startDaemon(): Promise<void> {
             return { type: 'error', errorMessage: 'The failed session did not stop cleanly, so Paws did not start a replacement.' };
           }
         }
+        if (!liveEntry && agent === 'codex') {
+          await stopDetachedCodexWorker({ pid: metadata.hostPid, sessionId: happySessionId, machineId,
+            profileId: metadata.codexAccountProfileId, homesRoot: join(configuration.happyHomeDir, 'codex-session-homes') });
+        }
         const env = {
             ...process.env,
             HAPPY_RECONNECT_SESSION_ID: happySessionId,
@@ -983,7 +1000,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string }): Promise<SpawnSessionResult> => {
+    const resumeSession = (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null; codexSessionGrant?: string; expectedFailedTurn?: { turnId?: string; updatedAt: number } }): Promise<SpawnSessionResult> => {
       const existing = resumeSessionInFlight.get(happySessionId);
       if (existing) return existing;
       const pending = resumeSessionUnlocked(happySessionId, options);
