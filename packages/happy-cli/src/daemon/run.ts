@@ -891,7 +891,7 @@ export async function startDaemon(): Promise<void> {
           tracked.encryption.encryptionKey,
           tracked.encryption.encryptionVariant,
         );
-        if (options?.expectedWorkerPid && serverSnapshot?.active
+        if (options?.expectedWorkerPid && serverSnapshot
             && (serverSnapshot.metadata.hostPid !== options.expectedWorkerPid
               || serverSnapshot.agentState?.turnStatus?.status === 'running'
               || serverSnapshot.metadata.capabilities?.codexCredentialRecovery === true)) {
@@ -904,9 +904,9 @@ export async function startDaemon(): Promise<void> {
           if (!serverSnapshot) throw new Error('Cannot verify the current failed turn before recovery.');
           const currentTurn = serverSnapshot.agentState?.turnStatus;
           // 其他设备可能已恢复或开始新回合，不能再次重启正在工作的执行进程。
-          if (serverSnapshot.active && (currentTurn?.status !== 'failed'
+          if (currentTurn?.status === 'running' || (serverSnapshot.active && (currentTurn?.status !== 'failed'
               || currentTurn.turnId !== options.expectedFailedTurn.turnId
-              || currentTurn.updatedAt !== options.expectedFailedTurn.updatedAt)) {
+              || currentTurn.updatedAt !== options.expectedFailedTurn.updatedAt))) {
             return { type: 'success', sessionId: happySessionId };
           }
         }
@@ -965,10 +965,10 @@ export async function startDaemon(): Promise<void> {
           const latest = await fetchServerSessionSnapshot(happySessionId, tracked.encryption!.encryptionKey, tracked.encryption!.encryptionVariant);
           if (!latest) return { type: 'error', errorMessage: 'Cannot verify the failed turn before stopping its worker.' };
           const turn = latest.agentState?.turnStatus;
-          if (latest.active && (options?.expectedFailedTurn
-            ? turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn)
+          if (options?.expectedFailedTurn
+            ? turn?.status === 'running' || (latest.active && (turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn)))
             : latest.metadata.hostPid !== options.expectedWorkerPid || turn?.status === 'running'
-              || latest.metadata.capabilities?.codexCredentialRecovery === true)) {
+              || latest.metadata.capabilities?.codexCredentialRecovery === true) {
             recoverySuperseded = true;
             // 返回错误使未使用的新凭证目录被清理，不把它关联到正在工作的原会话。
             return { type: 'error', errorMessage: 'Recovery was superseded by a newer turn.' };

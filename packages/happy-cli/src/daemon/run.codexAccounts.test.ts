@@ -252,7 +252,7 @@ describe('real daemon Codex spawn paths', () => {
     expect(state.api.redeemCodexSessionGrant).toHaveBeenCalledTimes(1);
     expect(stopDetachedCodexWorker).not.toHaveBeenCalled();
   });
-  it('keeps a legacy worker when an idle-upgrade request races a newly started turn', async () => {
+  it.each([true, false])('keeps a legacy worker when an idle-upgrade races a newly started turn (presence active=%s)', async active => {
     state.tmux = false;
     const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
     await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
@@ -262,7 +262,7 @@ describe('real daemon Codex spawn paths', () => {
     state.control.onHappySessionWebhook('paws-session', metadata, encryption); await first;
     await mkdir(join(home, 'sessions')); await writeFile(join(home, 'sessions', 'rollout-thread-source.jsonl'), 'source-native-thread');
     const encrypted = (value: unknown) => encodeBase64(encrypt(encryption.encryptionKey, 'legacy', value));
-    const snapshot = (status: string) => ({ data: { sessions: [{ id: 'paws-session', active: true, metadata: encrypted(metadata), seq: 4, metadataVersion: 2,
+    const snapshot = (status: string) => ({ data: { sessions: [{ id: 'paws-session', active, metadata: encrypted(metadata), seq: 4, metadataVersion: 2,
       agentState: encrypted({ turnStatus: { status, updatedAt: 1, turnId: 'turn' } }) }] } });
     vi.mocked(axios.get).mockResolvedValueOnce(snapshot('completed')).mockResolvedValue(snapshot('running'));
     const result = await state.handlers.resumeSession('paws-session', { codexSessionGrant: 'b'.repeat(43), expectedWorkerPid: 987601 });
