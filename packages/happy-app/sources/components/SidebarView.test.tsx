@@ -311,7 +311,7 @@ describe('SidebarView Agent space exit', () => {
         }
         expect(renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).findByType('Ionicons').props.name).toBe('albums-outline');
         expect(renderer.root.findByProps({ testID: 'sidebar-archive-button' }).findByType('Ionicons').props.name).toBe('file-tray-stacked-outline');
-        expect(renderer.root.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
+        expect(renderer.root.findAllByType('Pressable').filter((node: any) => node.props.testID === 'sidebar-my-agents-button')).toHaveLength(1);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-add-agent-button' })).toHaveLength(0);
         const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
         const mobileNewSessionGlyph = mobileNewSession.findByProps({ testID: 'sidebar-new-session-glyph' });
@@ -578,7 +578,7 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-session-list-button',
             'sidebar-archive-button',
         ]));
-        expect(primaryColumn.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
+        expect(primaryColumn.findAllByType('Pressable').filter((node: any) => node.props.testID === 'sidebar-my-agents-button')).toHaveLength(1);
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' })).toHaveLength(0);

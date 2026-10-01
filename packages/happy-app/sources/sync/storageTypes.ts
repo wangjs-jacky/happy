@@ -42,6 +42,7 @@ export const MetadataSchema = z.object({
         codexCredentialRecovery: z.boolean().optional(),
     }).optional(),
     machineId: z.string().optional(),
+    myAgentId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
     codexThreadId: z.string().optional(), // Codex app-server thread ID
     codexAccountProfileId: z.string().uuid().optional(),

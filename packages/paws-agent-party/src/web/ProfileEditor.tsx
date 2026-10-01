@@ -11,7 +11,7 @@ import type { Api } from './api.js';
 const PAWS_CODEX_CANDIDATES = ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'];
 export type ConfigurationSession = { sessionId: string; machineId: string };
 export function ProfileEditor({ initial, machines, sessions, api, onSave, submitLabel = '保存 Agent' }: {
-  initial?: AgentProfileInput; machines: MachinesResponse['machines']; sessions: ConfigurationSession[]; api: Api;
+  initial?: AgentProfileInput & { updatedAt?: number }; machines: MachinesResponse['machines']; sessions: ConfigurationSession[]; api: Api;
   onSave(value: AgentProfileInput): Promise<void>; submitLabel?: string;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
@@ -63,7 +63,7 @@ export function ProfileEditor({ initial, machines, sessions, api, onSave, submit
   };
   return <form className="profile-form" onSubmit={async event => {
     event.preventDefault(); if (saving) return; setSaving(true); setError('');
-    try { await onSave({ name, instructions, avatarId, machineId, directory: directory.trim(), model, effort, engine: 'codex' }); }
+    try { await onSave({ name, instructions, avatarId, machineId, directory: directory.trim(), model, effort, engine: 'codex', expectedUpdatedAt: initial?.expectedUpdatedAt ?? initial?.updatedAt }); }
     catch (error) { setError((error as Error).message); } finally { setSaving(false); }
   }}>
     <div className="detail-profile"><RobotAvatar id="preview" avatarId={avatarId} large/><button type="button" onClick={() => setAvatarOpen(value => !value)}>选择机器人</button></div>

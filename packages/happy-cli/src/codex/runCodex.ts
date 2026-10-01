@@ -60,6 +60,7 @@ import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText } from './codexClearCommand';
 import {
     buildCodexTurnPrompt,
+    createCodexAppPromptLifecycle,
     createCodexSkillPathResolutionPromptLifecycle,
     hashCodexEnhancedMode,
     markPawsTurnOrigin,
@@ -1186,7 +1187,7 @@ export async function runCodex(opts: {
         && process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID
         ? new CodexSessionCredentialRecovery(api, accountHome, machineId, session.sessionId)
         : undefined;
-    let appendSystemPromptInjected = false;
+    const appPromptLifecycle = createCodexAppPromptLifecycle();
     let browserStepPromptInjected = false;
     const skillPathResolutionInstruction = createCodexSkillPathResolutionPromptLifecycle();
 
@@ -1246,7 +1247,6 @@ export async function runCodex(opts: {
                 opts.effort ?? resumedThread.reasoningEffort ?? undefined,
             );
             first = false;
-            appendSystemPromptInjected = true;
         }
 
         // A resumed thread reconstructs immutable App bindings above; do not
@@ -1469,7 +1469,7 @@ export async function runCodex(opts: {
             permissionHandler.reset();
             reasoningProcessor.abort();
             diffProcessor.reset();
-            appendSystemPromptInjected = false;
+            appPromptLifecycle.onThreadReset();
             browserStepPromptInjected = false;
             skillPathResolutionInstruction.onThreadReset();
             if (opts?.resetFirst) {
@@ -1561,9 +1561,7 @@ export async function runCodex(opts: {
                 const { executionPolicy } = await ensureCodexThread(opts.mode);
                 const includeSkillPathResolutionInstruction = skillPathResolutionInstruction.shouldIncludeInPrompt();
 
-                const includeAppendSystemPrompt = Boolean(
-                    opts.mode.appendSystemPrompt && !appendSystemPromptInjected,
-                );
+                const includeAppendSystemPrompt = appPromptLifecycle.shouldIncludeInPrompt(opts.mode.appendSystemPrompt);
                 const turnPrompt = buildCodexTurnPrompt({
                     message: opts.prompt,
                     mode: opts.mode,
@@ -1613,7 +1611,7 @@ export async function runCodex(opts: {
                 first = false;
                 browserStepPromptInjected = true;
                 if (includeAppendSystemPrompt) {
-                    appendSystemPromptInjected = true;
+                    appPromptLifecycle.markPromptSent(opts.mode.appendSystemPrompt);
                 }
 
                 if (result.aborted) {

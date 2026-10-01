@@ -568,6 +568,16 @@ export async function machineStopDaemon(machineId: string): Promise<{ message: s
  * Execute a bash command on a specific machine (machine-level handler, no active session needed).
  * Accepts a SessionBashRequest so callers can optionally pass cwd / timeout.
  */
+/** Uses the same native scanner as agent_skills, without a shell per Skill. */
+export async function machineListAgentSkills(machineId: string, cwd: string): Promise<import('./skills').SkillEntry[]> {
+    try {
+        const result = await apiSocket.machineRPC<{ skills: Array<{ name: string; path: string; description: string }> }, { cwd: string }>(machineId, 'my-agent-skills', { cwd }, { timeoutMs: 20000 });
+        return result.skills.map(entry => ({ ...entry, source: entry.path.includes('/plugins/') ? 'plugin' : 'personal', triggers: [] }));
+    } catch {
+        throw new Error('无法检查 Agent Skills，请确认执行设备在线，并升级 Paws CLI 后重启 daemon。');
+    }
+}
+
 export async function machineBash(machineId: string, request: SessionBashRequest): Promise<SessionBashResponse> {
     try {
         return await apiSocket.machineRPC<SessionBashResponse, SessionBashRequest>(machineId, 'bash', request);

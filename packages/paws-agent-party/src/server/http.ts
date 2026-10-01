@@ -136,7 +136,16 @@ export async function createPocServer(options: CreatePocServerOptions = {}): Pro
     if (request.method === 'GET' && machineDirectoriesMatch) return sendJson(response, 200, await sdk.browseDirectory(decodeURIComponent(machineDirectoriesMatch[1]), url.searchParams.get('path') ?? undefined));
     const machineConfigurationMatch = url.pathname.match(/^\/api\/paws\/machines\/([^/]+)\/configuration$/);
     if (request.method === 'GET' && machineConfigurationMatch) return sendJson(response, 200, await sdk.configuration(decodeURIComponent(machineConfigurationMatch[1]), url.searchParams.get('sessionId') ?? undefined));
-    if (request.method === 'GET' && url.pathname === '/api/group-chat/agents') return sendJson(response, 200, { agents: profiles.list() });
+    if (request.method === 'GET' && url.pathname === '/api/my-agents') return sendJson(response, 200, { agents: profiles.list() });
+    if (request.method === 'POST' && url.pathname === '/api/my-agents') return sendJson(response, 200, await profiles.saveMyAgent(await readJson(request, 64 * 1024)));
+    const myAgentMatch = url.pathname.match(/^\/api\/my-agents\/([a-zA-Z0-9_-]+)$/);
+    if (request.method === 'GET' && myAgentMatch) return sendJson(response, 200, profiles.get(myAgentMatch[1]));
+    if (request.method === 'PATCH' && myAgentMatch) return sendJson(response, 200, await profiles.saveMyAgent(await readJson(request, 64 * 1024), myAgentMatch[1]));
+    const myAgentSessionsMatch = url.pathname.match(/^\/api\/my-agents\/([a-zA-Z0-9_-]+)\/sessions$/);
+    if (request.method === 'POST' && myAgentSessionsMatch) return sendJson(response, 200, await profiles.recordSession(myAgentSessionsMatch[1], await readJson(request, 4096)));
+    const myAgentArchiveMatch = url.pathname.match(/^\/api\/my-agents\/([a-zA-Z0-9_-]+)\/archive$/);
+    if (request.method === 'POST' && myAgentArchiveMatch) return sendJson(response, 200, await profiles.archiveMyAgent(myAgentArchiveMatch[1], await readJson(request, 4096)));
+    if (request.method === 'GET' && url.pathname === '/api/group-chat/agents') return sendJson(response, 200, { agents: profiles.list().filter(p => !p.archived) });
     if (request.method === 'POST' && url.pathname === '/api/group-chat/agents') return sendJson(response, 200, await profiles.create(await readJson(request, 32 * 1024) as AgentProfileInput));
     const agentProfileMatch = url.pathname.match(/^\/api\/group-chat\/agents\/([^/]+)$/);
     if (request.method === 'PATCH' && agentProfileMatch) return sendJson(response, 200, await profiles.update(decodeURIComponent(agentProfileMatch[1]), await readJson(request, 32 * 1024) as AgentProfileInput));

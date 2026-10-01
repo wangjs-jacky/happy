@@ -1932,6 +1932,17 @@ class Sync {
         const stagedMessages: NormalizedMessage[] = [];
 
         const modeMeta = resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
+        let myAgentPrompt = '';
+        if (session.metadata?.myAgentId) {
+            const { TokenStorage } = await import('@/auth/tokenStorage');
+            const { createMyAgentsApi } = await import('@/components/myAgents/api');
+            const { buildMyAgentPrompt } = await import('@slopus/happy-wire');
+            const credentials = await TokenStorage.getCredentials();
+            if (!credentials) throw new Error('请登录后再使用我的 Agent。');
+            const profile = await createMyAgentsApi(credentials).get(session.metadata.myAgentId);
+            if (!isCurrent() || this.encryption !== encryptionOwner) throw new Error('local-message-session-unavailable');
+            myAgentPrompt = buildMyAgentPrompt(profile);
+        }
         const { displayText, editedFromMessageId, source = 'chat', attachments } = options ?? {};
         const contextSource = session.metadata?.continuationOfSessionId;
         const savedContext = session.metadata?.continuationContext;
@@ -2057,7 +2068,7 @@ class Sync {
             meta: {
                 ...(includeContext ? { continuationContextSourceId: contextSource, displayText: displayText ?? text } : {}),
                 sentFrom,
-                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
+                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim(), myAgentPrompt].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.permissionModeExplicit ? { permissionModeExplicit: true } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),

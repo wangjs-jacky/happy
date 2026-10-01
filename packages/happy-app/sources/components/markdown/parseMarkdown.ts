@@ -1,6 +1,7 @@
 import { parseMarkdownBlock } from "./parseMarkdownBlock"
 import type { SessionOtaPreview } from '@/utils/sessionOtaPreviews';
 import type { SessionFinanceChart } from '@/utils/sessionFinanceCharts';
+import type { MyAgentCard } from '@/utils/sessionMyAgentCard';
 
 export type MarkdownBlock = {
     type: 'text'
@@ -41,6 +42,9 @@ export type MarkdownBlock = {
 } | {
     type: 'finance-chart',
     chart: SessionFinanceChart
+} | {
+    type: 'my-agent',
+    card: MyAgentCard
 }
 
 export type MarkdownSpan = {

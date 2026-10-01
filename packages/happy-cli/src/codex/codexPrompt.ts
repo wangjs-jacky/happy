@@ -30,6 +30,16 @@ export function createCodexSkillPathResolutionPromptLifecycle() {
     };
 }
 
+/** Reapply changed App instructions and refresh them after resume/reset. */
+export function createCodexAppPromptLifecycle() {
+    let sent: string | undefined;
+    return {
+        shouldIncludeInPrompt: (prompt?: string) => Boolean(prompt && prompt !== sent),
+        markPromptSent: (prompt?: string) => { sent = prompt; },
+        onThreadReset: () => { sent = undefined; },
+    };
+}
+
 const CODEX_PAWS_ORIGIN_PREFIX = '<!-- happy:paws-origin:';
 const CODEX_PAWS_ORIGIN_SUFFIX = ' -->';
 
@@ -73,7 +83,7 @@ export function stripPawsTurnOrigin(text: string): string {
 export interface CodexEnhancedMode {
     permissionMode: PermissionMode;
     model?: string;
-    /** Happy app instructions appended to the first Codex prompt for option chips. */
+    /** Happy app instructions, refreshed whenever their content changes. */
     appendSystemPrompt?: string;
     /** Reasoning effort passed through to Codex's sendTurnAndWait. */
     effort?: ReasoningEffort;

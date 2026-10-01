@@ -14,6 +14,7 @@ import { storeTempText } from '@/sync/persistence';
 import { imageViewer } from '@/sync/imageViewer';
 import { OtaPreviewCard } from '@/components/OtaPreviewCard';
 import { FinanceChartCard } from '@/components/FinanceChartCard';
+import { MyAgentCard } from '@/components/myAgents/MyAgentCard';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { MermaidRenderer } from './MermaidRenderer';
@@ -117,6 +118,8 @@ export const MarkdownView = React.memo((props: {
                         return <RenderOtaPreviewBlock preview={block.preview} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'finance-chart') {
                         return <RenderFinanceChartBlock chart={block.chart} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                    } else if (block.type === 'my-agent') {
+                        return <MyAgentCard card={block.card} key={index}/>;
                     } else {
                         return null;
                     }

@@ -80,6 +80,14 @@ export async function createAccountServer(options: { dataDir: string; masterKey:
       if (!path.startsWith('/api/')) { proxy(req, res, shell.url, ''); return; }
       const token = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
       if (path === '/api/access/config' && req.method === 'GET') { json(res, 200, { accountMode: true }); return; }
+      // First-party catalog only: verify this session's Paws bearer with the
+      // trusted relay. No recovery secret, executor attachment or shared token.
+      if (/^\/api\/my-agents(?:\/[a-zA-Z0-9_-]+(?:\/(?:sessions|archive))?)?$/.test(path)) {
+        const account = await access.verify(token);
+        const space = await tenant(account.id);
+        proxy(req, res, space.backend.url, space.token);
+        return;
+      }
       if (path === '/api/access/ticket' && req.method === 'POST') {
         if (logins >= 8) throw new AccessError(429, '连接较多，请稍后重试。');
         logins++;

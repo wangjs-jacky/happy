@@ -8,20 +8,41 @@ export function listCodexSkillNames(opts: {
     cwd?: string;
     homeDir?: string;
 } = {}): string[] {
+    return [...new Set(listCodexSkillEntries(opts).map(s => s.name))].sort((a, b) => a.localeCompare(b));
+}
+
+export function listCodexSkillEntries(opts: { cwd?: string; homeDir?: string } = {}): Array<{ name: string; path: string; description: string }> {
     const cwd = resolve(opts.cwd ?? process.cwd());
     const homeDir = resolve(opts.homeDir ?? os.homedir());
-    const names = new Set<string>();
+    const entries: Array<{ name: string; path: string; description: string }> = [];
+    const paths = new Set<string>();
 
     for (const root of getSkillRoots(cwd, homeDir)) {
         for (const filePath of collectSkillFiles(root)) {
             const name = getSkillName(filePath);
-            if (name) {
-                names.add(name);
-            }
+            if (!name) continue;
+            try {
+                const path = realpathSync(filePath);
+                if (paths.has(path)) continue;
+                paths.add(path);
+                const contents = readFileSync(path, 'utf8');
+                const frontmatter = contents.startsWith('---') ? contents.slice(0, contents.indexOf('\n---', 3)) : '';
+                const match = frontmatter.match(/^description:\s*([^\n]*)/m);
+                let description = match?.[1]?.trim() ?? '';
+                if (/^[>|][+-]?$/.test(description)) {
+                    const lines: string[] = [];
+                    for (const line of frontmatter.slice((match?.index ?? 0) + match![0].length).split('\n').slice(1)) {
+                        if (line && !/^\s/.test(line)) break;
+                        lines.push(line.trim());
+                    }
+                    description = lines.filter(Boolean).join(' ');
+                }
+                entries.push({ name, path, description: description.replace(/^['"]|['"]$/g, '') });
+            } catch { /* Unreadable and broken links are unavailable. */ }
         }
     }
 
-    return [...names].sort((a, b) => a.localeCompare(b));
+    return entries.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function getSkillRoots(cwd: string, homeDir: string): string[] {

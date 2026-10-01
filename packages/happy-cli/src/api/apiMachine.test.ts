@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ApiMachineClient } from './apiMachine';
 import type { Machine } from './types';
 import type { ComponentObservation } from '@slopus/happy-wire';
@@ -237,6 +240,20 @@ describe('ApiMachineClient socket reconnection', () => {
         vi.restoreAllMocks();
     });
 
+    it('serves real canonical Skills through the machine RPC and rejects malformed directories', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'agent-machine-skills-'));
+        try {
+            const skillDir = join(directory, '.agents/skills/machine-method');
+            mkdirSync(skillDir, { recursive: true });
+            const file = join(skillDir, 'SKILL.md');
+            writeFileSync(file, '---\nname: machine-method\ndescription: fixture\n---\n');
+            new ApiMachineClient('fake-token', makeMachine());
+            const handler = rpcHandlers.get('my-agent-skills')!;
+            expect((await handler({ cwd: directory })).skills).toContainEqual({ name: 'machine-method', path: realpathSync(file), description: 'fixture' });
+            await expect(handler({ cwd: 'relative' })).rejects.toThrow('Invalid Agent');
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+
     it('retries after initial socket connection error', async () => {
         vi.useFakeTimers();
 
@@ -277,6 +294,7 @@ describe('ApiMachineClient socket reconnection', () => {
             mockSocket.connected = true;
             emitSocketEvent('connect');
             expect(mockSocket.emit.mock.calls.filter(([event]: [string]) => event === 'rpc-register')).toEqual([
+                ['rpc-register', { method: 'test-machine-id:my-agent-skills' }],
                 ['rpc-register', { method: 'test-machine-id:environment-inspect' }],
                 ['rpc-register', { method: 'test-machine-id:environment-inspect-v2' }],
                 ['rpc-register', { method: 'test-machine-id:environment-apply' }],
@@ -297,7 +315,7 @@ describe('ApiMachineClient socket reconnection', () => {
             expect(response.result).toMatchObject({
                 status: 'succeeded', changed: true, after: { installedVersion: '2.80.0' },
             });
-            expect(mockSocket.emit.mock.calls.filter(([event]: [string]) => event === 'rpc-register')).toHaveLength(6);
+            expect(mockSocket.emit.mock.calls.filter(([event]: [string]) => event === 'rpc-register')).toHaveLength(8);
             expect(registerEnvironmentHandlers).toHaveBeenCalledOnce();
             const registration = vi.mocked(registerEnvironmentHandlers).mock.calls[0]!;
             expect(typeof registration[0].registerHandler).toBe('function');

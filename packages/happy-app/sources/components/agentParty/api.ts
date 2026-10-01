@@ -11,7 +11,7 @@ export function getPartyUrl(): string {
 }
 export class CatalogError extends Error { constructor(message: string, public readonly status: number) { super(message); } }
 export type AgentProfile = { id: string; name: string; instructions: string; engine: 'codex'; model: string; effort: string; avatarId: number; machineId?: string; directory?: string; createdAt: number; updatedAt: number };
-export type AgentInput = Omit<AgentProfile, 'id' | 'createdAt' | 'updatedAt'>;
+export type AgentInput = Omit<AgentProfile, 'id' | 'createdAt' | 'updatedAt'> & { expectedUpdatedAt?: number };
 export type Machine = { id: string; active: boolean; metadata: { displayName?: string; host?: string } | null };
 export type Directory = { path: string; parent?: string | null; directories: { name: string; path: string }[] };
 

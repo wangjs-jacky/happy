@@ -11,6 +11,8 @@ import {
     parseFinanceChartSection,
 } from '@/utils/sessionFinanceCharts';
 
+import { parseMyAgentCard } from '@/utils/sessionMyAgentCard';
+
 const OTA_BLOCK_CLOSE = '</happy-ota-preview>';
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
@@ -96,6 +98,7 @@ function isMarkdownBlockStart(lines: string[], index: number): boolean {
     if (trimmed.startsWith('<options>')) {
         return true;
     }
+    if (trimmed === '<happy-agent>') return true;
     if (isHappyOtaPreviewBlock(trimmed)) {
         return true;
     }
@@ -189,6 +192,19 @@ export function parseMarkdownBlock(markdown: string) {
             if (items.length > 0) {
                 blocks.push({ type: 'options', items });
             }
+            continue;
+        }
+
+        if (trimmed === '<happy-agent>') {
+            const content: string[] = [];
+            let closed = false;
+            while (index < lines.length) {
+                const next = lines[index++];
+                if (next.trim() === '</happy-agent>') { closed = true; break; }
+                content.push(next);
+            }
+            const card = closed ? parseMyAgentCard(content.join('\n')) : null;
+            if (card) blocks.push({ type: 'my-agent', card });
             continue;
         }
 

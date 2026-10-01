@@ -385,6 +385,7 @@ export type Metadata = {
     codexCredentialRecovery?: boolean
   },
   machineId?: string,
+  myAgentId?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
   codexAccountProfileId?: string,
