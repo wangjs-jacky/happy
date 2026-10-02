@@ -562,6 +562,32 @@ describe('real session writer composition', () => {
         expect((encrypted.mock.calls.at(-1)![0] as any).content.text).toBe('Next');
     });
 
+    it('routes /agent in the same conversation even when saved continuation context precedes it', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const current = storage.getState().sessions['writer-session'];
+        storage.getState().applySessions([{ ...current, metadata: { ...current.metadata!, capabilities: { myAgentCommand: true },
+            continuationOfSessionId: 'parent', continuationContext: 'Project ORCHID: prior discussion.' } }]);
+        const encrypted = vi.spyOn(subject.encryption.getSessionEncryption('writer-session'), 'encryptRawRecord');
+        vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+        await sync.sendMessage('writer-session', '/agent 修改军师，回答简短一点');
+        const record = encrypted.mock.calls.at(-1)![0] as any;
+        expect(record.content.text).toContain('ORCHID');
+        expect(record.meta.myAgentCommand).toEqual({ request: '修改军师，回答简短一点' });
+        expect(record.meta.displayText).toBe('/agent 修改军师，回答简短一点');
+        await sync.sendMessage('writer-session', '继续刚才的话题');
+        expect((encrypted.mock.calls.at(-1)![0] as any).meta.myAgentCommand).toBeUndefined();
+    });
+
+    it('rejects /agent on an unsupported CLI before enqueueing and does not route quoted commands', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const encrypted = vi.spyOn(subject.encryption.getSessionEncryption('writer-session'), 'encryptRawRecord');
+        vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+        await expect(sync.sendMessage('writer-session', '/agent 创建军师')).rejects.toThrow();
+        expect(encrypted).not.toHaveBeenCalled();
+        await sync.sendMessage('writer-session', '请解释 /agent 的用法');
+        expect((encrypted.mock.calls.at(-1)![0] as any).meta.myAgentCommand).toBeUndefined();
+    });
+
     async function continuationWriter() {
         await sync.ensureSessionHydrated('writer-session');
         const current = storage.getState().sessions['writer-session'];

@@ -9,9 +9,12 @@ import type { SpawnSessionArgs } from '@/hooks/useSpawnSession';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { createMyAgentsApi, type MyAgentsApi } from './api';
 import { launchMyAgentSession } from './launch';
+import { t } from '@/text';
 
 export function useMyAgentCompose(modeValue?: string, id?: string) {
-    const mode = modeValue === 'create' || modeValue === 'use' || modeValue === 'edit' ? modeValue : undefined;
+    // Management commands use ordinary chat submission. Only launching a saved
+    // assistant needs its role and execution environment attached to a session.
+    const mode = modeValue === 'use' ? modeValue : undefined;
     const active = !!mode;
     const { credentials } = useAuth();
     const navigate = useNavigateToSession();
@@ -29,14 +32,14 @@ export function useMyAgentCompose(modeValue?: string, id?: string) {
         setProfile(undefined); setReady(false); setBusy(false); setError(''); setSessionId(undefined); busyRef.current = false; api.current = undefined;
         const current = () => owner.current === controller && !controller.signal.aborted && accountRuntimeCurrent();
         if (active) {
-            if (!credentials) setError('请登录后再使用 Agents。');
+            if (!credentials) setError(t('myAgents.signInError'));
             else {
                 void (async () => {
                     const client = createMyAgentsApi(credentials, controller.signal); api.current = client;
-                    const loaded = mode === 'create' ? undefined : id ? await client.get(id) : undefined;
+                    const loaded = id ? await client.get(id) : undefined;
                     if (!current()) return;
-                    if (mode !== 'create' && !loaded) throw new Error('没有找到这个 Agent，请从列表重新打开。');
-                    if (loaded?.archived && mode === 'use') throw new Error('这个 Agent 已归档，可以通过修改对话恢复。');
+                    if (!loaded) throw new Error(t('myAgents.missing'));
+                    if (loaded.archived) throw new Error(t('myAgents.archived'));
                     const draft = useNewSessionDraft.getState();
                     draft.setAgentType('codex');
                     if (loaded) {
@@ -59,7 +62,7 @@ export function useMyAgentCompose(modeValue?: string, id?: string) {
             const directory = args.worktreeKey && !['__none__', '__new__'].includes(args.worktreeKey)
                 ? args.worktreeKey : resolveAbsolutePath(args.path?.trim() || '~', args.machine.metadata?.homeDir);
             const result = await launchMyAgentSession({ api: client, profile, machine: args.machine,
-                directory, text: args.prompt, builder: mode !== 'use', isCurrent: current,
+                directory, text: args.prompt, isCurrent: current,
                 permissionMode: args.permissionMode, modelMode: args.modelMode, effortLevel: args.effortLevel, fastMode: args.fastMode,
                 attachments: args.images, onSpawned: value => { if (current()) setSessionId(value); } });
             if (current()) { accepted(); navigate(result); }
@@ -68,9 +71,9 @@ export function useMyAgentCompose(modeValue?: string, id?: string) {
     }, [active, ready, mode, profile, navigate]);
     return {
         active, ready, busy, error, submit,
-        title: mode === 'create' ? '创建 Agent' : mode === 'edit' ? `修改 ${profile?.name ?? 'Agent'}` : profile?.name ?? 'Agent',
-        hint: mode === 'create' ? '说说你希望它帮你做什么，Happy 会创建并保存。' : mode === 'edit' ? '直接说想怎么调整，Happy 会修改并保存。' : '像平常聊天一样，直接告诉它这次想做什么。',
-        placeholder: mode === 'create' ? '帮我创建一个狗头军师，帮我分析想法、挑出问题…' : mode === 'edit' ? '例如：回答简短一点，也要主动指出风险…' : '这次想让它帮你做什么？',
+        title: profile?.name ?? 'Agent',
+        hint: t('myAgents.useHint'),
+        placeholder: t('myAgents.usePlaceholder'),
         retry: () => setAttempt(value => value + 1),
         openSession: sessionId ? () => navigate(sessionId) : undefined,
     };

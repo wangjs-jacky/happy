@@ -8,6 +8,7 @@ describe('Codex processor startup trace', () => {
         let releaseThread!: () => void;
         const threadAvailable = new Promise<void>((resolve) => { releaseThread = resolve; });
         const session = {
+            updateMetadata: vi.fn(() => { order.push('agent-capability'); }),
             processorReady: vi.fn(() => { order.push('ready-span'); return true; }),
             sendSessionEvent: vi.fn(() => { order.push('ready-event'); }),
         };
@@ -23,7 +24,7 @@ describe('Codex processor startup trace', () => {
         releaseThread();
         await completion;
 
-        expect(order).toEqual(['thread-starting', 'thread-ready', 'ready-span', 'ready-event']);
+        expect(order).toEqual(['thread-starting', 'thread-ready', 'agent-capability', 'ready-span', 'ready-event']);
         expect(session.sendSessionEvent).toHaveBeenCalledWith({ type: 'ready' });
     });
 

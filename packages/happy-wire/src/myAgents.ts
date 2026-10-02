@@ -35,7 +35,15 @@ export type MyAgentSkill = z.infer<typeof MyAgentSkillSchema>;
 export type MyAgentProfile = z.infer<typeof MyAgentProfileSchema>;
 export type MyAgentDefinition = z.infer<typeof MyAgentDefinitionSchema>;
 
-export const MY_AGENT_BUILDER_INSTRUCTION = 'When the user asks to create or modify a reusable personal Agent, or save this conversation\'s working method as an Agent, call mcp__happy__agent_builder to load Happy\'s built-in agent-builder Skill. Use agent_skills to discover real Skills and agent_save to persist the Agent. Only claim it is saved after a successful tool result. Never invent Skill paths or install dependencies without authorization.';
+/** Explicit, per-message routing; quoted or embedded command text is ordinary prose. */
+export const MyAgentCommandSchema = z.object({ request: z.string() });
+export type MyAgentCommand = z.infer<typeof MyAgentCommandSchema>;
+export function parseMyAgentCommand(text: string): MyAgentCommand | null {
+    const trimmed = text.trim();
+    return /^\/agent(?:\s|$)/i.test(trimmed) ? { request: trimmed.slice(6).trim() } : null;
+}
+
+export const MY_AGENT_BUILDER_INSTRUCTION = 'When the user asks to create or modify a reusable personal Agent, or save this conversation\'s working method as an Agent, call mcp__happy__agent_builder to load Happy\'s built-in agent-builder Skill. The explicit /agent command loads this Skill directly in the current conversation; when Happy already supplied its contents for this turn, follow them without loading it again. Use agent_skills to discover real Skills and agent_save to persist the Agent. Only claim it is saved after a successful tool result. Never invent Skill paths or install dependencies without authorization.';
 
 /** Bound methods are preferences, not a tool/permission sandbox. */
 export function buildMyAgentPrompt(agent: Pick<MyAgentProfile, 'name' | 'instructions' | 'skills' | 'preferences'>): string {

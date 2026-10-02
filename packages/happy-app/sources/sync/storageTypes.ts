@@ -38,6 +38,7 @@ export const MetadataSchema = z.object({
         updatedAt: z.number()
     }).optional(),
     capabilities: z.object({
+        myAgentCommand: z.boolean().optional(),
         regenerateTitle: z.boolean().optional(),
         codexCredentialRecovery: z.boolean().optional(),
     }).optional(),

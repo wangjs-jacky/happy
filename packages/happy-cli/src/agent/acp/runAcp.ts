@@ -9,6 +9,7 @@ import { AcpSessionManager } from './AcpSessionManager';
 import type { SessionEnvelope } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { MessageQueue2, createSerializedTaskRunner, isMediaAttachment, type ImageAttachment } from '@/utils/MessageQueue2';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
 import { AcpImagePromptError } from './imagePromptError';
 import { detectCodexImage } from '@/codex/codexImageInput';
 import { hashObject } from '@/utils/deterministicJson';
@@ -529,6 +530,7 @@ export async function runAcp(opts: {
     startedBy: opts.startedBy,
     sandbox: settings.sandboxConfig,
   });
+  metadata.capabilities = { ...metadata.capabilities, myAgentCommand: true };
   const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
   if (response) {
     logAcp('muted', `Happy Session ID: ${response.id}`);
@@ -942,14 +944,22 @@ export async function runAcp(opts: {
       const results = await Promise.all(claimedImages);
       if (shouldExit) return;
       const failed = results.find((result): result is { error: string } => 'error' in result);
-      messageQueue.push(message.content.text || 'Please describe the attached image.',
-        failed ? { ...mode, attachmentError: failed.error } : mode,
-        failed ? [] : results.flatMap(result => 'image' in result ? [result.image] : []));
+      const agentCommand = prepareMyAgentMessage(message);
+      if (agentCommand && 'error' in agentCommand) {
+        session.sendSessionEvent({ type: 'message', message: agentCommand.error });
+        return;
+      }
+      const prompt = agentCommand?.prompt ?? (message.content.text || 'Please describe the attached image.');
+      const messageMode = failed ? { ...mode, attachmentError: failed.error } : mode;
+      const images = failed ? [] : results.flatMap(result => 'image' in result ? [result.image] : []);
+      if (agentCommand) messageQueue.pushIsolate(prompt, messageMode, images);
+      else messageQueue.push(prompt, messageMode, images);
     });
   };
   bindInputHandlers = () => {
     pendingImages = [];
     session.onUserMessage(handleUserMessage, opts.agentName === 'opencode' ? handleFileEvent : undefined);
+    declareMyAgentCommandCapability(session);
   };
   bindInputHandlers();
   session.keepAlive(thinking, 'remote');
@@ -994,6 +1004,7 @@ export async function runAcp(opts: {
   try {
     const started = await backend.startSession();
     acpSessionId = started.sessionId;
+    declareMyAgentCommandCapability(session);
     session.processorReady?.();
     session.sendSessionEvent({ type: 'ready' });
     if (verbose) {

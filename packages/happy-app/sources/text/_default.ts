@@ -15,6 +15,28 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const en = {
+    myAgents: {
+        title: 'Agents',
+        create: 'Create Agent',
+        edit: 'Edit',
+        listHint: 'Choose an assistant to chat with, or type /agent in any chat to create or edit one.',
+        signIn: 'Sign in to create and use your assistants.',
+        emptyTitle: 'Your first Agent starts with a message',
+        emptyHint: 'For example: /agent Create an adviser to analyze my ideas and point out problems.',
+        useLabel: ({ name }: { name: string }) => `Chat with ${name}`,
+        editLabel: ({ name }: { name: string }) => `Edit ${name}`,
+        createCommand: '/agent Create an assistant: ',
+        editCommand: ({ name }: { name: string }) => `/agent Edit “${name}”: `,
+        commandDescription: 'Create or edit a saved Agent',
+        commandUnavailable: 'This session does not support /agent yet. Update Paws CLI on the execution device, then start a new Codex, Claude, Gemini, or OpenCode session.',
+        useHint: 'Tell your assistant what you need, just like in a normal chat.',
+        usePlaceholder: 'What would you like help with?',
+        preparing: 'Preparing your conversation…',
+        openSession: 'Open the created session',
+        signInError: 'Please sign in to use Agents.',
+        missing: 'Agent not found. Open it again from the list.',
+        archived: 'This Agent is archived. Use /agent in a chat to restore it.',
+    },
     accounts: {
         attachmentWarning: "Switching accounts reloads Paws. Text drafts are kept, but unsent attachments must be selected again. Continue?",
         title: "Paws accounts",

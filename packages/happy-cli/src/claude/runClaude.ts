@@ -12,6 +12,7 @@ import { isMediaAttachment, MessageQueue2, type PendingAttachment } from '@/util
 import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes, cleanupAllStagedMediaAttachments, cleanupMediaAttachments, secureAndRegisterStagedMediaPath } from '@/api/mediaAttachment';
 import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { configuration } from '@/configuration';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
@@ -154,6 +155,7 @@ export async function runClaude(
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: 'claude',
+        capabilities: { myAgentCommand: true },
         sandbox: sandboxConfig?.enabled ? sandboxConfig : null,
         dangerouslySkipPermissions,
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
@@ -188,6 +190,8 @@ export async function runClaude(
     // Handle server unreachable case - run Claude locally with hot reconnection
     // Note: connectionState.notifyOffline() was already called by api.ts with error details
     if (!response) {
+        // This fallback runs bare local Claude without Happy MCP or remote input.
+        metadata = { ...metadata, capabilities: { ...metadata.capabilities, myAgentCommand: false } };
         let offlineSessionId: string | null = null;
 
         const reconnection = startOfflineReconnection({
@@ -662,7 +666,9 @@ export async function runClaude(
             }
 
             // Check for special commands before processing
-            const specialCommand = parseSpecialCommand(message.content.text);
+            const agentCommand = prepareMyAgentMessage(message);
+            // Explicit metadata wins over continuation text that happens to start with another slash command.
+            const specialCommand = parseSpecialCommand(agentCommand ? '' : message.content.text);
 
             if (specialCommand.type === 'compact') {
                 logger.debug('[start] Detected /compact command');
@@ -760,7 +766,18 @@ export async function runClaude(
                 disallowedTools: messageDisallowedTools,
                 effort: messageEffort,
             };
-            messageQueue.push(message.content.text, enhancedMode, attachmentsForThisMessage);
+            if (agentCommand && 'error' in agentCommand) {
+                session.sendSessionEvent({ type: 'message', message: agentCommand.error });
+                await cleanupMediaAttachments(attachmentsForThisMessage.filter(isMediaAttachment));
+                return;
+            }
+            if (agentCommand) {
+                // Suppress the expanded SDK user echo just like an ordinary app prompt.
+                recordAppPrompt(agentCommand.prompt);
+                messageQueue.pushIsolate(agentCommand.prompt, enhancedMode, attachmentsForThisMessage);
+            } else {
+                messageQueue.push(message.content.text, enhancedMode, attachmentsForThisMessage);
+            }
             logger.debugLargeJson('User message pushed to queue:', message)
         });
 
@@ -910,6 +927,7 @@ export async function runClaude(
         onProcessorReady: () => {
             if (processorReadySent) return;
             processorReadySent = true;
+            declareMyAgentCommandCapability(session);
             session.processorReady?.();
             session.sendSessionEvent({ type: 'ready' });
         },

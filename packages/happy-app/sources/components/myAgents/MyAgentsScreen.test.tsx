@@ -10,6 +10,10 @@ vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push, replace: m
 vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (fn: any) => fn({ colors: {} }) }, useUnistyles: () => ({ theme: { colors: {} } }) }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: mocks.credentials }) }));
 vi.mock('./api', () => ({ createMyAgentsApi: () => { if (mocks.factoryError) throw new Error(mocks.factoryError); return ({ list: mocks.list }); } }));
+vi.mock('@/text', async () => {
+    const { zhHans } = await import('@/text/translations/zh-Hans');
+    return { t: (key: string, params?: any) => { const value = key.split('.').reduce((v: any, k) => v[k], zhHans); return typeof value === 'function' ? value(params) : value; } };
+});
 import { MyAgentsScreen } from './MyAgentsScreen';
 const profile = { id: 'agent-a', name: '军师', summary: '评估想法', instructions: '先给判断', archived: false };
 let renderer: any;
@@ -22,14 +26,14 @@ it('lists assistants with a single creation entry and no configuration inputs', 
     expect(button('与 军师 对话')).toBeDefined();
     expect(renderer.root.findAllByType('TextInput')).toHaveLength(0);
     await act(async () => button('创建 Agent').props.onPress());
-    expect(mocks.push).toHaveBeenCalledWith('/new?myAgentMode=create');
+    expect(decodeURIComponent(mocks.push.mock.calls[0][0])).toBe('/new?agentCommand=/agent 创建一个助手：');
 });
 it('opens ordinary chat for both work and natural-language editing', async () => {
     await mount();
     await act(async () => button('与 军师 对话').props.onPress());
     expect(mocks.push).toHaveBeenLastCalledWith('/new?myAgentMode=use&myAgentId=agent-a');
     await act(async () => button('修改 军师').props.onPress());
-    expect(mocks.push).toHaveBeenLastCalledWith('/new?myAgentMode=edit&myAgentId=agent-a');
+    expect(decodeURIComponent(mocks.push.mock.calls.at(-1)![0])).toBe('/new?agentCommand=/agent 修改「军师」：');
 });
 it('hides archived profiles and exposes creation even when catalog loading fails', async () => {
     mocks.list.mockResolvedValue([{ ...profile, archived: true }]);

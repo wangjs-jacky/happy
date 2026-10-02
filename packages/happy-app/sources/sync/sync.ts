@@ -3,7 +3,7 @@ import type { HistoryViewportReader, HistoryViewportRange } from './historyWindo
 import Constants from 'expo-constants';
 import { refreshNativeUpdateStatus } from './nativeUpdate';
 import type { PluginCatalogResponse } from '@slopus/happy-wire';
-import { SessionStreamEnvelopeSchema } from '@slopus/happy-wire';
+import { SessionStreamEnvelopeSchema, parseMyAgentCommand } from '@slopus/happy-wire';
 import { sessionTextStream } from './sessionTextStream';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
@@ -1932,6 +1932,11 @@ class Sync {
         const stagedMessages: NormalizedMessage[] = [];
 
         const modeMeta = resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
+        // Capture explicit routing before continuation context is prepended.
+        const myAgentCommand = parseMyAgentCommand(text);
+        if (myAgentCommand && session.metadata?.capabilities?.myAgentCommand !== true) {
+            throw new Error(t('myAgents.commandUnavailable'));
+        }
         let myAgentPrompt = '';
         if (session.metadata?.myAgentId) {
             const { TokenStorage } = await import('@/auth/tokenStorage');
@@ -2066,6 +2071,7 @@ class Sync {
                 text: turnText
             },
             meta: {
+                ...(myAgentCommand ? { myAgentCommand } : {}),
                 ...(includeContext ? { continuationContextSourceId: contextSource, displayText: displayText ?? text } : {}),
                 sentFrom,
                 appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim(), myAgentPrompt].filter(Boolean).join('\n\n'),

@@ -6,9 +6,11 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { MyAgentProfile } from '@slopus/happy-wire';
 import { useAuth } from '@/auth/AuthContext';
 import { createMyAgentsApi } from './api';
+import { t } from '@/text';
 
-export const myAgentComposeRoute = (mode: 'create' | 'use' | 'edit', id?: string) =>
-    `/new?myAgentMode=${mode}${id ? `&myAgentId=${encodeURIComponent(id)}` : ''}`;
+export const myAgentComposeRoute = (mode: 'create' | 'use' | 'edit', id?: string, name?: string) =>
+    mode === 'use' ? `/new?myAgentMode=use&myAgentId=${encodeURIComponent(id ?? '')}`
+        : `/new?agentCommand=${encodeURIComponent(mode === 'create' ? t('myAgents.createCommand') : t('myAgents.editCommand', { name: name ?? 'Agent' }))}`;
 
 function CatalogButton({ style, ...props }: React.ComponentProps<typeof Pressable>) {
     const [focused, setFocused] = React.useState(false);
@@ -48,22 +50,22 @@ export function MyAgentsScreen() {
     }, [credentials, attempt]));
     return <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <View style={styles.header}>
-            <Text style={styles.heading}>Agents</Text>
-            {credentials ? <CatalogButton testID="my-agents-create" accessibilityRole="button" accessibilityLabel="创建 Agent" onPress={() => router.push(myAgentComposeRoute('create') as any)} style={({ pressed }) => [styles.create, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceSelected }]}>
-                <Ionicons name="add" size={20} color={theme.colors.text}/><Text style={styles.buttonText}>创建 Agent</Text>
+            <Text style={styles.heading}>{t('myAgents.title')}</Text>
+            {credentials ? <CatalogButton testID="my-agents-create" accessibilityRole="button" accessibilityLabel={t('myAgents.create')} onPress={() => router.push(myAgentComposeRoute('create') as any)} style={({ pressed }) => [styles.create, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceSelected }]}>
+                <Ionicons name="add" size={20} color={theme.colors.text}/><Text style={styles.buttonText}>{t('myAgents.create')}</Text>
             </CatalogButton> : null}
         </View>
-        <Text style={styles.secondary}>{credentials ? '选择一个助手开始对话，或说说你想创建什么助手。' : '登录后创建和使用你的助手。'}</Text>
+        <Text style={styles.secondary}>{t(credentials ? 'myAgents.listHint' : 'myAgents.signIn')}</Text>
         {loading ? <ActivityIndicator color={theme.colors.accent}/> : null}
-        {error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><CatalogButton accessibilityRole="button" accessibilityLabel="重试" onPress={() => setAttempt(value => value + 1)} style={styles.action}><Text style={styles.buttonText}>重试</Text></CatalogButton></View> : null}
-        {!loading && !error && credentials && !agents.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>你的第一个 Agent，从一句话开始</Text><Text style={styles.secondary}>例如：帮我创建一个狗头军师，帮我分析想法、挑出问题。</Text></View> : null}
+        {error ? <View style={styles.empty}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><CatalogButton accessibilityRole="button" accessibilityLabel={t('common.retry')} onPress={() => setAttempt(value => value + 1)} style={styles.action}><Text style={styles.buttonText}>{t('common.retry')}</Text></CatalogButton></View> : null}
+        {!loading && !error && credentials && !agents.length ? <View style={styles.empty}><Text style={styles.emptyTitle}>{t('myAgents.emptyTitle')}</Text><Text style={styles.secondary}>{t('myAgents.emptyHint')}</Text></View> : null}
         {agents.map(agent => <View key={agent.id} style={styles.card}>
-            <CatalogButton testID={`my-agent-${agent.id}`} accessibilityRole="button" accessibilityLabel={`与 ${agent.name} 对话`} onPress={() => router.push(myAgentComposeRoute('use', agent.id) as any)} style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}>
+            <CatalogButton testID={`my-agent-${agent.id}`} accessibilityRole="button" accessibilityLabel={t('myAgents.useLabel', { name: agent.name })} onPress={() => router.push(myAgentComposeRoute('use', agent.id) as any)} style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}>
                 <View style={styles.avatar}><Ionicons name="person-outline" size={22} color={theme.colors.text}/></View>
                 <View style={styles.copy}><Text style={styles.name}>{agent.name}</Text><Text style={styles.secondary} numberOfLines={2}>{agent.summary || agent.instructions}</Text></View>
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary}/>
             </CatalogButton>
-            <CatalogButton testID={`my-agent-edit-${agent.id}`} accessibilityRole="button" accessibilityLabel={`修改 ${agent.name}`} onPress={() => router.push(myAgentComposeRoute('edit', agent.id) as any)} style={({ pressed }) => [styles.edit, pressed && styles.pressed]}><Ionicons name="create-outline" size={16} color={theme.colors.textSecondary}/><Text style={styles.secondary}>修改</Text></CatalogButton>
+            <CatalogButton testID={`my-agent-edit-${agent.id}`} accessibilityRole="button" accessibilityLabel={t('myAgents.editLabel', { name: agent.name })} onPress={() => router.push(myAgentComposeRoute('edit', agent.id, agent.name) as any)} style={({ pressed }) => [styles.edit, pressed && styles.pressed]}><Ionicons name="create-outline" size={16} color={theme.colors.textSecondary}/><Text style={styles.secondary}>{t('myAgents.edit')}</Text></CatalogButton>
         </View>)}
     </ScrollView>;
 }

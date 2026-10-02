@@ -1,11 +1,9 @@
 import { z } from 'zod';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { MyAgentDefinitionSchema, MyAgentProfileSchema } from '@slopus/happy-wire';
 import { listCodexSkillEntries } from '@/codex/codexSkills';
-import { projectPath } from '@/projectPath';
+import { loadBuiltInAgentBuilderSkill } from './myAgentCommand';
 import type { ApiSessionClient } from '@/api/apiSession';
 
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
@@ -39,7 +37,7 @@ export function createMyAgentToolHandler(client: Pick<ApiSessionClient, 'getMeta
     return async (name: MyAgentToolName, args: Record<string, unknown>): Promise<CallToolResult> => {
         try {
             const metadata = client.getMetadata();
-            if (name === 'agent_builder') return { content: [{ type: 'text', text: await readFile(join(projectPath(), 'skills', 'agent-builder', 'SKILL.md'), 'utf8') }] };
+            if (name === 'agent_builder') return { content: [{ type: 'text', text: loadBuiltInAgentBuilderSkill() }] };
             if (name === 'agent_skills') return { content: [{ type: 'text', text: JSON.stringify({ machineId: metadata?.machineId, directory: metadata?.path, skills: listCodexSkillEntries({ cwd: metadata?.path }) }) }] };
             const suffix = typeof args.id === 'string' ? `/${args.id}` : '';
             if (name === 'agent_list' || name === 'agent_get') {

@@ -5,6 +5,7 @@
 
 import Fuse from 'fuse.js';
 import { storage } from './storage';
+import { t } from '@/text';
 
 export interface CommandItem {
     command: string;        // The command without slash (e.g., "compact")
@@ -114,6 +115,10 @@ function getCommandsFromSession(sessionId: string): CommandItem[] {
     const commands: CommandItem[] = [...DEFAULT_COMMANDS];
 
     const isCodexSession = session.metadata.flavor === 'codex';
+
+    if (session.metadata.capabilities?.myAgentCommand === true) {
+        commands.push({ command: 'agent', description: t('myAgents.commandDescription') });
+    }
 
     if (isCodexSession) {
         appendCommands(commands, CODEX_MOBILE_COMMANDS, (cmd) => COMMAND_DESCRIPTIONS[cmd], (cmd) => CODEX_MOBILE_COMMAND_SET.has(cmd));

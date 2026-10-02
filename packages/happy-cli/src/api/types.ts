@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Update, UpdateMachineBody, SessionStreamEnvelope } from '@slopus/happy-wire';
+import { MyAgentCommandSchema } from '@slopus/happy-wire';
 import { UsageSchema } from '@/claude/types'
 import type { SandboxConfig } from '@/persistence'
 
@@ -246,6 +247,7 @@ export type Machine = {
  */
 export const MessageMetaSchema = z.object({
   sentFrom: z.string().optional(), // Source identifier
+  myAgentCommand: MyAgentCommandSchema.optional(), // Explicit command captured before continuation wrapping
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'read-only', 'safe-yolo', 'yolo']).optional(), // Permission mode for this message
   permissionModeExplicit: z.boolean().optional(), // True when the user selected a per-session mode
   model: z.string().nullable().optional(), // Model name for this message (null = reset)
@@ -381,6 +383,7 @@ export type Metadata = {
     updatedAt: number
   },
   capabilities?: {
+    myAgentCommand?: boolean
     regenerateTitle?: boolean
     codexCredentialRecovery?: boolean
   },

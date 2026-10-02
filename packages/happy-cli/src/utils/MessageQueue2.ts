@@ -144,6 +144,19 @@ export class MessageQueue2<T> {
         logger.debug(`[MessageQueue2] pushImmediate() completed. Queue size: ${this.queue.length}`);
     }
 
+    /** Process one dedicated turn without discarding earlier messages or attachments. */
+    pushIsolate(message: string, mode: T, attachments?: PendingAttachment[]): void {
+        if (this.closed) throw new Error('Cannot push to closed queue');
+        const modeHash = this.modeHasher(mode);
+        this.queue.push({ message, mode, modeHash, isolate: true, attachments });
+        this.onMessageHandler?.(message, mode);
+        if (this.waiter) {
+            const waiter = this.waiter;
+            this.waiter = null;
+            waiter(true);
+        }
+    }
+
     /**
      * Push a message that must be processed in complete isolation.
      * Clears any pending messages and ensures this message is never batched with others.

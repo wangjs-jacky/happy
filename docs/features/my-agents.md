@@ -2,9 +2,17 @@
 
 第一版把 Agent 当作可复用的个人助手：职责 + 少量真实 Skills + 用户明确保存的偏好 + 运行环境。先使用普通 Codex 会话，不自动启动 Party 或多模型辩论。
 
-左侧只有一个 Agents 入口。列表展示名称和一句简介；点击卡片开始普通对话，“修改”也进入同一聊天输入框。“创建 Agent”复用 ComposeHome / MessageComposer，由 Happy 自动组合真实 Skills 并保存。
+左侧只有一个 Agents 入口。列表展示名称和一句简介；点击卡片开始使用助手。创建和修改都在普通聊天完成，可以直接在任意支持的已有会话发送 `/agent 创建一个狗头军师` 或 `/agent 修改狗头军师，回答简短一点`，继续使用同一会话与上下文。
 
-三种入口使用 `/new?myAgentMode=create|use|edit`，已有助手携带 `myAgentId`。创建沿用当前聊天的设备与项目，使用和修改读取已有档案的运行环境。入口不会自动发消息；Skills、模型和长期偏好不形成额外配置步骤。历史会话在普通会话列表中继续，清除偏好、归档和恢复也通过自然语言完成。普通聊天仍可以直接说“帮我创建一个 Agent”或“把这次的方法保存成 Agent”。
+列表中的“创建 Agent”和“修改”仅通过 `/new?agentCommand=...` 在普通输入框预填可编辑的 `/agent` 请求，沿用当前设备与项目；入口不自动发送、不切换引擎或模型，也没有独立创建/修改模式。仅启动已保存的助手仍使用 `/new?myAgentMode=use&myAgentId=...` 来绑定角色与执行环境。Skills、模型和长期偏好不形成额外配置步骤。普通自然语言“帮我创建一个 Agent”“把这次的方法保存成 Agent”仍可触发内置工具；需要明确路由时用 `/agent`。
+
+## 固定指令
+
+`/agent` 只匹配消息开头的完整指令 token，大小写不敏感，接受空格、换行或制表符分隔。`/agents`、`/agent-builder`、引用、代码块或正文中提到 `/agent` 都按普通文本处理。单独发送 `/agent` 会加载管理 Skill 并询问需求，不自动创建空助手。
+
+支持此功能的 CLI 在会话 capabilities 中声明 `myAgentCommand`；App 在发送前检查，并把原始请求记录为本条消息的 `meta.myAgentCommand`，避免续接上下文前缀遮挡指令。旧 CLI 和无 Happy 工具的会话会明确报错，保留用户请求。普通聊天补全只在支持的会话中显示 `/agent`。
+
+CLI 直接读取包内 `skills/agent-builder/SKILL.md` 并把完整内容加入该轮请求，无需模型猜测是否调用管理 Skill。当前支持 Codex、Claude、Gemini 与 ACP/OpenCode；Ask 和 OpenClaw 明确拒绝。指令独立排队但不清除前后消息，附件仍属于原消息；后续普通消息不自动重复加载 Skill，也不把当前会话绑定成新创建的助手。稳定触发不等于保证模型产出的质量，实际保存仍由工具验证。
 
 ## 创建与更新
 
@@ -34,4 +42,4 @@ CLI 包包含 `skills/agent-builder/SKILL.md`。Happy MCP 的 `agent_builder` �
 
 自动测试覆盖保存、重启恢复、A/B 账号隔离、创建幂等、并发修改、原管理器字段保留、真实路径、部分字段编辑、机器 RPC、角色刷新、启动顺序、未知结果重试及页面异步取消。另有真实组件与工具的 [Ego 隔离夹具](../../packages/happy-app/e2e/fixtures/my-agents/README.md)。
 
-当前隔离夹具使用真实列表、ComposeHome、MessageComposer、创建/修改 hook 与 launch。认证、配置控件与外围布局 hooks、模型、RPC、加密存储、会话壳为模拟边界。测试覆盖无表单列表、三种普通聊天入口、当前项目继承、显示文字、附件、离开页面取消、投影重试，以及普通 first submission 恢复状态的隔离。PC 回归只验证这条简化路径，不能冒充完整线上或真机验证。本轮用户不需要截图或状态演示，交付在对话中说明并更新 PR。
+隔离夹具复用真实列表、ComposeHome、MessageComposer、内置 Skill/命令加载器和保存工具；认证、配置控件、模型、RPC、加密传输与会话壳属于模拟边界。自动测试另覆盖原始 `/agent` 元数据与续接上下文、CLI 版本能力检查、非破坏性队列、附件保留、普通 first submission 与已保存角色启动恢复。PC 回归不能冒充完整线上或真机验证。用户不需要截图或状态演示附件，交付在对话中说明并更新 PR。

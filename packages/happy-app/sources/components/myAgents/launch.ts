@@ -27,7 +27,7 @@ export function selectMyAgentMachine(machines: Machine[], preferred?: string): M
 /** Registers the role in encrypted session metadata before any user message. */
 export async function launchMyAgentSession(input: {
     api: MyAgentsApi; profile?: MyAgentProfile; machine: Machine; directory?: string;
-    text: string; builder?: boolean; isCurrent: () => boolean;
+    text: string; isCurrent: () => boolean;
     pendingSessionId?: string; onSpawned: (id: string) => void;
     attachments?: AttachmentPreview[];
     permissionMode?: string | null; modelMode?: string | null; effortLevel?: string | null; fastMode?: boolean;
@@ -36,13 +36,13 @@ export async function launchMyAgentSession(input: {
     assertCurrent();
     let profile = input.profile ? await input.api.get(input.profile.id) : undefined;
     assertCurrent();
-    if (profile?.archived && !input.builder) throw new Error('请先恢复这个 Agent。');
+    if (profile?.archived) throw new Error('请先恢复这个 Agent。');
     const machineId = profile?.machineId ?? input.machine.id;
     const recentPath = storage.getState().settings.recentMachinePaths.find(r => r.machineId === machineId)?.path;
     const directory = profile?.directory ?? input.directory ?? recentPath ?? input.machine.metadata?.homeDir;
     if (!input.machine.active || input.machine.id !== machineId) throw new Error('执行设备离线，请连接原设备后重试。');
     if (!directory?.startsWith('/')) throw new Error('尚无可用工作目录，请先在普通聊天中选择设备与目录。');
-    if (profile && !input.builder) {
+    if (profile) {
         if (profile.setupNotes) throw new Error(`Agent 待配置：${profile.setupNotes}`);
         const installed = await machineListAgentSkills(machineId, directory);
         assertCurrent();
@@ -50,7 +50,7 @@ export async function launchMyAgentSession(input: {
         if (missing.length) throw new Error(`缺少 Skills：${missing.join('、')}。请先调整绑定或在原设备安装。`);
     }
     let sessionId = input.pendingSessionId;
-    const receiptKey = JSON.stringify([profile?.id ?? '', !!input.builder, machineId, directory, input.text, input.attachments?.map(a => a.id) ?? []]);
+    const receiptKey = JSON.stringify([profile?.id ?? '', false, machineId, directory, input.text, input.attachments?.map(a => a.id) ?? []]);
     const receipt = starts.getString(receiptKey);
     let queuedIds: string[] | undefined;
     if (!sessionId && receipt) {
@@ -78,7 +78,7 @@ export async function launchMyAgentSession(input: {
     if (!await ensureSessionHydratedWithRetry(sessionId, input.isCurrent)) throw new Error('会话已创建，暂时无法加载。重试会继续同一会话。');
     assertCurrent();
     configureSpawnedSession(sessionId, input);
-    if (profile && !input.builder) {
+    if (profile) {
         const session = storage.getState().sessions[sessionId];
         if (!session?.metadata) throw new Error('会话尚未就绪，请重试。');
         const acknowledged = await sessionUpdateMetadata(sessionId, session.metadata, session.metadataVersion, metadata => ({ ...metadata, myAgentId: profile!.id, name: profile!.name }));
@@ -91,11 +91,8 @@ export async function launchMyAgentSession(input: {
         await input.api.request(`/${profile.id}/sessions`, { method: 'POST', body: JSON.stringify({ sessionId, title: input.text.slice(0, 240) }) });
         assertCurrent();
     }
-    const prompt = input.builder
-        ? `请使用 Happy 内置的 agent-builder Skill。${profile ? `修改已有 Agent，id=${profile.id}；先读取完整档案并保留未要求修改的字段。` : '创建一个可复用的个人 Agent，保存到我的 Agent。'}\n用户的要求：\n${input.text}`
-        : input.text;
     if (!queuedIds) {
-        const queued = await sync.sendMessage(sessionId, prompt, { source: 'new_session', displayText: input.text, isCurrent: input.isCurrent, attachments: input.attachments });
+        const queued = await sync.sendMessage(sessionId, input.text, { source: 'new_session', isCurrent: input.isCurrent, attachments: input.attachments });
         queuedIds = [...queued.localIds];
         queuedMessages.set(receiptKey, queued);
         starts.set(receiptKey, JSON.stringify({ sessionId, queuedIds }));

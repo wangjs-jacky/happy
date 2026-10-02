@@ -67,12 +67,11 @@ it('keeps the accepted message receipt so projection retries do not resend', asy
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(mocks.send).toHaveBeenCalledTimes(1);
 });
-it('sends only the natural-language requirement as visible chat text and keeps attachments', async () => {
-    const input = { ...options(), builder: true, profile: undefined, directory: '/current-project', attachments: [{ id: 'image', name: 'ref.png' }] as any };
+it('keeps the task and attachments unchanged when opening a saved assistant', async () => {
+    const input = { ...options(), attachments: [{ id: 'image', name: 'ref.png' }] as any };
     await launchMyAgentSession(input);
-    expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ directory: '/current-project', agent: 'codex' }));
-    expect(mocks.send).toHaveBeenCalledWith('s', expect.stringContaining('agent-builder'), expect.objectContaining({ displayText: '评估计划', attachments: input.attachments }));
-    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ directory: '/work', agent: 'codex' }));
+    expect(mocks.send).toHaveBeenCalledWith('s', '评估计划', expect.objectContaining({ attachments: input.attachments }));
 });
 
 it('retains the queued receipt when the user leaves during projection', async () => {

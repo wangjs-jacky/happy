@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
 
 const mocks = vi.hoisted(() => {
   const sessionHandlers = new Map<string, (params: any) => Promise<any> | any>();
@@ -206,6 +207,7 @@ describe('runAcp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.sessionHandlers.clear();
+    mocks.mockProjectPath.mockReturnValue('/tmp/happy');
     mocks.mockSession.downloadAndDecryptAttachment.mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
     mocks.setUserMessageHandler(null);
     mocks.setKillHandler(null);
@@ -265,6 +267,46 @@ describe('runAcp', () => {
   const startImages = () => runAcp({
     credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
     agentName: 'opencode', command: 'opencode', args: ['acp'],
+  });
+
+  it('executes /agent as one existing-session turn without losing adjacent messages or its image', async () => {
+    mocks.mockProjectPath.mockReturnValue(fileURLToPath(new URL('../../../', import.meta.url)));
+    let release!: () => void;
+    mocks.backendState.holdPrompt = new Promise<void>(resolve => { release = resolve; });
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.getUserMessageHandler()).toBeTypeOf('function'));
+      mocks.getUserMessageHandler()!({ content: { text: 'busy' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      mocks.getUserMessageHandler()!({ content: { text: 'earlier queued request' } });
+      mocks.getFileHandler()!(imageEvent('agent-reference'));
+      mocks.getUserMessageHandler()!({ content: { text: 'Prior conversation and attachments\n/agent 创建军师' },
+        meta: { myAgentCommand: { request: '创建军师' } } });
+      mocks.getUserMessageHandler()!({ content: { text: 'later queued request' } });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      release();
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(4));
+      const prompts = mocks.backendState.prompts;
+      expect(prompts[1].prompt).toBe('earlier queued request');
+      expect(prompts[2].prompt).toContain('name: agent-builder');
+      expect(prompts[2].prompt).toContain('Prior conversation and attachments\n/agent 创建军师');
+      expect(prompts[2].images).toEqual([{ data: new Uint8Array([137, 80, 78, 71]), mimeType: 'image/png', name: 'agent-reference.png' }]);
+      expect(prompts[3].prompt).toBe('later queued request');
+      expect(new Set(prompts.map(prompt => prompt.sessionId)).size).toBe(1);
+      expect(mocks.backendState.startSessionCalls).toBe(1);
+    } finally { release(); await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('keeps following requests usable when the bundled /agent Skill cannot load', async () => {
+    const run = startImages();
+    try {
+      await vi.waitFor(() => expect(mocks.getUserMessageHandler()).toBeTypeOf('function'));
+      mocks.getUserMessageHandler()!({ content: { text: '/agent create' } });
+      mocks.getUserMessageHandler()!({ content: { text: 'ordinary request after failure' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      expect(mocks.backendState.prompts[0].prompt).toBe('ordinary request after failure');
+      expect(mocks.mockSession.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: expect.stringContaining('request was not executed') });
+    } finally { await mocks.getKillHandler()!(); await run; }
   });
 
   it('forwards decrypted images with their owning text despite out-of-order downloads', async () => {

@@ -25,6 +25,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { createSerializedTaskRunner, MessageQueue2 } from '@/utils/MessageQueue2';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
 import { isMediaAttachment, type PendingAttachment } from '@/utils/MessageQueue2';
 import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes, cleanupAllStagedMediaAttachments, cleanupMediaAttachments, secureAndRegisterStagedMediaPath } from '@/api/mediaAttachment';
 import { buildCodexTurnPayload } from './codexImageInput';
@@ -96,10 +97,11 @@ function describeCodexFailure(msg: any): string | null {
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
 export async function completeCodexProcessorStartup(
-    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent'>,
+    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent' | 'updateMetadata'>,
     ensureThreadAvailable: () => Promise<unknown>,
 ): Promise<void> {
     await ensureThreadAvailable();
+    declareMyAgentCommandCapability(session);
     session.processorReady();
     session.sendSessionEvent({ type: 'ready' });
 }
@@ -436,7 +438,7 @@ export async function runCodex(opts: {
     const metadata = {
         ...hydratedMetadata,
         ...codexAccountSessionMetadata(),
-        capabilities: { ...hydratedMetadata.capabilities, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+        capabilities: { ...hydratedMetadata.capabilities, myAgentCommand: true, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
             && basename(process.env.CODEX_HOME).startsWith('happy-codex-home-')) },
         codexPawsOriginToken,
         ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle
@@ -471,6 +473,7 @@ export async function runCodex(opts: {
     let abortInProgress: Promise<void> | null = null;
     const mcpAppBindingRegistry = new McpAppBindingRegistry();
     let mcpAppRpcHandlers: ReturnType<typeof registerMcpAppRpcHandlers> | null = null;
+    let bindInputHandlers: (() => void) | undefined;
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
     const syncQueuedMessageCount = (targetSession: ApiSessionClient): Promise<void> => (
         updateQueuedMessageCount(targetSession, messageQueue.size())
@@ -488,6 +491,7 @@ export async function runCodex(opts: {
             if (permissionHandler) {
                 permissionHandler.updateSession(newSession);
             }
+            bindInputHandlers?.();
             rebindMcpAppRpcHandlersOnSessionSwap(mcpAppRpcHandlers, newSession);
         }
     });
@@ -595,7 +599,7 @@ export async function runCodex(opts: {
     // attachment (or null). drainAttachmentsForUserMessage on the next text
     // claims the in-flight set atomically; mirrors the Claude path so images
     // sent from the app travel with the next user message.
-    session.onFileEvent((fileEvent) => {
+    const handleFileEvent: Parameters<ApiSessionClient['onFileEvent']>[0] = (fileEvent) => {
         const ev = fileEvent.content.data.ev;
         logger.debug(`[Codex] File event received: ${ev.name} (${ev.size} bytes, ref: ${ev.ref})`);
         const downloadPromise = (async (): Promise<PendingAttachment | null> => {
@@ -629,12 +633,12 @@ export async function runCodex(opts: {
             }
         })();
         session.trackAttachmentDownload(downloadPromise);
-    });
+    };
 
     const runUserMessageTask = createSerializedTaskRunner((error) => {
         logger.debug('[Codex] Failed to process remote user message:', error);
     });
-    session.onUserMessage((message) => {
+    const handleUserMessage: Parameters<ApiSessionClient['onUserMessage']>[0] = (message) => {
         // Claim every file attachment that arrived strictly before this text.
         // New file events from this point on belong to the next user message.
         const attachmentsForThisMessagePromise = session.drainAttachmentsForUserMessage();
@@ -710,6 +714,17 @@ export async function runCodex(opts: {
                 effort: messageEffort,
                 fast: messageFastMode,
             };
+            const agentCommand = prepareMyAgentMessage(message);
+            if (agentCommand && 'error' in agentCommand) {
+                session.sendSessionEvent({ type: 'message', message: agentCommand.error });
+                await cleanupMediaAttachments(attachmentsForThisMessage.filter(isMediaAttachment));
+                return;
+            }
+            if (agentCommand) {
+                messageQueue.pushIsolate(agentCommand.prompt, enhancedMode, attachmentsForThisMessage);
+                void syncQueuedMessageCount(session);
+                return;
+            }
             const enqueueResult = enqueueCodexUserText({
                 text: message.content.text,
                 mode: enhancedMode,
@@ -722,7 +737,12 @@ export async function runCodex(opts: {
                 logger.debug(`[Codex] /${enqueueResult.status} command pushed to isolated queue`);
             }
         });
-    });
+    };
+    bindInputHandlers = () => {
+        session.onUserMessage(handleUserMessage, handleFileEvent);
+        declareMyAgentCommandCapability(session);
+    };
+    bindInputHandlers();
     let thinking = false;
     let currentTurnId: string | null = null;
     let codexStartedSubagents = new Set<string>();
