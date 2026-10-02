@@ -41,6 +41,7 @@ export const MetadataSchema = z.object({
         myAgentCommand: z.boolean().optional(),
         regenerateTitle: z.boolean().optional(),
         codexCredentialRecovery: z.boolean().optional(),
+        codexSteer: z.boolean().optional(),
     }).optional(),
     machineId: z.string().optional(),
     myAgentId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),

@@ -37,6 +37,7 @@ export const en = {
         missing: 'Agent not found. Open it again from the list.',
         archived: 'This Agent is archived. Use /agent in a chat to restore it.',
     },
+    messageQueue: { title: 'Queued messages', hint: 'Sends one at a time after the current task. Keep Paws open on this device.', enqueue: 'Queue for next turn (Tab)', steer: 'Send now', steerHint: 'Guide the current Codex turn without stopping it; current turn settings apply', sending: 'Sending…', failed: 'Not sent or delivery uncertain. Check history before retrying.', attachments: 'Attachments', edit: 'Return to input', occupied: 'Send or clear your current draft before editing a queued message.' },
     accounts: {
         attachmentWarning: "Switching accounts reloads Paws. Text drafts are kept, but unsent attachments must be selected again. Continue?",
         title: "Paws accounts",

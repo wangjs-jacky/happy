@@ -386,6 +386,7 @@ export type Metadata = {
     myAgentCommand?: boolean
     regenerateTitle?: boolean
     codexCredentialRecovery?: boolean
+    codexSteer?: boolean
   },
   machineId?: string,
   myAgentId?: string,

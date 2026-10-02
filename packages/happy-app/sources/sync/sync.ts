@@ -325,6 +325,8 @@ type OutboxMessage = {
 };
 
 type SendMessageOptions = {
+    /** Preserve the controls chosen when a message entered the staging queue. */
+    modeMeta?: ReturnType<typeof resolveMessageModeMeta>;
     /** Fence a route-independent submission against logout or server changes. */
     isCurrent?: () => boolean;
     displayText?: string;
@@ -1931,7 +1933,7 @@ class Sync {
         const stagedOutbox: OutboxMessage[] = [];
         const stagedMessages: NormalizedMessage[] = [];
 
-        const modeMeta = resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
+        const modeMeta = options?.modeMeta ?? resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
         // Capture explicit routing before continuation context is prepended.
         const myAgentCommand = parseMyAgentCommand(text);
         if (myAgentCommand && session.metadata?.capabilities?.myAgentCommand !== true) {
