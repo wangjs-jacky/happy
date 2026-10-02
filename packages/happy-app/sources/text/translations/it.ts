@@ -2012,6 +2012,7 @@ failedContinueTask: "Continua il lavoro in sospeso",
         signInError: 'Accedi per usare Agents.',
         missing: 'Questo agente non è stato trovato. Riaprilo dall’elenco.',
         archived: 'Questo agente è archiviato. Usa /agent in una chat per ripristinarlo.',
+        missingSkills: ({ names }: { names: string }) => `Skills mancanti: ${names}. Controlla i percorsi di installazione sul dispositivo selezionato oppure aggiorna le associazioni in chat.`,
     },
     agents: {
         cardTitle: 'I miei agenti',

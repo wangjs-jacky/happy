@@ -647,6 +647,8 @@ describe('ComposeHome session hydration recovery', () => {
         expect(renderer.root.findAllByProps({ testID: 'compose-home-starting' })).toHaveLength(1);
         Object.assign(mocks.personalAgent, { active: true, ready: true, title: '军师' });
         await act(async () => { renderer.update(<ComposeHome variant="home"/>); });
+        const controls = renderer.root.findByType('MessageComposer').props.leadingControls;
+        expect(React.Children.toArray(controls.props.children).find((child: any) => child.type === 'SessionConfigPanel')).toMatchObject({ props: { agentType: 'codex' } });
         expect(renderer.root.findAllByProps({ testID: 'compose-home-starting' })).toHaveLength(0);
         expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(false);
         await act(async () => finish(true));

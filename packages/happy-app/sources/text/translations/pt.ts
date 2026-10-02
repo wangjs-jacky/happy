@@ -2012,6 +2012,7 @@ failedContinueTask: "Continuar tarefa pendente",
         signInError: 'Entre para usar Agents.',
         missing: 'Este agente não foi encontrado. Abra-o novamente pela lista.',
         archived: 'Este agente está arquivado. Use /agent em um chat para restaurá-lo.',
+        missingSkills: ({ names }: { names: string }) => `Skills ausentes: ${names}. Verifique os caminhos de instalação no dispositivo selecionado ou atualize os vínculos no chat.`,
     },
     agents: {
         cardTitle: 'Meus agentes',

@@ -2014,6 +2014,7 @@ failedContinueTask: "Continuar tarea pendiente",
         signInError: 'Inicia sesión para usar Agents.',
         missing: 'No se encontró este agente. Vuelve a abrirlo desde la lista.',
         archived: 'Este agente está archivado. Usa /agent en un chat para restaurarlo.',
+        missingSkills: ({ names }: { names: string }) => `Faltan Skills: ${names}. Comprueba sus rutas de instalación en el dispositivo seleccionado o actualiza las vinculaciones en el chat.`,
     },
     agents: {
         cardTitle: 'Mis agentes',

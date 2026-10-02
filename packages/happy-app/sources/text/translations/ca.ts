@@ -2013,6 +2013,7 @@ failedContinueTask: "Continua la tasca pendent",
         signInError: 'Inicia la sessió per fer servir Agents.',
         missing: 'No s’ha trobat aquest agent. Torna’l a obrir des de la llista.',
         archived: 'Aquest agent està arxivat. Fes servir /agent en un xat per restaurar-lo.',
+        missingSkills: ({ names }: { names: string }) => `Falten Skills: ${names}. Comprova les rutes d’instal·lació al dispositiu seleccionat o actualitza les vinculacions al xat.`,
     },
     agents: {
         cardTitle: 'Els meus agents',

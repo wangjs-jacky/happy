@@ -2043,6 +2043,7 @@ failedContinueTask: "Kontynuuj niedokończone zadanie",
         signInError: 'Zaloguj się, aby korzystać z Agents.',
         missing: 'Nie znaleziono tego agenta. Otwórz go ponownie z listy.',
         archived: 'Ten agent jest zarchiwizowany. Użyj /agent w czacie, aby go przywrócić.',
+        missingSkills: ({ names }: { names: string }) => `Brakujące Skills: ${names}. Sprawdź ścieżki ich instalacji na wybranym urządzeniu lub zmień powiązania w czacie.`,
     },
     agents: {
         cardTitle: 'Moi agenci',

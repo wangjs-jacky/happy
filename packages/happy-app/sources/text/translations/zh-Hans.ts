@@ -2639,6 +2639,7 @@ failedContinueTask: "继续未完成的任务",
         signInError: '请登录后再使用 Agents。',
         missing: '没有找到这个 Agent，请从列表重新打开。',
         archived: '这个 Agent 已归档，可以在聊天中用 /agent 恢复。',
+        missingSkills: ({ names }: { names: string }) => `缺少 Skills：${names}。请检查所选设备上的安装位置，或通过对话调整绑定。`,
     },
     agents: {
         cardTitle: '我的 Agent',

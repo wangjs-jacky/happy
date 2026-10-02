@@ -10,6 +10,8 @@ import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { configureSpawnedSession } from '@/hooks/useSpawnSession';
 import { MMKV } from 'react-native-mmkv';
 import { accountStorageId } from '@/auth/accountRuntime';
+import { isMachineOnline } from '@/utils/machineUtils';
+import { t } from '@/text';
 
 const starts = new MMKV({ id: accountStorageId('my-agent-starts') });
 const queuedMessages = new Map<string, LocalMessageQueueReceipt>();
@@ -37,17 +39,19 @@ export async function launchMyAgentSession(input: {
     let profile = input.profile ? await input.api.get(input.profile.id) : undefined;
     assertCurrent();
     if (profile?.archived) throw new Error('请先恢复这个 Agent。');
-    const machineId = profile?.machineId ?? input.machine.id;
+    // The profile seeds the composer; the selection visible at submission owns
+    // this task. Never silently run in the profile's previous project instead.
+    const machineId = input.machine.id;
     const recentPath = storage.getState().settings.recentMachinePaths.find(r => r.machineId === machineId)?.path;
-    const directory = profile?.directory ?? input.directory ?? recentPath ?? input.machine.metadata?.homeDir;
-    if (!input.machine.active || input.machine.id !== machineId) throw new Error('执行设备离线，请连接原设备后重试。');
+    const directory = input.directory ?? (profile?.machineId === machineId ? profile.directory : undefined) ?? recentPath ?? input.machine.metadata?.homeDir;
+    if (!isMachineOnline(input.machine)) throw new Error(t('newSession.machineOffline'));
     if (!directory?.startsWith('/')) throw new Error('尚无可用工作目录，请先在普通聊天中选择设备与目录。');
     if (profile) {
         if (profile.setupNotes) throw new Error(`Agent 待配置：${profile.setupNotes}`);
         const installed = await machineListAgentSkills(machineId, directory);
         assertCurrent();
         const missing = missingMyAgentSkills(profile, installed);
-        if (missing.length) throw new Error(`缺少 Skills：${missing.join('、')}。请先调整绑定或在原设备安装。`);
+        if (missing.length) throw new Error(t('myAgents.missingSkills', { names: missing.join('、') }));
     }
     let sessionId = input.pendingSessionId;
     const receiptKey = JSON.stringify([profile?.id ?? '', false, machineId, directory, input.text, input.attachments?.map(a => a.id) ?? []]);

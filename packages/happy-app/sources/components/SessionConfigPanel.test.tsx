@@ -234,6 +234,20 @@ describe('SessionConfigPanel composer layout', () => {
         vi.useRealTimers();
     });
 
+    it('fixes a saved assistant engine while leaving its environment and modes editable', async () => {
+        await act(async () => {
+            renderer = TestRenderer.create(<SessionConfigPanel layout="composer" collapsible={false} agentType="codex" />);
+        });
+        const engine = renderer.root.findByProps({ testID: 'session-config-agent-trigger' });
+        expect(engine.props.disabled).toBe(true);
+        expect(engine.props.accessibilityLabel).toContain('codex');
+        for (const field of ['machine', 'path', 'model', 'permission']) {
+            expect(renderer.root.findByProps({ testID: `session-config-${field}-trigger` }).props.disabled).not.toBe(true);
+        }
+        await act(async () => { renderer.update(<SessionConfigPanel layout="composer" collapsible={false} />); });
+        expect(renderer.root.findByProps({ testID: 'session-config-agent-trigger' }).props.disabled).toBe(false);
+    });
+
     it('keeps every editable new-session setting in the composer footer', async () => {
         const ref = React.createRef<any>();
         await act(async () => {

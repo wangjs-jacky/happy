@@ -2096,6 +2096,7 @@ failedContinueTask: "Continue unfinished task",
         signInError: 'Please sign in to use Agents.',
         missing: 'This Agent could not be found. Please reopen it from the list.',
         archived: 'This Agent is archived. Use /agent in a chat to restore it.',
+        missingSkills: ({ names }: { names: string }) => `Missing Skills: ${names}. Check their installation paths on the selected device, or update the bindings in chat.`,
     },
     agents: {
         cardTitle: 'My Agents',

@@ -2124,6 +2124,7 @@ failedContinueTask: "繼續未完成的工作",
         signInError: '請登入後再使用 Agents。',
         missing: '找不到這個 Agent，請從列表重新開啟。',
         archived: '這個 Agent 已封存，可以在聊天中用 /agent 還原。',
+        missingSkills: ({ names }: { names: string }) => `缺少 Skills：${names}。請檢查所選裝置上的安裝位置，或透過對話調整綁定。`,
     },
     agents: {
         cardTitle: '我的 Agent',

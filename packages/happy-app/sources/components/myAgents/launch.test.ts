@@ -13,6 +13,7 @@ vi.mock('@/sync/sync', () => ({ sync: { sendMessage: mocks.send, awaitLocalMessa
 vi.mock('@/sync/ensureSessionHydratedWithRetry', () => ({ ensureSessionHydratedWithRetry: mocks.hydrate }));
 vi.mock('@/sync/skills', () => ({ scanSkills: mocks.scan }));
 vi.mock('@/hooks/useSpawnSession', () => ({ configureSpawnedSession: vi.fn() }));
+vi.mock('@/text', () => ({ t: (key: string, args?: { names?: string }) => key === 'myAgents.missingSkills' ? `缺少 Skills：${args?.names}` : key }));
 import { launchMyAgentSession } from './launch';
 const profile = { id: 'agent-a', name: '军师', summary: '分析计划', instructions: '挑战假设', skills: [{ name: 'grilling', path: '/skills/grilling/SKILL.md', reason: '挑战假设' }], preferences: '', setupNotes: '', engine: 'codex', model: 'gpt-6.1-sol', effort: 'high', avatarId: 0, machineId: 'm', directory: '/work', sessions: [], archived: false, createdAt: 1, updatedAt: 2 } as MyAgentProfile;
 const options = () => ({ api: { get: mocks.get, request: mocks.request } as any, profile, machine: { id: 'm', active: true } as any, text: '评估计划', isCurrent: () => true, onSpawned: vi.fn() });
@@ -72,6 +73,32 @@ it('keeps the task and attachments unchanged when opening a saved assistant', as
     await launchMyAgentSession(input);
     expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ directory: '/work', agent: 'codex' }));
     expect(mocks.send).toHaveBeenCalledWith('s', '评估计划', expect.objectContaining({ attachments: input.attachments }));
+});
+
+it('uses the selected project or worktree instead of the profile default', async () => {
+    await launchMyAgentSession({ ...options(), directory: '/selected-project/worktree' });
+    expect(mocks.scan).toHaveBeenCalledWith('m', '/selected-project/worktree');
+    expect(mocks.spawn).toHaveBeenCalledWith({ machineId: 'm', directory: '/selected-project/worktree', agent: 'codex' });
+    expect(profile.directory).toBe('/work');
+});
+
+it('uses another online machine only after checking its installed Skills', async () => {
+    const input = { ...options(), machine: { id: 'other', active: true } as any, directory: '/other-project' };
+    mocks.hydrate.mockResolvedValueOnce(false);
+    await expect(launchMyAgentSession(input)).rejects.toThrow('会话已创建');
+    await launchMyAgentSession(input);
+    expect(mocks.scan).toHaveBeenCalledWith('other', '/other-project');
+    expect(mocks.scan.mock.invocationCallOrder[0]).toBeLessThan(mocks.spawn.mock.invocationCallOrder[0]);
+    expect(mocks.spawn).toHaveBeenCalledWith({ machineId: 'other', directory: '/other-project', agent: 'codex' });
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(profile.machineId).toBe('m');
+});
+
+it('blocks a selected machine with missing Skills without falling back to the saved machine', async () => {
+    mocks.scan.mockResolvedValue([]);
+    await expect(launchMyAgentSession({ ...options(), machine: { id: 'other', active: true } as any, directory: '/other-project' })).rejects.toThrow('缺少 Skills');
+    expect(mocks.scan).toHaveBeenCalledWith('other', '/other-project');
+    expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
 it('retains the queued receipt when the user leaves during projection', async () => {

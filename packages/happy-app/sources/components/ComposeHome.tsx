@@ -849,7 +849,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     })}
                 </View>
             )}
-            <SessionConfigPanel ref={configPanelRef} layout="composer" collapsible={false} />
+            <SessionConfigPanel ref={configPanelRef} layout="composer" collapsible={false} agentType={personalAgent.active ? 'codex' : undefined} />
         </View>
     );
 

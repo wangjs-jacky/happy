@@ -697,6 +697,8 @@ export interface SessionConfigPanelHandle {
 }
 
 export interface SessionConfigPanelProps {
+    /** A saved assistant has a fixed engine; its project and modes remain editable. */
+    agentType?: NewSessionAgentType;
     /**
      * 'inline' — phone/narrow: full-width config box; Android pickers open in
      * bottom sheets, iOS pickers expand inline, and desktop Web uses a modal.
@@ -724,7 +726,7 @@ export interface SessionConfigPanelProps {
  * handle.
  */
 export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, SessionConfigPanelProps>(
-    function SessionConfigPanel({ layout = 'inline', collapsible = true, onPickerOpenChange }, ref) {
+    function SessionConfigPanel({ layout = 'inline', collapsible = true, onPickerOpenChange, agentType }, ref) {
         const { theme } = useUnistyles();
         const viewport = useWindowDimensions();
         const isSidebar = layout === 'sidebar';
@@ -754,8 +756,11 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             setWorktreeKey: s.setWorktreeKey,
         })));
         const hasText = useNewSessionDraft((s) => s.input.trim().length > 0);
-        const selectedAgent = draft.agentType;
+        const selectedAgent = agentType ?? draft.agentType;
         const setSelectedAgent = draft.setAgentType;
+        React.useEffect(() => {
+            if (agentType && draft.agentType !== agentType) setSelectedAgent(agentType);
+        }, [agentType, draft.agentType, setSelectedAgent]);
         const selectedMachineId = draft.selectedMachineId;
         const setSelectedMachineId = draft.setMachineId;
         const selectedPath = draft.selectedPath;
@@ -929,11 +934,12 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         // Filter available coding agents based on CLI availability from machine metadata.
         // Ask is a top-level mode, not a coding-agent picker item.
         const availableAgents = React.useMemo(() => {
+            if (agentType) return ALL_AGENTS.filter(a => a.key === agentType);
             const availability = selectedMachine?.metadata?.cliAvailability;
             const codingAgents = getCodingAgentPickerItems(ALL_AGENTS);
             if (!availability) return codingAgents;
             return codingAgents.filter(a => availability[a.key]);
-        }, [selectedMachine]);
+        }, [agentType, selectedMachine]);
 
         // If current coding agent is not available on this machine, switch to the
         // first available coding agent. Ask mode stays independent of CLI availability.
@@ -1225,7 +1231,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                     setWorktreeKey(key);
                     break;
                 case 'agent':
-                    if (availableAgents.some((candidate) => candidate.key === key)) {
+                    if (!agentType && availableAgents.some((candidate) => candidate.key === key)) {
                         setSelectedAgent(key as NewSessionAgentType);
                     }
                     break;
@@ -1257,6 +1263,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             dismissPicker();
         }, [
             activePicker,
+            agentType,
             availableAgents,
             dismissPicker,
             draft.setEffortLevel,
@@ -1472,7 +1479,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     testID="session-config-agent-trigger"
                                     accessibilityRole="button"
                                     accessibilityLabel={`${t('agents.title')}: ${agent.label}`}
-                                    accessibilityState={{ expanded: activePicker === 'agent' }}
+                                    disabled={!!agentType}
+                                    accessibilityState={{ expanded: activePicker === 'agent', disabled: !!agentType }}
                                     aria-expanded={activePicker === 'agent'}
                                     onPress={(event) => togglePicker('agent', event)}
                                     style={(p) => [styles.composerConfigChip, p.pressed && styles.composerConfigChipPressed]}
@@ -1483,7 +1491,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         resizeMode="contain"
                                     />
                                     <Text style={styles.composerConfigChipText} numberOfLines={1}>{agent.label}</Text>
-                                    <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
+                                    {!agentType && <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />}
                                 </Pressable>
                             )}
 
@@ -1654,7 +1662,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                 onPress={(event) => togglePicker('agent', event)}
                                                 accessibilityRole="button"
                                                 accessibilityLabel={`${t('agents.title')}: ${agent.label}`}
-                                                accessibilityState={{ expanded: activePicker === 'agent' }}
+                                                disabled={!!agentType}
+                                                accessibilityState={{ expanded: activePicker === 'agent', disabled: !!agentType }}
                                                 aria-expanded={activePicker === 'agent'}
                                                 style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
                                             >
@@ -1666,7 +1675,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                 <Text style={[styles.configLabel, styles.configInlineText]} numberOfLines={1}>
                                                     {agent.label}
                                                 </Text>
-                                                <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
+                                                {!agentType && <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />}
                                             </Pressable>
 
                                             {showModel && (

@@ -60,6 +60,10 @@ function getSkillRoots(cwd: string, homeDir: string): string[] {
     push(join(homeDir, '.codex', 'skills'));
     push(join(homeDir, '.agents', 'skills'));
     push(join(homeDir, '.codex', 'plugins'));
+    // Personal Agents can be created from Claude as well as Codex. Discovery,
+    // save validation and launch preflight must recognize the same real files.
+    push(join(homeDir, '.claude', 'skills'));
+    push(join(homeDir, '.claude', 'plugins'));
 
     for (const dir of getAncestorDirectories(cwd)) {
         push(join(dir, '.agents', 'skills'));

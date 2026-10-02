@@ -24,7 +24,7 @@ CLI 包包含 `skills/agent-builder/SKILL.md`。Happy MCP 的 `agent_builder` �
 
 ## 普通会话
 
-启动前重新读取档案，并通过机器的 `my-agent-skills` RPC 检查 Skills。RPC 与 builder 共用 CLI 的 scanner，避免逐文件 shell 扫描。启动后先确认加密 metadata 中的 `myAgentId`，再记录会话并发送任务。App 每次发送都读取最新档案并加入系统提示；Codex 在提示变化或线程恢复后重新注入。空偏好会明确撤销历史保存偏好。
+启动前重新读取档案，并通过机器的 `my-agent-skills` RPC 检查 Skills。RPC 与 builder 共用 CLI 的 scanner，覆盖 `.codex/skills`、`.codex/plugins`、`.claude/skills`、`.claude/plugins` 和 `.agents/skills`，按真实文件路径去重。档案中的设备和目录只作为输入框初始值；实际启动以发送时所选设备、项目或已有 worktree 为准，并在目标环境重新校验 Skills。路径绑定不会自动迁移，目标缺少绑定文件则停止启动。保存助手当前固定使用 Codex，界面锁定对应引擎，模型、权限和执行环境仍可调整。启动后先确认加密 metadata 中的 `myAgentId`，再记录会话并发送任务。App 每次发送都读取最新档案并加入系统提示；Codex 在提示变化或线程恢复后重新注入。空偏好会明确撤销历史保存偏好。
 
 启动 receipt 存在当前账号的 MMKV namespace，在 RPC 发出前写入。已返回 sessionId 的重试继续同一会话；结果未知时保持待找回状态，阻止同一请求再次 spawn。消息入队后保存 localIds，运行时保留原 receipt 来重建本地投影，重试不重新发送。blur 或账号切换不能删掉未完成 receipt 或抢走新页面。reload 后原 receipt 对象不可恢复时，可打开已创建的会话，不保证所有投影问题都自动恢复。
 

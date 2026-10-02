@@ -2015,6 +2015,7 @@ failedContinueTask: "未完了の作業を続ける",
         signInError: 'Agents を利用するにはログインしてください。',
         missing: 'このエージェントが見つかりません。リストからもう一度開いてください。',
         archived: 'このエージェントはアーカイブされています。チャットで /agent を使うと復元できます。',
+        missingSkills: ({ names }: { names: string }) => `見つからない Skills：${names}。選択したデバイス上のインストール先を確認するか、チャットで紐付けを変更してください。`,
     },
     agents: {
         cardTitle: 'マイエージェント',
