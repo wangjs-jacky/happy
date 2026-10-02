@@ -7,22 +7,24 @@ import type { SpawnSessionArgs } from './useSpawnSession';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { getServerUrl } from '@/sync/serverConfig';
 
-export function useFirstSubmission() {
+export function useFirstSubmission(enabled = true) {
     const pending = React.useSyncExternalStore(firstSubmission.subscribe, firstSubmission.getSnapshot, firstSubmission.getSnapshot);
     const navigate = useNavigateToSession();
     const mounted = React.useRef(true);
+    const enabledRef = React.useRef(enabled); enabledRef.current = enabled;
     React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
     React.useEffect(() => {
-        if (pending?.phase !== 'ready' || !pending.sessionId) return;
+        if (!enabled || pending?.phase !== 'ready' || !pending.sessionId) return;
         const scope = getFirstSubmissionScope();
         void firstSubmission.dismiss(pending).then(cleared => {
-            if (cleared && mounted.current && scope && scope === getFirstSubmissionScope() && getServerUrl() === scope.serverUrl) {
+            if (cleared && enabledRef.current && mounted.current && scope && scope === getFirstSubmissionScope() && getServerUrl() === scope.serverUrl) {
                 traceFirstSubmissionNavigation(pending.sessionId!);
                 navigate(pending.sessionId!);
             }
         });
-    }, [pending, navigate]);
+    }, [enabled, pending, navigate]);
     const submit = React.useCallback((args: SpawnSessionArgs, text: string, released: () => void, accepted: () => void) => {
+        if (!enabledRef.current) return Promise.resolve(false);
         const { machine, images, environmentVariables, ...input } = args;
         const directory = args.worktreeKey && !['__none__', '__new__'].includes(args.worktreeKey)
             ? args.worktreeKey : resolveAbsolutePath(args.path?.trim() || '~', machine.metadata?.homeDir);
@@ -31,10 +33,10 @@ export function useFirstSubmission() {
     }, []);
     const checkSession = React.useCallback(async () => {
         const snapshot = firstSubmission.getSnapshot(); const scope = getFirstSubmissionScope();
-        const current = () => scope !== null && scope === getFirstSubmissionScope() && getServerUrl() === scope.serverUrl;
+        const current = () => enabledRef.current && scope !== null && scope === getFirstSubmissionScope() && getServerUrl() === scope.serverUrl;
         if (snapshot?.sessionId && await ensureSessionHydratedWithRetry(snapshot.sessionId, current)
             && mounted.current && current()) navigate(snapshot.sessionId);
     }, [navigate]);
-    return { pending, submit, retry: () => firstSubmission.retry(pending),
+    return { pending: enabled ? pending : null, submit, retry: () => firstSubmission.retry(pending),
         restore: (text: string, omitAttachments: boolean) => firstSubmission.restore(text, omitAttachments ? [] : pending?.attachments ?? [], pending), checkSession };
 }

@@ -333,9 +333,6 @@ export const SettingsView = React.memo(function SettingsView() {
 
             )}
 
-                <ItemGroup title="Agent 群聊">
-                    <Item title="我的 Agent" subtitle="一句话创建助手，搭配 Skills，开始或继续对话" icon={<Ionicons name="people-outline" size={29} color={theme.colors.accent}/>} onPress={() => router.push('/my-agents' as any)}/>
-                </ItemGroup>
 
             {/* General — 主题/语言入口（照图3，列表行 + 右侧当前值） */}
             <ItemGroup title={t('settings.general')}>

@@ -2,7 +2,9 @@
 
 第一版把 Agent 当作可复用的个人助手：职责 + 少量真实 Skills + 用户明确保存的偏好 + 运行环境。先使用普通 Codex 会话，不自动启动 Party 或多模型辩论。
 
-用户可以在普通聊天中说“帮我创建一个 Agent”或“把这次的方法保存为 Agent”，也可以进入侧栏/设置的「我的 Agent」，一句话打开创建会话。保存成功后展示可点击卡片。详情可以开始新任务、继续工作记录、对话式修改、清除偏好、归档和恢复。
+左侧只有一个 Agents 入口。列表展示名称和一句简介；点击卡片开始普通对话，“修改”也进入同一聊天输入框。“创建 Agent”复用 ComposeHome / MessageComposer，由 Happy 自动组合真实 Skills 并保存。
+
+三种入口使用 `/new?myAgentMode=create|use|edit`，已有助手携带 `myAgentId`。创建沿用当前聊天的设备与项目，使用和修改读取已有档案的运行环境。入口不会自动发消息；Skills、模型和长期偏好不形成额外配置步骤。历史会话在普通会话列表中继续，清除偏好、归档和恢复也通过自然语言完成。普通聊天仍可以直接说“帮我创建一个 Agent”或“把这次的方法保存成 Agent”。
 
 ## 创建与更新
 
@@ -16,9 +18,9 @@ CLI 包包含 `skills/agent-builder/SKILL.md`。Happy MCP 的 `agent_builder` �
 
 启动前重新读取档案，并通过机器的 `my-agent-skills` RPC 检查 Skills。RPC 与 builder 共用 CLI 的 scanner，避免逐文件 shell 扫描。启动后先确认加密 metadata 中的 `myAgentId`，再记录会话并发送任务。App 每次发送都读取最新档案并加入系统提示；Codex 在提示变化或线程恢复后重新注入。空偏好会明确撤销历史保存偏好。
 
-启动 receipt 存在当前账号的 MMKV namespace，在 RPC 发出前写入。已返回 sessionId 的重试继续同一会话；结果未知时保持待找回状态并阻止同一请求再次 spawn。它不保证自动找回未知 worker，也不保证替用户完成其第一条消息。
+启动 receipt 存在当前账号的 MMKV namespace，在 RPC 发出前写入。已返回 sessionId 的重试继续同一会话；结果未知时保持待找回状态，阻止同一请求再次 spawn。消息入队后保存 localIds，运行时保留原 receipt 来重建本地投影，重试不重新发送。blur 或账号切换不能删掉未完成 receipt 或抢走新页面。reload 后原 receipt 对象不可恢复时，可打开已创建的会话，不保证所有投影问题都自动恢复。
 
-工作记录是会话引用。新任务不会复制其他会话的项目内容。`preferences` 仅保存用户明确要求长期记住的偏好；清除操作直接 PATCH，不依赖模型或在线执行设备。
+工作记录是会话引用。新任务不会复制其他会话的项目内容。`preferences` 仅保存用户明确要求长期记住的偏好；用户在修改对话中要求清除时，由 builder 保存空偏好。
 
 ## 服务与兼容
 
@@ -32,4 +34,4 @@ CLI 包包含 `skills/agent-builder/SKILL.md`。Happy MCP 的 `agent_builder` �
 
 自动测试覆盖保存、重启恢复、A/B 账号隔离、创建幂等、并发修改、原管理器字段保留、真实路径、部分字段编辑、机器 RPC、角色刷新、启动顺序、未知结果重试及页面异步取消。另有真实组件与工具的 [Ego 隔离夹具](../../packages/happy-app/e2e/fixtures/my-agents/README.md)。
 
-隔离页面已验证创建/详情/任务/修改/偏好/归档恢复；PC 独立评审覆盖宽屏、键盘、滚动和 ginghamDark 状态，窄屏 390×844 无横向溢出。模型、RPC、加密会话存储和会话外壳是模拟边界。未验证真实 daemon/模型回复、真实 Sidebar/Header 组合或原生 Android 键盘与安全区，不能将这些结果写为完整线上或真机通过。
+当前隔离夹具使用真实列表、ComposeHome、MessageComposer、创建/修改 hook 与 launch。认证、配置控件与外围布局 hooks、模型、RPC、加密存储、会话壳为模拟边界。测试覆盖无表单列表、三种普通聊天入口、当前项目继承、显示文字、附件、离开页面取消、投影重试，以及普通 first submission 恢复状态的隔离。PC 回归只验证这条简化路径，不能冒充完整线上或真机验证。本轮用户不需要截图或状态演示，交付在对话中说明并更新 PR。

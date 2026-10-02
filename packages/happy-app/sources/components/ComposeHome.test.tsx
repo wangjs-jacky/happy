@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     updateFastMode: vi.fn(),
     routeParams: {} as { agentId?: string },
     agents: [] as any[],
+    personalAgent: { active: false, ready: false, busy: false, error: "", title: "", hint: "", placeholder: "", submit: vi.fn() },
     selectedImages: [] as Array<{ id: string; uri: string }>,
     setSelectedImages: null as React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> | null,
     imagePickerGeneration: null as null | { currentDraftEpoch(): number; invalidate(): void },
@@ -204,6 +205,7 @@ vi.mock('@/utils/normalizeImageForUpload', () => ({ normalizeImageForUpload: vi.
 vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('./navigation/Header', () => ({ Header: 'Header' }));
 vi.mock('./layout', () => ({ layout: { maxWidth: 720, headerMaxWidth: 720 } }));
+vi.mock('./myAgents/useMyAgentCompose', () => ({ useMyAgentCompose: () => mocks.personalAgent }));
 vi.mock('./MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
 vi.mock('./SessionConfigPanel', () => ({ SessionConfigPanel: 'SessionConfigPanel' }));
 vi.mock('./ComposeHomeParticles', () => ({ ComposeHomeParticles: 'ComposeHomeParticles' }));
@@ -226,6 +228,7 @@ describe('ComposeHome session hydration recovery', () => {
         mocks.isDataReady = true;
         mocks.routeParams = {};
         mocks.agents = [];
+        Object.assign(mocks.personalAgent, { active: false, ready: false, busy: false, error: '' });
         mocks.selectedImages = [
             { id: 'image-a', uri: 'file:///a.png' },
             { id: 'image-b', uri: 'file:///b.png' },
@@ -601,4 +604,35 @@ describe('ComposeHome session hydration recovery', () => {
         expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('original submission');
         act(() => renderer.unmount());
     });
+    it('uses the ordinary composer for natural-language Agent creation without another form', async () => {
+        Object.assign(mocks.personalAgent, { active: true, ready: true, title: '创建 Agent', hint: '描述需要的助手', placeholder: '帮我创建一个狗头军师…' });
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ComposeHome variant="screen"/>); });
+        const composer = renderer.root.findByType('MessageComposer');
+        expect(composer.props.placeholder).toBe('帮我创建一个狗头军师…');
+        expect(renderer.root.findAllByProps({ testID: 'compose-home-creation-rail' })).toHaveLength(0);
+        await act(async () => { composer.props.onChangeText('帮我创建一个狗头军师'); });
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); });
+        expect(mocks.personalAgent.submit).toHaveBeenCalledWith(expect.objectContaining({ prompt: '帮我创建一个狗头军师', agent: 'codex', path: '/Users/test/project' }), expect.any(Function));
+        expect(mocks.machineSpawnNewSession).not.toHaveBeenCalled();
+        await act(async () => { renderer.unmount(); });
+    });
+
+    it('keeps an ordinary pending startup from blocking or navigating an Agent composer', async () => {
+        let finish!: (value: boolean) => void;
+        mocks.ensureSessionHydrated.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ComposeHome variant="screen"/>); });
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onChangeText('普通会话的消息'); });
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); });
+        expect(renderer.root.findAllByProps({ testID: 'compose-home-starting' })).toHaveLength(1);
+        Object.assign(mocks.personalAgent, { active: true, ready: true, title: '创建 Agent' });
+        await act(async () => { renderer.update(<ComposeHome variant="home"/>); });
+        expect(renderer.root.findAllByProps({ testID: 'compose-home-starting' })).toHaveLength(0);
+        expect(renderer.root.findByType('MessageComposer').props.isSendDisabled).toBe(false);
+        await act(async () => finish(true));
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+    });
+
 });

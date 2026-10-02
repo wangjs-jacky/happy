@@ -505,7 +505,7 @@ export const SidebarView = React.memo(({
                 </Pressable>
 
                 <Pressable accessibilityRole="button" onPress={() => go('/my-agents')} testID="sidebar-my-agents-button" style={({ pressed }) => [styles.messagesRow, desktopDensity && styles.messagesRowDesktop, pressed && styles.navigationCardPressed]}>
-                    <Ionicons name="people-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>我的 Agent</Text>
+                    <Ionicons name="people-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>Agents</Text>
                 </Pressable>
 
                 <Pressable
@@ -583,7 +583,7 @@ export const SidebarView = React.memo(({
                 onPress={openSessionSearch}
                 testID="sidebar-command-palette-button"
             />
-            <DesktopRailItem icon="people-outline" label="我的 Agent" onPress={() => go('/my-agents')} selected={pathname === '/my-agents'} testID="sidebar-my-agents-button" />
+            <DesktopRailItem icon="people-outline" label="Agents" onPress={() => go('/my-agents')} selected={pathname === '/my-agents'} testID="sidebar-my-agents-button" />
             <View style={styles.desktopRailDivider} />
             <DesktopRailItem
                 icon="extension-puzzle-outline"

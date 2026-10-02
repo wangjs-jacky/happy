@@ -2,21 +2,24 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { MyAgentProfile } from '@slopus/happy-wire';
 const mocks = vi.hoisted(() => ({
     receipts: new Map<string, string>(),
-    spawn: vi.fn(), update: vi.fn(), hydrate: vi.fn(), scan: vi.fn(), send: vi.fn(), apply: vi.fn(), request: vi.fn(), get: vi.fn(),
+    spawn: vi.fn(), update: vi.fn(), hydrate: vi.fn(), scan: vi.fn(), send: vi.fn(), project: vi.fn(), apply: vi.fn(), request: vi.fn(), get: vi.fn(),
     state: { settings: { recentMachinePaths: [] }, sessions: { s: { id: 's', metadataVersion: 1, metadata: { path: '/work', host: 'm' } } }, updateSessionModelMode: vi.fn(), updateSessionEffortLevel: vi.fn() } as any,
 }));
 vi.mock('react-native-mmkv', () => ({ MMKV: class { getString(key: string) { return mocks.receipts.get(key); } set(key: string, value: string) { mocks.receipts.set(key, value); } delete(key: string) { mocks.receipts.delete(key); } } }));
 vi.mock('@/auth/accountRuntime', () => ({ accountStorageId: () => 'my-agent-starts' }));
 vi.mock('@/sync/storage', () => ({ storage: { getState: () => mocks.state } }));
 vi.mock('@/sync/ops', () => ({ machineListAgentSkills: mocks.scan, machineSpawnNewSession: mocks.spawn, sessionUpdateMetadata: mocks.update }));
-vi.mock('@/sync/sync', () => ({ sync: { sendMessage: mocks.send } }));
+vi.mock('@/sync/sync', () => ({ sync: { sendMessage: mocks.send, awaitLocalMessageProjection: mocks.project } }));
 vi.mock('@/sync/ensureSessionHydratedWithRetry', () => ({ ensureSessionHydratedWithRetry: mocks.hydrate }));
 vi.mock('@/sync/skills', () => ({ scanSkills: mocks.scan }));
+vi.mock('@/hooks/useSpawnSession', () => ({ configureSpawnedSession: vi.fn() }));
 import { launchMyAgentSession } from './launch';
 const profile = { id: 'agent-a', name: '军师', summary: '分析计划', instructions: '挑战假设', skills: [{ name: 'grilling', path: '/skills/grilling/SKILL.md', reason: '挑战假设' }], preferences: '', setupNotes: '', engine: 'codex', model: 'gpt-6.1-sol', effort: 'high', avatarId: 0, machineId: 'm', directory: '/work', sessions: [], archived: false, createdAt: 1, updatedAt: 2 } as MyAgentProfile;
 const options = () => ({ api: { get: mocks.get, request: mocks.request } as any, profile, machine: { id: 'm', active: true } as any, text: '评估计划', isCurrent: () => true, onSpawned: vi.fn() });
 beforeEach(() => {
     mocks.receipts.clear();
+    mocks.send.mockResolvedValue({ type: 'queued', sessionId: 's', localIds: ['local-1'] });
+    mocks.project.mockResolvedValue(true);
     vi.clearAllMocks(); mocks.state.applySessions = mocks.apply;
     mocks.get.mockResolvedValue(profile); mocks.spawn.mockResolvedValue({ type: 'success', sessionId: 's' });
     mocks.scan.mockResolvedValue([{ name: 'grilling', path: '/skills/grilling/SKILL.md' }]); mocks.hydrate.mockResolvedValue(true);
@@ -53,5 +56,44 @@ it('reuses an already spawned session after hydration failure and stops on accou
     await launchMyAgentSession({ ...input, pendingSessionId: 's' });
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     await expect(launchMyAgentSession({ ...input, isCurrent: () => false })).rejects.toThrow('取消');
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the accepted message receipt so projection retries do not resend', async () => {
+    mocks.project.mockResolvedValue(false);
+    await expect(launchMyAgentSession(options())).rejects.toThrow('消息已发送');
+    mocks.project.mockResolvedValue(true);
+    expect(await launchMyAgentSession(options())).toBe('s');
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+it('sends only the natural-language requirement as visible chat text and keeps attachments', async () => {
+    const input = { ...options(), builder: true, profile: undefined, directory: '/current-project', attachments: [{ id: 'image', name: 'ref.png' }] as any };
+    await launchMyAgentSession(input);
+    expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ directory: '/current-project', agent: 'codex' }));
+    expect(mocks.send).toHaveBeenCalledWith('s', expect.stringContaining('agent-builder'), expect.objectContaining({ displayText: '评估计划', attachments: input.attachments }));
+    expect(mocks.update).not.toHaveBeenCalled();
+});
+
+it('retains the queued receipt when the user leaves during projection', async () => {
+    let finish!: (value: boolean) => void;
+    let current = true;
+    mocks.project.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const running = launchMyAgentSession({ ...options(), isCurrent: () => current });
+    const rejected = expect(running).rejects.toThrow('取消');
+    await vi.waitFor(() => expect(mocks.project).toHaveBeenCalledTimes(1));
+    current = false; finish(true);
+    await rejected;
+    expect(await launchMyAgentSession(options())).toBe('s');
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the original queue receipt for a cache-rebuild projection retry', async () => {
+    const queued = { type: 'queued', sessionId: 's', localIds: ['receipt-cache'] };
+    mocks.send.mockResolvedValue(queued); mocks.project.mockResolvedValueOnce(false);
+    await expect(launchMyAgentSession(options())).rejects.toThrow('消息已发送');
+    await launchMyAgentSession(options());
+    expect(mocks.project).toHaveBeenLastCalledWith('s', ['receipt-cache'], queued);
     expect(mocks.send).toHaveBeenCalledTimes(1);
 });
