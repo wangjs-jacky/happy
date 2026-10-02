@@ -95,8 +95,17 @@ text/image checks, and is removed after testing.
 | Delivery | PR/CI, production deployment, CLI rollout | pending |
 
 Happy key-step screenshots were reported with session-bound receipts. Native
-phone camera scanning and an acceptance MP4 have not been verified; the browser
-approval link exercises the same consent page and protocol.
+phone camera scanning has not been verified; the browser approval link exercises
+the same consent page and protocol. A 15.85-second H.264 390×844 Ego screencast of
+final first-send controls, real response and refresh restoration was fully decoded
+and sent through Happy. Playback on the user's device is not yet confirmed; this
+clip is not a video matrix for every case. Cancel/reopen QR was separately checked
+to clear old QR/link/status; a fresh request was approved and connected.
+
+Local validation totals: server delegation 11, managed account routes 33, SDK 350,
+CLI lock/credential lifecycle 24, app OTA contract 7, advisor 5 tests passed.
+Independent security review passed; static interaction findings were fixed and
+the affected browser steps rerun. CLI, server, SDK and app typechecks passed.
 
 The Expo dev typed-route generator included colocated test files and produced
 an empty route union. For local typecheck, regenerate with a requireContext that
