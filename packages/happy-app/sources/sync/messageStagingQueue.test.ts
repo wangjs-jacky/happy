@@ -2,15 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { createMessageStagingQueue, type StagingSession, type StagingSnapshot } from './messageStagingQueue';
 
 function setup(initial?: StagingSnapshot) {
-    let session: StagingSession = { connected: true, state: 'running', turnId: 'old' };
+    let session: StagingSession = { connected: true, state: 'running', turnId: 'old', supportsSteer: true };
     const send = vi.fn(async (_message: unknown): Promise<void> => undefined);
-    const interrupt = vi.fn(async (): Promise<void> => undefined);
+    const steer = vi.fn(async (): Promise<void> => undefined);
     const save = vi.fn();
     const queue = createMessageStagingQueue({
         load: () => initial ?? { messages: [], barriers: {} }, save,
-        session: () => session, send, interrupt,
+        session: () => session, send, steer,
     });
-    return { queue, send, interrupt, save,
+    return { queue, send, steer, save,
         update(next: Partial<StagingSession>) { session = { ...session, ...next }; queue.refresh(); },
         add(id: string) { queue.enqueue({ id, sessionId: 's', text: id, modeMeta: { model: 'chosen' } }); },
     };
@@ -79,26 +79,55 @@ describe('message staging queue', () => {
         expect(t.send).toHaveBeenCalledTimes(2);
     });
 
-    it('prioritizes the selected message after interruption, ignoring the old turn completion', async () => {
+    it('guides the same turn without sending a new turn, then drains the remaining queue', async () => {
         const t = setup();
-        let finishAbort!: () => void;
-        t.interrupt.mockImplementationOnce(() => new Promise<void>(r => { finishAbort = r; }));
         t.add('a'); t.add('b');
-        const steering = t.queue.steer('b');
-        t.queue.remove('b');
-        expect(t.queue.getSnapshot().messages).toHaveLength(2);
-        t.update({ state: 'completed' });
+        await t.queue.steer('b');
+        expect(t.steer).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }), 'old');
         expect(t.send).not.toHaveBeenCalled();
-        finishAbort(); await steering;
-        expect(t.send).toHaveBeenCalledTimes(1);
-        expect(t.send).toHaveBeenCalledWith(expect.objectContaining({ id: 'b', modeMeta: { model: 'chosen' } }));
-        t.update({ state: 'running' }); // late update for old interrupted ID
-        t.update({ state: 'completed' });
-        expect(t.send).toHaveBeenCalledTimes(1);
-        t.update({ state: 'running', turnId: 'b-turn' });
+        expect(t.queue.getSnapshot().messages.map(m => m.id)).toEqual(['a']);
+        t.update({ state: 'running' });
+        expect(t.send).not.toHaveBeenCalled();
         t.update({ state: 'completed' });
         await tick();
+        expect(t.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains rejected guidance and never silently interrupts or starts a replacement turn', async () => {
+        const t = setup();
+        t.add('a'); t.add('b');
+        t.steer.mockRejectedValueOnce(new Error('turn mismatch'));
+        await t.queue.steer('a');
+        expect(t.queue.getSnapshot().messages[0].status).toBe('failed');
+        expect(t.send).not.toHaveBeenCalled();
+        t.update({ state: 'completed' });
+        await tick();
+        expect(t.send).not.toHaveBeenCalled();
+    });
+
+    it('keeps slash commands queued instead of sending them as model guidance', async () => {
+        const t = setup();
+        t.queue.enqueue({ id: 'command', sessionId: 's', text: '/skills', modeMeta: {} });
+        await t.queue.steer('command');
+        expect(t.steer).not.toHaveBeenCalled();
+        expect(t.queue.getSnapshot().messages[0].status).toBe('queued');
+        t.update({ state: 'completed' });
+        await tick();
+        expect(t.send).toHaveBeenCalledTimes(1);
+        t.add('after-command');
+        t.update({ state: 'completed', terminal: true, turnId: 'codex-command-new' });
+        await tick();
         expect(t.send).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains guidance when an old CLI cannot steer', async () => {
+        const t = setup();
+        t.update({ supportsSteer: false });
+        t.add('a');
+        await t.queue.steer('a');
+        expect(t.steer).not.toHaveBeenCalled();
+        expect(t.send).not.toHaveBeenCalled();
+        expect(t.queue.getSnapshot().messages[0].status).toBe('failed');
     });
 
     it('retains failed messages and blocks later messages until manual action', async () => {
@@ -132,17 +161,6 @@ describe('message staging queue', () => {
         await tick();
         expect(t.send).not.toHaveBeenCalled();
         expect(t.queue.getSnapshot().messages[0].status).toBe('failed');
-    });
-
-    it('does not send after clearing the account during interruption', async () => {
-        const t = setup();
-        let finishAbort!: () => void;
-        t.interrupt.mockImplementationOnce(() => new Promise<void>(r => { finishAbort = r; }));
-        t.add('a');
-        const steering = t.queue.steer('a');
-        t.queue.clear(); finishAbort(); await steering;
-        expect(t.send).not.toHaveBeenCalled();
-        expect(t.queue.getSnapshot().messages).toEqual([]);
     });
 
     it('handles an entire fast turn occurring before send resolves', async () => {

@@ -15,6 +15,7 @@ export type StagingSession = {
     state: 'running' | 'permission_required' | 'idle' | 'completed' | 'failed';
     turnId?: string;
     terminal?: boolean;
+    supportsSteer?: boolean;
 };
 
 type TurnBarrier = { turnId?: string; sawRunning: boolean };
@@ -32,7 +33,7 @@ export function createMessageStagingQueue(deps: {
     save: (snapshot: StagingSnapshot) => void;
     session: (id: string) => StagingSession | undefined;
     send: (message: StagedMessage) => Promise<unknown>;
-    interrupt: (sessionId: string) => Promise<void>;
+    steer: (message: StagedMessage, expectedTurnId: string) => Promise<unknown>;
 }) {
     const restored = deps.load();
     let snapshot: StagingSnapshot = {
@@ -51,29 +52,35 @@ export function createMessageStagingQueue(deps: {
         for (const listener of listeners) listener();
     }
 
-    async function dispatch(message: StagedMessage, interrupt: boolean) {
+    async function dispatch(message: StagedMessage, guide: boolean) {
         const sid = message.sessionId;
         if (locks.has(sid) || !deps.session(sid)?.connected) return;
         locks.add(sid);
         const owner = generation;
         let submitted = false;
         let barrierCreated = false;
+        const previousBarrier = snapshot.barriers[sid];
         try {
             commit({ ...snapshot, messages: snapshot.messages.map(m => m.id === message.id ? { ...m, status: 'sending' } : m) });
-            if (interrupt) await deps.interrupt(sid);
             if (owner !== generation) return;
-            // Establish the barrier before send() can synchronously notify
-            // storage subscribers. An abort completion belongs to the old ID.
-            commit({ ...snapshot, barriers: { ...snapshot.barriers, [sid]: { turnId: deps.session(sid)?.turnId, sawRunning: false } } });
+            const active = deps.session(sid);
+            if (guide && (!active?.supportsSteer || !active.turnId)) throw new Error('Native steering unavailable');
+            // Native steering joins the existing turn. Its completion releases
+            // the barrier; it does not produce another turn/started event.
+            commit({ ...snapshot, barriers: { ...snapshot.barriers, [sid]: { turnId: active?.turnId, sawRunning: guide } } });
             barrierCreated = true;
-            await deps.send(message);
+            if (guide) await deps.steer(message, active!.turnId!);
+            else await deps.send(message);
             submitted = true;
             if (owner !== generation) return;
             commit({ ...snapshot, messages: snapshot.messages.filter(m => m.id !== message.id) });
         } catch {
             if (owner === generation) {
                 const barriers = { ...snapshot.barriers };
-                if (barrierCreated && !submitted) delete barriers[sid];
+                if (barrierCreated && !submitted) {
+                    if (previousBarrier) barriers[sid] = previousBarrier;
+                    else delete barriers[sid];
+                }
                 commit({ ...snapshot, barriers, messages: snapshot.messages.map(m => m.id === message.id ? { ...m, status: 'failed' } : m) });
             }
         } finally {
@@ -89,7 +96,7 @@ export function createMessageStagingQueue(deps: {
             const barrier = snapshot.barriers[sid];
             if (barrier) {
                 if (session.state === 'running' || session.state === 'permission_required') {
-                    // A delayed running update for the interrupted turn does
+                    // A delayed running update for the previous turn does
                     // not prove the newly submitted turn has started.
                     if (!barrier.sawRunning && (!session.turnId || session.turnId !== barrier.turnId)) {
                         commit({ ...snapshot, barriers: { ...snapshot.barriers, [sid]: { ...barrier, sawRunning: true } } });
@@ -141,6 +148,10 @@ export function createMessageStagingQueue(deps: {
             const message = snapshot.messages.find(m => m.id === id);
             if (!message || message.status === 'sending') return Promise.resolve();
             const session = deps.session(message.sessionId);
+            // Commands execute between turns in the CLI. A queued command
+            // must never be inserted into the current model turn as prose.
+            if (message.text.trimStart().startsWith('/')
+                && (session?.state === 'running' || session?.state === 'permission_required')) return Promise.resolve();
             return dispatch(message, session?.state === 'running' || session?.state === 'permission_required');
         },
         clear() {

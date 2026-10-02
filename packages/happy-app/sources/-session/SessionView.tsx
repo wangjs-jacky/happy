@@ -1688,7 +1688,10 @@ function SessionViewLoaded({
     const failedHistoryBehind = !isAtLatest || hasMoreNewer;
     // 历史窗口已加载时提示查看最新，避免把有意保留的阅读位置显示成永久加载。
     const failedHistoryLoading = !isLoaded || (!failedHistoryBehind && verifiedRouteOwnerEpoch === null);
-    const handleSend = React.useCallback(() => {
+    const canSteerCurrentTurn = session.metadata?.capabilities?.codexSteer === true
+        && (sessionStatus.state === 'running' || sessionStatus.state === 'permission_required')
+        && !!session.agentState?.turnStatus?.turnId;
+    const submitComposer = React.useCallback((delivery: 'queue' | 'steer') => {
         if (sendInFlight.current) return;
         const composer = composerHandleRef.current;
         const liveMessage = composer?.getMessage() ?? '';
@@ -1697,7 +1700,9 @@ function SessionViewLoaded({
             sendInFlight.current = true;
             void (async () => {
                 try {
-                    await stageSessionMessage(sessionId, liveMessage, attachments);
+                    // CLI slash commands are handled between turns, rather
+                    // than inserted literally into the model's current turn.
+                    await stageSessionMessage(sessionId, liveMessage, attachments, liveMessage.trimStart().startsWith('/') ? 'queue' : delivery);
                     if (Platform.OS === 'web') setFollowLatestRequest(value => value + 1);
                     if (composerHandleRef.current !== composer) return;
                     if (composer?.getMessage() === liveMessage) composer.clearMessage();
@@ -1708,6 +1713,8 @@ function SessionViewLoaded({
             })();
         }
     }, [composerHandleRef, sessionId, selectedImages, removeImage]);
+    const handleSend = React.useCallback(() => submitComposer(canSteerCurrentTurn ? 'steer' : 'queue'), [submitComposer, canSteerCurrentTurn]);
+    const handleQueue = React.useCallback(() => submitComposer('queue'), [submitComposer]);
 
     const handleContinueFailedTurn = React.useCallback(() => {
         if (failedHistoryLoading && newerError && !failedHistoryBehind) {
@@ -1837,6 +1844,8 @@ function SessionViewLoaded({
             connectionStatus={connectionStatus}
             blockSend={false}
             onSend={handleSend}
+            onQueue={canSteerCurrentTurn ? handleQueue : undefined}
+            sendLabel={canSteerCurrentTurn ? t('messageQueue.steer') : undefined}
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'running'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}

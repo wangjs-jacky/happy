@@ -4,7 +4,7 @@ import { MessageStagingQueueView } from '@/components/MessageStagingQueueView';
 import { createMessageStagingQueue, type StagingSession } from '@/sync/messageStagingQueue';
 import { theme } from './boundaries';
 
-let current: StagingSession = { connected: true, state: 'running', turnId: 'initial' };
+let current: StagingSession = { connected: true, state: 'running', turnId: 'initial', supportsSteer: true };
 let version = 0;
 const listeners = new Set<() => void>();
 const calls: string[] = [];
@@ -13,7 +13,7 @@ function update(next: Partial<StagingSession>) { current = { ...current, ...next
 const queue = createMessageStagingQueue({
     load: () => ({ messages: [], barriers: {} }), save: () => undefined,
     session: () => current,
-    interrupt: async () => { calls.push('interrupt'); update({ state: 'completed' }); },
+    steer: async (message, turnId) => { calls.push(`steer:${turnId}:${message.text}`); messages.push(message.text); },
     send: async message => {
         calls.push(`send:${message.text}`); messages.push(message.text);
         update({ state: 'running', turnId: message.id });

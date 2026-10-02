@@ -26,8 +26,8 @@ export function MessageStagingQueueView(props: {
                 </View>
                 {message.status === 'sending' ? <ActivityIndicator accessibilityLabel={t('messageQueue.sending')} color={theme.colors.textSecondary} /> : <>
                     <Pressable accessibilityRole="button" accessibilityLabel={t('messageQueue.steer')} accessibilityHint={t('messageQueue.steerHint')}
-                        disabled={sending || !props.connected} onPress={() => props.onSteer(message.id)}
-                        style={({ pressed }) => [styles.action, pressed && styles.pressed, (sending || !props.connected) && styles.disabled]}>
+                        disabled={sending || !props.connected || message.text.trimStart().startsWith('/')} onPress={() => props.onSteer(message.id)}
+                        style={({ pressed }) => [styles.action, pressed && styles.pressed, (sending || !props.connected || message.text.trimStart().startsWith('/')) && styles.disabled]}>
                         <Ionicons name="return-down-forward-outline" size={18} color={theme.colors.textSecondary} />
                         <Text style={styles.secondary}>{t('messageQueue.steer')}</Text>
                     </Pressable>
