@@ -106,7 +106,12 @@ export function createMessageStagingQueue(deps: {
                 if (session.state === 'running' || session.state === 'permission_required') {
                     // A delayed running update for the previous turn does
                     // not prove the newly submitted turn has started.
-                    if (!barrier.sawRunning && (!session.turnId || session.turnId !== barrier.turnId)) {
+                    // Codex reports pending input as busy before turn/start.
+                    // That is not proof that this submission's turn started.
+                    const started = session.turnId
+                        ? session.turnId !== barrier.turnId
+                        : !session.supportsSteer;
+                    if (!barrier.sawRunning && started) {
                         commit({ ...snapshot, barriers: { ...snapshot.barriers, [sid]: { ...barrier, sawRunning: true } } });
                     }
                     continue;

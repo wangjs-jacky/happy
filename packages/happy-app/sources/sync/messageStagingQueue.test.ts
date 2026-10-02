@@ -18,6 +18,35 @@ function setup(initial?: StagingSnapshot) {
 const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 describe('message staging queue', () => {
+    it('does not advance during the cold-start queued-to-running handoff', async () => {
+        const t = setup();
+        t.update({ state: 'idle', turnId: undefined });
+        t.add('1'); t.add('2'); t.add('3');
+        await tick();
+        t.update({ state: 'running' }); // CLI queue accepted 1, no native turn yet
+        t.update({ state: 'idle' }); // old CLI briefly clears queuedMessages
+        await tick();
+        expect(t.send).toHaveBeenCalledTimes(1);
+        expect(t.queue.getSnapshot().messages.map(m => m.id)).toEqual(['2', '3']);
+
+        t.update({ state: 'running', turnId: 'turn-1' });
+        t.add('8');
+        await t.queue.steer('8');
+        expect(t.steer).toHaveBeenCalledWith(expect.objectContaining({ id: '8' }), 'turn-1');
+        expect(t.send).toHaveBeenCalledTimes(1);
+        t.update({ state: 'completed' });
+        await tick();
+        expect(t.send).toHaveBeenCalledTimes(2);
+        t.update({ state: 'running' }); // pending 2 still carries completed turn-1
+        t.update({ state: 'completed' });
+        await tick();
+        expect(t.send).toHaveBeenCalledTimes(2);
+        t.update({ state: 'running', turnId: 'turn-2' });
+        t.update({ state: 'completed' });
+        await tick();
+        expect(t.send).toHaveBeenCalledTimes(3);
+    });
+
     it('allows a new user submission to retry a failed turn', async () => {
         const t = setup();
         t.update({ state: 'failed' });
