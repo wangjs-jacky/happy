@@ -1,0 +1,66 @@
+name: Self-hosted server package smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/happy-server/**'
+      - 'packages/happy-cli/src/commands/server.ts'
+      - '.github/workflows/server-package-smoke-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/happy-server/**'
+      - 'packages/happy-cli/src/commands/server.ts'
+      - '.github/workflows/server-package-smoke-test.yml'
+  workflow_dispatch:
+
+jobs:
+  package-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wangjs-jacky/paws build
+      - name: Build self-hosted server
+        run: |
+          pnpm --filter happy-server-self-host generate
+          pnpm --filter happy-server-self-host run bundle:webapp
+      - name: Pack and install CLI with server
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @wangjs-jacky/paws pack --pack-destination packages/happy-cli
+          pnpm --filter happy-server-self-host pack --pack-destination packages/happy-server
+          cli_package="$(find packages/happy-cli -maxdepth 1 -name '*.tgz' -print -quit)"
+          server_package="$(find packages/happy-server -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$cli_package"
+          test -n "$server_package"
+          npm install -g "./$server_package" "./$cli_package"
+      - name: Boot packaged server and exercise Prisma
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HAPPY_HOME_DIR="$(mktemp -d)"
+          timeout 90s happy server --port 4505 --host 127.0.0.1 --no-persist --reset > "$RUNNER_TEMP/happy-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          up=0
+          for i in $(seq 1 60); do
+            if curl -sf -m 2 http://127.0.0.1:4505/ -o /dev/null; then up=1; break; fi
+            sleep 1
+          done
+          test "$up" = 1 || { cat "$RUNNER_TEMP/happy-server.log"; exit 1; }
+          key="$(node -e "console.log(Buffer.alloc(32).toString('base64'))")"
+          body="$(curl -sf -m 5 -G http://127.0.0.1:4505/v1/auth/request/status --data-urlencode "publicKey=$key")"
+          echo "$body" | grep -q '"status"'
+          if grep -qiE 'PrismaClientInitializationError|could not locate.*Query Engine' "$RUNNER_TEMP/happy-server.log"; then
+            cat "$RUNNER_TEMP/happy-server.log"
+            exit 1
+          fi

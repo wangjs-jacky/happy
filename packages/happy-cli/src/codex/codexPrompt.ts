@@ -10,7 +10,7 @@ export const CODEX_HAPPY_SYSTEM_PROMPT_END = '<!-- happy:system-prompt:end -->';
 export const CODEX_SKILL_PATH_RESOLUTION_INSTRUCTION =
     'Skill identifiers such as `plugin:skill` are labels, not filesystem paths. Never turn `:` into a directory separator. ' +
     'Read the exact path supplied in the Skills catalog. For an installed Codex Skill without a catalog path, first check the flat entry ' +
-    '`$CODEX_HOME/skills/<skill-name>/SKILL.md` (usually `~/.codex/skills/<skill-name>/SKILL.md`); do not guess nested ' +
+    '`$CODEX_HOME/skills/<skill-name>/SKILL.md`; in an isolated session `$CODEX_HOME` may differ from `~/.codex`. Do not guess nested ' +
     '`.../skills/<plugin>/<skill>/SKILL.md` paths.';
 
 export function createCodexSkillPathResolutionPromptLifecycle() {

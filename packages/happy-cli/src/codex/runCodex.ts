@@ -69,6 +69,8 @@ import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import type { GoalCommand, UsageCommand } from '@/parsers/specialCommands';
 import { listCodexSkillNames } from './codexSkills';
+import { resolveCodexHome } from './codexHome';
+import { ensurePrimaryRuntimeSkillAliases } from './codexSkillAliases';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
 import { mergeReconnectMetadata, applyCodexReconnectUpdate } from './reconnectMetadata';
@@ -393,6 +395,13 @@ export async function runCodex(opts: {
 
     const initialPermissionMode = opts.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE;
     let discoveredSkills: string[] = [];
+    try {
+        // Local Codex sessions do not use prepareCodexHomeWithAuth, so prepare
+        // the same fallback paths before the app-server discovers Skills.
+        await ensurePrimaryRuntimeSkillAliases(resolveCodexHome());
+    } catch (error) {
+        logger.debug('[codex] Could not prepare plugin Skill aliases', error);
+    }
     try {
         discoveredSkills = listCodexSkillNames({ cwd: process.cwd() });
     } catch (error) {
