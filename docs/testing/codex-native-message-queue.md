@@ -73,3 +73,37 @@ Older CLIs without the advertised `codexSteer` capability retain queueing;
 native steering requires the updated CLI. Native Android rendering, image
 steering through the browser, and multi-device queue synchronization were not
 part of this Web acceptance. The queue is local to the signed-in client.
+
+## Old CLI send-now regression (2026-10-02)
+
+The queue-row action previously remained enabled without `codexSteer` or an
+active turn ID. Clicking it marked a queued message as failed even though no
+RPC was attempted, which then blocked automatic queue draining. The view and
+dispatcher now share an availability check; unavailable guidance leaves the
+message queued. Idle slash-command retries are also enabled.
+
+Real Ego regression used the isolated `fresh-birch` account/server/Expo app,
+an actual pre-feature CLI build (advertised version 1.3.16), and a freshly
+built native-steering CLI (1.3.17 source). No production worker was restarted.
+
+| Case | Observed result |
+| --- | --- |
+| Old CLI while running | Send now disabled; upgrade/new-session explanation visible; text remains queued |
+| Old CLI after completion | Original and queued marker requests both received actual model replies; queue emptied |
+| New CLI queue-row Send now | Guidance accepted in original turn `01a0fc92-fe15-7e30-aea5-3faf6929d2fc`; original tool and guided answer completed |
+| Remaining queued text | Received model reply in separate turn `01a0fc93-b1d9-7280-b1b9-8909684eebf2` |
+| Take back for edit | Restored exact queued text to the visible session input |
+
+To repeat: start one old and one new real worker against an isolated environment.
+For the old worker, request a 35-second sleep, then Enter-submit a second marker
+request while busy. Verify the disabled queue-row action and wait for both
+answers. For the new worker, Tab-queue a marker request and guidance, click the
+guidance row's Send now, and verify the original native turn identity and both
+final replies. Capture/report verified states using the existing Ego helper.
+
+Previously failed or interrupted submissions remain manual retries because
+acceptance can be ambiguous. This patch does not automatically resend them.
+Old CLIs also lack the immediate-command completion lifecycle: queued `/skills`
+and similar commands may hold later messages. Use an updated CLI for command
+queues and native guidance. Publishing only the Web does not update workers;
+existing sessions retain the runner that started them.

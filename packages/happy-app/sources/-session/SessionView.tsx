@@ -1915,7 +1915,9 @@ function SessionViewLoaded({
             <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
                 <MessageStagingQueueView
                     messages={stagedSnapshot.messages.filter(m => m.sessionId === sessionId)}
-                    connected={!isDisconnected}
+                    session={{ connected: !isDisconnected, state: sessionStatus.state,
+                        supportsSteer: session.metadata?.capabilities?.codexSteer === true,
+                        turnId: session.agentState?.turnStatus?.turnId }}
                     onSteer={id => { void messageStagingQueue.steer(id); }}
                     onRemove={messageStagingQueue.remove}
                     onEdit={message => {
