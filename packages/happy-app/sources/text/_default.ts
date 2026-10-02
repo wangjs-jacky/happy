@@ -47,7 +47,7 @@ export const en = {
         archived: 'This Agent is archived. Use /agent in a chat to restore it.',
         missingSkills: ({ names }: { names: string }) => `Missing Skills: ${names}. Check their installation paths on the selected device, or update the bindings in chat.`,
     },
-    messageQueue: { title: 'Queued messages', hint: 'Sends one at a time after the current task. Keep Paws open on this device.', enqueue: 'Queue for next turn (Tab)', steer: 'Send now', steerHint: 'Guide the current Codex turn without stopping it; current turn settings apply', sending: 'Sending…', failed: 'Not sent or delivery uncertain. Check history before retrying.', attachments: 'Attachments', edit: 'Return to input', occupied: 'Send or clear your current draft before editing a queued message.' },
+    messageQueue: { title: 'Queued messages', hint: 'Sends one at a time after the current task. Keep Paws open on this device.', enqueue: 'Queue for next turn (Tab)', enqueueSend: 'Queue for next turn', steer: 'Send now', steerUnavailable: 'This session cannot receive guidance during a task. Update Paws CLI and start a new session; queued messages can still send after this task finishes.', steerHint: 'Guide the current Codex turn without stopping it; current turn settings apply', sending: 'Sending…', failed: 'Not sent or delivery uncertain. Check history before retrying.', attachments: 'Attachments', edit: 'Return to input', occupied: 'Send or clear your current draft before editing a queued message.' },
     accounts: {
         attachmentWarning: "Switching accounts reloads Paws. Text drafts are kept, but unsent attachments must be selected again. Continue?",
         title: "Paws accounts",

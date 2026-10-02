@@ -4,6 +4,7 @@
  */
 
 import { io, Socket } from 'socket.io-client';
+import { startAppChatWorker } from '@/daemon/appDelegation/appChatWorker';
 import { join } from 'node:path';
 import { access, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -150,6 +151,7 @@ async function deleteFailedCodexTakeoverFork(threadId: string, sourceSessionId: 
 }
 
 export class ApiMachineClient {
+    private stopAppChatWorker: (() => void) | null = null;
     private socket!: Socket<ServerToDaemonEvents, DaemonToServerEvents>;
     private keepAliveInterval: NodeJS.Timeout | null = null;
     private lastKnownCLIAvailability: CLIAvailability | null = null;
@@ -660,6 +662,8 @@ export class ApiMachineClient {
 
         this.socket.on('connect', () => {
             logger.debug('[API MACHINE] Connected to server');
+            this.stopAppChatWorker?.();
+            this.stopAppChatWorker = startAppChatWorker(this.token, this.machine);
 
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
@@ -681,6 +685,8 @@ export class ApiMachineClient {
 
         this.socket.on('disconnect', (reason) => {
             logger.debug(`[API MACHINE] Disconnected from server — reason: ${reason}`);
+            this.stopAppChatWorker?.();
+            this.stopAppChatWorker = null;
             this.rpcHandlerManager.onSocketDisconnect();
             this.stopKeepAlive();
             this.startSmartReconnect();
@@ -805,6 +811,8 @@ export class ApiMachineClient {
 
     shutdown() {
         logger.debug('[API MACHINE] Shutting down');
+        this.stopAppChatWorker?.();
+        this.stopAppChatWorker = null;
         this.stopKeepAlive();
         if (this.reconnectInterval) {
             clearInterval(this.reconnectInterval);
