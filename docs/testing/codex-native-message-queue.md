@@ -237,15 +237,17 @@ Inputs 1–5 and their actual replies had sequence pairs **2→8, 11→13, 16→
 21→23, 26→28**. Thus every next input followed the preceding reply.
 Input 8 was explicit native guidance in the first turn
 `01a0fd58-a0c4-7000-bf73-aa5fffa44ba0`; remaining inputs used separate turns.
-The queue emptied only after all five replies were verified. The initial
+The final verdict required an empty staging queue, all five actual replies,
+and completion of the final reply's native turn. The initial
 ordinary run exceeded a 240-second model wait; verification continued in the
 same session without resubmitting. The recorded rerun passed in 89.1 seconds.
 
 [Pending inputs after guidance](evidence/codex-cold-start-staged-20261003.png)
 and [ordered final transcript](evidence/codex-cold-start-ordered-20261003.png)
 are verified Ego frames from that rerun. The
-[93.1-second acceptance video](evidence/codex-cold-start-order-20261003.mp4)
-uses real CDP frame samples with their capture timing and final-state hold;
+[98.1-second acceptance video](evidence/codex-cold-start-order-20261003.mp4)
+uses real CDP frame samples plus the same run's verified final screenshot
+held for five seconds;
 it is not an uninterrupted screen recording. H.264/yuv420p, 1920×674,
 30 fps, full decoding passed. The source handoff hold is explicit test timing
 control, not a claim that every startup normally takes this long.
