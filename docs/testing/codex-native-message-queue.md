@@ -204,3 +204,64 @@ sent as a Happy media card; playback on another device has not been confirmed.
 Test sessions and workers were removed, the isolated daemon stopped, and
 only the newly created test account credentials were removed from the browser
 and CLI home. The existing main daemon and user sessions were preserved.
+
+
+## Startup handoff and input/reply order (2026-10-03)
+
+Source revision `ffc797e440e11052a6e8af2a24acc08dacb467d7` fixes a second
+race: dequeue cleared `queuedMessages` before the native `turn-start`. During
+that gap the app could dispatch the next staged input. Its bubble then appeared
+before the previous answer, and every later turn remained one input ahead.
+The initial busy state without a native turn ID could also incorrectly release
+the frontend's submission barrier.
+
+The CLI now retains a pending count from dequeue until the root turn-start has
+been scheduled on the same serialized agent-state writer. A batch finally
+releases it for local commands and failures before native start. The frontend
+requires a new native turn ID before treating a Codex submission as started.
+
+| Case | Pass condition | Result |
+| --- | --- | --- |
+| COLD-1 | Pending input remains busy between dequeue and native turn-start; later inputs stay staged | Pass |
+| ORDER-2 | Send now joins the first turn; each queued input appears after the previous actual reply | Pass |
+
+Both an ordinary run and a fresh recorded rerun used the real 8444 app, an
+isolated account/CLI home, Codex 0.159.3 and gpt-6.1-sol/medium. To cover the
+short handoff deterministically, the runner briefly SIGSTOPs only its own
+Codex app-server before submitting the first input, then SIGCONTs it after
+staging the next three inputs. It does not mock the protocol, queue state or
+model. The original user's session was read-only.
+
+The recorded run used the installed `queue-handoff-ffc797e4-20261002` CLI.
+Inputs 1–5 and their actual replies had sequence pairs **2→8, 11→13, 16→18,
+21→23, 26→28**. Thus every next input followed the preceding reply.
+Input 8 was explicit native guidance in the first turn
+`01a0fd58-a0c4-7000-bf73-aa5fffa44ba0`; remaining inputs used separate turns.
+The queue emptied only after all five replies were verified. The initial
+ordinary run exceeded a 240-second model wait; verification continued in the
+same session without resubmitting. The recorded rerun passed in 89.1 seconds.
+
+[Pending inputs after guidance](evidence/codex-cold-start-staged-20261003.png)
+and [ordered final transcript](evidence/codex-cold-start-ordered-20261003.png)
+are verified Ego frames from that rerun. The
+[93.1-second acceptance video](evidence/codex-cold-start-order-20261003.mp4)
+uses real CDP frame samples with their capture timing and final-state hold;
+it is not an uninterrupted screen recording. H.264/yuv420p, 1920×674,
+30 fps, full decoding passed. The source handoff hold is explicit test timing
+control, not a claim that every startup normally takes this long.
+
+The rerun entry is `scripts/verify-cold-start-staging.ego.mjs`. Prepend
+`globalThis.coldStartConfig` with EGO_ARTIFACT_DIR (containing the isolated
+`home/access.key`, `home/daemon.state.json`, and `project/`), EGO_RECORDING,
+EGO_TASK_SPACE_ID, EGO_TARGET_ID, EGO_FROM_URL, EGO_CLI_PACKAGE_PATH,
+EGO_TEST_API_URL, EGO_WEB_ORIGIN, EGO_EXPECTED_REVISION,
+EGO_CAPTURE_HELPER_PATH, HAPPY_CAPTURE_SESSION_ID and EGO_RUN_ID. Use the
+already-owned task/target and a fresh frame directory; report each exact
+verified frame once, then clean up only that test account and daemon.
+
+Validation: 13 relevant CLI tests, 17 staging tests, CLI build/typecheck and
+app typecheck passed. Independent code review passed. This does not validate
+mobile/offline/permission/attachment paths, reconnect or late-child events.
+A startup error before any native turn may conservatively retain a barrier
+and require explicit retry; automatic recovery from every startup error is
+not claimed. Existing historical message order is not rewritten.
