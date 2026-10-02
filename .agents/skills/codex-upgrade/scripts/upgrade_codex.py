@@ -2,6 +2,7 @@
 """Safely upgrade this Mac's isolated Codex CLI installation."""
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -62,6 +63,18 @@ def main():
     user_home = Path.home()
     link = user_home / ".local/bin/codex"
     releases = user_home / ".local/share/codex/releases"
+    if args.check:
+        return inspect_and_upgrade(args, link, releases)
+
+    with (releases.parent / ".codex-upgrade.lock").open("a+") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Another Codex upgrade is already running") from error
+        return inspect_and_upgrade(args, link, releases)
+
+
+def inspect_and_upgrade(args, link, releases):
     found = shutil.which("codex")
     if not link.is_symlink() or not found or Path(found) != link:
         raise RuntimeError("Codex on PATH is not this machine's expected symlink; inspect the installation")
@@ -105,15 +118,19 @@ def main():
                 shutil.rmtree(stage)
         new_binary = native_binary(target)
 
-    run([str(new_binary), "doctor", "--summary", "--no-color"], timeout=90)
     replace_link(link, new_binary)
     try:
-        if link.resolve(strict=True) != new_binary or codex_version(link) != latest:
+        if link.resolve(strict=True) != new_binary.resolve(strict=True) or codex_version(link) != latest:
             raise RuntimeError("PATH Codex did not resolve to the new version")
     except Exception:
         replace_link(link, current_binary)
         raise
     result.update(status="upgraded", installed=latest, previous_binary=str(current_binary))
+    try:
+        run([str(new_binary), "doctor", "--summary", "--no-color"], timeout=90)
+        result["doctor"] = "passed"
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        result.update(doctor="warning", doctor_error=str(error))
     print(json.dumps(result))
 
 
