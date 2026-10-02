@@ -21,6 +21,23 @@ const ICON_REASONING = (size: number = 24, color: string = '#000') => <Octicons 
 const ICON_QUESTION = (size: number = 24, color: string = '#000') => <Ionicons name="help-circle-outline" size={size} color={color} />;
 const ICON_SKILL = (size: number = 24, color: string = '#000') => <Ionicons name="sparkles-outline" size={size} color={color} />;
 
+/** Compact only Happy's Agent tools and the title update used in their chat flow. */
+export function getMyAgentToolTitle(tool: ToolCall): string | null {
+    if (tool.name !== 'McpTool' || tool.input?.server !== 'happy') {
+        return null;
+    }
+    switch (tool.input?.tool) {
+        case 'agent_save': return t('myAgents.toolActions.save');
+        case 'agent_get': return t('myAgents.toolActions.get');
+        case 'agent_list': return t('myAgents.toolActions.list');
+        case 'agent_skills': return t('myAgents.toolActions.skills');
+        case 'agent_builder': return t('myAgents.toolActions.builder');
+        case 'agent_archive': return t('myAgents.toolActions.archive');
+        case 'change_title': return t('myAgents.toolActions.changeTitle');
+        default: return null;
+    }
+}
+
 function getPatchFiles(input: any): string[] {
     if (input?.changes && typeof input.changes === 'object' && !Array.isArray(input.changes)) {
         return Object.keys(input.changes);

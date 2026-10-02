@@ -6,7 +6,10 @@ export const PARTY_ORIGIN = 'https://47.115.228.20:8443';
 export const PARTY_STAGING_ORIGIN = 'https://47.115.228.20:8444';
 export function getPartyUrl(): string {
     const accountOrigin = canonicalAccountServer(getServerUrl());
-    if (accountOrigin !== PARTY_ORIGIN && accountOrigin !== PARTY_STAGING_ORIGIN) throw Error('请切换到 Paws 服务器的账号。');
+    const url = new URL(accountOrigin);
+    const localDevelopment = typeof __DEV__ !== 'undefined' && __DEV__
+        && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (accountOrigin !== PARTY_ORIGIN && accountOrigin !== PARTY_STAGING_ORIGIN && !localDevelopment) throw Error('请切换到 Paws 服务器的账号。');
     return `${accountOrigin}/agent-party/`;
 }
 export class CatalogError extends Error { constructor(message: string, public readonly status: number) { super(message); } }

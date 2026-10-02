@@ -9,7 +9,7 @@ import { CodeView } from '../CodeView';
 import { ToolSectionView } from './ToolSectionView';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { ToolError } from './ToolError';
-import { knownTools } from '@/components/tools/knownTools';
+import { getMyAgentToolTitle, knownTools } from '@/components/tools/knownTools';
 import { Metadata } from '@/sync/storageTypes';
 import { useRouter } from 'expo-router';
 import { PermissionFooter } from './PermissionFooter';
@@ -54,6 +54,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     const isPressable = !!(onPress || (sessionId && filePath) || (sessionId && messageId));
 
     let knownTool = knownTools[tool.name as keyof typeof knownTools] as any;
+    const myAgentToolTitle = getMyAgentToolTitle(tool);
 
     // Internal Claude Code tools (e.g. ToolSearch) are completely hidden from the UI
     if (knownTool?.hidden) {
@@ -62,7 +63,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
 
     let description: string | null = null;
     let status: string | null = null;
-    let minimal = false;
+    let minimal = myAgentToolTitle !== null;
     let icon = <Ionicons name="construct-outline" size={18} color={theme.colors.textSecondary} />;
     let noStatus = false;
     let hideDefaultError = false;
@@ -84,7 +85,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     }
 
     // Handle optional title and function type
-    let toolTitle = tool.name;
+    let toolTitle = myAgentToolTitle ?? tool.name;
     
     // Special handling for MCP tools
     if (tool.name.startsWith('mcp__')) {
@@ -132,6 +133,12 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     }
     if (knownTool && typeof knownTool.hideDefaultError === 'boolean') {
         hideDefaultError = knownTool.hideDefaultError;
+    }
+
+    // Compact Agent actions retain an explicit failure label and the clickable
+    // header; raw arguments/results remain available in the message detail.
+    if (myAgentToolTitle !== null && tool.state === 'error') {
+        status = t('status.failed');
     }
 
     let statusIcon = null;

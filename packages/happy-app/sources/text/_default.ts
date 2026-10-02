@@ -17,6 +17,15 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 export const en = {
     myAgents: {
         title: 'Agents',
+        toolActions: {
+            changeTitle: 'Update session title',
+            save: 'Save Agent',
+            get: 'Read Agent',
+            list: 'View Agents',
+            skills: 'View available Skills',
+            builder: 'Prepare Agent creation',
+            archive: 'Update archive status',
+        },
         create: 'Create Agent',
         edit: 'Edit',
         listHint: 'Choose an assistant to chat with, or type /agent in any chat to create or edit one.',

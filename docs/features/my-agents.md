@@ -42,4 +42,10 @@ CLI 包包含 `skills/agent-builder/SKILL.md`。Happy MCP 的 `agent_builder` �
 
 自动测试覆盖保存、重启恢复、A/B 账号隔离、创建幂等、并发修改、原管理器字段保留、真实路径、部分字段编辑、机器 RPC、角色刷新、启动顺序、未知结果重试及页面异步取消。另有真实组件与工具的 [Ego 隔离夹具](../../packages/happy-app/e2e/fixtures/my-agents/README.md)。
 
-隔离夹具复用真实列表、ComposeHome、MessageComposer、内置 Skill/命令加载器和保存工具；认证、配置控件、模型、RPC、加密传输与会话壳属于模拟边界。自动测试另覆盖原始 `/agent` 元数据与续接上下文、CLI 版本能力检查、非破坏性队列、附件保留、普通 first submission 与已保存角色启动恢复。PC 回归不能冒充完整线上或真机验证。用户不需要截图或状态演示附件，交付在对话中说明并更新 PR。
+隔离夹具复用真实列表、ComposeHome、MessageComposer、内置 Skill/命令加载器和保存工具；认证、配置控件、模型、RPC、加密传输与会话壳属于模拟边界。自动测试另覆盖原始 `/agent` 元数据与续接上下文、CLI 版本能力检查、非破坏性队列、附件保留、普通 first submission 与已保存角色启动恢复。夹具不能代表完整 Happy 页面的交互验收。
+
+完整页面联调使用独立本地账号、实际 relay/account-server、独立 daemon、真实 Codex 模型和完整 Expo Web。开发构建允许通过当前账号的 loopback 服务地址访问 Agents API；正式构建仍只允许现有正式/预发布 origin。测试数据不进入正式账号。用户要求的截图来自完整 Happy 页面，并通过 Happy 图片工具发送；PC Web 验收不代表 Android 真机或正式服务器已上线。
+
+Codex 的六个 Happy Agent MCP 操作和会话标题更新在聊天中显示简短状态行，避免展开完整职责、Skills 路径等内部 JSON。点击操作仍可查看详细输入输出；失败状态和权限反馈保留。
+
+完整页面 Ego 验收已覆盖：左侧入口与真实列表、普通输入框的创建/修改快捷入口、同一会话创建并修改助手、后续普通聊天、保存后重新读取档案、实际绑定 Skill 的使用、原中断请求复用已有会话，以及全新助手会话启动。真实联调发现服务端 metadata CAS 失败时返回旧快照，现改为按账号回读最新密文和版本；客户端仍保持三次有界尝试。最终页面证据见 [助手列表](my-agents-evidence/full-happy-catalog.png)、[同一聊天修改](my-agents-evidence/full-happy-edit-chat.png) 和 [使用助手](my-agents-evidence/full-happy-use.png)。

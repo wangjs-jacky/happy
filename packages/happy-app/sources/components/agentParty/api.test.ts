@@ -2,8 +2,20 @@ import { afterEach, expect, it, vi } from 'vitest';
 const runtime = vi.hoisted(() => ({ current: true, server: 'https://47.115.228.20:8443' }));
 vi.mock('@/auth/accountRuntime', () => ({ accountRuntimeCurrent: () => runtime.current, canonicalAccountServer: (url: string) => new URL(url).origin }));
 vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => runtime.server }));
-import { connectAgentCatalog, PARTY_ORIGIN } from './api';
+import { connectAgentCatalog, getPartyUrl, PARTY_ORIGIN } from './api';
 afterEach(() => { vi.unstubAllGlobals(); runtime.current = true; runtime.server = 'https://47.115.228.20:8443'; });
+it('allows loopback catalog integration only in development builds', () => {
+    vi.stubGlobal('__DEV__', true);
+    for (const origin of ['http://localhost:18790', 'http://127.0.0.1:18790', 'http://[::1]:18790']) {
+        runtime.server = origin;
+        expect(getPartyUrl()).toBe(`${origin}/agent-party/`);
+    }
+    runtime.server = 'https://example.invalid';
+    expect(() => getPartyUrl()).toThrow('Paws');
+    vi.stubGlobal('__DEV__', false);
+    runtime.server = 'http://localhost:18790';
+    expect(() => getPartyUrl()).toThrow('Paws');
+});
 it('uses same-origin AgentParty on the independent staging site', async () => {
     runtime.server = 'https://47.115.228.20:8444';
     const fetcher = vi.fn(async (url: string) => {
