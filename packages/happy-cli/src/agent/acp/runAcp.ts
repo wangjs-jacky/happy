@@ -9,7 +9,7 @@ import { AcpSessionManager } from './AcpSessionManager';
 import type { SessionEnvelope } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { MessageQueue2, createSerializedTaskRunner, isMediaAttachment, type ImageAttachment } from '@/utils/MessageQueue2';
-import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { AcpImagePromptError } from './imagePromptError';
 import { detectCodexImage } from '@/codex/codexImageInput';
 import { hashObject } from '@/utils/deterministicJson';
@@ -946,7 +946,7 @@ export async function runAcp(opts: {
       const failed = results.find((result): result is { error: string } => 'error' in result);
       const agentCommand = prepareMyAgentMessage(message);
       if (agentCommand && 'error' in agentCommand) {
-        session.sendSessionEvent({ type: 'message', message: agentCommand.error });
+        messageQueue.pushIsolate(message.content.text, mode, undefined, agentCommand.error);
         return;
       }
       const prompt = agentCommand?.prompt ?? (message.content.text || 'Please describe the attached image.');
@@ -1034,6 +1034,11 @@ export async function runAcp(opts: {
 
       if (!acpSessionId) {
         throw new Error('ACP session is not started');
+      }
+
+      if (batch.terminalError) {
+        sendRejectedMyAgentCommand(session, batch.terminalError);
+        continue;
       }
 
       logAcp('incoming', `Incoming prompt: ${formatUnknownForConsole(batch.message, ACP_EVENT_PREVIEW_CHARS)}`);

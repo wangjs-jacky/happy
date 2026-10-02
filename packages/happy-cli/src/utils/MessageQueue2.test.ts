@@ -436,6 +436,16 @@ describe('MessageQueue2', () => {
         expect(() => queue.pushIsolate('late', 'default')).toThrow('Cannot push to closed queue');
     });
 
+    it('keeps a local failure isolated without changing the backend mode hash or adjacent turns', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('before', 'same-session');
+        queue.pushIsolate('/agent create', 'same-session', undefined, 'Skill missing');
+        queue.push('after', 'same-session');
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'before', hash: 'same-session' });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: '/agent create', hash: 'same-session', isolate: true, terminalError: 'Skill missing' });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'after', hash: 'same-session' });
+    });
+
     it('should stop batching when hitting isolated message', async () => {
         const queue = new MessageQueue2<{ type: string }>((mode) => mode.type);
         

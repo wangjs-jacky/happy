@@ -27,7 +27,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { createSerializedTaskRunner, MessageQueue2 } from '@/utils/MessageQueue2';
-import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { isMediaAttachment, type PendingAttachment } from '@/utils/MessageQueue2';
 import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes, cleanupAllStagedMediaAttachments, cleanupMediaAttachments, secureAndRegisterStagedMediaPath } from '@/api/mediaAttachment';
 import { buildCodexTurnPayload } from './codexImageInput';
@@ -719,8 +719,8 @@ export async function runCodex(opts: {
             };
             const agentCommand = prepareMyAgentMessage(message);
             if (agentCommand && 'error' in agentCommand) {
-                session.sendSessionEvent({ type: 'message', message: agentCommand.error });
-                await cleanupMediaAttachments(attachmentsForThisMessage.filter(isMediaAttachment));
+                messageQueue.pushIsolate(message.content.text, enhancedMode, attachmentsForThisMessage, agentCommand.error);
+                void syncQueuedMessageCount(session);
                 return;
             }
             if (agentCommand) {
@@ -1549,7 +1549,7 @@ export async function runCodex(opts: {
             ].join('\n');
         };
 
-        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;
+        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[]; terminalError?: string } | null = null;
 
         const sendImmediateCommandResponse = (responseText: string) => {
             // Local slash commands have their own Paws lifecycle, independent of
@@ -1685,7 +1685,7 @@ export async function runCodex(opts: {
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
-            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = pending;
+            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[]; terminalError?: string } | null = pending;
             pending = null;
             if (!message) {
                 // Capture the current signal to distinguish idle-abort from queue close
@@ -1709,6 +1709,11 @@ export async function runCodex(opts: {
                 break;
             }
 
+            if (message.terminalError) {
+                sendRejectedMyAgentCommand(session, message.terminalError);
+                await cleanupMediaAttachments((message.attachments ?? []).filter(isMediaAttachment));
+                continue;
+            }
             const specialCommand = parseSpecialCommand(message.message);
             if (specialCommand.type && specialCommand.type !== 'plan') {
                 await cleanupMediaAttachments((message.attachments ?? []).filter(isMediaAttachment));

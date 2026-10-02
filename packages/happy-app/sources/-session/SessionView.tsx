@@ -1,6 +1,7 @@
 import { AgentContentView } from '@/components/AgentContentView';
 import { MessageComposer } from '@/components/MessageComposer';
 import { MessageStagingQueueView } from '@/components/MessageStagingQueueView';
+import { parseMyAgentCommand } from '@slopus/happy-wire';
 import { messageStagingQueue, stageSessionMessage } from '@/sync/messageStagingQueueRuntime';
 import type { SessionComposerDirectorySelectorConfig } from '@/components/SessionComposerDirectorySelector';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
@@ -1707,8 +1708,8 @@ function SessionViewLoaded({
                     if (composerHandleRef.current !== composer) return;
                     if (composer?.getMessage() === liveMessage) composer.clearMessage();
                     for (const attachment of attachments ?? []) removeImage(attachment.id);
-                } catch {
-                    Modal.alert(t('common.error'), t('common.retry'));
+                } catch (error) {
+                    Modal.alert(t('common.error'), parseMyAgentCommand(liveMessage) && error instanceof Error ? error.message : t('common.retry'));
                 } finally { sendInFlight.current = false; }
             })();
         }

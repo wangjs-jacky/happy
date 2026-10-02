@@ -49,6 +49,7 @@ const session = {
   sendAgentMessage: vi.fn((_provider: string, message: any) => {
     mocks.agentMessages.push(message);
   }),
+  sendSessionProtocolMessage: vi.fn(),
   sendSessionEvent: vi.fn((event: any) => {
     mocks.sessionEvents.push(event);
   }),
@@ -181,6 +182,19 @@ describe('runGemini turn lifecycle', () => {
     mocks.rpcHandlers.clear();
     mocks.sessionEvents = [];
     vi.clearAllMocks();
+  });
+
+  it('finishes a queued local error without submitting it to Gemini, then runs the following normal turn', async () => {
+    mocks.queue = [
+      { message: '/agent create', mode: { permissionMode: 'default' }, hash: 'mode-1', isolate: true, terminalError: 'Skill missing' },
+      { message: 'hello', mode: { permissionMode: 'default', originalUserMessage: 'hello' }, hash: 'mode-1', isolate: false },
+    ];
+    await runGemini({ credentials: { token: 'test-token' } as any });
+    expect(backend.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(session.sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope.ev)).toEqual([
+      { t: 'turn-start' }, { t: 'text', text: 'Skill missing' }, { t: 'turn-end', status: 'completed' },
+    ]);
+    expect(lifecycleMessages().map(message => message.type)).toEqual(['task_started', 'task_complete']);
   });
 
   it('keeps user abort cancelled after the per-turn finally block', async () => {

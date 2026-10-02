@@ -128,7 +128,7 @@ function getCommandsFromSession(sessionId: string): CommandItem[] {
         commands,
         session.metadata.slashCommands,
         (cmd) => COMMAND_DESCRIPTIONS[cmd],
-        (cmd) => isCodexSession ? CODEX_MOBILE_COMMAND_SET.has(cmd) : !IGNORED_COMMANDS.includes(cmd),
+        (cmd) => cmd !== 'agent' && (isCodexSession ? CODEX_MOBILE_COMMAND_SET.has(cmd) : !IGNORED_COMMANDS.includes(cmd)),
     );
 
     return commands;

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseMyAgentCommand, type MyAgentCommand } from '@slopus/happy-wire';
+import { randomUUID } from 'node:crypto';
+import { createEnvelope, parseMyAgentCommand, type MyAgentCommand } from '@slopus/happy-wire';
 import { projectPath } from '@/projectPath';
 import type { ApiSessionClient } from '@/api/apiSession';
 
@@ -27,6 +28,18 @@ export function declareMyAgentCommandCapability(session: Pick<ApiSessionClient, 
         ...metadata,
         capabilities: { ...metadata.capabilities, myAgentCommand: true },
     }));
+}
+
+/** A handled local rejection completes its response so later staged messages can advance.
+ * Called only by an idle processor consuming the isolated error, never on arrival. */
+export function sendRejectedMyAgentCommand(session: Pick<ApiSessionClient, 'sendSessionProtocolMessage' | 'sendSessionEvent'>, error: string): void {
+    const turn = `agent-command-${randomUUID()}`;
+    for (const envelope of [
+        createEnvelope('agent', { t: 'turn-start' }, { turn }),
+        createEnvelope('agent', { t: 'text', text: error }, { turn }),
+        createEnvelope('agent', { t: 'turn-end', status: 'completed' }, { turn }),
+    ]) session.sendSessionProtocolMessage(envelope);
+    session.sendSessionEvent({ type: 'ready' });
 }
 
 type PreparedCommand = { prompt: string } | { error: string };

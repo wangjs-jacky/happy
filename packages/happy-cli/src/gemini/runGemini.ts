@@ -14,7 +14,7 @@ import { join, resolve } from 'node:path';
 
 import { ApiClient } from '@/api/api';
 import { logger } from '@/ui/logger';
-import { declareMyAgentCommandCapability, prepareMyAgentMessage } from '@/agents/myAgentCommand';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { Credentials, readSettings } from '@/persistence';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { initialMachineMetadata } from '@/daemon/run';
@@ -277,7 +277,9 @@ export async function runGemini(opts: {
     const originalUserMessage = message.content.text;
     const agentCommand = prepareMyAgentMessage(message);
     if (agentCommand && 'error' in agentCommand) {
-      session.sendSessionEvent({ type: 'message', message: agentCommand.error });
+      messageQueue.pushIsolate(originalUserMessage, {
+        permissionMode: messagePermissionMode || 'default', model: messageModel, originalUserMessage,
+      }, undefined, agentCommand.error);
       return;
     }
     let fullPrompt = agentCommand?.prompt ?? originalUserMessage;
@@ -954,10 +956,10 @@ export async function runGemini(opts: {
 
   try {
     let currentModeHash: string | null = null;
-    let pending: { message: string; mode: GeminiMode; isolate: boolean; hash: string } | null = null;
+    let pending: { message: string; mode: GeminiMode; isolate: boolean; hash: string; terminalError?: string } | null = null;
 
     while (!shouldExit) {
-      let message: { message: string; mode: GeminiMode; isolate: boolean; hash: string } | null = pending;
+      let message: { message: string; mode: GeminiMode; isolate: boolean; hash: string; terminalError?: string } | null = pending;
       pending = null;
 
       if (!message) {
@@ -978,6 +980,11 @@ export async function runGemini(opts: {
 
       if (!message) {
         break;
+      }
+
+      if (message.terminalError) {
+        sendRejectedMyAgentCommand(session, message.terminalError);
+        continue;
       }
 
       // Track if we need to inject conversation history (after model change)

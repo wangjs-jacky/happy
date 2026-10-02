@@ -6,15 +6,17 @@
 MY_AGENTS_FIXTURE_PORT=18785 node packages/happy-app/e2e/fixtures/my-agents/serve.mjs
 ```
 
-通过 Ego 打开打印的 localhost 地址。夹具使用真实 MyAgentsScreen、ComposeHome、MessageComposer、MyAgentCard、useMyAgentCompose、launch、内置 Skill、CLI 工具、canonical scanner 和 ProfileService，采用 ginghamDark。
+通过 Ego 打开打印的 localhost 地址。夹具使用真实 MyAgentsScreen、ComposeHome、MessageComposer（含命令补全）、MyAgentCard、useFirstSubmission、FirstSubmissionOwner、useMyAgentCompose、launch、命令 parser、内置 Skill loader、CLI 工具、canonical scanner 和 ProfileService，组件采用 ginghamDark。
 
-认证、配置控件与外围布局 hooks、机器 RPC、加密会话存储、hydration、模型与会话壳是模拟边界。只修改临时档案和 synthetic sessions。真实账号隔离和机器 RPC 另由服务/CLI 测试覆盖；这里不能证明完整 Sidebar/Header、真实 daemon、模型质量或 Android 键盘/安全区。
+认证、配置控件与外围布局 hooks、机器 RPC、加密会话存储、hydration、消息 staging、模型与会话壳是模拟边界。useFirstSubmission 不再是空实现：真实 hook 与 owner 通过 localStorage 持久化，并实际执行合成 spawn → send → projection → navigation；已有会话由真实 MessageComposer 驱动合成 sync 边界，保留逐轮历史。`/fixture/state` 暴露合成会话数量、每轮 command/Skill 加载及工具记录，供同会话、无误触发和保存后读取断言。浏览器只修改临时档案和 synthetic sessions。
 
-1. **AG-S01 列表：** 名称和简介卡片，无创建/职责/Skills/模型表单，创建与修改入口可发现。
-2. **AG-S02 创建：** 点击创建进入 `/new?myAgentMode=create` 的原有输入框。空输入禁发，不自动发消息。输入自然语言并发送，模拟模型加载真实内置 Skill、扫描真实临时 Skills、调用真实保存工具。聊天只显示用户需求，返回列表能看到保存结果。
-3. **AG-S03 使用：** 点击卡片进入 `/new?myAgentMode=use&myAgentId=...`。在普通输入框给任务，launch 在发送前确认角色 metadata，模拟回复读回保存角色。保存卡片也直接进入此入口。
-4. **AG-S04 修改：** 点击修改进入 `/new?myAgentMode=edit&myAgentId=...`。直接输入调整要求，真实保存工具修改档案，保留未要求变更的字段。没有额外配置页。
-5. **AG-S05 状态与布局：** 1440px 下检查焦点、Enter、空/满输入、忙状态与无横向溢出；390×844 只验证窄屏 Web。旧启动/投影不能抢走页面或重复发送，由 hook、launch、ComposeHome 回归测试覆盖。
+模型边界是刻意有限的脚本：创建默认名“狗头军师”，也可用“叫方案助手”指定合成名字；修改按已存在名称定位，只更新简短回答偏好。它不证明真实模型会正确理解任意自然语言、选 Skill 或执行多轮追问。真实账号隔离、命令 capability 检查、加密 metadata、staging 拒绝/恢复和 CLI 队列另由服务/CLI/App 测试覆盖。此夹具不能证明完整 Sidebar/Header/SessionView、真实 daemon/LLM、生产部署、Android 键盘/安全区或原生端行为。
+
+1. **AG-C01 普通会话创建：** 从 `/new` 正常发送一句话建立会话，再发送 `/agent 创建一个狗头军师，擅长分析方案并指出风险`。会话 id 和数量不变，真实 packaged Skill 被加载，真实保存工具返回卡片。
+2. **AG-C02 同会话修改：** 继续发送 `/agent 修改狗头军师，以后回答简短一点`。会话 id 和档案 id 不变，保存偏好变化，职责/Skills 不变。
+3. **AG-C03 普通消息与裸命令：** 继续正常聊天，命令 loader 不触发且没有 agent_save。单独发送 `/agent` 时加载 Skill 并提示补充请求，但不保存 Agent。
+4. **AG-C04 列表快捷入口：** 返回并刷新列表，读取已保存助手。创建与修改入口只进入 `/new?agentCommand=...` 预填可编辑命令，不自动发送或创建会话。可直接在普通新会话发送完整 `/agent` 命令创建另一个助手。没有专门 create/edit 模式或额外表单。
+5. **AG-C05 使用与键盘：** 卡片仍进入 `/new?myAgentMode=use&myAgentId=...`，发送任务后 launch 绑定角色并读取最新偏好。1440×900 检查无横向溢出、列表主题焦点、普通新会话 `/ag` 用 ArrowDown/Enter 补全、Enter 发送、Shift+Enter 换行、空输入禁发。此处桌面回归不等于窄屏/原生 Mobile 验收。
 
 稳定选择器：`[data-testid="my-agents-create"]`、`[data-testid="my-agent-<id>"]`、`[data-testid="my-agent-edit-<id>"]`、`[data-testid="new-session-message-input"]`、`[data-testid="message-composer-send-button"]`。
 

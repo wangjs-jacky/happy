@@ -1,4 +1,6 @@
 import { v4 as uuid } from 'uuid';
+import { parseMyAgentCommand } from '@slopus/happy-wire';
+import { t } from '@/text';
 import { accountRuntimeCurrent } from '@/auth/accountRuntime';
 import { resolveSessionState } from '@/utils/sessionUtils';
 import { isSessionArchived } from '@/utils/sessionLifecycle';
@@ -77,6 +79,11 @@ export async function stageSessionMessage(sessionId: string, text: string, attac
     const selected = attachments?.map(a => ({ ...a }));
     await initializeMessageStagingQueue();
     if (!storage.getState().sessions[sessionId] || !accountRuntimeCurrent()) throw new Error('Session unavailable');
+    // Reject before accepting/clearing the composer draft. The encrypted send
+    // boundary checks this again in case a queued session changes CLI version.
+    if (parseMyAgentCommand(text) && storage.getState().sessions[sessionId]?.metadata?.capabilities?.myAgentCommand !== true) {
+        throw new Error(t('myAgents.commandUnavailable'));
+    }
     const id = uuid();
     messageStagingQueue.enqueue({
         id, sessionId, text,

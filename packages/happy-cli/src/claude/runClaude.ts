@@ -767,8 +767,7 @@ export async function runClaude(
                 effort: messageEffort,
             };
             if (agentCommand && 'error' in agentCommand) {
-                session.sendSessionEvent({ type: 'message', message: agentCommand.error });
-                await cleanupMediaAttachments(attachmentsForThisMessage.filter(isMediaAttachment));
+                messageQueue.pushIsolate(message.content.text, enhancedMode, attachmentsForThisMessage, agentCommand.error);
                 return;
             }
             if (agentCommand) {

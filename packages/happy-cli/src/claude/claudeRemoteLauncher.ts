@@ -22,6 +22,7 @@ import { cleanupAllStagedMediaAttachments, cleanupMediaAttachments, formatMediaA
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configuration } from '@/configuration';
+import { sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 
 interface PermissionsField {
     date: number;
@@ -286,6 +287,7 @@ export async function claudeRemoteLauncher(session: Session, onProcessorReady?: 
         hash: string;
         isolate: boolean;
         attachments?: PendingAttachment[];
+        terminalError?: string;
     };
 
     const prepareRemoteMessage = (msg: QueuedClaudeMessage): {
@@ -382,23 +384,30 @@ export async function claudeRemoteLauncher(session: Session, onProcessorReady?: 
                         return permissionHandler.isAborted(toolCallId);
                     },
                     nextMessage: async () => {
-                        if (pending) {
-                            const p = pending;
-                            pending = null;
-                            return prepareRemoteMessage(p);
-                        }
+                        while (true) {
+                            if (pending) {
+                                const p = pending;
+                                pending = null;
+                                if (p.terminalError) {
+                                    sendRejectedMyAgentCommand(session.client, p.terminalError);
+                                    await cleanupMediaAttachments((p.attachments ?? []).filter(isMediaAttachment));
+                                    continue;
+                                }
+                                return prepareRemoteMessage(p);
+                            }
 
-                        const msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
-                        if (!msg) return null;
+                            const msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
+                            if (!msg) return null;
 
-                        // Check if mode has changed
-                        if ((modeHash && msg.hash !== modeHash) || msg.isolate) {
-                            logger.debug('[remote]: mode has changed, pending message');
-                            pending = msg;
-                            return null;
+                            // Finish the previous SDK iteration before consuming any isolated local error.
+                            if ((modeHash && msg.hash !== modeHash) || msg.isolate) {
+                                logger.debug('[remote]: mode has changed, pending message');
+                                pending = msg;
+                                return null;
+                            }
+                            modeHash = msg.hash;
+                            return prepareRemoteMessage(msg);
                         }
-                        modeHash = msg.hash;
-                        return prepareRemoteMessage(msg);
                     },
                     onSessionFound: (sessionId) => {
                         // Update converter's session ID when new session is found

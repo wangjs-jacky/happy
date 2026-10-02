@@ -298,15 +298,27 @@ describe('runAcp', () => {
   });
 
   it('keeps following requests usable when the bundled /agent Skill cannot load', async () => {
+    let release!: () => void;
+    mocks.backendState.holdPrompt = new Promise<void>(resolve => { release = resolve; });
     const run = startImages();
     try {
       await vi.waitFor(() => expect(mocks.getUserMessageHandler()).toBeTypeOf('function'));
+      mocks.getUserMessageHandler()!({ content: { text: 'busy' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
       mocks.getUserMessageHandler()!({ content: { text: '/agent create' } });
       mocks.getUserMessageHandler()!({ content: { text: 'ordinary request after failure' } });
-      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
-      expect(mocks.backendState.prompts[0].prompt).toBe('ordinary request after failure');
-      expect(mocks.mockSession.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: expect.stringContaining('request was not executed') });
-    } finally { await mocks.getKillHandler()!(); await run; }
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(mocks.mockSession.sendSessionProtocolMessage.mock.calls.some(([envelope]) => envelope.ev.t === 'turn-end')).toBe(false);
+      release();
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(2));
+      expect(mocks.backendState.prompts[1].prompt).toBe('ordinary request after failure');
+      const failed = mocks.mockSession.sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope)
+        .filter(envelope => envelope.turn?.startsWith('agent-command-'));
+      expect(failed.map(envelope => envelope.ev.t)).toEqual(['turn-start', 'text', 'turn-end']);
+      expect(failed[1].ev.text).toContain('request was not executed');
+      expect(failed[2].ev.status).toBe('completed');
+      expect(new Set(failed.map(envelope => envelope.turn)).size).toBe(1);
+    } finally { release(); await mocks.getKillHandler()!(); await run; }
   });
 
   it('forwards decrypted images with their owning text despite out-of-order downloads', async () => {

@@ -156,7 +156,7 @@ export async function runAsk(opts: {
     const agentCommand = prepareMyAgentMessage(message, { unsupportedEngine: 'Ask' });
     if (agentCommand && 'error' in agentCommand) {
       sendText(agentCommand.error);
-      closeTurn('failed');
+      closeTurn('completed');
       return;
     }
     const options = buildAskDeepSeekOptions({

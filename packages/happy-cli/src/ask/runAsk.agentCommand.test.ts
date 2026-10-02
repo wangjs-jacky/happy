@@ -43,7 +43,7 @@ it('refuses /agent visibly without calling the model or polluting ordinary Ask h
     expect(mocks.stream).not.toHaveBeenCalled();
     expect(mocks.send.mock.calls.some(([envelope]) => envelope.ev.t === 'text'
         && envelope.ev.text.includes('Ask does not expose Happy'))).toBe(true);
-    expect(mocks.send.mock.calls.some(([envelope]) => envelope.ev.t === 'turn-end' && envelope.ev.status === 'failed')).toBe(true);
+    expect(mocks.send.mock.calls.some(([envelope]) => envelope.ev.t === 'turn-end' && envelope.ev.status === 'completed')).toBe(true);
     mocks.user!({ content: { text: 'an ordinary question' } });
     for (let index = 0; index < 10; index++) await Promise.resolve();
     expect(mocks.stream).toHaveBeenCalledTimes(1);

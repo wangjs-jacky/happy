@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UserMessageSchema } from '@/api/types';
 import { createMyAgentToolHandler } from './myAgentTools';
-import { declareMyAgentCommandCapability, getMyAgentCommand, loadBuiltInAgentBuilderSkill, prepareMyAgentMessage } from './myAgentCommand';
+import { declareMyAgentCommandCapability, getMyAgentCommand, loadBuiltInAgentBuilderSkill, prepareMyAgentMessage, sendRejectedMyAgentCommand } from './myAgentCommand';
 
 const paths = vi.hoisted(() => ({ root: '' }));
 vi.mock('@/projectPath', () => ({ projectPath: () => paths.root }));
@@ -11,6 +11,21 @@ paths.root = root;
 afterEach(() => { paths.root = root; });
 
 describe('explicit /agent Skill binding', () => {
+    it('completes an independent local rejection response without mutating an existing turn or blocking staging', () => {
+        const sendSessionProtocolMessage = vi.fn();
+        const sendSessionEvent = vi.fn();
+        const session = { sendSessionProtocolMessage, sendSessionEvent };
+        sendRejectedMyAgentCommand(session, 'Skill missing');
+        const envelopes = sendSessionProtocolMessage.mock.calls.map(([envelope]) => envelope);
+        expect(envelopes.map(envelope => envelope.ev)).toEqual([
+            { t: 'turn-start' }, { t: 'text', text: 'Skill missing' }, { t: 'turn-end', status: 'completed' },
+        ]);
+        expect(new Set(envelopes.map(envelope => envelope.turn)).size).toBe(1);
+        expect(envelopes[0].turn).toMatch(/^agent-command-/);
+        expect(sendSessionEvent).toHaveBeenCalledWith({ type: 'ready' });
+        sendRejectedMyAgentCommand(session, 'Another failure');
+        expect(sendSessionProtocolMessage.mock.calls[3][0].turn).not.toBe(envelopes[0].turn);
+    });
     it('declares command support without replacing unrelated capabilities or restored metadata', () => {
         let metadata: any = { path: '/project', host: 'test', myAgentId: 'saved-agent', capabilities: { regenerateTitle: true, codexCredentialRecovery: true } };
         declareMyAgentCommandCapability({ updateMetadata: update => { metadata = update(metadata); } });
