@@ -11,8 +11,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { BROWSER_STEP_TOOL_DESCRIPTION } from '@/browser/browserStepReportingPrompt';
+import { MY_AGENT_TOOL_NAMES, registerMyAgentTools } from '@/agents/myAgentTools';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview', 'list_previews', 'close_preview'] as const;
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview', 'list_previews', 'close_preview', ...MY_AGENT_TOOL_NAMES] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -204,4 +205,5 @@ export function registerHappyBridgeTools(
     },
     async (args) => forwardHappyToolCall('close_preview', { previewId: args.previewId }, ensureHttpClient, 'Failed to close preview')
   );
+  registerMyAgentTools(server, (name, args) => forwardHappyToolCall(name, args, ensureHttpClient, 'Agent 操作失败'));
 }

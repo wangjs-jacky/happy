@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentState } from '@/api/types';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { applyPersistedTurnStatus } from '@/api/sessionTurnStatus';
+import { prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { createCodexMessageQueueStatus } from './codexMessageQueueStatus';
 
 function setup(initial: AgentState = {}) {
@@ -68,5 +69,53 @@ describe('Codex message queue handoff', () => {
         }));
         await t.status.release();
         expect(t.state()).toEqual({ turnStatus: { status: 'completed', turnId: 'local-command', updatedAt: 2 } });
+    });
+
+    it('keeps an isolated /agent rejection queued through startup and releases only its own pending count', async () => {
+        const t = setup();
+        t.queue.push('first task', 'mode');
+        await t.status.sync();
+        await t.queue.waitForMessagesAndGetAsString();
+        await t.status.begin();
+
+        const command = prepareMyAgentMessage({ content: { text: '/agent create' } }, { loadSkill: () => '' });
+        if (!command || !('error' in command)) throw new Error('Expected rejected command');
+        t.queue.pushIsolate('/agent create', 'mode', undefined, command.error);
+        t.queue.push('next task', 'mode');
+        await t.status.sync();
+        // The dequeued first task still owns one count until its native turn
+        // begins; enqueuing /agent must not reset that startup reservation.
+        expect(t.state().queuedMessages).toBe(3);
+        await t.session.updateAgentState(s => applyPersistedTurnStatus(s, {
+            status: 'running', turnId: 'first-turn', updatedAt: 1,
+        }));
+        await t.status.release();
+        await t.session.updateAgentState(s => applyPersistedTurnStatus(s, {
+            status: 'completed', turnId: 'first-turn', updatedAt: 2,
+        }));
+
+        const rejected = await t.queue.waitForMessagesAndGetAsString();
+        expect(rejected).toMatchObject({ message: '/agent create', isolate: true, terminalError: command.error });
+        await t.status.begin();
+        sendRejectedMyAgentCommand({
+            sendSessionProtocolMessage(envelope) {
+                if (envelope.ev.t === 'turn-start' || envelope.ev.t === 'turn-end') {
+                    const status = envelope.ev.t === 'turn-start' ? 'running' : envelope.ev.status;
+                    void t.session.updateAgentState(s => applyPersistedTurnStatus(s, {
+                        status, turnId: envelope.turn, updatedAt: envelope.time,
+                    }));
+                }
+            },
+            sendSessionEvent() {},
+        }, rejected!.terminalError!);
+        await t.status.release(); // The processor finally also runs for local errors.
+
+        expect(t.state().turnStatus).toMatchObject({ status: 'completed', turnId: expect.stringMatching(/^agent-command-/) });
+        expect(t.state().queuedMessages).toBe(1);
+        expect(await t.queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'next task', isolate: false });
+        await t.status.begin();
+        expect(t.state().queuedMessages).toBe(1);
+        await t.status.release();
+        expect(t.state().queuedMessages).toBeUndefined();
     });
 });

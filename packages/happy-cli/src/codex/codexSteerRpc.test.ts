@@ -9,6 +9,23 @@ vi.mock('./codexImageInput', async (importOriginal) => ({
 const request = { text: 'Focus on the tests first', expectedTurnId: 'turn-1', clientMessageId: 'message-1' };
 
 describe('Codex steer RPC', () => {
+    it.each(['/agent', ' \n/AGENT 创建军师'])('rejects %s before touching the active native turn or uploading attachments', async text => {
+        const steerTurn = vi.fn();
+        const uploadImageAttachment = vi.fn();
+        const sendMessage = vi.fn();
+        const handler = createCodexSteerHandler({ client: { steerTurn }, sendMessage, uploadImageAttachment });
+        await expect(handler({ ...request, text, images: [{ data: 'invalid image must not be processed' }] })).rejects.toThrow('own queued turn');
+        expect(steerTurn).not.toHaveBeenCalled();
+        expect(uploadImageAttachment).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it.each(['quote /agent create', '/agents create'])('keeps ordinary %s eligible for native steering', async text => {
+        const steerTurn = vi.fn().mockResolvedValue({ turnId: 'turn-1' });
+        const handler = createCodexSteerHandler({ client: { steerTurn }, sendMessage: vi.fn() });
+        await expect(handler({ ...request, text })).resolves.toMatchObject({ accepted: true });
+        expect(steerTurn).toHaveBeenCalledTimes(1);
+    });
     it('waits for native acceptance, records one user message and deduplicates retries', async () => {
         let accept!: (result: { turnId: string }) => void;
         const steerTurn = vi.fn(() => new Promise<{ turnId: string }>((resolve) => { accept = resolve; }));

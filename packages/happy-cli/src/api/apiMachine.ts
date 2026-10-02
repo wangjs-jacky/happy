@@ -43,6 +43,7 @@ import {
     listCodexRewindPoints,
 } from '@/codex/codexThreadFork';
 import { isTerminalCodexTurn } from '@/codex/utils/sessionProtocolMapper';
+import { listCodexSkillEntries } from '@/codex/codexSkills';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -176,6 +177,10 @@ export class ApiMachineClient {
         });
 
         registerCommonHandlers(this.rpcHandlerManager, process.cwd());
+        this.rpcHandlerManager.registerHandler('my-agent-skills', async (params: { cwd?: string }) => {
+            if (params.cwd !== undefined && (typeof params.cwd !== 'string' || !params.cwd.startsWith('/') || params.cwd.includes('\0') || params.cwd.length > 4096)) throw new Error('Invalid Agent working directory');
+            return { skills: listCodexSkillEntries({ cwd: params.cwd }) };
+        });
 
         // Keep issued previews and apply locks alive across socket reconnections.
         const runner = createProcessRunner();

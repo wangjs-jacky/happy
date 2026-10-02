@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { MyAgentCommandSchema } from '@slopus/happy-wire';
 
 // Shared message metadata schema
 export const MessageMetaSchema = z.object({
+    myAgentCommand: MyAgentCommandSchema.optional(),
     continuationContextSourceId: z.string().optional(),
     sentFrom: z.string().optional(), // Source identifier
     permissionMode: z.string().optional(), // Permission mode key for this message

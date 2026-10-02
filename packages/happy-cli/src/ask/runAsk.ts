@@ -26,6 +26,7 @@ import {
 } from '@/deepseek/deepseekClient';
 import { resolveDeepSeekApiKey } from '@/deepseek/deepseekCredentials';
 import { buildAskAugmentedUserContent } from './askTools';
+import { prepareMyAgentMessage } from '@/agents/myAgentCommand';
 
 type AskEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
@@ -152,6 +153,12 @@ export async function runAsk(opts: {
   };
 
   const processMessage = async (message: UserMessage) => {
+    const agentCommand = prepareMyAgentMessage(message, { unsupportedEngine: 'Ask' });
+    if (agentCommand && 'error' in agentCommand) {
+      sendText(agentCommand.error);
+      closeTurn('completed');
+      return;
+    }
     const options = buildAskDeepSeekOptions({
       model: message.meta?.model,
       effort: message.meta?.effort,

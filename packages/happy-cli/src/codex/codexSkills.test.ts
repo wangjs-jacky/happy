@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { listCodexSkillNames } from './codexSkills';
+import { listCodexSkillEntries, listCodexSkillNames } from './codexSkills';
 
 function writeSkill(root: string, relativePath: string, frontmatterName?: string): void {
     const filePath = join(root, relativePath);
@@ -62,6 +62,22 @@ describe('listCodexSkillNames', () => {
         writeSkill(repoRoot, '.agents/skills/find-skills/SKILL.md', 'find-skills');
 
         expect(listCodexSkillNames({ cwd, homeDir })).toEqual(['find-skills']);
+    });
+
+    it('discovers Claude personal and plugin Skills with canonical paths shared by save and launch validation', () => {
+        const homeDir = mkdtempSync(join(tmpdir(), 'agent-skills-home-'));
+        created.push(homeDir);
+        writeSkill(homeDir, '.claude/skills/claude-only/SKILL.md', 'claude-only');
+        writeSkill(homeDir, '.claude/plugins/cache/community/advisor/1.0.0/skills/decision/SKILL.md', 'decision');
+        writeSkill(homeDir, '.codex/skills/codex-only/SKILL.md', 'codex-only');
+        mkdirSync(join(homeDir, '.agents/skills'), { recursive: true });
+        symlinkSync(join(homeDir, '.claude/skills/claude-only'), join(homeDir, '.agents/skills/linked-claude'), 'junction');
+        const entries = listCodexSkillEntries({ cwd: homeDir, homeDir });
+        expect(entries.map(s => s.name)).toEqual(['advisor:decision', 'claude-only', 'codex-only']);
+        expect(entries.find(s => s.name === 'claude-only')).toMatchObject({
+            path: realpathSync(join(homeDir, '.claude/skills/claude-only/SKILL.md')), description: 'desc',
+        });
+        expect(entries.find(s => s.name === 'advisor:decision')?.path).toBe(realpathSync(join(homeDir, '.claude/plugins/cache/community/advisor/1.0.0/skills/decision/SKILL.md')));
     });
 
     it('falls back to the directory name when frontmatter name is missing', () => {

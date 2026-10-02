@@ -31,6 +31,6 @@ export default function AgentPartyAccess() {
         <Text style={{ color: theme.colors.text }}>使用当前 Paws 账号登录独立群聊网站，读取你在 Paws 配置的 Agent，并连接所选设备运行会话。</Text>
         {error ? <Text accessibilityRole="alert" style={{ color: theme.colors.text }}>{error}</Text> : null}
         <Pressable accessibilityRole="button" disabled={busy} onPress={credentials ? open : () => { rememberPartyReturn('/agent-party-access'); router.push('/'); }} style={({ pressed }) => ({ padding: 16, borderRadius: 12, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceSelected })}><Text style={{ color: theme.colors.text }}>{busy ? '正在连接…' : credentials ? '使用当前账号继续' : '登录或创建 Paws 账号'}</Text></Pressable>
-        <Pressable accessibilityRole="button" onPress={() => router.push('/agent-profiles')}><Text style={{ color: theme.colors.textLink }}>管理我的 Agent</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => router.push('/my-agents')}><Text style={{ color: theme.colors.textLink }}>管理我的 Agent</Text></Pressable>
     </View>;
 }

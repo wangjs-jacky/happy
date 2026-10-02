@@ -19,6 +19,7 @@ import { AcpSessionManager } from '@/agent/acp/AcpSessionManager';
 import type { SessionEnvelope } from '@slopus/happy-wire';
 import { logger } from '@/ui/logger';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
@@ -271,6 +272,11 @@ export async function runOpenClaw(opts: RunOpenClawOptions): Promise<void> {
 
   session.onUserMessage((message) => {
     if (!message.content.text) return;
+    const agentCommand = prepareMyAgentMessage(message, { unsupportedEngine: 'OpenClaw' });
+    if (agentCommand && 'error' in agentCommand) {
+      messageQueue.pushIsolate(message.content.text, {}, undefined, agentCommand.error);
+      return;
+    }
     messageQueue.push(message.content.text, {});
   });
   session.keepAlive(thinking, 'remote');
@@ -323,6 +329,10 @@ export async function runOpenClaw(opts: RunOpenClawOptions): Promise<void> {
         break;
       }
 
+      if (batch.terminalError) {
+        sendRejectedMyAgentCommand(session, batch.terminalError);
+        continue;
+      }
       log(`Incoming prompt: ${batch.message.slice(0, 200)}`);
       inTurn = true;
       sendEnvelopes(sessionManager.startTurn());

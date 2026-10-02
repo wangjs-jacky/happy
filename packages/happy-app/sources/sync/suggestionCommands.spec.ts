@@ -12,6 +12,7 @@ vi.mock('./storage', () => ({
         },
     },
 }));
+vi.mock('@/text', () => ({ t: () => 'Create or edit a saved Agent' }));
 
 import { getAllCommands, searchCommands } from './suggestionCommands';
 import { storage } from './storage';
@@ -21,6 +22,18 @@ afterEach(() => {
 });
 
 describe('suggestionCommands', () => {
+    it('offers /agent only when the running CLI declares support', () => {
+        mockState.sessions = {
+            current: { metadata: { flavor: 'codex', capabilities: { myAgentCommand: true }, slashCommands: ['agent'] } },
+            legacy: { metadata: { flavor: 'codex' } },
+            native: { metadata: { flavor: 'claude', slashCommands: ['agent'] } },
+            ask: { metadata: { flavor: 'ask' } },
+        };
+        expect(getAllCommands('current').filter(c => c.command === 'agent')).toEqual([{ command: 'agent', description: 'Create or edit a saved Agent' }]);
+        expect(getAllCommands('legacy').some(c => c.command === 'agent')).toBe(false);
+        expect(getAllCommands('native').some(c => c.command === 'agent')).toBe(false);
+        expect(getAllCommands('ask').some(c => c.command === 'agent')).toBe(false);
+    });
     it('merges default commands and slash commands', () => {
         storage.setState({
             sessions: {

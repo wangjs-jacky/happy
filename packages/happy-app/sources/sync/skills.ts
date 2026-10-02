@@ -82,19 +82,37 @@ export async function scanSkills(machineId: string, options?: { cwd?: string }):
     // parseSkillList 还会按路径去重，防止多个链接根扫描到同一文件时产生重复 key。
     const cmd = String.raw`
 agents_home=$(cd "$HOME/.agents/skills" 2>/dev/null && pwd -P)
-agents_project=$(cd "$PWD/.agents/skills" 2>/dev/null && pwd -P)
 { find -L "$HOME/.claude/skills" -maxdepth 2 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.claude/plugins" -maxdepth 8 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.codex/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.codex/plugins" -maxdepth 8 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
-  if [ -n "$agents_project" ] && [ "$agents_project" != "$agents_home" ]; then
-    find -L "$PWD/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
-  fi; } |
+  skill_ancestor="$PWD"
+  while [ -n "$skill_ancestor" ]; do
+    if [ "$skill_ancestor/.agents/skills" != "$agents_home" ]; then
+      find -L "$skill_ancestor/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null
+    fi
+    if [ "$skill_ancestor" = / ]; then break; fi
+    skill_ancestor="$(dirname "$skill_ancestor")"
+    if [ -z "$skill_ancestor" ]; then skill_ancestor=/; fi
+  done; } |
 while IFS= read -r -d '' f; do
   name=$(awk -F': *' '/^name:/{v=$2; gsub(/^"|"$/,"",v); print v; exit}' "$f")
   desc=$(awk '${SKILL_DESCRIPTION_AWK}' "$f")
-  printf '%s\x1f%s\x1f%s\x1e' "$f" "$name" "$desc"
+  canonical_skill_file="$f"
+  skill_links=0
+  while [ -L "$canonical_skill_file" ] && [ "$skill_links" -lt 32 ]; do
+    skill_link=$(readlink "$canonical_skill_file")
+    case "$skill_link" in
+      /*) canonical_skill_file="$skill_link" ;;
+      *) canonical_skill_file="$(dirname "$canonical_skill_file")/$skill_link" ;;
+    esac
+    skill_links=$((skill_links + 1))
+  done
+  canonical_skill_dir=$(cd "$(dirname "$canonical_skill_file")" 2>/dev/null && pwd -P)
+  if [ -n "$canonical_skill_dir" ]; then
+    printf '%s\x1f%s\x1f%s\x1e' "$canonical_skill_dir/$(basename "$canonical_skill_file")" "$name" "$desc"
+  fi
 done
 `;
     // 动态导入：./ops 会传递性引入 react-native，静态导入会让纯函数单测无法加载

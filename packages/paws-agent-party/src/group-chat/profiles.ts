@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { RunError } from '../server/runs.js';
@@ -16,6 +16,14 @@ export type AgentProfile = RoomMember & {
   directory?: string;
   createdAt: number;
   updatedAt: number;
+  summary?: string;
+  skills?: Array<{ name: string; path?: string; reason: string }>;
+  preferences?: string;
+  setupNotes?: string;
+  archived?: boolean;
+  sessions?: Array<{ sessionId: string; title: string; createdAt: number }>;
+  creationRequestId?: string;
+  creationFingerprint?: string;
 };
 export type AgentProfileInput = {
   name: string;
@@ -27,12 +35,14 @@ export type AgentProfileInput = {
   directory?: string;
   /** Rejected when supplied with anything other than Codex, for a clear API error. */
   engine?: unknown;
+  expectedUpdatedAt?: number;
 };
 type ProfilesFile = { profiles: AgentProfile[] };
 
 export class ProfileService {
   private readonly profiles = new Map<string, AgentProfile>();
   private persistQueue: Promise<void> = Promise.resolve();
+  private mutationQueue: Promise<void> = Promise.resolve();
   private migratedLegacyProfiles = false;
 
   private constructor(private readonly path: string, file: ProfilesFile) {
@@ -63,6 +73,7 @@ export class ProfileService {
   get(id: string): AgentProfile { const value = this.profiles.get(id); if (!value) throw new RunError(404, 'Agent profile not found.'); return clone(value); }
 
   async create(input: AgentProfileInput): Promise<AgentProfile> {
+    return this.mutate(async () => {
     const normalized = normalize(input);
     this.assertNameAvailable(normalized.name);
     const timestamp = Date.now();
@@ -70,28 +81,94 @@ export class ProfileService {
     this.profiles.set(profile.id, profile);
     await this.persist();
     return clone(profile);
+    });
   }
 
   async update(id: string, input: AgentProfileInput): Promise<AgentProfile> {
+    return this.mutate(async () => {
     const current = this.profiles.get(id); if (!current) throw new RunError(404, 'Agent profile not found.');
+    if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== current.updatedAt) throw new RunError(409, 'Agent 已被修改，请重新读取后再保存。');
     const normalized = normalize(input);
     this.assertNameAvailable(normalized.name, id);
-    Object.assign(current, normalized, { updatedAt: Date.now() });
+    Object.assign(current, normalized, { updatedAt: Math.max(Date.now(), current.updatedAt + 1) });
     await this.persist();
     return clone(current);
+    });
+  }
+
+  async saveMyAgent(input: Record<string, unknown>, id?: string): Promise<AgentProfile> {
+    return this.mutate(async () => {
+    const requestId = boundedString(input.requestId, 'requestId', 128, true);
+    const definition = normalizeMyAgent(input);
+    if (!id) {
+      const fingerprint = createHash('sha256').update(JSON.stringify(definition)).digest('hex');
+      const prior = this.list().find(p => p.creationRequestId === requestId);
+      if (prior) {
+        if (prior.creationFingerprint !== fingerprint) throw new RunError(409, '创建请求已用于其他配置。');
+        return prior;
+      }
+      this.assertNameAvailable(definition.name);
+      const now = Date.now();
+      const profile: AgentProfile = { id: `agent-${randomUUID().replaceAll('-', '').slice(0, 16)}`, ...definition, createdAt: now, updatedAt: now, sessions: [], archived: false, creationRequestId: requestId, creationFingerprint: fingerprint };
+      this.profiles.set(profile.id, profile);
+      try { await this.persist(); } catch (error) { this.profiles.delete(profile.id); throw error; }
+      return clone(profile);
+    }
+    const current = this.get(id);
+    if (typeof input.expectedUpdatedAt !== 'number' || input.expectedUpdatedAt !== current.updatedAt) throw new RunError(409, 'Agent 已被修改，请重新读取后再保存。');
+    this.assertNameAvailable(definition.name, id);
+    const next = { ...current, ...definition, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+    this.profiles.set(id, next);
+    try { await this.persist(); } catch (error) { this.profiles.set(id, current); throw error; }
+    return clone(next);
+    });
+  }
+
+  async recordSession(id: string, input: Record<string, unknown>): Promise<AgentProfile> {
+    return this.mutate(async () => {
+    const current = this.get(id);
+    const sessionId = boundedString(input.sessionId, 'sessionId', 128, true);
+    const title = boundedString(input.title ?? current.name, 'title', 240);
+    if (current.sessions?.some(s => s.sessionId === sessionId)) return current;
+    const next = { ...current, sessions: [{ sessionId, title, createdAt: Date.now() }, ...(current.sessions ?? [])].slice(0, 100) };
+    this.profiles.set(id, next);
+    try { await this.persist(); } catch (error) { this.profiles.set(id, current); throw error; }
+    return clone(next);
+    });
+  }
+
+  async archiveMyAgent(id: string, input: Record<string, unknown>): Promise<AgentProfile> {
+    return this.mutate(async () => {
+    const current = this.get(id);
+    if (input.expectedUpdatedAt !== current.updatedAt) throw new RunError(409, 'Agent 已被修改，请刷新后重试。');
+    if (typeof input.archived !== 'boolean') throw new RunError(400, 'archived must be boolean');
+    const next = { ...current, archived: input.archived, updatedAt: Math.max(Date.now(), current.updatedAt + 1) };
+    this.profiles.set(id, next);
+    try { await this.persist(); } catch (error) { this.profiles.set(id, current); throw error; }
+    return clone(next);
+    });
   }
 
   members(ids: string[]): AgentProfile[] {
     if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length) throw new RunError(400, 'Choose one or more distinct agents.');
-    return ids.map(id => this.get(id));
+    return ids.map(id => { const p = this.get(id); if (p.archived) throw new RunError(409, 'Agent 已归档，请先恢复。'); return p; });
   }
 
   private assertNameAvailable(name: string, exceptId?: string): void {
     if (this.list().some(profile => profile.id !== exceptId && profile.name === name)) throw new RunError(409, 'Agent display names must be unique.');
   }
+  private mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.mutationQueue.then(async () => {
+      const previous = this.list();
+      try { return await operation(); }
+      catch (error) { this.profiles.clear(); for (const p of previous) this.profiles.set(p.id, p); throw error; }
+    });
+    this.mutationQueue = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
   private persist(): Promise<void> {
     const payload: ProfilesFile = { profiles: this.list() };
-    this.persistQueue = this.persistQueue.then(async () => {
+    this.persistQueue = this.persistQueue.catch(() => undefined).then(async () => {
       await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
       const temp = `${this.path}.${randomUUID()}.tmp`;
       await writeFile(temp, JSON.stringify(payload), { flag: 'wx', mode: 0o600 });
@@ -133,3 +210,24 @@ function normalizeStoredProfile(profile: AgentProfile): AgentProfile {
 function sameProfile(left: AgentProfile, right: AgentProfile): boolean { return left.engine === right.engine && left.model === right.model && left.effort === right.effort && left.avatarId === right.avatarId; }
 function clone<T>(value: T): T { return structuredClone(value); }
 function isAbsoluteDirectory(value: string): boolean { return value.startsWith('/') && !value.includes('\0'); }
+
+function boundedString(value: unknown, field: string, max: number, required = false): string {
+  if (typeof value !== 'string' || value.length > max || (required && !value.trim())) throw new RunError(400, `Invalid ${field}`);
+  return value.trim();
+}
+function normalizeMyAgent(input: Record<string, unknown>) {
+  const base = normalizeProfileInput(input as unknown as AgentProfileInput);
+  const skills = input.skills ?? [];
+  if (!Array.isArray(skills) || skills.length > 16) throw new RunError(400, '最多绑定 16 个 Skills。');
+  const normalized = skills.map(s => {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) throw new RunError(400, 'Invalid Skill');
+    const name = boundedString(s.name, 'Skill name', 128, true);
+    const reason = boundedString(s.reason, 'Skill reason', 500, true);
+    const path = s.path === undefined ? undefined : boundedString(s.path, 'Skill path', 4096, true);
+    if (path && !isAbsoluteDirectory(path)) throw new RunError(400, 'Skill path must be absolute');
+    return { name, reason, ...(path ? { path } : {}) };
+  });
+  if (new Set(normalized.map(s => s.name)).size !== normalized.length) throw new RunError(400, 'Skills cannot be duplicated');
+  return { ...base, summary: boundedString(input.summary ?? '', 'summary', 240), skills: normalized,
+    preferences: boundedString(input.preferences ?? '', 'preferences', 4000), setupNotes: boundedString(input.setupNotes ?? '', 'setupNotes', 2000) };
+}

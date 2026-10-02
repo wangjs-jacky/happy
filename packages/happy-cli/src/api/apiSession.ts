@@ -1034,6 +1034,22 @@ export class ApiSessionClient extends EventEmitter {
     /**
      * Returns the latest session metadata known to the client.
      */
+    async requestMyAgents(path: string, init: RequestInit = {}): Promise<unknown> {
+        if (!/^(?:\/[a-zA-Z0-9_-]+(?:\/archive)?)?$/.test(path)) throw new Error('Invalid Agent catalog path');
+        const origin = new URL(configuration.webappUrl);
+        const relay = new URL(configuration.serverUrl);
+        if (origin.hostname !== relay.hostname || origin.username || origin.password || origin.pathname !== '/') throw new Error('Agent catalog must use this account\'s Paws server');
+        const response = await fetch(new URL(`/agent-party/api/my-agents${path}`, origin), {
+            ...init, redirect: 'error', signal: AbortSignal.timeout(15000),
+            headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+        });
+        if (!response.ok) {
+            const value = await response.json().catch(() => null) as { error?: string } | null;
+            throw new Error(value?.error ?? `Agent 服务暂不可用（${response.status}）`);
+        }
+        return response.json();
+    }
+
     getMetadata(): Metadata | null {
         return this.metadata;
     }

@@ -20,7 +20,7 @@ function Avatar({ index, size = 48 }: { index: number; size?: number }) {
 export default function AgentProfiles() {
     const { credentials } = useAuth();
     const router = useRouter();
-    const { accountId } = useLocalSearchParams<{ accountId?: string }>();
+    const { accountId, agentId } = useLocalSearchParams<{ accountId?: string; agentId?: string }>();
     let mismatch = false;
     try { mismatch = !!accountId && (!credentials || parseToken(credentials.token) !== accountId); } catch { mismatch = true; }
     const { theme } = useUnistyles();
@@ -36,6 +36,7 @@ export default function AgentProfiles() {
     const [error, setError] = React.useState('');
     const [attempt, setAttempt] = React.useState(0);
     const browseEpoch = React.useRef(0);
+    const openedAgentId = React.useRef<string | undefined>(undefined);
     const text = { color: theme.colors.text, fontSize: 16 };
     const input = { ...text, padding: 12, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 10, backgroundColor: theme.colors.surface };
     React.useEffect(() => {
@@ -61,7 +62,12 @@ export default function AgentProfiles() {
         } catch (error) { if (epoch === browseEpoch.current) setError((error as Error).message); }
         finally { if (epoch === browseEpoch.current) setBrowsing(false); }
     };
-    const edit = (agent?: AgentProfile) => { browseEpoch.current++; setBrowsing(false); setListing(null); setAvatars(false); setError(''); setDraft(agent ? { ...agent } : empty()); setEditing(agent?.id ?? 'new'); };
+    const edit = (agent?: AgentProfile) => { browseEpoch.current++; setBrowsing(false); setListing(null); setAvatars(false); setError(''); setDraft(agent ? { ...agent, expectedUpdatedAt: agent.updatedAt } : empty()); setEditing(agent?.id ?? 'new'); };
+    React.useEffect(() => {
+        if (!agentId || !catalog || openedAgentId.current === agentId) return;
+        const profile = agents.find(a => a.id === agentId);
+        if (profile) { openedAgentId.current = agentId; edit(profile); }
+    }, [agentId, catalog, agents]);
     const save = async () => {
         if (!catalog || saving) return;
         setSaving(true); setError('');

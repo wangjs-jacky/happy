@@ -504,8 +504,8 @@ export const SidebarView = React.memo(({
                     <Text style={styles.messagesText}>{t('tabs.inbox')}</Text>
                 </Pressable>
 
-                <Pressable accessibilityRole="button" onPress={() => go('/agent-profiles')} testID="sidebar-party-agents-button" style={({ pressed }) => [styles.messagesRow, desktopDensity && styles.messagesRowDesktop, pressed && styles.navigationCardPressed]}>
-                    <Ionicons name="person-add-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>群聊 Agent 管理</Text>
+                <Pressable accessibilityRole="button" onPress={() => go('/my-agents')} testID="sidebar-my-agents-button" style={({ pressed }) => [styles.messagesRow, desktopDensity && styles.messagesRowDesktop, pressed && styles.navigationCardPressed]}>
+                    <Ionicons name="people-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>Agents</Text>
                 </Pressable>
 
                 <Pressable
@@ -583,6 +583,7 @@ export const SidebarView = React.memo(({
                 onPress={openSessionSearch}
                 testID="sidebar-command-palette-button"
             />
+            <DesktopRailItem icon="people-outline" label="Agents" onPress={() => go('/my-agents')} selected={pathname === '/my-agents'} testID="sidebar-my-agents-button" />
             <View style={styles.desktopRailDivider} />
             <DesktopRailItem
                 icon="extension-puzzle-outline"

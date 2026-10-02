@@ -25,8 +25,11 @@ import { fetchFinanceChart } from "@/finance/financeChart";
 import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
 import { startCloudflarePreview } from '@/previews/cloudflarePreview';
 import { SessionPreviewSlots, type SessionPreviewStatus } from '@/previews/sessionPreviewSlots';
+import { createMyAgentToolHandler, registerMyAgentTools, type MyAgentToolName } from '@/agents/myAgentTools';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 type HappyMcpHandlers = {
+    myAgents: (name: MyAgentToolName, args: Record<string, unknown>) => Promise<CallToolResult>;
     browserSessionId: string;
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (input: SendImageInput) => Promise<{ success: boolean; error?: string }>;
@@ -135,6 +138,7 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         name: "Happy MCP",
         version: "1.0.0",
     });
+    registerMyAgentTools(mcp, handlers.myAgents);
 
     mcp.registerTool('change_title', {
         description: 'Change the title of the current chat session',
@@ -369,6 +373,7 @@ export async function startHappyServer(
     };
 
     const handlers: HappyMcpHandlers = {
+        myAgents: createMyAgentToolHandler(client),
         changeTitle: async (title: string) => {
             logger.debug('[happyMCP] Changing title to:', title);
             try {

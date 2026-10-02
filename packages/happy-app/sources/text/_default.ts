@@ -15,6 +15,38 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const en = {
+    myAgents: {
+        title: 'Agents',
+        toolActions: {
+            changeTitle: 'Update session title',
+            save: 'Save Agent',
+            get: 'Read Agent',
+            list: 'View Agents',
+            skills: 'View available Skills',
+            builder: 'Prepare Agent creation',
+            archive: 'Update archive status',
+        },
+        create: 'Create Agent',
+        edit: 'Edit',
+        listHint: 'Choose an assistant to chat with, or type /agent in any chat to create or edit one.',
+        signIn: 'Sign in to create and use your assistants.',
+        emptyTitle: 'Your first Agent starts with a message',
+        emptyHint: 'For example: /agent Create an adviser to analyze my ideas and point out problems.',
+        useLabel: ({ name }: { name: string }) => `Chat with ${name}`,
+        editLabel: ({ name }: { name: string }) => `Edit ${name}`,
+        createCommand: '/agent Create an assistant: ',
+        editCommand: ({ name }: { name: string }) => `/agent Edit “${name}”: `,
+        commandDescription: 'Create or edit a saved Agent',
+        commandUnavailable: 'This session does not support /agent yet. Update Paws CLI on the execution device, then start a new Codex, Claude, Gemini, or OpenCode session.',
+        useHint: 'Tell your assistant what you need, just like in a normal chat.',
+        usePlaceholder: 'What would you like help with?',
+        preparing: 'Preparing your conversation…',
+        openSession: 'Open the created session',
+        signInError: 'Please sign in to use Agents.',
+        missing: 'Agent not found. Open it again from the list.',
+        archived: 'This Agent is archived. Use /agent in a chat to restore it.',
+        missingSkills: ({ names }: { names: string }) => `Missing Skills: ${names}. Check their installation paths on the selected device, or update the bindings in chat.`,
+    },
     messageQueue: { title: 'Queued messages', hint: 'Sends one at a time after the current task. Keep Paws open on this device.', enqueue: 'Queue for next turn (Tab)', enqueueSend: 'Queue for next turn', steer: 'Send now', steerUnavailable: 'This session cannot receive guidance during a task. Update Paws CLI and start a new session; queued messages can still send after this task finishes.', steerHint: 'Guide the current Codex turn without stopping it; current turn settings apply', sending: 'Sending…', failed: 'Not sent or delivery uncertain. Check history before retrying.', attachments: 'Attachments', edit: 'Return to input', occupied: 'Send or clear your current draft before editing a queued message.' },
     accounts: {
         attachmentWarning: "Switching accounts reloads Paws. Text drafts are kept, but unsent attachments must be selected again. Continue?",

@@ -3,7 +3,7 @@ import type { HistoryViewportReader, HistoryViewportRange } from './historyWindo
 import Constants from 'expo-constants';
 import { refreshNativeUpdateStatus } from './nativeUpdate';
 import type { PluginCatalogResponse } from '@slopus/happy-wire';
-import { SessionStreamEnvelopeSchema } from '@slopus/happy-wire';
+import { SessionStreamEnvelopeSchema, parseMyAgentCommand } from '@slopus/happy-wire';
 import { sessionTextStream } from './sessionTextStream';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
@@ -1934,6 +1934,22 @@ class Sync {
         const stagedMessages: NormalizedMessage[] = [];
 
         const modeMeta = options?.modeMeta ?? resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
+        // Capture explicit routing before continuation context is prepended.
+        const myAgentCommand = parseMyAgentCommand(text);
+        if (myAgentCommand && session.metadata?.capabilities?.myAgentCommand !== true) {
+            throw new Error(t('myAgents.commandUnavailable'));
+        }
+        let myAgentPrompt = '';
+        if (session.metadata?.myAgentId) {
+            const { TokenStorage } = await import('@/auth/tokenStorage');
+            const { createMyAgentsApi } = await import('@/components/myAgents/api');
+            const { buildMyAgentPrompt } = await import('@slopus/happy-wire');
+            const credentials = await TokenStorage.getCredentials();
+            if (!credentials) throw new Error('请登录后再使用我的 Agent。');
+            const profile = await createMyAgentsApi(credentials).get(session.metadata.myAgentId);
+            if (!isCurrent() || this.encryption !== encryptionOwner) throw new Error('local-message-session-unavailable');
+            myAgentPrompt = buildMyAgentPrompt(profile);
+        }
         const { displayText, editedFromMessageId, source = 'chat', attachments } = options ?? {};
         const contextSource = session.metadata?.continuationOfSessionId;
         const savedContext = session.metadata?.continuationContext;
@@ -2057,9 +2073,10 @@ class Sync {
                 text: turnText
             },
             meta: {
+                ...(myAgentCommand ? { myAgentCommand } : {}),
                 ...(includeContext ? { continuationContextSourceId: contextSource, displayText: displayText ?? text } : {}),
                 sentFrom,
-                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
+                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim(), myAgentPrompt].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.permissionModeExplicit ? { permissionModeExplicit: true } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),

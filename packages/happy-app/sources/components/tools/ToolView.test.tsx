@@ -32,8 +32,8 @@ vi.mock('@/utils/toolDisplay', () => ({
 }));
 vi.mock('./views/_all', () => ({ getToolViewComponent: () => null }));
 vi.mock('./views/MCPToolView', () => ({ formatMCPTitle: () => 'Demo App' }));
-vi.mock('./knownTools', () => ({ knownTools: {} }));
-vi.mock('@/components/tools/knownTools', () => ({ knownTools: {} }));
+vi.mock('./knownTools', () => ({ knownTools: {}, getMyAgentToolTitle: () => null }));
+vi.mock('@/components/tools/knownTools', () => ({ knownTools: {}, getMyAgentToolTitle: () => null }));
 vi.mock('@/utils/toolErrorParser', () => ({ parseToolUseError: () => ({ isToolUseError: false }) }));
 vi.mock('./PermissionFooter', () => ({ PermissionFooter: 'PermissionFooter' }));
 vi.mock('./ToolError', () => ({ ToolError: 'ToolError' }));

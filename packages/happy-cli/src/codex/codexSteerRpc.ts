@@ -1,4 +1,4 @@
-import { createEnvelope, type SessionEnvelope } from '@slopus/happy-wire';
+import { createEnvelope, parseMyAgentCommand, type SessionEnvelope } from '@slopus/happy-wire';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ApiSessionClient } from '@/api/apiSession';
 import type { CodexAppServerClient } from './codexAppServerClient';
@@ -48,6 +48,9 @@ export function createCodexSteerHandler(options: {
             || typeof request.expectedTurnId !== 'string' || !request.expectedTurnId
             || typeof request.clientMessageId !== 'string' || !request.clientMessageId || request.clientMessageId.length > 256) {
             throw new Error('Invalid Codex steering request.');
+        }
+        if (parseMyAgentCommand(request.text)) {
+            throw new Error('/agent requires its own queued turn. Send it through the normal message queue instead of steering the active turn.');
         }
         const signature = createHash('sha256').update(JSON.stringify(request)).digest('hex');
         const existing = requests.get(request.clientMessageId);

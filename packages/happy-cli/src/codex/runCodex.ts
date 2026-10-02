@@ -27,6 +27,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { createSerializedTaskRunner, MessageQueue2 } from '@/utils/MessageQueue2';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { isMediaAttachment, type PendingAttachment } from '@/utils/MessageQueue2';
 import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes, cleanupAllStagedMediaAttachments, cleanupMediaAttachments, secureAndRegisterStagedMediaPath } from '@/api/mediaAttachment';
 import { buildCodexTurnPayload } from './codexImageInput';
@@ -62,6 +63,7 @@ import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText } from './codexClearCommand';
 import {
     buildCodexTurnPrompt,
+    createCodexAppPromptLifecycle,
     createCodexSkillPathResolutionPromptLifecycle,
     hashCodexEnhancedMode,
     markPawsTurnOrigin,
@@ -98,10 +100,11 @@ function describeCodexFailure(msg: any): string | null {
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
 export async function completeCodexProcessorStartup(
-    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent'>,
+    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent' | 'updateMetadata'>,
     ensureThreadAvailable: () => Promise<unknown>,
 ): Promise<void> {
     await ensureThreadAvailable();
+    declareMyAgentCommandCapability(session);
     session.processorReady();
     session.sendSessionEvent({ type: 'ready' });
 }
@@ -438,7 +441,7 @@ export async function runCodex(opts: {
     const metadata = {
         ...hydratedMetadata,
         ...codexAccountSessionMetadata(),
-        capabilities: { ...hydratedMetadata.capabilities, codexSteer: true, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+        capabilities: { ...hydratedMetadata.capabilities, myAgentCommand: true, codexSteer: true, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
             && basename(process.env.CODEX_HOME).startsWith('happy-codex-home-')) },
         codexPawsOriginToken,
         ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle
@@ -473,6 +476,7 @@ export async function runCodex(opts: {
     let abortInProgress: Promise<void> | null = null;
     const mcpAppBindingRegistry = new McpAppBindingRegistry();
     let mcpAppRpcHandlers: ReturnType<typeof registerMcpAppRpcHandlers> | null = null;
+    let bindInputHandlers: (() => void) | undefined;
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
     const queuedMessageStatus = createCodexMessageQueueStatus(() => messageQueue.size(), () => session);
     const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
@@ -488,6 +492,7 @@ export async function runCodex(opts: {
             if (permissionHandler) {
                 permissionHandler.updateSession(newSession);
             }
+            bindInputHandlers?.();
             rebindMcpAppRpcHandlersOnSessionSwap(mcpAppRpcHandlers, newSession);
             if (client) newSession.rpcHandlerManager.registerHandler<CodexSteerRequest, CodexSteerResponse>('steer', steerHandler);
         }
@@ -596,7 +601,7 @@ export async function runCodex(opts: {
     // attachment (or null). drainAttachmentsForUserMessage on the next text
     // claims the in-flight set atomically; mirrors the Claude path so images
     // sent from the app travel with the next user message.
-    session.onFileEvent((fileEvent) => {
+    const handleFileEvent: Parameters<ApiSessionClient['onFileEvent']>[0] = (fileEvent) => {
         const ev = fileEvent.content.data.ev;
         logger.debug(`[Codex] File event received: ${ev.name} (${ev.size} bytes, ref: ${ev.ref})`);
         const downloadPromise = (async (): Promise<PendingAttachment | null> => {
@@ -630,12 +635,12 @@ export async function runCodex(opts: {
             }
         })();
         session.trackAttachmentDownload(downloadPromise);
-    });
+    };
 
     const runUserMessageTask = createSerializedTaskRunner((error) => {
         logger.debug('[Codex] Failed to process remote user message:', error);
     });
-    session.onUserMessage((message) => {
+    const handleUserMessage: Parameters<ApiSessionClient['onUserMessage']>[0] = (message) => {
         // Claim every file attachment that arrived strictly before this text.
         // New file events from this point on belong to the next user message.
         const attachmentsForThisMessagePromise = session.drainAttachmentsForUserMessage();
@@ -711,6 +716,17 @@ export async function runCodex(opts: {
                 effort: messageEffort,
                 fast: messageFastMode,
             };
+            const agentCommand = prepareMyAgentMessage(message);
+            if (agentCommand && 'error' in agentCommand) {
+                messageQueue.pushIsolate(message.content.text, enhancedMode, attachmentsForThisMessage, agentCommand.error);
+                void queuedMessageStatus.sync();
+                return;
+            }
+            if (agentCommand) {
+                messageQueue.pushIsolate(agentCommand.prompt, enhancedMode, attachmentsForThisMessage);
+                void queuedMessageStatus.sync();
+                return;
+            }
             const enqueueResult = enqueueCodexUserText({
                 text: message.content.text,
                 mode: enhancedMode,
@@ -723,7 +739,12 @@ export async function runCodex(opts: {
                 logger.debug(`[Codex] /${enqueueResult.status} command pushed to isolated queue`);
             }
         });
-    });
+    };
+    bindInputHandlers = () => {
+        session.onUserMessage(handleUserMessage, handleFileEvent);
+        declareMyAgentCommandCapability(session);
+    };
+    bindInputHandlers();
     let thinking = false;
     let currentTurnId: string | null = null;
     let codexStartedSubagents = new Set<string>();
@@ -1201,7 +1222,7 @@ export async function runCodex(opts: {
         && process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID
         ? new CodexSessionCredentialRecovery(api, accountHome, machineId, session.sessionId)
         : undefined;
-    let appendSystemPromptInjected = false;
+    const appPromptLifecycle = createCodexAppPromptLifecycle();
     let browserStepPromptInjected = false;
     const skillPathResolutionInstruction = createCodexSkillPathResolutionPromptLifecycle();
 
@@ -1261,7 +1282,6 @@ export async function runCodex(opts: {
                 opts.effort ?? resumedThread.reasoningEffort ?? undefined,
             );
             first = false;
-            appendSystemPromptInjected = true;
         }
 
         // A resumed thread reconstructs immutable App bindings above; do not
@@ -1484,7 +1504,7 @@ export async function runCodex(opts: {
             permissionHandler.reset();
             reasoningProcessor.abort();
             diffProcessor.reset();
-            appendSystemPromptInjected = false;
+            appPromptLifecycle.onThreadReset();
             browserStepPromptInjected = false;
             skillPathResolutionInstruction.onThreadReset();
             if (opts?.resetFirst) {
@@ -1531,7 +1551,7 @@ export async function runCodex(opts: {
             ].join('\n');
         };
 
-        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;
+        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[]; terminalError?: string } | null = null;
 
         const sendImmediateCommandResponse = (responseText: string) => {
             // Local slash commands have their own Paws lifecycle, independent of
@@ -1577,9 +1597,7 @@ export async function runCodex(opts: {
                 const { executionPolicy } = await ensureCodexThread(opts.mode);
                 const includeSkillPathResolutionInstruction = skillPathResolutionInstruction.shouldIncludeInPrompt();
 
-                const includeAppendSystemPrompt = Boolean(
-                    opts.mode.appendSystemPrompt && !appendSystemPromptInjected,
-                );
+                const includeAppendSystemPrompt = appPromptLifecycle.shouldIncludeInPrompt(opts.mode.appendSystemPrompt);
                 const turnPrompt = buildCodexTurnPrompt({
                     message: opts.prompt,
                     mode: opts.mode,
@@ -1629,7 +1647,7 @@ export async function runCodex(opts: {
                 first = false;
                 browserStepPromptInjected = true;
                 if (includeAppendSystemPrompt) {
-                    appendSystemPromptInjected = true;
+                    appPromptLifecycle.markPromptSent(opts.mode.appendSystemPrompt);
                 }
 
                 if (result.aborted) {
@@ -1669,7 +1687,7 @@ export async function runCodex(opts: {
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
-            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = pending;
+            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[]; terminalError?: string } | null = pending;
             pending = null;
             if (!message) {
                 // Capture the current signal to distinguish idle-abort from queue close
@@ -1694,6 +1712,11 @@ export async function runCodex(opts: {
 
             void queuedMessageStatus.begin();
             try {
+                if (message.terminalError) {
+                    sendRejectedMyAgentCommand(session, message.terminalError);
+                    await cleanupMediaAttachments((message.attachments ?? []).filter(isMediaAttachment));
+                    continue;
+                }
                 const specialCommand = parseSpecialCommand(message.message);
                 if (specialCommand.type && specialCommand.type !== 'plan') {
                     await cleanupMediaAttachments((message.attachments ?? []).filter(isMediaAttachment));

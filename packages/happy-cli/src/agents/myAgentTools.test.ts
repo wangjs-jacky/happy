@@ -1,0 +1,47 @@
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, expect, it, vi } from 'vitest';
+import { createMyAgentToolHandler } from './myAgentTools';
+const cleanup: string[] = [];
+afterEach(async () => { await Promise.all(cleanup.splice(0).map(p => rm(p, { recursive: true, force: true }))); });
+const profile = { id: 'agent-a', name: '军师', instructions: '挑战假设', summary: '', preferences: '', setupNotes: '', skills: [], engine: 'codex', model: 'gpt-6.1-sol', effort: 'high', avatarId: 0, machineId: 'm', directory: '/tmp', createdAt: 1, updatedAt: 2 };
+const paths = { homeDir: '/tmp', happyHomeDir: '/tmp/.happy', happyLibDir: '/tmp/lib', happyToolsDir: '/tmp/tools' };
+it('inherits the actual session runtime, persists real Skills and returns a card only after saving', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'agent-tool-')); cleanup.push(dir);
+    const skill = join(dir, '.agents', 'skills', 'test-skill', 'SKILL.md');
+    await mkdir(join(dir, '.agents', 'skills', 'test-skill'), { recursive: true });
+    await writeFile(skill, '---\nname: test-skill\ndescription: >\n  第一行\n  第二行\n---\n');
+    const requestMyAgents = vi.fn(async (_path, init) => ({ ...profile, ...JSON.parse(init.body) }));
+    const handler = createMyAgentToolHandler({ getMetadata: () => ({ ...paths, path: dir, host: 'test', machineId: 'm', currentModelCode: 'gpt-6.1-sol', currentThoughtLevelCode: 'high' }), requestMyAgents });
+    const catalog = await handler('agent_skills', {});
+    expect(catalog.content[0]).toMatchObject({ text: expect.stringContaining('第一行 第二行') });
+    const result = await handler('agent_save', { name: '军师', instructions: '挑毛病', requestId: 'request-1', skills: [{ name: 'test-skill', path: await realpath(skill), reason: '需要时使用' }] });
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining('<happy-agent>') });
+    expect(JSON.parse(requestMyAgents.mock.calls[0][1].body)).toMatchObject({ machineId: 'm', directory: dir, model: 'gpt-6.1-sol', effort: 'high' });
+    requestMyAgents.mockRejectedValueOnce(new Error('save failed'));
+    const failed = await handler('agent_save', { name: '军师', instructions: '挑毛病', requestId: 'request-2' });
+    expect(failed.isError).toBe(true);
+    expect(failed.content[0]).toMatchObject({ text: 'save failed' });
+});
+it('rejects invented paths and prevents rebinding a remote Agent to local Skills', async () => {
+    const requestMyAgents = vi.fn(async () => ({ ...profile, machineId: 'other' }));
+    const handler = createMyAgentToolHandler({ getMetadata: () => ({ ...paths, path: '/tmp', host: 'test', machineId: 'm' }), requestMyAgents });
+    expect((await handler('agent_save', { id: 'agent-a', name: '军师', instructions: 'x', requestId: 'r', expectedUpdatedAt: 2, skills: [{ name: 'fake', path: '/invented/SKILL.md', reason: 'x' }] })).isError).toBe(true);
+    expect(requestMyAgents).toHaveBeenCalledTimes(1);
+    requestMyAgents.mockClear();
+    expect((await handler('agent_save', { name: '军师', instructions: 'x', requestId: 'r', skills: [{ name: 'fake', path: '/invented/SKILL.md', reason: 'x' }] })).isError).toBe(true);
+    expect(requestMyAgents).not.toHaveBeenCalled();
+});
+it('preserves omitted fields in partial edits and uses the Codex default when created from Claude', async () => {
+    const prior = { ...profile, skills: [{ name: 'remote', path: '/remote/SKILL.md', reason: '远端方法' }], preferences: '简洁', summary: '既有概要' };
+    const requestMyAgents = vi.fn(async (_path, init) => init ? { ...prior, ...JSON.parse(init.body) } : prior);
+    const handler = createMyAgentToolHandler({ getMetadata: () => ({ ...paths, path: '/tmp', host: 'test', machineId: 'other', currentModelCode: 'claude-sonnet' }), requestMyAgents });
+    const edited = await handler('agent_save', { id: prior.id, name: prior.name, instructions: '只改职责', requestId: 'edit', expectedUpdatedAt: 2 });
+    expect(edited.isError).not.toBe(true);
+    expect(JSON.parse(requestMyAgents.mock.calls[1][1].body)).toMatchObject({ preferences: '简洁', skills: prior.skills, summary: '既有概要' });
+    requestMyAgents.mockClear();
+    await handler('agent_save', { name: '新助手', instructions: 'x', requestId: 'create' });
+    expect(JSON.parse(requestMyAgents.mock.calls[0][1].body).model).toBeUndefined();
+});

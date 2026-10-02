@@ -1,8 +1,9 @@
 import { trimIdent } from "@/utils/trimIdent";
 import otaRuntimeVersions from '../../../ota-runtime-versions.json';
-import { INTERACTIVE_PREVIEW_INSTRUCTION } from '@slopus/happy-wire';
+import { INTERACTIVE_PREVIEW_INSTRUCTION, MY_AGENT_BUILDER_INSTRUCTION } from '@slopus/happy-wire';
 
 export const systemPrompt = trimIdent(`
+    ${MY_AGENT_BUILDER_INSTRUCTION}
     # Options
 
     You have a way to give a user a easy way to answer your questions if you know possible answers. To provide this, you need to output in your final response an XML:

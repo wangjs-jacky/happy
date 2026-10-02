@@ -1,0 +1,20 @@
+import { expect, it } from 'vitest';
+import { buildMyAgentPrompt } from '@slopus/happy-wire';
+import { buildCodexTurnPrompt, createCodexAppPromptLifecycle } from './codexPrompt';
+it('refreshes changed role/preferences in an existing thread and after resume/reset', () => {
+    const lifecycle = createCodexAppPromptLifecycle();
+    const before = buildMyAgentPrompt({ name: '军师', instructions: '先追问', preferences: '长篇解释', skills: [] });
+    expect(lifecycle.shouldIncludeInPrompt(before)).toBe(true);
+    lifecycle.markPromptSent(before);
+    expect(lifecycle.shouldIncludeInPrompt(before)).toBe(false);
+    const after = buildMyAgentPrompt({ name: '军师', instructions: '先给判断', preferences: '', skills: [] });
+    const turn = buildCodexTurnPrompt({ message: '继续评估', mode: { appendSystemPrompt: after }, includeAppendSystemPrompt: lifecycle.shouldIncludeInPrompt(after), includeBrowserStepInstruction: false, includeTitleInstruction: false });
+    expect(turn).toContain('先给判断');
+    expect(turn).toContain('此前已清除的偏好不再适用');
+    expect(turn).toContain('替代此前');
+    expect(turn).not.toContain('长篇解释');
+    lifecycle.markPromptSent(after);
+    lifecycle.onThreadReset();
+    expect(lifecycle.shouldIncludeInPrompt(after)).toBe(true);
+    expect(createCodexAppPromptLifecycle().shouldIncludeInPrompt(after)).toBe(true);
+});

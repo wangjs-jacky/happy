@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 
 import { ApiClient } from '@/api/api';
 import { logger } from '@/ui/logger';
+import { declareMyAgentCommandCapability, prepareMyAgentMessage, sendRejectedMyAgentCommand } from '@/agents/myAgentCommand';
 import { Credentials, readSettings } from '@/persistence';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { initialMachineMetadata } from '@/daemon/run';
@@ -132,6 +133,7 @@ export async function runGemini(opts: {
     startedBy: opts.startedBy,
     sandbox: sandboxConfig,
   });
+  metadata.capabilities = { ...metadata.capabilities, myAgentCommand: true };
   const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
 
   // Handle server unreachable case - create offline stub with hot reconnection
@@ -144,6 +146,7 @@ export async function runGemini(opts: {
   // When a swap is requested during processing, it's queued and applied after the current cycle
   let isProcessingMessage = false;
   let pendingSessionSwap: ApiSessionClient | null = null;
+  let bindInputHandlers: (() => void) | undefined;
 
   /**
    * Apply a pending session swap. Called between message processing cycles.
@@ -157,6 +160,7 @@ export async function runGemini(opts: {
         permissionHandler.updateSession(pendingSessionSwap);
       }
       pendingSessionSwap = null;
+      bindInputHandlers?.();
     }
   };
 
@@ -178,6 +182,7 @@ export async function runGemini(opts: {
         if (permissionHandler) {
           permissionHandler.updateSession(newSession);
         }
+        bindInputHandlers?.();
       }
     }
   });
@@ -216,7 +221,7 @@ export async function runGemini(opts: {
   let currentPermissionMode: PermissionMode | undefined = undefined;
   let currentModel: string | undefined = undefined;
 
-  session.onUserMessage((message) => {
+  const handleUserMessage: Parameters<ApiSessionClient['onUserMessage']>[0] = (message) => {
     // Resolve permission mode (validate) - same as Codex
     let messagePermissionMode = currentPermissionMode;
     if (message.meta?.permissionMode) {
@@ -270,14 +275,21 @@ export async function runGemini(opts: {
     // Build the full prompt with appendSystemPrompt if provided
     // Only include system prompt for the first message to avoid forcing tool usage on every message
     const originalUserMessage = message.content.text;
-    let fullPrompt = originalUserMessage;
+    const agentCommand = prepareMyAgentMessage(message);
+    if (agentCommand && 'error' in agentCommand) {
+      messageQueue.pushIsolate(originalUserMessage, {
+        permissionMode: messagePermissionMode || 'default', model: messageModel, originalUserMessage,
+      }, undefined, agentCommand.error);
+      return;
+    }
+    let fullPrompt = agentCommand?.prompt ?? originalUserMessage;
     if (isFirstMessage && message.meta?.appendSystemPrompt) {
       // Prepend system prompt to user message only for first message
       // Also add change_title instruction (like Codex does)
       // Use EXACT same format as Codex: add instruction AFTER user message
       // This matches Codex's approach exactly - instruction comes after user message
       // Codex format: system prompt + user message + change_title instruction
-      fullPrompt = message.meta.appendSystemPrompt + '\n\n' + originalUserMessage + '\n\n' + CHANGE_TITLE_INSTRUCTION;
+      fullPrompt = message.meta.appendSystemPrompt + '\n\n' + fullPrompt + '\n\n' + CHANGE_TITLE_INSTRUCTION;
       isFirstMessage = false;
     }
 
@@ -286,11 +298,12 @@ export async function runGemini(opts: {
       model: messageModel,
       originalUserMessage, // Store original message separately
     };
-    messageQueue.push(fullPrompt, mode);
+    if (agentCommand) messageQueue.pushIsolate(fullPrompt, mode);
+    else messageQueue.push(fullPrompt, mode);
     
     // Record user message in conversation history for context preservation
     conversationHistory.addUserMessage(originalUserMessage);
-  });
+  };
 
   let thinking = false;
   session.keepAlive(thinking, 'remote');
@@ -933,12 +946,20 @@ export async function runGemini(opts: {
 
   let first = true;
 
+  // ApiSessionClient flushes buffered messages during registration. All prompt,
+  // permission and MCP dependencies must exist before installing this handler.
+  bindInputHandlers = () => {
+    session.onUserMessage(handleUserMessage);
+    declareMyAgentCommandCapability(session);
+  };
+  bindInputHandlers();
+
   try {
     let currentModeHash: string | null = null;
-    let pending: { message: string; mode: GeminiMode; isolate: boolean; hash: string } | null = null;
+    let pending: { message: string; mode: GeminiMode; isolate: boolean; hash: string; terminalError?: string } | null = null;
 
     while (!shouldExit) {
-      let message: { message: string; mode: GeminiMode; isolate: boolean; hash: string } | null = pending;
+      let message: { message: string; mode: GeminiMode; isolate: boolean; hash: string; terminalError?: string } | null = pending;
       pending = null;
 
       if (!message) {
@@ -959,6 +980,11 @@ export async function runGemini(opts: {
 
       if (!message) {
         break;
+      }
+
+      if (message.terminalError) {
+        sendRejectedMyAgentCommand(session, message.terminalError);
+        continue;
       }
 
       // Track if we need to inject conversation history (after model change)

@@ -409,6 +409,43 @@ describe('MessageQueue2', () => {
         expect(queue.queue.map((item) => item.message)).toEqual(['isolated']);
     });
 
+    it('preserves FIFO turns, attachments and mode around a non-clearing isolated command', async () => {
+        const arrivals: string[] = [];
+        const queue = new MessageQueue2<{ permissionMode: string }>(mode => mode.permissionMode,
+            message => arrivals.push(message));
+        const mode = { permissionMode: 'read-only' };
+        const before = { data: new Uint8Array([1]), mimeType: 'image/png', name: 'before.png' };
+        const agent = { kind: 'file' as const, localPath: '/tmp/agent.pdf', size: 2, mimeType: 'application/pdf', name: 'agent.pdf' };
+        const after = { data: new Uint8Array([3]), mimeType: 'image/png', name: 'after.png' };
+        queue.push('before', mode, [before]);
+        queue.pushIsolate('agent turn', mode, [agent]);
+        queue.push('after', mode, [after]);
+        expect(arrivals).toEqual(['before', 'agent turn', 'after']);
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'before', mode, attachments: [before] });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'agent turn', mode, attachments: [agent] });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'after', mode, attachments: [after] });
+        expect(queue.size()).toBe(0);
+    });
+
+    it('wakes a waiting consumer for a non-clearing isolated turn and rejects pushes after close', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        const waiting = queue.waitForMessagesAndGetAsString();
+        queue.pushIsolate('agent turn', 'default');
+        expect(await waiting).toMatchObject({ message: 'agent turn' });
+        queue.close();
+        expect(() => queue.pushIsolate('late', 'default')).toThrow('Cannot push to closed queue');
+    });
+
+    it('keeps a local failure isolated without changing the backend mode hash or adjacent turns', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('before', 'same-session');
+        queue.pushIsolate('/agent create', 'same-session', undefined, 'Skill missing');
+        queue.push('after', 'same-session');
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'before', hash: 'same-session' });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: '/agent create', hash: 'same-session', isolate: true, terminalError: 'Skill missing' });
+        expect(await queue.waitForMessagesAndGetAsString()).toMatchObject({ message: 'after', hash: 'same-session' });
+    });
+
     it('should stop batching when hitting isolated message', async () => {
         const queue = new MessageQueue2<{ type: string }>((mode) => mode.type);
         

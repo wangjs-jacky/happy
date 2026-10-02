@@ -44,6 +44,8 @@ interface QueueItem<T> {
     isolate?: boolean; // If true, this message must be processed alone
     /** Decoded image attachments owned by *this* message (per-message ownership). */
     attachments?: PendingAttachment[];
+    /** A local failure consumed by the processor as its own terminal turn. */
+    terminalError?: string;
 }
 
 /**
@@ -142,6 +144,19 @@ export class MessageQueue2<T> {
         }
 
         logger.debug(`[MessageQueue2] pushImmediate() completed. Queue size: ${this.queue.length}`);
+    }
+
+    /** Process one dedicated turn without discarding earlier messages or attachments. */
+    pushIsolate(message: string, mode: T, attachments?: PendingAttachment[], terminalError?: string): void {
+        if (this.closed) throw new Error('Cannot push to closed queue');
+        const modeHash = this.modeHasher(mode);
+        this.queue.push({ message, mode, modeHash, isolate: true, attachments, terminalError });
+        this.onMessageHandler?.(message, mode);
+        if (this.waiter) {
+            const waiter = this.waiter;
+            this.waiter = null;
+            waiter(true);
+        }
     }
 
     /**
@@ -267,7 +282,7 @@ export class MessageQueue2<T> {
      * Wait for messages and return all messages with the same mode as a single string
      * Returns { message: string, mode: T } or null if aborted/closed
      */
-    async waitForMessagesAndGetAsString(abortSignal?: AbortSignal): Promise<{ message: string, mode: T, isolate: boolean, hash: string, attachments?: PendingAttachment[] } | null> {
+    async waitForMessagesAndGetAsString(abortSignal?: AbortSignal): Promise<{ message: string, mode: T, isolate: boolean, hash: string, attachments?: PendingAttachment[], terminalError?: string } | null> {
         // If we have messages, return them immediately
         if (this.queue.length > 0) {
             return this.collectBatch();
@@ -291,7 +306,7 @@ export class MessageQueue2<T> {
     /**
      * Collect a batch of messages with the same mode, respecting isolation requirements
      */
-    private collectBatch(): { message: string, mode: T, hash: string, isolate: boolean, attachments?: PendingAttachment[] } | null {
+    private collectBatch(): { message: string, mode: T, hash: string, isolate: boolean, attachments?: PendingAttachment[], terminalError?: string } | null {
         if (this.queue.length === 0) {
             return null;
         }
@@ -330,6 +345,7 @@ export class MessageQueue2<T> {
             hash: targetModeHash,
             isolate,
             attachments: collectedAttachments.length > 0 ? collectedAttachments : undefined,
+            ...(firstItem.terminalError ? { terminalError: firstItem.terminalError } : {}),
         };
     }
 

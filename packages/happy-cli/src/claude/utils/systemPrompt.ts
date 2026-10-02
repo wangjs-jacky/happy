@@ -1,6 +1,6 @@
 import { BROWSER_STEP_REPORTING_INSTRUCTION } from "@/browser/browserStepReportingPrompt";
 import { trimIdent } from "@/utils/trimIdent";
-import { INTERACTIVE_PREVIEW_INSTRUCTION } from "@slopus/happy-wire";
+import { INTERACTIVE_PREVIEW_INSTRUCTION, MY_AGENT_BUILDER_INSTRUCTION } from "@slopus/happy-wire";
 
 /**
  * Base system prompt shared across all configurations
@@ -10,4 +10,5 @@ export const systemPrompt = (() => trimIdent(`
     If the user explicitly asks you to archive, close, or end the current Happy chat session after finishing the task, complete the task first and then call "mcp__happy__archive_session".
     ${BROWSER_STEP_REPORTING_INSTRUCTION}
     ${INTERACTIVE_PREVIEW_INSTRUCTION}
+    ${MY_AGENT_BUILDER_INSTRUCTION}
 `))();

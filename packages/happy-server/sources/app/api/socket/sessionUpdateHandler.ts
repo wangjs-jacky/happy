@@ -46,7 +46,18 @@ export function sessionUpdateHandler(userId: string, socket: Socket, connection:
                 }
             });
             if (count === 0) {
-                callback({ result: 'version-mismatch', version: session.metadataVersion, metadata: session.metadata });
+                // Another writer won after our initial read. Return its current
+                // ciphertext/version, not the stale snapshot that just lost CAS:
+                // clients rebase their changes on this acknowledgement.
+                const latest = await db.session.findUnique({
+                    where: { id: sid, accountId: userId },
+                    select: { metadataVersion: true, metadata: true }
+                });
+                if (!latest) {
+                    callback({ result: 'error' });
+                    return null;
+                }
+                callback({ result: 'version-mismatch', version: latest.metadataVersion, metadata: latest.metadata });
                 return null;
             }
 

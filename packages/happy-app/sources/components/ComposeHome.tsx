@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { parseMyAgentCommand } from '@slopus/happy-wire';
 import { View, Text, Pressable, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
@@ -9,6 +10,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { layout } from './layout';
 import { MessageComposer } from './MessageComposer';
+import { CommandSuggestion } from './AgentInputSuggestionView';
 import type { MultiTextInputHandle } from './MultiTextInput';
 import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
@@ -73,6 +75,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { useDesktopWorkspaceLayout } from '@/hooks/useDesktopWorkspaceLayout';
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
 import { useGeneratedImagesPlugin } from '@/hooks/useGeneratedImagesPlugin';
+import { useMyAgentCompose } from './myAgents/useMyAgentCompose';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -171,7 +174,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         rightWidth: desktopRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { pending, submit, retry, restore, checkSession } = useFirstSubmission();
+    const { agentId, mode, sidebarListId, myAgentMode, myAgentId, agentCommand } = useLocalSearchParams<{ agentId?: string; mode?: string; sidebarListId?: string; myAgentMode?: string; myAgentId?: string; agentCommand?: string }>();
+    const personalAgent = useMyAgentCompose(myAgentMode, myAgentId);
+    const { pending, submit, retry, restore, checkSession } = useFirstSubmission(!personalAgent.active);
     const sending = pending?.phase === 'saving';
     const hydrationError = pending?.failure === 'hydrate';
     const { text, setText, images: draftImages, setImages: setDraftImages } = useComposeDraft();
@@ -180,10 +185,24 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
+    const seededAgentCommand = React.useRef<string | undefined>(undefined);
+    React.useEffect(() => {
+        const command = typeof agentCommand === 'string' ? agentCommand : myAgentMode === 'create' ? t('myAgents.createCommand') : undefined;
+        if (!command || !parseMyAgentCommand(command) || seededAgentCommand.current === command) return;
+        seededAgentCommand.current = command;
+        const current = useComposeDraft.getState().text;
+        const next = current.startsWith(command) ? current : current ? `${command}\n${current}` : command;
+        setText(next);
+        composerInputRef.current?.setTextAndSelection(next, { start: next.length, end: next.length });
+    }, [agentCommand, myAgentMode, setText]);
+    const agentCommandSuggestions = React.useCallback(async (query: string) => {
+        if (['ask', 'openclaw'].includes(useNewSessionDraft.getState().agentType) || !'/agent'.startsWith(query.toLowerCase())) return [];
+        return [{ key: 'cmd-agent', text: '/agent', insertText: '/agent',
+            component: () => <CommandSuggestion command="agent" description={t('myAgents.commandDescription')}/> }];
+    }, []);
 
     // 兼容已经存在的 Agent 深链接：路由带 ?agentId=<id> 时仍可读取本地数据，
     // 用于显示个性化问候 + 预设提示词；当前 UI 不再提供创建或进入入口。
-    const { agentId, mode, sidebarListId } = useLocalSearchParams<{ agentId?: string; mode?: string; sidebarListId?: string }>();
     const agents = useLocalSetting('agents');
     const { status: generatedImagesPluginStatus } = useGeneratedImagesPlugin();
     const imagePluginInstalled = generatedImagesPluginStatus?.installed === true;
@@ -693,7 +712,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
-        const spawnAgent = activeImageAgent ? 'codex' : draft.agentType;
+        const spawnAgent = activeImageAgent || personalAgent.active ? 'codex' : draft.agentType;
         const resolvedModes = resolveNewSessionModeSelection({
             agent: spawnAgent,
             permissionMode: draft.permissionMode,
@@ -723,7 +742,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             textRevision: useComposeDraft.getState().revision,
             userAttachmentIds: userImages.map((image) => image.id),
         };
-        void submit({
+        const submission = {
             machineId: draft.selectedMachineId!,
             machine: machine!,
             path: draft.selectedPath,
@@ -733,8 +752,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             images,
             environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
             sidebarListId,
-        }, liveText, () => releaseSubmittedText(submittedSnapshot), () => clearQueuedSubmission(submittedSnapshot));
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, pending, machines, submit, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission, releaseSubmittedText]);
+        };
+        if (personalAgent.active) {
+            void personalAgent.submit(submission, () => {
+                releaseSubmittedText(submittedSnapshot); clearQueuedSubmission(submittedSnapshot);
+            });
+        } else {
+            void submit(submission, liveText, () => releaseSubmittedText(submittedSnapshot), () => clearQueuedSubmission(submittedSnapshot));
+        }
+    }, [personalAgent, activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, pending, machines, submit, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission, releaseSubmittedText]);
 
     const handleRetryHydration = React.useCallback(async () => {
         await retry();
@@ -768,7 +794,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // request. When it isn't, MessageComposer's send button greys out (via
     // isSendDisabled) instead of letting a doomed spawn through.
     const canSpawn = online && worktreeKey !== '__new__';
-    const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
+    const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0) && (!personalAgent.active || personalAgent.ready && !personalAgent.busy);
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
         collapsed: desktopRightPanelCollapsed,
@@ -796,7 +822,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
     const composerConfigControls = (
         <View style={styles.newSessionComposerControls} testID="new-session-composer-controls">
-            {headerModeSwitchExperience.visible && (
+            {!personalAgent.active && headerModeSwitchExperience.visible && (
                 <View style={styles.headerModeSwitch}>
                     {HEADER_MODE_SWITCH_ITEMS.map((item) => {
                         const selected = item.key === headerModeSwitchExperience.selectedMode;
@@ -823,7 +849,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     })}
                 </View>
             )}
-            <SessionConfigPanel ref={configPanelRef} layout="composer" collapsible={false} />
+            <SessionConfigPanel ref={configPanelRef} layout="composer" collapsible={false} agentType={personalAgent.active ? 'codex' : undefined} />
         </View>
     );
 
@@ -910,7 +936,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             style={[styles.greeting, isTablet && styles.greetingDesktop]}
                             testID="compose-home-greeting"
                         >
-                            {displayAgent
+                            {personalAgent.active ? personalAgent.title : displayAgent
                                 ? t('composeHome.greetingAgent', { name: displayAgent.name })
                                 : activeImageAgent
                                     ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
@@ -922,6 +948,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
+                    {personalAgent.active && <View style={styles.greetingContent} testID="my-agent-compose-context">
+                        <Text style={styles.byline}>{personalAgent.hint}</Text>
+                        {personalAgent.busy ? <Text accessibilityLiveRegion="polite" style={styles.byline}>{t('myAgents.preparing')}</Text> : null}
+                        {personalAgent.error ? <View style={styles.sessionHydrationError}><Text accessibilityRole="alert" style={styles.sessionHydrationErrorText}>{personalAgent.error}</Text>
+                            {personalAgent.openSession ? <Pressable accessibilityRole="button" accessibilityLabel={t('myAgents.openSession')} onPress={personalAgent.openSession} style={styles.sessionHydrationRetry}><Text style={styles.sessionHydrationRetryText}>{t('myAgents.openSession')}</Text></Pressable> : !personalAgent.ready ? <Pressable accessibilityRole="button" accessibilityLabel={t('common.retry')} onPress={personalAgent.retry} style={styles.sessionHydrationRetry}><Text style={styles.sessionHydrationRetryText}>{t('common.retry')}</Text></Pressable> : null}
+                        </View> : null}
+                    </View>}
                     {activeImageAgent && (
                         <View style={styles.imageAgentPanel} testID="compose-home-image-agent-panel">
                             <View style={styles.imageAgentHeader}>
@@ -1042,7 +1075,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             </ScrollView>
                         </View>
                     )}
-                    {composeExperience.showCreationRail && (
+                    {!personalAgent.active && composeExperience.showCreationRail && (
                         <View
                             style={[
                                 styles.creationRail,
@@ -1137,7 +1170,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
-                        placeholder={activeImageAgent
+                        placeholder={personalAgent.active ? personalAgent.placeholder : activeImageAgent
                             ? t('agents.imagePromptPlaceholder')
                             : agentType === 'ask'
                                 ? t('composeHome.askPlaceholder')
@@ -1145,7 +1178,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         initialValue={text}
                         onChangeText={handleTextChange}
                         onSend={handleSend}
-                        isSending={sending}
+                        autocompletePrefixes={['/']}
+                        autocompleteSuggestions={agentCommandSuggestions}
+                        isSending={sending || personalAgent.busy}
                         isSendDisabled={!canSubmit || Boolean(pending && (pending.phase !== 'restored'
                             || !containsSubmissionAttachments(pending.attachments, selectedImages)))}
                         selectedImages={hasImages ? selectedImages : undefined}
