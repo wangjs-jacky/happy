@@ -18,7 +18,19 @@ beforeAll(() => {
   window.matchMedia = () => ({ matches: false }) as MediaQueryList;
   URL.createObjectURL = () => 'blob:test-preview'; URL.revokeObjectURL = () => {};
 });
-afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  try {
+    cleanup();
+    // The virtualizer's scroll debounce can outlive its observer. Drain it while
+    // jsdom still exists instead of allowing a callback after environment teardown.
+    if (vi.isFakeTimers()) {
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  } finally {
+    vi.useRealTimers(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks();
+  }
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void; let reject!: (reason: Error) => void;
@@ -156,6 +168,7 @@ it.each([200, 400])('preserves B attachments and ambiguous retry identity after 
 });
 
 it('keeps a new listen message visible when an older-page decrypt completes last', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const key = generatePartyKey();
   const encrypted = async (cursor: number, text: string): Promise<Message> => ({ id: `message-${cursor}`, cursor: String(cursor), from: 'moderator', to: '*', kind: 'message', ts: cursor, text: await encryptText(key, text) });
   const firstPage = await Promise.all(Array.from({ length: 50 }, (_, index) => encrypted(index + 2, `history-${index + 2}`)));
@@ -185,7 +198,7 @@ it('keeps a new listen message visible when an older-page decrypt completes last
   await act(async () => { listen.resolve(Response.json({ messages: [newest] })); });
   // Move the real virtualizer to the newest rows without requesting another receive.
   Object.defineProperty(scroll, 'scrollTop', { configurable: true, value: 4600, writable: true }); fireEvent.scroll(scroll);
-  expect(await screen.findByText('newest received message')).toBeTruthy();
+  await vi.waitFor(() => expect(screen.getByText('newest received message')).toBeTruthy());
   await act(async () => { oldDecode.resolve(); });
   expect(screen.getByText('newest received message')).toBeTruthy();
 });
