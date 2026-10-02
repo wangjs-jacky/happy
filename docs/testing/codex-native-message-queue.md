@@ -1,12 +1,17 @@
 # Codex native message queue acceptance
 
-The queue keeps the current Codex CLI interaction: Enter steers the active native
-turn; Tab queues a later turn. Autocomplete consumes Tab first. The explicit
-queue button also queues slash commands. Steering uses `turn/steer` with the
+Ordinary composer submissions (Enter or the send button) queue a later turn
+while a task is running. This remains true after clicking a queue row's
+“Send now” and during subsequent turns. Tab also queues; autocomplete consumes
+Tab first. Only the explicit queue-row action steers the active native turn.
+Slash commands remain queued between turns. Steering uses `turn/steer` with the
 expected native turn ID and never falls back to abort plus a new turn. It uses
 the running turn's model, effort and permission settings.
 
-## Real Ego acceptance (2026-10-02)
+## Initial real Ego acceptance (2026-10-02, historical Enter-to-steer behavior)
+
+The initial acceptance below predates the follow-up staging correction. Its
+Enter-to-steer case is historical; the current interaction is defined above.
 
 Environment: isolated account, local full Happy server and Expo Web, built Paws
 CLI connected to Codex 0.159.3 with a real gpt-6.1-sol model. The prompts only
@@ -48,9 +53,11 @@ screencast lagged behind the final UI and is not used as acceptance evidence.
    affecting the normal daemon. Use a real authenticated Codex account/model.
 3. Open that session in one Ego task space. Ask Codex to execute a 35-second
    Python sleep and reply `ORIGINAL_DONE`. While working, Tab-queue a request
-   for `QUEUED_REPLY_DONE`, then Enter-send guidance to append
-   `STEER_REPLY_DONE`. Verify the same native turn remains active and the
-   queued message is still present. Wait for both answers in order.
+   for `QUEUED_REPLY_DONE`, then Enter-queue guidance to append
+   `STEER_REPLY_DONE`. Click that guidance row's “Send now”. Verify the same
+   native turn remains active and the unrelated queued message is still
+   present. Enter-submit another follow-up and verify it stays queued, then
+   wait for the answers in order.
 4. Repeat with a longer wait. Queue two texts, a `/skills` command and a final
    marker request using the explicit queue button. Recover and edit a text,
    requeue it, then delete it. Click another row's “Send now”; refresh and
