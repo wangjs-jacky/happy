@@ -116,3 +116,91 @@ queues and native guidance. Publishing only the Web does not update workers;
 existing sessions retain the runner that started them.
 
 [Acceptance video](evidence/codex-queue-compatibility-20261002.mp4): real CDP interaction samples with verified old-CLI key states and the final native result appended. Not an uninterrupted recording.
+
+## Repeated follow-up staging regression (2026-10-02)
+
+Case `QUEUE-REPEAT` covers one continuous user path: after an explicit Send now,
+ordinary follow-up submissions must keep appearing in the staging area.
+The previous composer chose native steering whenever a running turn was
+available. A first submission could queue during startup, while later Enter
+submissions went directly into the active turn. The composer now consistently
+queues ordinary submissions while busy; explicit queue-row Send now remains
+the same-turn guidance action.
+
+The real baseline reproduced the problem with the installed native-capable CLI:
+after Send now, another Enter submission produced zero queued rows instead of
+one. The corrected Web code revision is
+`54394f89784f2366fbcfa2c8bda01756b6a50eef`. Acceptance used an isolated test
+account and CLI home, the actual installed CLI, Codex 0.159.3 and a real
+gpt-6.1-sol model at medium effort. Prompts only waited or returned markers.
+
+| Boundary assertion | Ordinary real Ego result |
+| --- | --- |
+| First and second Send now | Original native turn identity preserved; only selected queue row removed |
+| Consecutive Enter after first guidance | Two follow-ups remain visible in the queue |
+| Send button while busy | Queue grows from two to three |
+| Refresh after second guidance | Three remaining rows persist |
+| Enter during the next native turn | Later follow-up remains queued without replacing that turn |
+| Automatic delivery | Queue empties; all seven unique markers appear in actual replies |
+
+Ordinary run: 139.6 seconds. Original turn
+`01a0fce4-3bdc-7bb3-bbce-1c80ec8fdcd4`, second turn
+`01a0fce5-3d5a-7371-b0ba-1d0c026494d8`, final turn
+`01a0fce6-41a8-78c3-a525-728f758fe677`.
+Three original/guidance markers share the original answer; seven markers do
+not mean seven separate answers.
+
+The same Case also passed in the recorded rerun (199.6 seconds),
+with original turn `01a0fce7-c896-7822-afd8-e4ce6ec5a2c1`, second turn
+`01a0fce9-9a16-75e1-a59a-20ea01fb9dbe` and final turn
+`01a0fcea-53ac-72b1-9ee5-3841c3bdbf1c`.
+
+[Before](evidence/repeated-message-staging-before-20261002.png) and
+[after](evidence/repeated-message-staging-after-20261002.png) show the same
+desktop viewport (2506×880), with separate isolated sessions and marker text.
+[Second-turn state](evidence/repeated-message-staging-second-turn-20261002.png)
+and [final state](evidence/repeated-message-staging-final-20261002.png) supplement
+that single visible Case. Independent code and PC interaction reviews passed;
+70 relevant automated tests and the app typecheck passed.
+
+The reusable runner is `scripts/verify-repeated-message-staging.ego.mjs`.
+It requires a freshly created isolated account/session and an already-owned
+Ego task space. Supply the following configuration before the script body:
+
+```js
+globalThis.repeatedMessageStagingConfig = {
+    EGO_ARTIFACT_DIR: "/absolute/test-artifacts",
+    EGO_TASK_SPACE_ID: "recorded numeric ID",
+    EGO_TARGET_ID: "recorded exact target ID",
+    EGO_SESSION_URL: "https://test-web.example/session/isolated-session-id",
+    EGO_TEST_CREDENTIALS_FILE: "/absolute/isolated-cli-home/access.key",
+    EGO_CLI_PACKAGE_PATH: "/absolute/installed-cli/package.json",
+    EGO_TEST_API_URL: "https://test-api.example",
+    EGO_CAPTURE_HELPER_PATH: "file:///absolute/capture-browser-step.mjs",
+    HAPPY_CAPTURE_SESSION_ID: "current Happy capture session ID",
+    EGO_RUN_ID: "one ID for this whole browser task",
+    EGO_RECORDING: "0" // Use "1" in a fresh session for the recorded rerun.
+};
+```
+
+Prepend that configuration to the runner and pipe the combined file into
+`ego-browser nodejs`. Embedded Ego Node may not inherit shell environment
+variables; the explicit configuration avoids that ambiguity. Credentials are
+read only from the isolated CLI file and are never printed. The runner checks
+the exact task/target/URL, generates fresh markers, captures verified frames,
+and emits a result JSON. Report each returned frame once to Happy before
+finishing the same task space. Native lifecycle waits allow 180 seconds for
+real model latency; they do not treat the first final-text event as turn end.
+
+This acceptance covers the specified desktop path. It does not cover narrow
+viewports, permissions, offline delivery, attachment guidance, or multi-device
+queue synchronization.
+
+[Repeated staging acceptance video](evidence/repeated-message-staging-20261002.mp4)
+contains real CDP interaction samples and the verified final state appended.
+It is not an uninterrupted recording. The 212.9-second H.264/yuv420p MP4 is
+2506×880 at 30 fps; full decoding and visual coverage checks passed. It was
+sent as a Happy media card; playback on another device has not been confirmed.
+Test sessions and workers were removed, the isolated daemon stopped, and
+only the newly created test account credentials were removed from the browser
+and CLI home. The existing main daemon and user sessions were preserved.
