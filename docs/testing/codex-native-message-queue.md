@@ -107,3 +107,5 @@ Old CLIs also lack the immediate-command completion lifecycle: queued `/skills`
 and similar commands may hold later messages. Use an updated CLI for command
 queues and native guidance. Publishing only the Web does not update workers;
 existing sessions retain the runner that started them.
+
+[Acceptance video](evidence/codex-queue-compatibility-20261002.mp4): real CDP interaction samples with verified old-CLI key states and the final native result appended. Not an uninterrupted recording.
