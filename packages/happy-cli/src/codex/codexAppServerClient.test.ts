@@ -179,6 +179,15 @@ const sandboxConfig: SandboxConfig = {
 };
 
 describe('CodexAppServerClient sandbox integration', () => {
+    it('allows thread startup to outlast Codex shell snapshot without relaxing other RPC timeouts', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient(undefined, { type: 'spawn' }, {});
+        const request = vi.fn(async () => ({ thread: { id: 'thread-after-snapshot' }, model: 'gpt-test', reasoningEffort: null }));
+        (client as any).request = request;
+        await client.startThread({ cwd: '/tmp/project' });
+        expect(request).toHaveBeenCalledWith('thread/start', expect.any(Object), 120_000);
+    });
+
     it('streams root text before completion, preserves whitespace and discards stale deltas', async () => {
         const { CodexAppServerClient } = await import('./codexAppServerClient');
         vi.useFakeTimers();
@@ -1473,6 +1482,28 @@ describe('CodexAppServerClient sandbox integration', () => {
         await expect(client.readAccountUsage()).resolves.toEqual(usage);
         expect(requests.find((msg) => msg.method === 'account/usage/read')?.params).toBeUndefined();
 
+        await client.disconnect();
+    });
+
+    it('reads account rate limits without starting a model turn', async () => {
+        const requests: MockRpcMessage[] = [];
+        const limits = { rateLimits: { limitId: 'codex', primary: { usedPercent: 30, windowDurationMins: 10080, resetsAt: 1791047013 } } };
+        const proc = createMockProcess({
+            pid: 2553,
+            onRequest: (message, stdout) => {
+                requests.push(message);
+                if (message.method === 'account/rateLimits/read' && message.id != null) {
+                    setTimeout(() => pushJsonLine(stdout, { id: message.id, result: limits }), 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        await expect(client.readAccountRateLimits()).resolves.toEqual(limits);
+        expect(requests.map(request => request.method)).not.toContain('thread/start');
+        expect(requests.map(request => request.method)).not.toContain('turn/start');
         await client.disconnect();
     });
 

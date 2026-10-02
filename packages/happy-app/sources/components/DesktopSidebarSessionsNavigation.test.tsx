@@ -6,6 +6,7 @@ import TestRenderer from 'react-test-renderer';
 import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 import { DesktopTagActionsPopover, DesktopTagDetailDialog } from './DesktopTagDialog';
 import { useSessionListSyncState } from '@/sync/sessionListSyncState';
+import { appThemes } from '@/themePacks';
 
 const mocks = vi.hoisted(() => {
     const state = {
@@ -61,7 +62,7 @@ vi.mock('react-native', async () => {
             )),
         ),
         Modal: 'Modal',
-        Platform: { OS: 'web' },
+        Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
         Pressable: ({ children, ...props }: any) => ReactModule.createElement(
             'Pressable',
             props,
@@ -78,24 +79,18 @@ vi.mock('expo-router', () => ({
     usePathname: () => '/session/session-1',
     useRouter: () => ({ navigate: mocks.navigate }),
 }));
-vi.mock('react-native-unistyles', () => ({
-    mq: { only: { width: (min: number, max?: number) => `width-${min}-${max ?? 'up'}` } },
-    StyleSheet: {
-        hairlineWidth: 1,
-        create: (factory: any) => factory({
-            colors: {
-                accent: '#078', button: { primary: { background: '#078', tint: '#fff' } }, divider: '#ddd',
-                groupped: { sectionTitle: '#666' }, shadow: { color: '#000', opacity: 0.2 }, surface: '#fff',
-                surfaceHigh: '#f5f5f5', surfacePressed: '#eee', surfaceSelected: '#e5e5e5', text: '#111', textSecondary: '#666',
-            },
-        }),
-        absoluteFill: {},
-    },
-    useUnistyles: () => ({ theme: { colors: {
-        accent: '#078', deleteAction: '#c66', particle: { accent: '#86b' }, success: '#498',
-        textLink: '#48b', textSecondary: '#666', surfaceHigh: '#eee', button: { primary: { tint: '#fff' } },
-    } } }),
-}));
+vi.mock('react-native-unistyles', async () => {
+    const { appThemes } = await import('@/themePacks');
+    return {
+        mq: { only: { width: (min: number, max?: number) => `width-${min}-${max ?? 'up'}` } },
+        StyleSheet: {
+            hairlineWidth: 1,
+            create: (factory: any) => factory(appThemes.ginghamDark),
+            absoluteFill: {},
+        },
+        useUnistyles: () => ({ theme: appThemes.ginghamDark }),
+    };
+});
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => mocks.navigateToSession }));
@@ -191,7 +186,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         mocks.organization = {
             lists: [
                 { id: 'happy', name: 'Happy', kind: 'workspace', color: 'blue', machineId: 'mac', path: '~/happy', defaultAgent: 'codex', createdAt: 1 },
-                { id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', createdAt: 2 },
+                { id: 'advisor', name: 'Advisor', kind: 'workspace', color: 'pink', machineId: null, path: null, defaultAgent: null, createdAt: 2 },
             ],
             tags: [{ id: 'product', name: 'product', color: 'green', createdAt: 1 }],
             sessions: { 'session-1': { listId: 'happy', tagIds: ['product'] } },
@@ -250,6 +245,45 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.unmount());
     });
 
+    it('preserves the DreamSkin sidebar surface when switching from Projects to Timeline', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation transparentSidebar />); });
+        expect(renderer.root.findByType('MainView').props).toMatchObject({ sessionListLayout: 'projects', transparentSidebar: true });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-timeline' }).props.onPress());
+        expect(renderer.root.findByType('MainView').props).toMatchObject({ sessionListLayout: 'time', transparentSidebar: true });
+        act(() => renderer.unmount());
+    });
+
+    it('keeps List deletion inside the editor instead of exposing a row trash action', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-delete-list-happy' })).toHaveLength(0);
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-delete-list' }).length).toBeGreaterThan(0);
+        act(() => renderer.unmount());
+    });
+
+    it('renders sessions in a List through the shared session row and keeps organizing in its context action', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+
+        const listSession = renderer.root.findByType('CompactSessionRow');
+        expect(listSession.props).toMatchObject({
+            nested: true,
+            session: expect.objectContaining({ id: 'session-1' }),
+        });
+        expect(listSession.props.onOrganize).toEqual(expect.any(Function));
+        expect(renderer.root.findAllByProps({ testID: 'organize-session-session-1' })).toHaveLength(0);
+
+        act(() => listSession.props.onOrganize());
+        expect(renderer.root.findByProps({ testID: 'organize-session-save' })).toBeDefined();
+        act(() => renderer.unmount());
+    });
+
     it('opens a Tag detail dialog and groups every tagged session by its List', () => {
         mocks.sessions = [
             sessionFixture('session-1', 'Happy work'),
@@ -283,7 +317,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
             'tag-detail-group-advisor',
             'tag-detail-group-unassigned',
         ]);
-        expect(renderer.root.findAllByType('CompactSessionRow').map((node: any) => node.props.session.id)).toEqual([
+        expect(renderer.root.findAllByType('CompactSessionRow').filter((node: any) => !node.props.testID).map((node: any) => node.props.session.id)).toEqual([
             'session-1',
             'session-2',
             'session-3',
@@ -652,7 +686,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'organize-session-session-1' }).props.onPress());
+        act(() => renderer.root.findByType('CompactSessionRow').props.onOrganize());
 
         const input = renderer.root.findByProps({ testID: 'organize-tag-input' });
         act(() => input.props.onChangeText('#'));
@@ -679,7 +713,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'organize-session-session-1' }).props.onPress());
+        act(() => renderer.root.findByType('CompactSessionRow').props.onOrganize());
         act(() => renderer.root.findByProps({ testID: 'organize-tag-input' }).props.onChangeText('#temporary'));
         act(() => renderer.root.findByProps({ testID: 'organize-create-tag' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'organize-session-cancel' }).props.onPress());
@@ -704,7 +738,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-unassigned' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'organize-session-session-1' }).props.onPress());
+        act(() => renderer.root.findByType('CompactSessionRow').props.onOrganize());
 
         act(() => renderer.root.findByProps({ testID: 'organize-tag-input' }).props.onChangeText('#available'));
         expect(renderer.root.findByProps({ testID: 'organize-tag-result-available' }).props).toMatchObject({
@@ -724,18 +758,47 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress());
 
         expect(renderer.root.findByProps({ testID: 'sidebar-list-name-input' }).props.value).toBe('Happy');
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' }).props.accessibilityLabel).toContain('Mac mini');
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-trigger' }).props.accessibilityLabel).toContain('happy');
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-agent-trigger' }).props.accessibilityLabel).toContain('agentInput.agent.codex');
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' }).props.onPress());
         expect(renderer.root.findAllByType('PickerContent').length).toBeGreaterThan(0);
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-directory-trigger' }).props.onPress());
         expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-picker' }).findByType('PathPickerContent').props).toMatchObject({
             machineId: 'mac',
             manualInput: false,
         });
-        expect(renderer.root.findByProps({ testID: 'sidebar-delete-list-happy' }).props).toMatchObject({
-            accessibilityRole: 'button',
-        });
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-delete-list-happy' })).toHaveLength(0);
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-directory-none' }).props.onPress());
-        expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-picker' }).findByType('PathPickerContent').props.value).toBe('');
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-trigger' }).findByType('Text').props.children).toBe('sidebarLists.noPreset');
         expect(renderer.root.findAllByProps({ testID: 'sidebar-delete-list' }).length).toBeGreaterThan(0);
         expect(mocks.navigate).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('shows one compact List form and opens each launch setting only when selected', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-create-list-button' }).props.onPress());
+
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-kind-agent' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-kind-workspace' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' })).toBeDefined();
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-trigger' })).toBeDefined();
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-agent-trigger' })).toBeDefined();
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-machine-picker' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-directory-picker' })).toHaveLength(0);
+        const machineTrigger = renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' });
+        expect(machineTrigger.props.style({ pressed: false })[0].backgroundColor).toBe(appThemes.ginghamDark.colors.surface);
+        expect(machineTrigger.props.style({ pressed: true }).at(-1).backgroundColor).toBe(appThemes.ginghamDark.colors.surfacePressed);
+
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-machine-picker' })).toBeDefined();
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' }).props.style({ pressed: false })[1].backgroundColor).toBe(appThemes.ginghamDark.colors.surfaceSelected);
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-agent-trigger' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-machine-picker' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-agent-choices' })).toBeDefined();
         act(() => renderer.unmount());
     });
 
@@ -745,6 +808,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-create-list-button' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-name-input' }).props.onChangeText('Remote project'));
+        act(() => renderer.root.findByProps({ testID: 'sidebar-list-machine-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-machine-picker' }).findByType('PickerContent').props.onSelect('mac'));
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-directory-picker' }).findByType('PathPickerContent').props.onChangeValue('/Users/test/project'));
         act(() => renderer.root.findByProps({ testID: 'sidebar-create-list-submit' }).props.onPress());
@@ -772,7 +836,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         const current = {
             lists: [
                 { id: 'happy', name: 'Happy', kind: 'workspace', color: 'blue', machineId: 'mac', path: '~/happy', defaultAgent: 'codex', createdAt: 1 },
-                { id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', createdAt: 2 },
+                { id: 'advisor', name: 'Advisor', kind: 'workspace', color: 'pink', machineId: null, path: null, defaultAgent: null, createdAt: 2 },
             ],
             tags: [{ id: 'product', name: 'product', color: 'green', createdAt: 1 }],
             sessions: { 'session-1': { listId: 'happy', tagIds: ['product'] } },
@@ -781,7 +845,8 @@ describe('DesktopSidebarSessionsNavigation', () => {
 
         mocks.confirm.mockResolvedValueOnce(true);
         await act(async () => {
-            renderer.root.findByProps({ testID: 'sidebar-delete-list-happy' }).props.onPress();
+            renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress();
+            renderer.root.findByProps({ testID: 'sidebar-delete-list' }).props.onPress();
             await Promise.resolve();
             await Promise.resolve();
         });
@@ -793,18 +858,18 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => renderer.unmount());
     });
 
-    it('launches Agent Lists in Ask mode without injecting a built-in prompt', () => {
+    it('launches a migrated legacy List without overriding the chosen Agent or draft', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-advisor' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-advisor' }).props.onPress());
-        expect(renderer.root.findAllByProps({ accessibilityLabel: 'newSession.askMode' })[0].props.accessibilityState).toEqual({ checked: true, disabled: true });
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-list-kind-agent' })).toHaveLength(0);
         act(() => renderer.root.findByProps({ testID: 'sidebar-create-list-cancel' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-new-session-advisor' }).props.onPress());
 
-        expect(mocks.setAgentType).toHaveBeenCalledWith('ask');
-        expect(mocks.setInput).toHaveBeenCalledWith('');
+        expect(mocks.setAgentType).not.toHaveBeenCalled();
+        expect(mocks.setInput).not.toHaveBeenCalled();
         expect(mocks.setMachineId).not.toHaveBeenCalled();
         expect(mocks.setPath).not.toHaveBeenCalled();
         expect(mocks.navigate).toHaveBeenCalledWith({

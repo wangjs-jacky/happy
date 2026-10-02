@@ -1,6 +1,49 @@
 import { describe, it, expect } from 'vitest';
 import { localSettingsDefaults, localSettingsParse } from './localSettings';
 
+it('keeps the desktop skin independent of the saved color pack and light preference', () => {
+    expect(localSettingsDefaults.desktopSkinId).toBe('default');
+    expect(localSettingsParse({ desktopSkinId: 'dreamskin', themePack: 'gingham', themePreference: 'light' })).toMatchObject({
+        desktopSkinId: 'dreamskin', themePack: 'gingham', themePreference: 'light',
+    });
+    expect(localSettingsParse({ desktopSkinId: 'warmNight', themePack: 'gingham', themePreference: 'light' })).toMatchObject({
+        desktopSkinId: 'warmNight', themePack: 'gingham', themePreference: 'light',
+    });
+    for (const skin of ['wukong', 'firefly', 'evaWarm', 'meadowSky']) {
+        expect(localSettingsParse({ desktopSkinId: skin }).desktopSkinId).toBe(skin);
+    }
+    expect(localSettingsParse({ desktopSkinId: 'unknown' }).desktopSkinId).toBe('default');
+});
+
+it('keeps a device-local reading width within the supported range', () => {
+    expect(localSettingsParse({}).desktopReadingWidth).toBe(960);
+    expect(localSettingsParse({ desktopReadingWidth: 1120 }).desktopReadingWidth).toBe(1120);
+    expect(localSettingsParse({ desktopReadingWidth: 500 }).desktopReadingWidth).toBe(960);
+    expect(localSettingsParse({ desktopReadingWidth: 'wide' }).desktopReadingWidth).toBe(960);
+});
+
+describe('local web sound preferences', () => {
+    it('keeps sound off for existing installations until the user enables it', () => {
+        expect(localSettingsParse({}).webSound).toEqual(localSettingsDefaults.webSound);
+        expect(localSettingsDefaults.webSound.enabled).toBe(false);
+    });
+
+    it('restores a selected scope, volume and event sound', () => {
+        const webSound = {
+            ...localSettingsDefaults.webSound,
+            volume: 0.55,
+            scope: 'pinned' as const,
+            sounds: { ...localSettingsDefaults.webSound.sounds, question: 'off' as const },
+        };
+        expect(localSettingsParse({ webSound }).webSound).toEqual(webSound);
+    });
+
+    it('discards malformed sound settings safely', () => {
+        expect(localSettingsParse({ webSound: { enabled: true, volume: 9 } }).webSound)
+            .toEqual(localSettingsDefaults.webSound);
+    });
+});
+
 it('preserves local advisor image keys across persistence and accepts legacy image counts', () => {
     const messages = [
         { id: 'new', role: 'user', text: '', imageCount: 1, imageKeys: ['image-1.jpg'], createdAt: 1 },
@@ -167,7 +210,7 @@ describe('localSettings desktop Lists and Tags', () => {
         expect(localSettingsParse({ sidebarOrganization }).sidebarOrganization).toEqual(sidebarOrganization);
     });
 
-    it('strips workspace presets and legacy prompts from Agent Lists', () => {
+    it('converts legacy Agent Lists without reviving their launch presets', () => {
         const parsed = localSettingsParse({
             sidebarOrganization: {
                 lists: [{
@@ -180,7 +223,8 @@ describe('localSettings desktop Lists and Tags', () => {
         });
 
         expect(parsed.sidebarOrganization.lists[0]).toEqual({
-            id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', createdAt: 1,
+            id: 'advisor', name: 'Advisor', kind: 'workspace', color: 'pink', createdAt: 1,
+            machineId: null, path: null, defaultAgent: null,
         });
     });
 

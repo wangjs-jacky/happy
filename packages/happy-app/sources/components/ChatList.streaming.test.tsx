@@ -18,6 +18,8 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }));
 vi.mock('@/utils/responsive', () => ({ useHeaderHeight: () => 0 }));
 vi.mock('@/sync/storage', () => ({
+    useLocalSetting: () => 'default',
+    useProfile: () => ({ id: 'test-user' }),
     useSession: (id: string) => ({ id, thinking: true, metadata: null }),
     useSessionMessages: () => ({ ...state, isLoaded: true }),
     useSetting: () => true,
@@ -25,6 +27,10 @@ vi.mock('@/sync/storage', () => ({
 vi.mock('@/sync/sessionTextStream', () => ({ useSessionTextPreviews: () => state.previews }));
 vi.mock('@/sync/sync', () => ({ sync: { getLocalHistoryScope: () => null, getHistoryBoundarySeq: () => null } }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({}) }));
+// These cases render ordinary sessions; continuation hydration is a separate boundary.
+vi.mock('@/hooks/useContinuationHistory', () => ({ useContinuationHistory: () => {
+    throw new Error('Ordinary streaming sessions must not hydrate continuation history');
+} }));
 vi.mock('@/hooks/useGroupedMessages', () => ({ isSessionTurnActive: () => true }));
 vi.mock('./layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('./ChatFooter', () => ({ ChatFooter: () => null }));

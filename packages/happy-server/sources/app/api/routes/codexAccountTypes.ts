@@ -26,7 +26,7 @@ export const renameCodexAccountSchema = z.object({ displayName: z.string().trim(
 export type RenameCodexAccountRequest = z.infer<typeof renameCodexAccountSchema>;
 export const bindCodexAccountSchema = z.object({ profileId: z.string().uuid().nullable(), expectedVersion: version }).strict();
 export type BindCodexAccountRequest = z.infer<typeof bindCodexAccountSchema>;
-export const createCodexGrantSchema = z.object({ machineId: opaqueId }).strict();
+export const createCodexGrantSchema = z.object({ machineId: opaqueId, sourceSessionId: opaqueId.optional() }).strict();
 export type CreateCodexGrantRequest = z.infer<typeof createCodexGrantSchema>;
 export const redeemCodexGrantSchema = z.object({ machineId: opaqueId, grant: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
 export type RedeemCodexGrantRequest = z.infer<typeof redeemCodexGrantSchema>;
@@ -53,6 +53,10 @@ export const reportCodexStatusSchema = z.object({
     status: z.enum(['needs-refresh', 'invalid']),
 }).strict();
 export type ReportCodexStatusRequest = z.infer<typeof reportCodexStatusSchema>;
+export const readCodexSessionCredentialSchema = z.object({
+    machineId: opaqueId, sourceSessionId: opaqueId, knownVersion: version.positive(),
+}).strict();
+export type ReadCodexSessionCredentialRequest = z.infer<typeof readCodexSessionCredentialSchema>;
 
 export interface CodexQuotaView {
     state: 'unknown' | 'current' | 'stale' | 'reset';
@@ -77,5 +81,12 @@ export interface BindCodexAccountResponse { binding: CodexMachineBinding }
 export interface CreateCodexGrantResponse { grant: string; expiresAt: string; profile: { id: string; displayName: string; credentialVersion: number } }
 // This response is daemon-only. Never reuse it in list / App-facing endpoints.
 export interface RedeemCodexGrantResponse { auth: CodexAuth; launchId: string; profile: { id: string; displayName: string; credentialVersion: number } }
+// 恢复的 worker 只能读取其所属会话的新版凭证。
+export interface ReadCodexSessionCredentialResponse {
+    profileId: string;
+    status: CodexAccountProfileView['status'];
+    credentialVersion: number;
+    auth?: CodexAuth;
+}
 export interface CodexSuccessResponse { success: true }
 export interface ReportCodexQuotaResponse { accepted: boolean }

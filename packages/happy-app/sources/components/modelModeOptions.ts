@@ -97,10 +97,17 @@ export function getAskModelModes(): ModelMode[] {
     ];
 }
 
+const CODEX_CURRENT_MODELS: ModelMode[] = [
+    { key: 'gpt-6-astra', name: 'gpt-6-astra', description: null },
+    { key: 'gpt-6.1-sol', name: 'gpt-6.1-sol', description: null },
+    { key: 'gpt-6-sol', name: 'gpt-6-sol', description: null },
+    { key: 'gpt-6-luna', name: 'gpt-6-luna', description: null },
+];
+
 export function getCodexModelModes(): ModelMode[] {
     return [
         { key: 'default', name: DEFAULT_MODEL_LABEL, description: null },
-        { key: 'gpt-6-astra', name: 'gpt-6-astra', description: null },
+        ...CODEX_CURRENT_MODELS,
         { key: 'gpt-5.6-sol', name: 'gpt-5.6-sol', description: null },
         { key: 'gpt-5.6-terra', name: 'gpt-5.6-terra', description: null },
         { key: 'gpt-5.6-luna', name: 'gpt-5.6-luna', description: null },
@@ -198,6 +205,29 @@ export function getAvailableModels(
     return getHardcodedModelModes(flavor, translate);
 }
 
+// Session metadata is a startup-time snapshot, including in running sessions.
+// Both pickers supplement it with current suggestions; this is not an access check.
+// Preserve catalog labels and custom models.
+export function getSuggestedModelModes(
+    flavor: AgentFlavor,
+    metadata: Metadata | null | undefined,
+    translate: Translate,
+): ModelMode[] {
+    const models = getAvailableModels(flavor, metadata, translate);
+    if (flavor !== 'codex' || !metadata?.models?.some((model) =>
+        model.code.startsWith('gpt-6-') || model.code.startsWith('gpt-6.1-') || model.code.startsWith('gpt-5.6-'))) {
+        return models;
+    }
+    const byKey = new Map(models.map((model) => [model.key, model]));
+    const current = CODEX_CURRENT_MODELS.map((model) => byKey.get(model.key) ?? model);
+    const currentKeys = new Set(current.map((model) => model.key));
+    return [
+        ...models.filter((model) => model.key === 'default'),
+        ...current,
+        ...models.filter((model) => model.key !== 'default' && !currentKeys.has(model.key)),
+    ];
+}
+
 export function getAvailablePermissionModes(
     flavor: AgentFlavor,
     metadata: Metadata | null | undefined,
@@ -277,15 +307,20 @@ export function getDefaultEffortKey(flavor: AgentFlavor): string | null {
 }
 
 // Per-model effort: returns effort levels for a specific model, or empty if the model has no effort
-export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, metadata?: Metadata | null): EffortLevel[] {
-    // Claude and Codex expose effort/thought levels regardless of which
-    // specific model is picked — the same low/medium/high/max scale applies
-    // to the whole flavor (mirrors how Codex already worked, which the user
-    // asked Claude to match).
+export function getEffortLevelsForModel(flavor: AgentFlavor, modelKey: string, metadata?: Metadata | null): EffortLevel[] {
     if (flavor === 'claude') {
         return getClaudeEffortLevels();
     }
     if (flavor === 'codex') {
+        // A borrowed Astra catalog may contain ultra/minimal, which the new
+        // Sol/Luna models do not support. Offer the documented reasoning range.
+        if ((modelKey === 'gpt-6.1-sol' || modelKey === 'gpt-6-sol' || modelKey === 'gpt-6-luna')
+            && (metadata?.currentModelCode !== modelKey || !metadata.thoughtLevels?.length)) {
+            return [
+                { key: 'default', name: DEFAULT_EFFORT_LABEL, description: null },
+                ...['low', 'medium', 'high', 'xhigh', 'max'].map((key) => ({ key, name: key })),
+            ];
+        }
         const metadataEfforts = mapMetadataOptions(metadata?.thoughtLevels);
         if (metadataEfforts.length > 0) {
             return [
@@ -296,6 +331,22 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, 
         return getCodexEffortLevels();
     }
     return [];
+}
+
+// A model switch can retain an effort from the previous model in session state.
+// Keep picker and outbound metadata consistent without rewriting that state.
+export function normalizeModelEffortKey(
+    flavor: AgentFlavor,
+    modelKey: string,
+    effortKey: string | null | undefined,
+    metadata?: Metadata | null,
+): string | null | undefined {
+    if (flavor !== 'codex' || !['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'].includes(modelKey) || !effortKey) {
+        return effortKey;
+    }
+    return getEffortLevelsForModel(flavor, modelKey, metadata).some((level) => level.key === effortKey)
+        ? effortKey
+        : 'default';
 }
 
 // Default effort for a model — highest the model allows

@@ -7,6 +7,8 @@ import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
+import { DesktopSkinCanvas } from '@/components/DesktopSkinCanvas';
+import { DesktopReadingWidthContext, useDesktopReadingWidth } from '@/components/DesktopReadingWidth';
 import { SessionHeaderChip } from '@/components/SessionHeaderChip';
 import { SessionInfoDropdown } from '@/components/SessionInfoDropdown';
 import { PublicSessionShareDialog } from '@/components/PublicSessionShareDialog';
@@ -60,13 +62,15 @@ import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
+import { useSessionManagementPreferences } from '@/hooks/useSessionManagementPreferences';
 import { useSessionTaskPermission } from '@/hooks/useSessionTaskPermission';
 import { useSessionWorkingDirectory } from '@/hooks/useSessionWorkingDirectory';
 import { useSessionResultSyncing } from '@/hooks/useSessionResultSyncing';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Octicons } from '@expo/vector-icons';
+import { ReadingWidthRail } from '@/components/ReadingWidthRail';
 import { useRouter, useNavigation } from 'expo-router';
 import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
@@ -435,6 +439,89 @@ function SessionHeaderMoreAction({
     );
 }
 
+/** A session-local entry point backed by a device-local preference. */
+function DesktopReadingWidthControl() {
+    const { theme } = useUnistyles();
+    const [width, setWidth] = useLocalSettingMutable('desktopReadingWidth');
+    const pendingWidth = React.useRef<number | null>(null);
+    const previewWidth = React.useCallback((value: number) => {
+        if (!Number.isFinite(value)) return;
+        const nextWidth = Math.min(1280, Math.max(800, Math.round(value)));
+        pendingWidth.current = nextWidth;
+        storage.setState((state) => ({ localSettings: { ...state.localSettings, desktopReadingWidth: nextWidth } }));
+    }, []);
+    const commitWidth = React.useCallback((value?: number) => {
+        const nextWidth = typeof value === 'number' && Number.isFinite(value)
+            ? Math.min(1280, Math.max(800, Math.round(value)))
+            : pendingWidth.current;
+        if (nextWidth === null) return;
+        setWidth(nextWidth);
+        pendingWidth.current = null;
+    }, [setWidth]);
+    // Keep dragging cheap: preview in memory and persist once the interaction ends.
+    React.useEffect(() => commitWidth, [commitWidth]);
+    const [open, setOpen] = React.useState(false);
+    const rootRef = React.useRef<View>(null);
+
+    React.useEffect(() => {
+        if (!open || Platform.OS !== 'web' || typeof document === 'undefined') return;
+        const closeOutside = (event: PointerEvent) => {
+            const root = rootRef.current as unknown as HTMLElement | null;
+            if (event.target instanceof Node && !root?.contains(event.target)) { commitWidth(); setOpen(false); }
+        };
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') { commitWidth(); setOpen(false); }
+        };
+        document.addEventListener('pointerdown', closeOutside);
+        document.addEventListener('keydown', closeOnEscape);
+        return () => {
+            document.removeEventListener('pointerdown', closeOutside);
+            document.removeEventListener('keydown', closeOnEscape);
+        };
+    }, [open, commitWidth]);
+
+    return <View ref={rootRef} style={[workspaceStyles.headerIconWrapper, { zIndex: open ? 1300 : 0 }]}>
+        <Pressable
+            accessibilityLabel={t('desktopWorkspace.readingWidth')}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            onPress={() => setOpen((current) => !current)}
+            style={({ pressed }) => [workspaceStyles.headerIconButton, open && workspaceStyles.headerIconButtonSelected, pressed && workspaceStyles.headerIconButtonPressed]}
+            testID="dreamskin-reading-width-button"
+        >
+            <Ionicons name="resize-outline" size={20} color={theme.colors.header.tint} />
+        </Pressable>
+        {open && <View
+            accessibilityLabel={t('desktopWorkspace.readingWidth')}
+            style={{
+                position: 'absolute', top: 44, right: 0, width: 280, padding: 16, borderRadius: 12,
+                backgroundColor: theme.colors.surface, borderColor: theme.colors.divider, borderWidth: StyleSheet.hairlineWidth,
+                shadowColor: theme.colors.shadow.color, shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: theme.colors.shadow.opacity, shadowRadius: 18, elevation: 12,
+            }}
+            testID="dreamskin-reading-width-menu"
+        >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>
+                    {t('desktopWorkspace.readingWidth')}
+                </Text>
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontVariant: ['tabular-nums'] }}>{width} px</Text>
+            </View>
+            {Platform.OS === 'web' && <ReadingWidthRail
+                value={width}
+                min={800}
+                max={1280}
+                label={t('desktopWorkspace.readingWidth')}
+                accentColor={theme.colors.accent}
+                trackColor={theme.colors.divider}
+                iconColor={theme.colors.textSecondary}
+                onValueChange={previewWidth}
+                onValueCommit={(value) => { previewWidth(value); commitWidth(value); }}
+            />}
+        </View>}
+    </View>;
+}
+
 export const SessionView = React.memo((props: { id: string }) => (
     <SubagentInspectorProvider sessionId={props.id}>
         <SessionViewContent key={props.id} {...props} />
@@ -464,9 +551,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const dreamskin = Platform.OS === 'web' && isTablet && desktopSkinId !== 'default';
+    const desktopReadingWidth = useLocalSetting('desktopReadingWidth');
     const sidebarOrganization = useSetting('sidebarOrganization');
     const updateSidebarOrganization = useSettingUpdater('sidebarOrganization');
     const [desktopRightPanelCollapsed, setDesktopRightPanelCollapsed] = useLocalSettingMutable('desktopRightPanelCollapsed');
+    const pinScope = React.useMemo(() => [sessionId], [sessionId]);
+    const { isPinned, togglePinned } = useSessionManagementPreferences(pinScope, { prune: false });
+    const [desktopMainWidth, setDesktopMainWidth] = React.useState(0);
     const [rightDrawerOpen, setRightDrawerOpen] = React.useState(false);
     const [organizerOpen, setOrganizerOpen] = React.useState(false);
     const {
@@ -616,7 +709,6 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const animatedRightPanelStyle = useAnimatedStyle(() => ({
         width: rightPanelAnim.value * rightPanelWidth,
         opacity: Platform.OS === 'web' ? 1 : rightPanelAnim.value,
-        overflow: Platform.OS === 'web' ? 'visible' as const : 'hidden' as const,
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
@@ -931,14 +1023,59 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             onPress={() => setInfoPanelOpen((value) => !value)}
         />
     ) : null;
+    const showDreamskinHeaderActions = dreamskin && desktopMainWidth >= 1180 && !showDesktopRightPanel && showChip;
+    const isSessionPinned = dreamskin && isPinned(sessionId);
+    const shareSession = () => {
+        setInfoPanelOpen(false);
+        Modal.show({
+            accessibilityLabel: t('sessionShare.shareSession'),
+            component: PublicSessionShareDialog,
+            props: { sessionId, title: headerProps.title },
+        });
+    };
+    const dreamskinHeaderActions = showDreamskinHeaderActions ? (
+        <>
+            <View style={workspaceStyles.headerIconWrapper}>
+                <Pressable
+                    accessibilityLabel={t('sessionShare.shareSession')}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={shareSession}
+                    style={({ pressed }) => [workspaceStyles.headerIconButton, pressed && workspaceStyles.headerIconButtonPressed]}
+                    testID="dreamskin-session-share"
+                >
+                    <Ionicons name="share-outline" size={20} color={theme.colors.header.tint} />
+                </Pressable>
+            </View>
+            <View style={workspaceStyles.headerIconWrapper}>
+                <Pressable
+                    accessibilityLabel={t(isSessionPinned ? 'sessionInfo.unpinSession' : 'sessionInfo.pinSession')}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSessionPinned }}
+                    hitSlop={8}
+                    onPress={() => togglePinned(sessionId)}
+                    style={({ pressed }) => [workspaceStyles.headerIconButton, isSessionPinned && workspaceStyles.headerIconButtonSelected, pressed && workspaceStyles.headerIconButtonPressed]}
+                    testID="dreamskin-session-pin"
+                >
+                    <Octicons name="pin" size={19} color={isSessionPinned ? theme.colors.accent : theme.colors.header.tint} />
+                </Pressable>
+            </View>
+        </>
+    ) : null;
+    const readingWidthControl = dreamskin && desktopMainWidth >= 920 && !showDesktopRightPanel && showChip
+        ? <DesktopReadingWidthControl /> : null;
     const defaultHeaderRightSlot = (
         <View style={workspaceStyles.headerActions}>
+            {readingWidthControl}
+            {dreamskinHeaderActions}
             {moreButton}
             {rightPanelToggleButton}
         </View>
     );
     const overlayHeaderRightSlot = (
         <View style={workspaceStyles.headerActions}>
+            {readingWidthControl}
+            {dreamskinHeaderActions}
             {moreButton}
             {rightPanelToggleButton}
             {headerRightSlot}
@@ -996,6 +1133,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     zIndex: 1000
                 }}>
                     <ChatHeaderView
+                        backgroundColor={dreamskin ? 'transparent' : undefined}
                         title={headerProps.title}
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
@@ -1044,17 +1182,20 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                 ) : (
-                    <SessionViewLoaded
-                        key={sessionId}
-                        composerHandleRef={sessionComposerHandleRef}
-                        onManageTags={() => setOrganizerOpen(true)}
-                        onRemoveTag={removeSessionTag}
-                        sessionId={sessionId}
-                        routeOwner={routeOwner}
-                        verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
-                        session={session}
-                        tags={sessionTags}
-                    />
+                    <DesktopReadingWidthContext.Provider value={dreamskin ? desktopReadingWidth : layout.maxWidth}>
+                        <SessionViewLoaded
+                            key={sessionId}
+                            composerHandleRef={sessionComposerHandleRef}
+                            onManageTags={() => setOrganizerOpen(true)}
+                            onRemoveTag={removeSessionTag}
+                            sessionId={sessionId}
+                            routeOwner={routeOwner}
+                            verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
+                            session={session}
+                            desktopMainWidth={desktopMainWidth}
+                            tags={sessionTags}
+                        />
+                    </DesktopReadingWidthContext.Provider>
                 )}
             </View>
 
@@ -1071,17 +1212,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     top={safeArea.top + headerHeight}
                     canCopySessionId={CAN_COPY_SESSION_ID}
                     onClose={() => setInfoPanelOpen(false)}
-                    onShareSession={() => {
-                        setInfoPanelOpen(false);
-                        Modal.show({
-                            accessibilityLabel: t('sessionShare.shareSession'),
-                            component: PublicSessionShareDialog,
-                            props: {
-                                sessionId,
-                                title: headerProps.title,
-                            },
-                        });
-                    }}
+                    onShareSession={shareSession}
                     onViewDetails={() => {
                         setInfoPanelOpen(false);
                         router.push(`/session/${sessionId}/info`);
@@ -1135,8 +1266,21 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 panelAccessibilityLabel={compactPanelLabel}
                 panelContent={rightPanel}
                 showEdgeHandle={false}
+                transparentBackground={dreamskin}
             >
-                {mainContent}
+                {dreamskin ? (
+                    <View
+                        onLayout={(event) => {
+                            const width = Math.round(event.nativeEvent.layout.width);
+                            setDesktopMainWidth((current) => current === width ? current : width);
+                        }}
+                        style={{ flex: 1, position: 'relative', backgroundColor: 'transparent' }}
+                        testID="desktop-workspace-main"
+                    >
+                        <DesktopSkinCanvas reading photo={false} readingWidth={desktopReadingWidth} skin={desktopSkinId} />
+                        {mainContent}
+                    </View>
+                ) : mainContent}
             </RightSwipePanelHost>
         );
     }
@@ -1158,16 +1302,22 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     // File browsing is a tab in that panel, so enabling it never removes quick
     // prompts or creates a fourth column.
     return (
-        <View style={{ flex: 1, flexDirection: 'row' }}>
+        <View style={{ flex: 1, flexDirection: 'row', backgroundColor: dreamskin ? 'transparent' : theme.colors.groupped.background }}>
             <View
+                onLayout={(event) => {
+                    const width = Math.round(event.nativeEvent.layout.width);
+                    setDesktopMainWidth((current) => current === width ? current : width);
+                }}
                 style={[
                     workspaceStyles.desktopMain,
+                    dreamskin && { backgroundColor: 'transparent' },
                     // Web-only: isolate the chat subtree's layout from the
                     // parent flex-row so right-panel layout work stays local.
                     Platform.OS === 'web' && ({ contain: 'layout style paint' } as any),
                 ]}
                 testID="desktop-workspace-main"
             >
+                {dreamskin && <DesktopSkinCanvas reading photo={false} readingWidth={desktopReadingWidth} skin={desktopSkinId} />}
                 {mainContent}
                 <View
                     pointerEvents="box-none"
@@ -1225,6 +1375,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         workspaceStyles.desktopPanel,
                         { width: rightPanelWidth },
                         Platform.OS === 'web' && workspaceStyles.desktopPanelWeb,
+                        Platform.OS === 'web' && !showDesktopRightPanel && { display: 'none' },
                     ]}
                     testID="desktop-right-panel-motion"
                 >
@@ -1386,6 +1537,7 @@ function SessionViewLoaded({
     routeOwner,
     verifiedRouteOwnerEpoch,
     session,
+    desktopMainWidth,
     composerHandleRef,
     onManageTags,
     onRemoveTag,
@@ -1395,6 +1547,7 @@ function SessionViewLoaded({
     routeOwner: SessionRouteOwner;
     verifiedRouteOwnerEpoch: number | null;
     session: Session;
+    desktopMainWidth: number;
     composerHandleRef: React.RefObject<ChatComposerHandle | null>;
     onManageTags: () => void;
     onRemoveTag: (tagId: string) => void;
@@ -1407,7 +1560,7 @@ function SessionViewLoaded({
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
-    const { messages, isLoaded } = useSessionMessages(sessionId);
+    const { messages, isLoaded, isAtLatest, hasMoreNewer, newerError } = useSessionMessages(sessionId);
     const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
@@ -1425,13 +1578,13 @@ function SessionViewLoaded({
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
 
-    const isSyncingResults = useSessionResultSyncing(session.id);
+    const isSyncingResults = useSessionResultSyncing(session.id, true);
     const sessionStatus = useSessionStatus(session, isSyncingResults);
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const experiments = useSetting('experiments');
-    const { canResume, resumeSession, resumeSessionSubtitle, resumingSession } = useSessionQuickActions(session);
+    const { canResume, resumeSession, resumeSessionSubtitle, resumingSession, canContinue, continueSession, continuingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
     const isRecoverableFailure = sessionStatus.state === 'failed';
     const resumeCommandBlock = getResumeCommandBlock(session);
@@ -1520,6 +1673,21 @@ function SessionViewLoaded({
     // need to re-create on every keystroke.
     const sendInFlight = React.useRef(false);
     const stagedSnapshot = React.useSyncExternalStore(messageStagingQueue.subscribe, messageStagingQueue.getSnapshot, messageStagingQueue.getSnapshot);
+    const [continuingFailedTurn, setContinuingFailedTurn] = React.useState(false);
+    const continuedFailedTurnKey = React.useRef<string | null>(null);
+    const [renderedContinuedFailedTurnKey, setRenderedContinuedFailedTurnKey] = React.useState<string | null>(null);
+    const failedTurn = session.agentState?.turnStatus;
+    const failedTurnKey = `${failedTurn?.turnId ?? 'unknown'}:${failedTurn?.updatedAt ?? 0}`;
+    const failedTurnHasFollowUp = failedTurn?.status === 'failed' && (
+        messages.some(message => message.kind === 'user-text' && message.createdAt > failedTurn.updatedAt)
+        || sync.hasPendingOutboxMessagesForSession(sessionId)
+    );
+    const failedContinueQueued = renderedContinuedFailedTurnKey === failedTurnKey
+        || continuedFailedTurnKey.current === failedTurnKey || failedTurnHasFollowUp;
+    // An older history window cannot prove whether a follow-up already exists.
+    const failedHistoryBehind = !isAtLatest || hasMoreNewer;
+    // 历史窗口已加载时提示查看最新，避免把有意保留的阅读位置显示成永久加载。
+    const failedHistoryLoading = !isLoaded || (!failedHistoryBehind && verifiedRouteOwnerEpoch === null);
     const handleSend = React.useCallback(() => {
         if (sendInFlight.current) return;
         const composer = composerHandleRef.current;
@@ -1540,6 +1708,38 @@ function SessionViewLoaded({
             })();
         }
     }, [composerHandleRef, sessionId, selectedImages, removeImage]);
+
+    const handleContinueFailedTurn = React.useCallback(() => {
+        if (failedHistoryLoading && newerError && !failedHistoryBehind) {
+            if (sendInFlight.current) return;
+            sendInFlight.current = true;
+            setContinuingFailedTurn(true);
+            void sync.retryLatestMessageVerification(sessionId).finally(() => {
+                sendInFlight.current = false;
+                setContinuingFailedTurn(false);
+            });
+            return;
+        }
+        if (sendInFlight.current || continuedFailedTurnKey.current === failedTurnKey
+            || failedContinueQueued || failedHistoryLoading || failedHistoryBehind) return;
+        sendInFlight.current = true;
+        setContinuingFailedTurn(true);
+        void (async () => {
+            try {
+                await sync.sendMessage(sessionId, t('session.failedContinuePrompt'), { source: 'chat' });
+                // Queue acceptance precedes worker execution; set the ref
+                // synchronously so another tap cannot enqueue a duplicate.
+                continuedFailedTurnKey.current = failedTurnKey;
+                setRenderedContinuedFailedTurnKey(failedTurnKey);
+                if (Platform.OS === 'web') setFollowLatestRequest(value => value + 1);
+            } catch {
+                Modal.alert(t('common.error'), t('common.retry'));
+            } finally {
+                sendInFlight.current = false;
+                setContinuingFailedTurn(false);
+            }
+        })();
+    }, [sessionId, failedContinueQueued, failedHistoryLoading, failedHistoryBehind, failedTurnKey, newerError]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);
@@ -1613,12 +1813,12 @@ function SessionViewLoaded({
                     verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
                     isLoaded={isLoaded}
                 >
-                    {messages.length > 0 && <ChatList session={session} followLatestRequest={followLatestRequest} />}
+                    {(messages.length > 0 || !!session.metadata?.continuationOfSessionId) && <ChatList session={session} followLatestRequest={followLatestRequest} desktopMainWidth={desktopMainWidth} />}
                 </VerifiedSessionMessageContent>
             </Deferred>
         </>
     );
-    const placeholder = messages.length === 0 ? (
+    const placeholder = messages.length === 0 && !session.metadata?.continuationOfSessionId ? (
         <>
             {isLoaded ? (
                 <EmptyMessages session={session} />
@@ -1656,13 +1856,9 @@ function SessionViewLoaded({
         />
     );
 
-    // Disconnected sessions and terminal failures get the full Resume
-    // affordance regardless of
-    // whether they were explicitly archived or just lost their CLI (e.g.
-    // Ctrl-C in terminal — lifecycleState stays 'running', server flips
-    // active=false). InactiveArchivedHint handles both cases: shows the
-    // Resume button when canResume is true, and falls back to a useful
-    // diagnostic when the machine or saved metadata is unavailable.
+    // A disconnected worker can be resumed on its original machine. An online
+    // worker whose previous turn failed needs a new message in this session;
+    // restarting that worker would not retry the failed turn.
     const inactiveHint = (isDisconnected || isRecoverableFailure) ? (
         <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
             <InactiveArchivedHint
@@ -1670,7 +1866,16 @@ function SessionViewLoaded({
                 canResume={canResume}
                 resuming={resumingSession}
                 onResume={resumeSession}
+                onContinue={canContinue ? continueSession : undefined}
+                continuing={continuingSession}
                 failed={isRecoverableFailure}
+                connected={!isDisconnected}
+                onContinueFailed={handleContinueFailedTurn}
+                continuingFailed={continuingFailedTurn}
+                continueFailedQueued={failedContinueQueued}
+                continueFailedHistoryLoading={failedHistoryLoading}
+                continueFailedHistoryError={Boolean(newerError)}
+                continueFailedHistoryBehind={failedHistoryBehind}
                 unavailableMessage={resumeSessionSubtitle}
             />
         </CenteredInputWidth>
@@ -1868,7 +2073,16 @@ function InactiveArchivedHint(props: {
     canResume: boolean;
     resuming: boolean;
     onResume: () => void;
+    onContinue?: () => void;
+    continuing?: boolean;
     failed?: boolean;
+    connected?: boolean;
+    onContinueFailed?: () => void;
+    continuingFailed?: boolean;
+    continueFailedQueued?: boolean;
+    continueFailedHistoryLoading?: boolean;
+    continueFailedHistoryBehind?: boolean;
+    continueFailedHistoryError?: boolean;
     unavailableMessage?: string;
 }) {
     const { theme } = useUnistyles();
@@ -1889,17 +2103,47 @@ function InactiveArchivedHint(props: {
             <View style={{ paddingHorizontal: 8, gap: 4 }}>
                 <Text style={hintTextStyle}>
                     {props.failed
-                        ? (props.canResume ? t('session.failedRecoveryAvailable') : props.unavailableMessage)
+                        ? (props.connected ? t('session.failedConnected')
+                            : props.canResume ? t('session.failedRecoveryAvailable') : props.unavailableMessage)
                         : t('session.inactiveArchived')}
                 </Text>
-                {props.canResume ? null : props.resumeCommandBlock && (
+                {props.canResume || props.connected ? null : props.resumeCommandBlock && (
                     <Text style={hintTextStyle}>
                         {t('session.resumeFromTerminal')}
                     </Text>
                 )}
             </View>
-            {props.canResume ? (
+            {props.failed && props.connected && props.onContinueFailed ? (
                 <Pressable
+                    testID="failed-session-continue-button"
+                    accessibilityRole="button"
+                    onPress={props.onContinueFailed}
+                    disabled={props.continuingFailed || props.continueFailedQueued || (props.continueFailedHistoryLoading && !props.continueFailedHistoryError) || props.continueFailedHistoryBehind}
+                    style={({ pressed }) => ({
+                        height: 40,
+                        borderRadius: 10,
+                        backgroundColor: theme.colors.button.primary.background,
+                        opacity: props.continuingFailed || props.continueFailedQueued || (props.continueFailedHistoryLoading && !props.continueFailedHistoryError) || props.continueFailedHistoryBehind ? 0.6 : pressed ? 0.8 : 1,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginHorizontal: 8,
+                    })}
+                >
+                    {props.continuingFailed ? (
+                        <ActivityIndicator size="small" color={theme.colors.button.primary.tint} />
+                    ) : (
+                        <Text style={{ color: theme.colors.button.primary.tint, fontSize: 15, fontWeight: '600' }}>
+                            {props.continueFailedQueued ? t('status.queued', { count: 1 })
+                                : props.continueFailedHistoryLoading ? t(props.continueFailedHistoryError ? 'common.retry' : 'common.loading')
+                                : props.continueFailedHistoryBehind ? t('session.failedContinueViewLatest')
+                                : t('session.failedContinueTask')}
+                        </Text>
+                    )}
+                </Pressable>
+            ) : props.canResume ? (
+                <Pressable
+                    testID="session-resume-button"
+                    accessibilityRole="button"
                     onPress={props.onResume}
                     disabled={props.resuming}
                     style={({ pressed }) => ({
@@ -1923,6 +2167,13 @@ function InactiveArchivedHint(props: {
             ) : props.resumeCommandBlock && (
                 <ResumeCommandCopyBlock resumeCommandBlock={props.resumeCommandBlock} />
             )}
+            {props.onContinue && <Pressable accessibilityRole="button" accessibilityLabel={t('session.continueFresh')}
+                onPress={props.onContinue} disabled={props.continuing}
+                style={({ pressed }) => ({ padding: 12, marginHorizontal: 8, borderRadius: 10,
+                    backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface,
+                    alignItems: 'center', opacity: props.continuing ? 0.6 : 1 })}>
+                <Text style={{ color: theme.colors.text, fontWeight: '600' }}>{t(props.continuing ? 'session.continueCreating' : 'session.continueFresh')}</Text>
+            </Pressable>}
         </View>
     );
 }
@@ -1980,6 +2231,7 @@ function CenteredInputWidth(props: {
     children: React.ReactNode;
     horizontalPadding: number;
 }) {
+    const readingWidth = useDesktopReadingWidth();
     return (
         <View style={{
             width: '100%',
@@ -1988,7 +2240,7 @@ function CenteredInputWidth(props: {
         }}>
             <View style={{
                 width: '100%',
-                maxWidth: layout.maxWidth,
+                maxWidth: readingWidth,
             }}>
                 {props.children}
             </View>
@@ -2242,6 +2494,7 @@ const workspaceStyles = StyleSheet.create((theme) => ({
         opacity: 0.7,
     },
     desktopMain: {
+        ...(Platform.OS === 'web' ? { borderRadius: 20, overflow: 'hidden' as const, backgroundColor: theme.colors.surface } : {}),
         flex: 1,
         minWidth: DESKTOP_MAIN_MIN_WIDTH,
     },
@@ -2262,6 +2515,7 @@ const workspaceStyles = StyleSheet.create((theme) => ({
         flex: 1,
     },
     desktopPanelWeb: {
+        paddingLeft: 10,
         position: 'absolute',
         top: 0,
         right: 0,

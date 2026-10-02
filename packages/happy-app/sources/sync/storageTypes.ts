@@ -39,6 +39,7 @@ export const MetadataSchema = z.object({
     }).optional(),
     capabilities: z.object({
         regenerateTitle: z.boolean().optional(),
+        codexCredentialRecovery: z.boolean().optional(),
     }).optional(),
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
@@ -81,6 +82,9 @@ export const MetadataSchema = z.object({
      * point (only set for "duplicate from message", not for plain fork).
      * Both ride inside encrypted metadata so the server stays oblivious.
      */
+    continuationOfSessionId: z.string().optional(),
+    continuationContext: z.string().max(24000).optional(),
+    continuedBySessionId: z.string().optional(),
     parentSessionId: z.string().optional(),
     forkedFromMessageId: z.string().optional(),
 });

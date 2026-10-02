@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 
 import { MessageView } from './MessageView';
+import { TranscriptReadOnlyContext } from './TranscriptReadOnlyContext';
 
 const autoFold = vi.hoisted(() => ({
     getBody: vi.fn<(args: unknown) => any>(() => ({ kind: 'preview-text', text: 'preview' })),
@@ -75,6 +76,58 @@ function flattenStyle(style: unknown): Record<string, unknown> {
 }
 
 describe('MessageView fork action feedback', () => {
+    it('places the user avatar after the message while keeping the Paws avatar before its reply', () => {
+        const avatar = { id: 'jacky', imageUrl: null };
+        const userMessage = { kind: 'user-text' as const, id: 'user-avatar', localId: null, createdAt: 1, text: 'Hello' };
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<MessageView message={userMessage} metadata={null} turnAvatar={avatar} />); });
+        const userStyle = flattenStyle(renderer.root.findByProps({ testID: 'dreamskin-turn-avatar-user-avatar' }).props.style);
+        expect(userStyle.right).toBe(-36);
+        expect(userStyle.left).toBeUndefined();
+
+        act(() => renderer.update(<MessageView message={agentMessage} metadata={null} turnAvatar={avatar} />));
+        const agentStyle = flattenStyle(renderer.root.findByProps({ testID: 'dreamskin-turn-avatar-agent-1' }).props.style);
+        expect(agentStyle.left).toBe(-36);
+        expect(agentStyle.right).toBeUndefined();
+        act(() => renderer.unmount());
+    });
+
+    it('keeps history source identity but disables options and user/agent mutation actions', () => {
+        const onFork = vi.fn();
+        const onEdit = vi.fn();
+        for (const message of [agentMessage, { ...agentMessage, kind: 'user-text' as const }]) {
+            let renderer: any;
+            act(() => {
+                renderer = TestRenderer.create(<TranscriptReadOnlyContext.Provider value={true}>
+                    <MessageView message={message} metadata={null} sessionId="original-session"
+                        showAgentMessageActions showUserMessageActions canEditUserMessage
+                        agentForkTarget={forkTarget} onForkFromMessage={onFork} onEditUserMessage={onEdit} />
+                </TranscriptReadOnlyContext.Provider>);
+            });
+            expect(renderer.root.findByType('MarkdownView').props.sessionId).toBe('original-session');
+            expect(renderer.root.findByType('MarkdownView').props.onOptionPress).toBeUndefined();
+            expect(renderer.root.findAllByType('Pressable').filter((node: any) =>
+                node.props.onLongPress || node.props.testID?.startsWith('message-agent-fork'))).toHaveLength(0);
+            expect(renderer.root.findAllByType('TextInput')).toHaveLength(0);
+            expect(onFork).not.toHaveBeenCalled();
+            expect(onEdit).not.toHaveBeenCalled();
+            act(() => renderer.unmount());
+        }
+    });
+
+    it('also disables options inside expanded historical folded prompts', () => {
+        autoFold.getInfo.mockReturnValue({ charCount: 2000, lineCount: 20, preview: 'preview' });
+        autoFold.getBody.mockReturnValue({ kind: 'markdown', text: agentMessage.text, markdownVariant: 'foldedPrompt' });
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<TranscriptReadOnlyContext.Provider value={true}>
+                <MessageView message={agentMessage} metadata={null} sessionId="old-session" />
+            </TranscriptReadOnlyContext.Provider>);
+        });
+        expect(renderer.root.findByType('MarkdownView').props).toMatchObject({ sessionId: 'old-session', onOptionPress: undefined });
+        act(() => renderer.unmount());
+    });
+
     it('passes the next question as an excluded boundary when its fork button is clicked', () => {
         const onFork = vi.fn();
         let renderer: any;

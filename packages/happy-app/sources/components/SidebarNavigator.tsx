@@ -4,9 +4,9 @@ import { Drawer } from 'expo-router/drawer';
 import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
 import { useWindowDimensions, View, Pressable, Platform, BackHandler, Text } from 'react-native';
-import { useLocalSettingMutable } from '@/sync/storage';
+import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -20,6 +20,8 @@ import {
     useDesktopWorkspaceLayout,
 } from '@/hooks/useDesktopWorkspaceLayout';
 import { DesktopPanelResizeHandle } from './DesktopPanelResizeHandle';
+import { DesktopSkinCanvas } from './DesktopSkinCanvas';
+import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { DesktopShortcutTooltip } from './DesktopShortcutTooltip';
 import { KeyboardShortcutsProvider } from './KeyboardShortcuts';
 import {
@@ -31,6 +33,7 @@ import {
     PERSISTENT_NAVIGATION_ZEN_CONTROL_WIDTH,
     TAURI_HEADER_CONTROL_LEFT,
     DESKTOP_PRIMARY_NAVIGATION_WIDTH,
+    DESKTOP_WORKSPACE_OUTER_GAP,
 } from '@/utils/desktopNavigationLayout';
 
 export const SidebarNavigator = React.memo(() => {
@@ -50,10 +53,15 @@ const SidebarNavigatorContent = React.memo(() => {
     const auth = useAuth();
     const isTablet = useIsTablet();
     const { theme } = useUnistyles();
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const dreamskin = Platform.OS === 'web' && isTablet && desktopSkinId !== 'default';
+    const reducedTransparency = useReducedTransparency();
     const {
         leftExpandedWidth,
+        leftPinned,
         leftVisible: showSidebar,
-        leftWidth,
+        setLeftSidebarHovered,
+        setLeftSidebarFocused,
     } = useDesktopWorkspaceLayout();
     const selectionMode = useSessionSelection((s) => s.active);
     const clearSelection = useSessionSelection((s) => s.clearSelection);
@@ -65,7 +73,9 @@ const SidebarNavigatorContent = React.memo(() => {
         if (!isDesktopLayout) return Math.max(0, Math.min(windowWidth - 16, 420));
         return leftExpandedWidth + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0);
     }, [isDesktopLayout, leftExpandedWidth, windowWidth]);
-    const drawerWidth = showSidebar ? fullDrawerWidth : 0;
+    const fixedRail = isDesktopLayout && Platform.OS === 'web';
+    const drawerWidth = (fixedRail ? leftPinned : showSidebar) ? fullDrawerWidth : fixedRail ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0;
+    const hideDrawer = isDesktopLayout && !showSidebar && !fixedRail;
 
     React.useEffect(() => {
         if (!selectionMode || Platform.OS === 'web') {
@@ -125,7 +135,8 @@ const SidebarNavigatorContent = React.memo(() => {
             } as any;
         }
 
-        // Tablet: always permanent, just collapse width in zen mode.
+        // Desktop keeps the rail permanent. Only a pinned panel reserves layout
+        // width; hover reveal animates the secondary column as an overlay.
         //
         // We deliberately do NOT animate `width` on web. A CSS transition on
         // the drawer width re-flowed the chat flex-1 sibling on every frame,
@@ -137,41 +148,50 @@ const SidebarNavigatorContent = React.memo(() => {
             headerShown: false,
             drawerType: 'permanent' as const,
             drawerStyle: {
-                backgroundColor: 'white',
+                backgroundColor: dreamskin && !reducedTransparency ? 'transparent' : theme.colors.groupped.background,
                 borderRightWidth: 0,
                 width: drawerWidth,
+                zIndex: 10,
                 overflow: Platform.OS === 'web' ? 'visible' as const : 'hidden' as const,
             } as any,
+            sceneStyle: Platform.OS === 'web' ? {
+                margin: DESKTOP_WORKSPACE_OUTER_GAP, marginLeft: 0, borderRadius: 20, overflow: 'hidden',
+                backgroundColor: dreamskin && !reducedTransparency ? 'transparent' : theme.colors.surface,
+            } : undefined,
             swipeEnabled: false,
             drawerActiveTintColor: 'transparent',
             drawerInactiveTintColor: 'transparent',
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, selectionMode, theme.colors.surface]);
+    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, selectionMode, theme.colors.surface, theme.colors.groupped.background, dreamskin, reducedTransparency]);
 
     const drawerContent = React.useCallback(
         ({ navigation }: { navigation: { closeDrawer: () => void } }) => (
             <View
-                aria-hidden={isDesktopLayout && !showSidebar}
-                accessibilityElementsHidden={isDesktopLayout && !showSidebar}
-                importantForAccessibility={isDesktopLayout && !showSidebar ? 'no-hide-descendants' : 'auto'}
+                aria-hidden={hideDrawer}
+                accessibilityElementsHidden={hideDrawer}
+                importantForAccessibility={hideDrawer ? 'no-hide-descendants' : 'auto'}
                 {...(Platform.OS !== 'web' ? {
-                    pointerEvents: isDesktopLayout && !showSidebar ? 'none' : 'auto',
+                    pointerEvents: hideDrawer ? 'none' : 'auto',
                 } : {})}
-                {...(isDesktopLayout && Platform.OS === 'web' ? {
-                    dataSet: {
-                        happyMotion: 'desktop-panel',
-                        happyMotionSide: 'left',
-                        happyMotionState: showSidebar ? 'open' : 'closed',
+                {...(fixedRail ? {
+                    // Only hovering pointers reveal the panel; touch uses the pin control.
+                    onPointerEnter: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') setLeftSidebarHovered(true); },
+                    onPointerLeave: (event: React.PointerEvent) => { if (event.pointerType !== 'touch') setLeftSidebarHovered(false); },
+                    onFocus: (event: React.FocusEvent<HTMLElement>) => {
+                        if (event.target.matches(':focus-visible')) setLeftSidebarFocused(true);
                     },
-                    inert: showSidebar ? undefined : true,
+                    onBlur: (event: React.FocusEvent<HTMLElement>) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLeftSidebarFocused(false);
+                    },
                 } as any : {})}
                 style={[
                     styles.drawerContent,
-                    isDesktopLayout && Platform.OS === 'web' && { width: fullDrawerWidth },
+                    dreamskin && !reducedTransparency && { backgroundColor: 'transparent' },
+                    isDesktopLayout && Platform.OS === 'web' && { width: drawerWidth },
                     Platform.OS === 'web' && {
-                        pointerEvents: isDesktopLayout && !showSidebar ? 'none' : 'auto',
+                        pointerEvents: hideDrawer ? 'none' : 'auto',
                     },
                     isDesktopLayout && !showSidebar && Platform.OS !== 'web' && styles.drawerContentHidden,
                 ]}
@@ -181,15 +201,18 @@ const SidebarNavigatorContent = React.memo(() => {
                     onCloseDrawer={() => navigation.closeDrawer()}
                     closeDrawerOnNavigate={!isDesktopLayout}
                     desktopDensity={isDesktopLayout}
-                    desktopPrimaryNavigation={isDesktopLayout && Platform.OS === 'web'}
+                    desktopPrimaryNavigation={fixedRail}
+                    desktopSecondaryVisible={showSidebar}
+                    desktopSecondaryWidth={leftExpandedWidth}
                 />
             </View>
         ),
-        [fullDrawerWidth, isDesktopLayout, showSidebar]
+        [leftExpandedWidth, drawerWidth, fixedRail, hideDrawer, isDesktopLayout, showSidebar, setLeftSidebarHovered, setLeftSidebarFocused, dreamskin, reducedTransparency]
     );
 
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}>
+            {dreamskin && isDesktopLayout && <DesktopSkinCanvas skin={desktopSkinId} />}
             <Drawer
                 screenOptions={drawerNavigationOptions}
                 drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
@@ -203,7 +226,7 @@ const SidebarNavigatorContent = React.memo(() => {
                     accessibilityLabel={t('desktopWorkspace.resizePanel', {
                         panel: t('desktopWorkspace.sessions'),
                     })}
-                    offset={leftWidth + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0) - 5}
+                    offset={leftExpandedWidth + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0) - 5}
                     side="left"
                 />
             )}
@@ -219,6 +242,7 @@ const PersistentHeader = React.memo(() => {
     const router = useRouter();
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const {
+        leftPinned: sidebarPinned,
         leftVisible: sidebarVisible,
         leftWidth: sidebarWidth,
         toggleLeftSidebar,
@@ -272,18 +296,23 @@ const PersistentHeader = React.memo(() => {
 
     const canGoBackEffective = canGoBack || overlayCanBack;
     const canGoForwardEffective = canGoForward || overlayCanForward;
-    const sidebarToggleLabel = sidebarVisible
-        ? t('desktopWorkspace.hideSessions')
-        : t('desktopWorkspace.showSessions');
+    const sidebarToggleLabel = Platform.OS === 'web'
+        ? (sidebarPinned ? t('desktopWorkspace.unpinSessions') : t('desktopWorkspace.pinSessions'))
+        : (sidebarVisible ? t('desktopWorkspace.hideSessions') : t('desktopWorkspace.showSessions'));
+    const sidebarSelected = Platform.OS === 'web' ? sidebarPinned : sidebarVisible;
+    const coveredBySidebar = Platform.OS === 'web' && sidebarVisible && !sidebarPinned;
 
     return (
         <View
+            aria-hidden={coveredBySidebar}
+            {...(coveredBySidebar ? { inert: true } as any : {})}
             style={{
+                // Stay anchored to the chat's reserved width. The temporary
+                // sidebar covers these controls instead of pushing them over its title.
+                ...(Platform.OS === 'web' ? { visibility: coveredBySidebar ? 'hidden' : 'visible' } as any : {}),
                 position: 'absolute',
-                top: 0,
-                left: (sidebarVisible
-                    ? sidebarWidth + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0)
-                    : 0) + 16,
+                top: Platform.OS === 'web' ? DESKTOP_WORKSPACE_OUTER_GAP : 0,
+                left: (sidebarVisible ? sidebarWidth : 0) + (Platform.OS === 'web' ? DESKTOP_PRIMARY_NAVIGATION_WIDTH : 0) + 16,
                 right: 0,
                 paddingTop: safeArea.top,
                 paddingLeft: isMacTauri ? TAURI_HEADER_CONTROL_LEFT : 16,
@@ -314,25 +343,26 @@ const PersistentHeader = React.memo(() => {
                         onFocus={() => setSidebarTooltipVisible(true)}
                         onHoverIn={() => setSidebarTooltipVisible(true)}
                         onHoverOut={() => setSidebarTooltipVisible(false)}
-                        onPress={toggleLeftSidebar}
+                        onPress={() => { setSidebarTooltipVisible(false); toggleLeftSidebar(); }}
                         hitSlop={8}
                         style={({ pressed }) => [
                             styles.sidebarToggle,
-                            sidebarVisible && styles.toggleSelected,
+                            sidebarSelected && styles.toggleSelected,
                             pressed && styles.togglePressed,
                         ]}
                         aria-expanded={sidebarVisible}
+                        aria-pressed={sidebarSelected}
                         accessibilityHint={`${sidebarToggleLabel} (${shortcuts.leftLabel})`}
                         accessibilityLabel={sidebarToggleLabel}
                         accessibilityRole="button"
-                        accessibilityState={{ expanded: sidebarVisible }}
+                        accessibilityState={{ expanded: sidebarVisible, selected: sidebarSelected }}
                         {...({
                             'aria-keyshortcuts': shortcuts.leftAria,
                         } as any)}
                         testID="desktop-navigation-sidebar-button"
                     >
                         <Ionicons
-                            name={sidebarVisible ? 'folder-open-outline' : 'folder-outline'}
+                            name={sidebarSelected ? 'folder-open-outline' : 'folder-outline'}
                             size={19}
                             color={theme.colors.header.tint}
                         />
@@ -341,7 +371,7 @@ const PersistentHeader = React.memo(() => {
                         label={sidebarToggleLabel}
                         shortcut={shortcuts.leftLabel}
                         testID="desktop-navigation-sidebar-tooltip"
-                        visible={sidebarTooltipVisible}
+                        visible={sidebarTooltipVisible && !coveredBySidebar}
                     />
                 </View>
                 <View style={styles.headerIconWrapper}>
@@ -458,7 +488,7 @@ const styles = StyleSheet.create((theme) => ({
         borderRadius: 10,
     },
     toggleSelected: {
-        backgroundColor: theme.colors.surfacePressed,
+        backgroundColor: theme.colors.surfaceSelected,
     },
     togglePressed: {
         opacity: 0.7,

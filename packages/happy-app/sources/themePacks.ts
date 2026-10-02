@@ -1,5 +1,6 @@
 import { lightTheme, darkTheme } from './theme';
 import { ACCENTS, THEME_PACK_IDS, type AccentMode, type ThemePackId } from './themePacksData';
+import { PHOTO_DESKTOP_SKINS, isPhotoSkinActive, type DesktopSkinId } from './desktopSkin';
 
 export { ACCENTS, THEME_PACK_IDS, type ThemePackId } from './themePacksData';
 
@@ -11,7 +12,7 @@ export { ACCENTS, THEME_PACK_IDS, type ThemePackId } from './themePacksData';
  * 文字、首页粒子），其余功能色（成功/错误/diff/终端/语法）全部继承基础主题。
  *
  * 每个包含亮(light)/暗(dark)两态。最终注册到 unistyles 的主题名为 `${packId}Light`
- * / `${packId}Dark`，共 7×2 = 14 套。
+ * / `${packId}Dark`，共 7×2 = 14 套；PC 照片皮肤按来源明暗态另行注册。
  */
 
 /** 把一个 accent 覆盖到基础主题上，生成完整主题对象 */
@@ -55,7 +56,26 @@ for (const spec of ACCENTS) {
     builtThemes[`${spec.id}Dark`] = applyAccent(darkTheme, spec.dark);
 }
 
-export const appThemes = builtThemes as Record<`${ThemePackId}Light` | `${ThemePackId}Dark`, typeof lightTheme>;
+for (const skin of PHOTO_DESKTOP_SKINS) {
+    const base = skin.appearance === 'light' ? lightTheme : darkTheme;
+    const themed = applyAccent(base, skin.accent);
+    builtThemes[skin.themeName] = {
+        ...themed,
+        colors: {
+            ...themed.colors,
+            desktopSkin: skin.desktopSkin,
+            modal: { ...themed.colors.modal, backdrop: skin.modalBackdrop },
+            divider: skin.divider,
+            header: { ...base.colors.header, background: skin.headerBackground, tint: skin.accent.text },
+            button: {
+                ...themed.colors.button,
+                secondary: { ...base.colors.button.secondary, tint: skin.accent.textSecondary },
+            },
+        },
+    };
+}
+
+export const appThemes = builtThemes as Record<`${ThemePackId}Light` | `${ThemePackId}Dark` | typeof PHOTO_DESKTOP_SKINS[number]['themeName'], typeof lightTheme>;
 
 export type AppThemeName = keyof typeof appThemes;
 
@@ -63,6 +83,20 @@ export type AppThemeName = keyof typeof appThemes;
 export function resolveThemeName(pack: ThemePackId, isDark: boolean): AppThemeName {
     const id = (THEME_PACK_IDS.includes(pack) ? pack : 'caramel');
     return `${id}${isDark ? 'Dark' : 'Light'}` as AppThemeName;
+}
+
+export function resolveDesktopThemeName(
+    pack: ThemePackId,
+    isDark: boolean,
+    skin: DesktopSkinId,
+    platform: string,
+    viewportWidth: number,
+    pathname = '',
+): AppThemeName {
+    if (isPhotoSkinActive(skin, platform, viewportWidth, pathname)) {
+        return PHOTO_DESKTOP_SKINS.find((item) => item.id === skin)?.themeName as AppThemeName;
+    }
+    return resolveThemeName(pack, isDark);
 }
 
 /** 保留当前主题包，仅切换亮暗模式。 */

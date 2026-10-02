@@ -16,6 +16,7 @@ import {
     SidebarOrganizationSchema,
 } from './sidebarOrganization';
 import { THEME_PACK_IDS, type ThemePackId } from '@/themePacksData';
+import { DESKTOP_SKIN_IDS } from '@/desktopSkin';
 
 //
 // Schema
@@ -40,6 +41,29 @@ const RelationshipAdvisorConversationSchema = z.object({
 
 const ThemePackSchema = z.enum(THEME_PACK_IDS as [ThemePackId, ...ThemePackId[]]);
 
+const WebSoundChoiceSchema = z.enum(['off', 'approval', 'complete', 'error', 'start', 'submit']);
+export const WebSoundSettingsSchema = z.object({
+    enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
+    scope: z.enum(['all', 'current', 'pinned']),
+    muteViewedSession: z.boolean(),
+    sounds: z.object({
+        completed: WebSoundChoiceSchema,
+        failed: WebSoundChoiceSchema,
+        permission: WebSoundChoiceSchema,
+        question: WebSoundChoiceSchema,
+        started: WebSoundChoiceSchema,
+    }),
+});
+
+export const webSoundSettingsDefaults: z.infer<typeof WebSoundSettingsSchema> = {
+    enabled: false,
+    volume: 0.3,
+    scope: 'all',
+    muteViewedSession: false,
+    sounds: { completed: 'complete', failed: 'error', permission: 'approval', question: 'approval', started: 'off' },
+};
+
 export const LocalSettingsSchema = z.object({
     // Developer settings (device-specific)
     debugMode: z.boolean().describe('Enable debug logging'),
@@ -47,6 +71,8 @@ export const LocalSettingsSchema = z.object({
     voiceUpsellOverride: z.enum(['control', 'show-paywall-before-first-voice-chat', 'voice-onboarding-and-upsell']).nullable().describe('Developer-only local override for the voice-upsell PostHog flag'),
     themePreference: z.enum(['light', 'dark', 'adaptive']).describe('Theme preference: light, dark, or adaptive (follows system)'),
     themePack: z.enum(['caramel', 'gingham', 'terminal', 'acorn', 'sage', 'sakura', 'grape']).describe('Color theme pack (brand accent variant)'),
+    desktopSkinId: z.enum(DESKTOP_SKIN_IDS).catch('default').describe('PC Web-only visual skin; does not replace the saved color theme'),
+    desktopReadingWidth: z.number().int().min(800).max(1280).catch(960).describe('Preferred DreamSkin session body width in CSS pixels'),
     lastPublicShareThemePack: ThemePackSchema.catch('caramel').describe('Last color theme selected for a new public share'),
     mascot: z.enum(['hoodie', 'explorer', 'astro', 'barista', 'ninja', 'scientist', 'florist']).describe('Mascot character shown on the empty home screen and settings header'),
     markdownCopyV2: z.boolean().describe('Replace native paragraph selection with long-press modal for full markdown copy'),
@@ -69,6 +95,7 @@ export const LocalSettingsSchema = z.object({
     // 不随账号同步（同 agents/zenMode），避免被同步 churn 冲掉。
     agentSpaceId: z.string().nullable().describe('当前进入的「我的 Agent」空间（agent id），null 为全局视图'),
     hapticFeedbackEnabled: z.boolean().describe('Enable haptic (vibration) feedback for interactions'),
+    webSound: WebSoundSettingsSchema.catch(webSoundSettingsDefaults).describe('Browser-only session sound alerts'),
     askApi: z.object({
         apiKey: z.string().describe('DeepSeek-compatible API key for Ask mode'),
         baseUrl: z.string().describe('Optional DeepSeek-compatible API base URL for Ask mode'),
@@ -110,6 +137,8 @@ export const localSettingsDefaults: LocalSettings = {
     voiceUpsellOverride: null,
     themePreference: 'adaptive',
     themePack: 'caramel',
+    desktopSkinId: 'default',
+    desktopReadingWidth: 960,
     lastPublicShareThemePack: 'caramel',
     mascot: 'hoodie',
     markdownCopyV2: false,
@@ -133,6 +162,7 @@ export const localSettingsDefaults: LocalSettings = {
     },
     agentSpaceId: null,
     hapticFeedbackEnabled: true,
+    webSound: webSoundSettingsDefaults,
     askApi: {
         apiKey: '',
         baseUrl: '',

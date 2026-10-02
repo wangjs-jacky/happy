@@ -250,35 +250,28 @@ async function expectPersistedListBefore(page: Page, firstId: string, secondId: 
 
 async function createList(
     page: Page,
-    options: { name: string; kind: 'workspace' | 'agent'; machineName?: string; directoryName?: string },
+    options: { name: string; machineName?: string; directoryName?: string },
 ): Promise<void> {
     await page.getByTestId('sidebar-create-list-button').click();
     await expect(page.getByText('New list', { exact: true })).toBeVisible();
     await page.getByTestId('sidebar-list-name-input').fill(options.name);
-    await page.getByTestId(`sidebar-list-kind-${options.kind}`).click();
-    await expect(page.getByTestId(`sidebar-list-kind-${options.kind}`)).toHaveAttribute('aria-checked', 'true');
-    if (options.kind === 'agent') {
-        await expect(page.getByText('Default machine', { exact: true })).toHaveCount(0);
-        await expect(page.getByText('Default directory', { exact: true })).toHaveCount(0);
-        await expect(page.getByTestId('sidebar-list-agent-prompt-input')).toHaveCount(0);
-        const askMode = page.getByRole('radio', { name: 'Ask', exact: true });
-        await expect(askMode).toHaveAttribute('aria-checked', 'true');
-        await expect(askMode).toBeDisabled();
-    } else {
-        await expect(page.getByTestId('sidebar-list-machine-picker')).toBeVisible();
+    await expect(page.getByTestId('sidebar-list-machine-trigger')).toBeVisible();
+    await expect(page.getByTestId('sidebar-list-directory-trigger')).toBeDisabled();
+    await expect(page.getByTestId('sidebar-list-agent-trigger')).toBeVisible();
+    await expect(page.getByTestId('sidebar-list-machine-picker')).toHaveCount(0);
+    if (options.machineName) {
+        await page.getByTestId('sidebar-list-machine-trigger').click();
+        const machine = page.getByRole('radio', { name: new RegExp(options.machineName) });
+        await machine.click({ timeout: 120_000 });
+        await expect(page.getByTestId('sidebar-list-machine-trigger')).toContainText(options.machineName);
+        await expect(page.getByTestId('sidebar-list-directory-trigger')).toBeEnabled();
+    }
+    if (options.directoryName) {
         const directoryPicker = page.getByTestId('sidebar-list-directory-picker');
         await expect(directoryPicker).toBeVisible();
-        await expect(page.getByTestId('sidebar-list-directory-none')).toHaveAttribute('aria-checked', 'true');
-        await expect(directoryPicker.locator('input')).not.toBeEditable();
-        if (options.machineName) {
-            const machine = page.getByRole('radio', { name: new RegExp(options.machineName) });
-            await machine.click({ timeout: 120_000 });
-            await expect(machine).toHaveAttribute('aria-checked', 'true');
-        }
-        if (options.directoryName) {
-            await directoryPicker.getByText(options.directoryName, { exact: true }).click();
-            await expect(directoryPicker.locator('input')).toHaveValue('/workspace/remote-happy');
-        }
+        await directoryPicker.getByText(options.directoryName, { exact: true }).click();
+        await expect(page.getByTestId('sidebar-list-directory-trigger')).toContainText(options.directoryName);
+        await expect(directoryPicker).toHaveCount(0);
     }
     await page.getByTestId('sidebar-create-list-submit').click();
     await expect(page.getByText('New list', { exact: true })).toHaveCount(0);
@@ -289,7 +282,13 @@ async function organizeSession(
     page: Page,
     options: { sessionId: string; listName: string; tagName: string },
 ): Promise<void> {
-    await page.getByTestId(`organize-session-${options.sessionId}`).click();
+    const sessionRow = page.getByTestId(`organized-session-${options.sessionId}`);
+    if (await sessionRow.count() === 0) {
+        const unassignedList = page.getByTestId('sidebar-list-unassigned');
+        if (await unassignedList.getAttribute('aria-expanded') !== 'true') await unassignedList.click();
+    }
+    await sessionRow.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Organize session', exact: true }).click();
     await expect(page.getByText('Organize session', { exact: true })).toBeVisible();
     const list = page.getByRole('radio', { name: options.listName, exact: true });
     await list.click();
@@ -347,7 +346,6 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
 
         await createList(page, {
             name: 'Remote Happy',
-            kind: 'workspace',
             machineName: 'Sidebar E2E Mac',
             directoryName: '~/remote-happy',
         });
@@ -359,14 +357,15 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         const remoteId = remoteListId!.replace('sidebar-list-', '');
         await page.getByTestId(`sidebar-edit-list-${remoteId}`).click();
         await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
-        await expect(page.getByRole('radio', { name: /Sidebar E2E Mac/ })).toHaveAttribute('aria-checked', 'true');
-        await expect(page.getByTestId('sidebar-list-directory-picker').locator('input')).toHaveValue('/workspace/remote-happy');
+        await expect(page.getByTestId('sidebar-list-machine-trigger')).toContainText('Sidebar E2E Mac');
+        await expect(page.getByTestId('sidebar-list-directory-trigger')).toContainText('~/remote-happy');
         await captureEvidenceFrame(page, testInfo, '04-workspace-picker-saved');
         await page.getByTestId('sidebar-list-name-input').fill('Remote Happy renamed');
         await page.getByTestId('sidebar-edit-list-submit').click();
         await expect(page.getByText('Remote Happy renamed', { exact: true })).toBeVisible();
+        await expect(page.getByTestId(`sidebar-delete-list-${remoteId}`)).toHaveCount(0);
 
-        await createList(page, { name: 'Advisor', kind: 'agent' });
+        await createList(page, { name: 'Advisor' });
         const advisorListRow = page.getByText('Advisor', { exact: true });
         const advisorListTestId = await advisorListRow.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
         expect(advisorListTestId).toMatch(/^sidebar-list-/);
@@ -376,9 +375,8 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page).toHaveURL((url) => url.pathname === '/new' && url.searchParams.get('sidebarListId') === advisorId);
         const askInput = page.locator('[data-testid="new-session-message-input"]:visible');
         await expect(askInput).toBeVisible();
-        await expect(askInput).toHaveAttribute('placeholder', 'Ask anything');
         await expect(askInput).toHaveValue('');
-        await captureEvidenceFrame(page, testInfo, '05-agent-ask-new-session');
+        await captureEvidenceFrame(page, testInfo, '05-plain-list-new-session');
 
         await page.goto(alphaUrl, { timeout: 120_000 });
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation', { timeout: 120_000 });
@@ -417,7 +415,13 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page.getByTestId('desktop-sidebar-tab-lists')).toHaveAttribute('aria-selected', 'true', { timeout: 120_000 });
         await expectListBefore(advisorDropTarget, remoteDropTarget);
         await expect(page).toHaveURL(alphaUrl);
-        await expect(page.getByTestId(`organized-session-tags-${alphaId}`)).toContainText('#product');
+        await expect(page.getByTestId(`session-row-tags-${alphaId}`)).toContainText('#product');
+        const organizedRow = page.getByTestId(`sidebar-drag-session-${alphaId}`);
+        await organizedRow.hover();
+        await expect(page.getByTestId(`session-row-actions-${alphaId}`).getByTestId('session-row-pin-action')).toBeVisible();
+        await expect(page.getByTestId(`session-row-actions-${alphaId}`).getByTestId('session-row-delete-action')).toBeVisible();
+        await expect(page.getByTestId(`session-row-actions-${alphaId}`).getByTestId('session-row-archive-action')).toBeVisible();
+        await expect(page.getByTestId('session-row-details')).toBeVisible();
         await captureEvidenceFrame(page, testInfo, '09-list-order-reloaded');
 
         await dragListToList(page, remoteDropTarget, advisorDropTarget, 'before');
@@ -435,14 +439,14 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         );
         await expect(remoteDropTarget.getByText('0', { exact: true })).toBeVisible();
         await expect(advisorDropTarget.getByText('1', { exact: true })).toBeVisible();
-        await expect(page.getByTestId(`organized-session-tags-${alphaId}`)).toContainText('#product');
+        await expect(page.getByTestId(`session-row-tags-${alphaId}`)).toContainText('#product');
         await expect(page).toHaveURL(alphaUrl);
         await captureEvidenceFrame(page, testInfo, '08-alpha-dragged-to-advisor');
 
         await dragSessionToList(page, page.getByTestId(`sidebar-drag-session-${alphaId}`), unassignedDropTarget);
         await expect(advisorDropTarget.getByText('0', { exact: true })).toBeVisible();
         await expect(unassignedDropTarget.getByText('2', { exact: true })).toBeVisible();
-        await expect(page.getByTestId(`organized-session-tags-${alphaId}`)).toContainText('#product');
+        await expect(page.getByTestId(`session-row-tags-${alphaId}`)).toContainText('#product');
         await expect(page).toHaveURL(alphaUrl);
         await page.screenshot({ path: testInfo.outputPath('06-dragged-to-unassigned.png'), fullPage: true });
         await captureEvidenceFrame(page, testInfo, '09-alpha-dragged-to-unassigned');
@@ -483,11 +487,11 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page.getByText('Advisor', { exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible({ timeout: 120_000 });
         await expect(page.getByTestId('sidebar-drop-list-unassigned').getByText('2', { exact: true })).toBeVisible();
-        await expect(page.getByTestId(`organized-session-tags-${alphaId}`)).toContainText('#product');
+        await expect(page.getByTestId(`session-row-tags-${alphaId}`)).toContainText('#product');
         await page.getByTestId(`sidebar-edit-list-${remoteId}`).click();
         await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
-        await expect(page.getByRole('radio', { name: /Sidebar E2E Mac/ })).toHaveAttribute('aria-checked', 'true');
-        await expect(page.getByTestId('sidebar-list-directory-picker').locator('input')).toHaveValue('/workspace/remote-happy');
+        await expect(page.getByTestId('sidebar-list-machine-trigger')).toContainText('Sidebar E2E Mac');
+        await expect(page.getByTestId('sidebar-list-directory-trigger')).toContainText('~/remote-happy');
         await captureEvidenceFrame(page, testInfo, '10-workspace-picker-reloaded');
         await page.getByTestId('sidebar-create-list-cancel').click();
         await page.getByRole('button', { name: /^product 2$/ }).click();
@@ -559,7 +563,7 @@ test('[SESSION-TAG-COMBOBOX] title hash creates, searches, and syncs tags outsid
 
         await page.getByTestId('desktop-sidebar-tab-lists').click();
         await page.getByRole('button', { name: /^product 1$/ }).click();
-        await expect(page.getByTestId(`organized-session-tags-${sessionId}`)).toContainText('#product');
+        await expect(page.getByTestId(`session-row-tags-${sessionId}`)).toContainText('#product');
         await page.screenshot({ path: tagComboboxEvidencePath(testInfo, '04-lists-sidebar-tags.png'), fullPage: true });
         await captureEvidenceFrame(page, testInfo, 'tag-combobox-04-lists-sidebar-tags');
         await page.goto(authenticatedRoute(`/session/${sessionId}`));
@@ -728,16 +732,21 @@ test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs'
 
         await page.getByTestId('sidebar-create-list-button').click();
         await expect(page.getByText('New list', { exact: true })).toBeVisible();
-        await expectMobileTouchTarget(page.getByTestId('sidebar-list-kind-workspace'));
+        await expectMobileTouchTarget(page.getByTestId('sidebar-list-machine-trigger'));
+        await expectMobileTouchTarget(page.getByTestId('sidebar-list-agent-trigger'));
         await expectMobileTouchTarget(page.getByTestId('sidebar-list-color-blue'));
         await expectMobileTouchTarget(page.getByTestId('sidebar-create-list-submit'));
         await page.getByTestId('sidebar-list-name-input').fill('Mobile removable');
-        await page.getByTestId('sidebar-list-kind-agent').click();
         await page.getByTestId('sidebar-create-list-submit').click();
         await expect(page.getByText('New list', { exact: true })).toHaveCount(0);
         const removableList = page.getByText('Mobile removable', { exact: true });
         await expect(removableList).toBeVisible();
-        const deleteButton = page.getByRole('button', { name: 'Delete list Mobile removable', exact: true });
+        const removableListTestId = await removableList.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
+        expect(removableListTestId).toMatch(/^sidebar-list-/);
+        const removableListId = removableListTestId!.replace('sidebar-list-', '');
+        await page.getByTestId(`sidebar-edit-list-${removableListId}`).click();
+        await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
+        const deleteButton = page.getByTestId('sidebar-delete-list');
         await expectMobileTouchTarget(deleteButton);
         await expect(page.getByText(/cannot contain a nested/i)).toHaveCount(0);
         await pauseForReview(page);

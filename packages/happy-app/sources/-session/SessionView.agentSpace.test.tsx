@@ -18,6 +18,8 @@ import { SessionView } from './SessionView';
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
 import TestRenderer from 'react-test-renderer';
 
+vi.mock('@/components/ReadingWidthRail', () => ({ ReadingWidthRail: 'ReadingWidthRail' }));
+
 const mocks = vi.hoisted(() => ({
     closePanel: vi.fn(),
     pendingCloseCallback: null as (() => void) | null,
@@ -26,6 +28,10 @@ const mocks = vi.hoisted(() => ({
     fileDiffsSidebarEnabled: false,
     runningOnMac: false,
     windowWidth: 390,
+    desktopSkinId: 'default',
+    desktopReadingWidth: 960,
+    setDesktopReadingWidth: vi.fn(),
+    previewLocalSettings: vi.fn(),
     isTablet: false,
     focusContext: null as unknown as React.Context<boolean>,
     rightPanelRoute: true,
@@ -53,6 +59,18 @@ const mocks = vi.hoisted(() => ({
     renameSession: vi.fn(),
     renameSessionToTitle: vi.fn(),
     sessionAbort: vi.fn(),
+    sendMessage: vi.fn(),
+    resumeSession: vi.fn(),
+    hasPendingOutboxMessagesForSession: vi.fn(() => false),
+    canResume: false,
+    statusState: 'connected',
+    statusConnected: true,
+    isAtLatest: true,
+    hasMoreNewer: false,
+    historyLoaded: true,
+    verifiedOwnerEpoch: 1 as number | null,
+    newerError: null as string | null,
+    retryLatestMessageVerification: vi.fn(async () => {}),
     overlayPublish: vi.fn(),
     overlayReset: vi.fn(),
     abandonSessionRoute: vi.fn(),
@@ -81,7 +99,7 @@ const mocks = vi.hoisted(() => ({
             flavor: 'codex',
         },
         metadataVersion: 1,
-        agentState: null,
+        agentState: null as null | { turnStatus: { status: 'failed'; updatedAt: number; turnId: string } },
         agentStateVersion: 1,
         thinking: false,
         thinkingAt: 1,
@@ -115,7 +133,7 @@ vi.mock('react-native-reanimated', () => ({
     useSharedValue: (value: unknown) => ({ value }),
     withTiming: (value: unknown) => value,
 }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         dark: true,
@@ -155,6 +173,7 @@ vi.mock('react-native-unistyles', () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
+vi.mock('@/components/DesktopSkinCanvas', () => ({ DesktopSkinCanvas: (props: any) => React.createElement('DesktopSkinCanvas', props) }));
 vi.mock('@/components/rightPanel/SessionCapabilityHub', () => ({ SessionCapabilityHub: 'SessionCapabilityHub' }));
 vi.mock('@/components/RightSwipePanelHost', async () => {
     const ReactModule = await import('react');
@@ -193,7 +212,7 @@ vi.mock('@/components/AgentContentView', async () => {
     };
 });
 vi.mock('@/components/MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
-vi.mock('@/components/layout', () => ({ layout: { headerMaxWidth: 800 } }));
+vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800, headerMaxWidth: 800 } }));
 vi.mock('@/components/autocomplete/suggestions', () => ({ getSuggestions: () => [] }));
 vi.mock('@/components/ChatHeaderView', async () => {
     const ReactModule = await import('react');
@@ -251,6 +270,9 @@ vi.mock('@/components/FileViewPanel', async () => {
 });
 vi.mock('@/components/diff/PierreDiffView', () => ({ prefetchPierreDiff: vi.fn() }));
 vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn() }) }));
+vi.mock('@/hooks/useSessionManagementPreferences', () => ({
+    useSessionManagementPreferences: () => ({ isPinned: () => false, togglePinned: vi.fn() }),
+}));
 vi.mock('@/hooks/useImagePicker', () => ({
     useImagePicker: () => ({
         selectedImages: [],
@@ -267,11 +289,11 @@ vi.mock('@/hooks/useGlobalKeyboard', () => ({
 }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({
     useSessionQuickActions: () => ({
-        canResume: false,
+        canResume: mocks.canResume,
         renameSession: mocks.renameSession,
         renameSessionToTitle: mocks.renameSessionToTitle,
         renamingSession: false,
-        resumeSession: vi.fn(),
+        resumeSession: mocks.resumeSession,
         resumingSession: false,
     }),
 }));
@@ -317,6 +339,7 @@ vi.mock('@/hooks/useAgentSpace', () => ({
 }));
 vi.mock('@/sync/storage', () => ({
     storage: {
+        setState: (updater: any) => mocks.previewLocalSettings(updater({ localSettings: { desktopReadingWidth: mocks.desktopReadingWidth } })),
         getState: () => ({
             sessions: { 'session-1': { draft: '' } },
             currentViewingSessionId: null,
@@ -329,6 +352,8 @@ vi.mock('@/sync/storage', () => ({
     useLocalSetting: (key: string) => {
         if (key === 'acknowledgedCliVersions') return {};
         if (key === 'desktopRightPanelCollapsed') return mocks.desktopRightPanelCollapsed;
+        if (key === 'desktopSkinId') return mocks.desktopSkinId;
+        if (key === 'desktopReadingWidth') return mocks.desktopReadingWidth;
         if (key === 'sidebarOrganization') return mocks.sidebarOrganization;
         return false;
     },
@@ -336,12 +361,15 @@ vi.mock('@/sync/storage', () => ({
         if (key === 'desktopRightPanelCollapsed') {
             return [mocks.desktopRightPanelCollapsed, mocks.setDesktopRightPanelCollapsed];
         }
+        if (key === 'desktopReadingWidth') return [mocks.desktopReadingWidth, mocks.setDesktopReadingWidth];
         return [false, vi.fn()];
     },
     useSettingUpdater: () => mocks.updateSidebarOrganization,
     useMachine: () => null,
     useSession: () => mocks.sessionAvailable ? mocks.session : null,
-    useSessionMessages: () => ({ messages: mocks.sessionMessages, isLoaded: true }),
+    useSessionMessages: () => ({ messages: mocks.sessionMessages, isLoaded: mocks.historyLoaded,
+        isAtLatest: mocks.isAtLatest, hasMoreNewer: mocks.hasMoreNewer,
+        latestVerifiedOwnerEpoch: mocks.verifiedOwnerEpoch, newerError: mocks.newerError }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => {
         if (key === 'fileDiffsSidebar') return mocks.fileDiffsSidebarEnabled;
@@ -359,7 +387,9 @@ vi.mock('@/sync/sync', () => ({ sync: {
     abandonSessionRoute: mocks.abandonSessionRoute,
     onSessionVisible: vi.fn(),
     openSession: mocks.openSession,
-    sendMessage: vi.fn(),
+    sendMessage: mocks.sendMessage,
+    retryLatestMessageVerification: mocks.retryLatestMessageVerification,
+    hasPendingOutboxMessagesForSession: mocks.hasPendingOutboxMessagesForSession,
     sessionRouteBecameInteractive: mocks.sessionRouteBecameInteractive,
 } }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), show: mocks.modalShow } }));
@@ -376,8 +406,8 @@ vi.mock('@/utils/sessionUtils', () => ({
     getResumeCommandBlock: () => null,
     getSessionName: () => 'Health session',
     useSessionStatus: () => ({
-        isConnected: true,
-        state: 'connected',
+        isConnected: mocks.statusConnected,
+        state: mocks.statusState,
         statusColor: '#ffffff',
         statusDotColor: '#00ff00',
         statusText: 'Online',
@@ -434,6 +464,8 @@ describe('SessionView Agent-space boundary', () => {
         mocks.fileDiffsSidebarEnabled = false;
         mocks.runningOnMac = false;
         mocks.windowWidth = 390;
+        mocks.desktopSkinId = 'default';
+        mocks.desktopReadingWidth = 960;
         mocks.isTablet = false;
         mocks.rightPanelRoute = true;
         mocks.platformOS = 'android';
@@ -449,6 +481,17 @@ describe('SessionView Agent-space boundary', () => {
         mocks.openSubagent = undefined;
         mocks.globalRightSidebarShortcut = undefined;
         mocks.spaceAgent = null;
+        mocks.canResume = false;
+        mocks.statusState = 'connected';
+        mocks.statusConnected = true;
+        mocks.isAtLatest = true;
+        mocks.hasMoreNewer = false;
+        mocks.historyLoaded = true;
+        mocks.verifiedOwnerEpoch = 1;
+        mocks.newerError = null;
+        mocks.session.agentState = null;
+        mocks.sendMessage.mockResolvedValue(undefined);
+        mocks.hasPendingOutboxMessagesForSession.mockReturnValue(false);
         mocks.useSpaceAgentForSession.mockImplementation(() => mocks.spaceAgent);
         mocks.openSession.mockImplementation(async () => mocks.sessionAvailable ? 'ready' : 'not-found');
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -459,6 +502,143 @@ describe('SessionView Agent-space boundary', () => {
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('continues a failed task on its connected worker without restarting it', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        const Focus = mocks.focusContext.Provider;
+        const tree = (focused: boolean) => <Focus value={focused}><SessionView id="session-1" /></Focus>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(true)); });
+
+        const continueButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(renderer.root.findAllByProps({ testID: 'session-resume-button' })).toHaveLength(0);
+        await act(async () => { continueButton.props.onPress(); continueButton.props.onPress(); });
+
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledWith('session-1', 'session.failedContinuePrompt', { source: 'chat' });
+        expect(mocks.resumeSession).not.toHaveBeenCalled();
+        const queuedButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(queuedButton.props.disabled).toBe(true);
+        await act(async () => { queuedButton.props.onPress(); });
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+        mocks.sessionMessages = [{
+            kind: 'user-text', id: 'follow-up', localId: 'follow-up', createdAt: 2,
+            text: 'Please continue this task',
+        }];
+        await act(async () => { renderer = TestRenderer.create(tree(true)); });
+        expect(renderer.root.findByProps({ testID: 'failed-session-continue-button' }).props.disabled).toBe(true);
+
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 3, turnId: 'turn-2' } };
+        await act(async () => { renderer.update(tree(false)); });
+        const newFailureButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(newFailureButton.props.disabled).toBe(false);
+        await act(async () => { newFailureButton.props.onPress(); });
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
+    it('offers Resume only when the failed session is disconnected', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.statusConnected = false;
+        mocks.canResume = true;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+
+        expect(renderer.root.findAllByProps({ testID: 'failed-session-continue-button' })).toHaveLength(0);
+        const resumeButton = renderer.root.findByProps({ testID: 'session-resume-button' });
+        await act(async () => { resumeButton.props.onPress(); });
+
+        expect(mocks.resumeSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('does not offer another continuation when a newer user message already exists', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        mocks.sessionMessages = [{
+            kind: 'user-text', id: 'follow-up', localId: 'follow-up', createdAt: 2,
+            text: 'Please continue this task',
+        }];
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+
+        const continueButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(continueButton.props.disabled).toBe(true);
+        await act(async () => { continueButton.props.onPress(); });
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('blocks continuation while a previous message remains in the local outbox', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        mocks.hasPendingOutboxMessagesForSession.mockReturnValue(true);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+
+        expect(renderer.root.findByProps({ testID: 'failed-session-continue-button' }).props.disabled).toBe(true);
+        expect(mocks.hasPendingOutboxMessagesForSession).toHaveBeenCalledWith('session-1');
+        act(() => renderer.unmount());
+    });
+
+    it('requires the latest history window before continuing a failed turn', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        mocks.isAtLatest = false;
+        mocks.hasMoreNewer = true;
+        mocks.verifiedOwnerEpoch = null;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+
+        const continueButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(continueButton.props.disabled).toBe(true);
+        expect(continueButton.findByType('Text').children).toContain('session.failedContinueViewLatest');
+        await act(async () => { continueButton.props.onPress(); });
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('waits for a verified latest page before offering continuation', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        mocks.historyLoaded = false;
+        mocks.verifiedOwnerEpoch = null;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+
+        const continueButton = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(continueButton.props.disabled).toBe(true);
+        expect(continueButton.findByType('Text').children).toContain('common.loading');
+        await act(async () => { continueButton.props.onPress(); });
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('offers an actionable verification retry without sending another task after a network error', async () => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'failed';
+        mocks.session.agentState = { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'turn-1' } };
+        mocks.verifiedOwnerEpoch = null;
+        mocks.newerError = 'Latest history failed: 503';
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        const button = renderer.root.findByProps({ testID: 'failed-session-continue-button' });
+        expect(button.props.disabled).toBe(false);
+        await act(async () => { button.props.onPress(); button.props.onPress(); });
+        expect(mocks.retryLatestMessageVerification).toHaveBeenCalledTimes(1);
+        expect(mocks.retryLatestMessageVerification).toHaveBeenCalledWith('session-1');
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
 
     it('ignores canonical Agent matching in the phone header and panel', () => {
         mocks.spaceAgent = makeAgent();
@@ -708,6 +888,67 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findAllByType('RightSwipePanelHost')).toHaveLength(1);
         expect(renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' }).props['aria-expanded']).toBe(false);
 
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the photo-backed reading canvas in a 960px DreamSkin session', () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 960;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.desktopSkinId = 'dreamskin';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        expect(renderer.root.findByType('RightSwipePanelHost').props.transparentBackground).toBe(true);
+        expect(renderer.root.findByProps({ testID: 'desktop-workspace-main' })).toBeDefined();
+        expect(renderer.root.findByType('DesktopSkinCanvas').props).toMatchObject({ reading: true, photo: false });
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the same reading interactions with the Warm Night skin', () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 960;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.desktopSkinId = 'warmNight';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        expect(renderer.root.findByType('RightSwipePanelHost').props.transparentBackground).toBe(true);
+        expect(renderer.root.findByType('DesktopSkinCanvas').props).toMatchObject({ reading: true, photo: false, skin: 'warmNight' });
+        act(() => renderer.unmount());
+    });
+
+    it('uses the sidebar pin glyph and exposes a persistent body-width control in a wide DreamSkin session', () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 1600;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.desktopSkinId = 'dreamskin';
+        mocks.desktopRightPanelCollapsed = true;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        act(() => renderer.root.findByProps({ testID: 'desktop-workspace-main' }).props.onLayout({ nativeEvent: { layout: { width: 1360 } } }));
+        const pin = renderer.root.findByProps({ testID: 'dreamskin-session-pin' });
+        expect(pin.findByType('Octicons').props.name).toBe('pin');
+        const widthButton = renderer.root.findByProps({ testID: 'dreamskin-reading-width-button' });
+        act(() => widthButton.props.onPress());
+        expect(renderer.root.findByProps({ testID: 'dreamskin-reading-width-menu' })).toBeDefined();
+        const slider = renderer.root.findByType('ReadingWidthRail');
+        expect(slider.props).toMatchObject({ min: 800, max: 1280, value: 960 });
+        expect(renderer.root.findByProps({ testID: 'desktop-right-panel-motion' }).props.style).toContainEqual({ display: 'none' });
+        for (const value of [800, 1037, 1280]) {
+            act(() => slider.props.onValueChange(value));
+            expect(mocks.previewLocalSettings).toHaveBeenLastCalledWith({ localSettings: { desktopReadingWidth: value } });
+        }
+        expect(mocks.setDesktopReadingWidth).not.toHaveBeenCalled();
+        act(() => slider.props.onValueCommit(1280));
+        expect(mocks.setDesktopReadingWidth).toHaveBeenCalledExactlyOnceWith(1280);
+        act(() => slider.props.onValueChange(1001));
+        act(() => slider.props.onValueCommit(1001));
+        expect(mocks.setDesktopReadingWidth).toHaveBeenLastCalledWith(1001);
+        expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-increase' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'dreamskin-reading-width-decrease' })).toHaveLength(0);
+        expect(renderer.root.findByType('DesktopSkinCanvas').props.readingWidth).toBe(960);
         act(() => renderer.unmount());
     });
 
@@ -1294,8 +1535,11 @@ describe('SessionView Agent-space boundary', () => {
             lists: [{
                 id: 'list-1',
                 name: 'Happy',
-                kind: 'agent',
+                kind: 'workspace',
                 color: 'green',
+                machineId: null,
+                path: null,
+                defaultAgent: null,
                 createdAt: 1,
             }],
             tags: [

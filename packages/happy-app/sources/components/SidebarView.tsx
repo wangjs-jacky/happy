@@ -1,12 +1,13 @@
 import * as React from 'react';
-import { Text, View, Pressable, ScrollView } from 'react-native';
+import { Text, View, Pressable, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useProfile, useLocalSettingMutable } from '@/sync/storage';
+import { useRealtimeStatus, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { getDisplayName } from '@/sync/profile';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -266,6 +267,8 @@ interface SidebarViewProps {
     closeDrawerOnNavigate?: boolean;
     desktopDensity?: boolean;
     desktopPrimaryNavigation?: boolean;
+    desktopSecondaryVisible?: boolean;
+    desktopSecondaryWidth?: number;
 }
 
 type FooterMenu = 'account' | 'help' | null;
@@ -370,9 +373,12 @@ export const SidebarView = React.memo(({
     closeDrawerOnNavigate = true,
     desktopDensity = false,
     desktopPrimaryNavigation = false,
+    desktopSecondaryVisible = true,
+    desktopSecondaryWidth,
 }: SidebarViewProps) => {
     useDrawerHaptics();
     const styles = stylesheet;
+    const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
     const pathname = usePathname();
@@ -387,6 +393,9 @@ export const SidebarView = React.memo(({
     const realtimeStatus = useRealtimeStatus();
     const profile = useProfile();
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const dreamskin = Platform.OS === 'web' && desktopDensity && desktopSkinId !== 'default';
+    const reducedTransparency = useReducedTransparency();
     const [desktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
@@ -493,6 +502,10 @@ export const SidebarView = React.memo(({
                 >
                     <Ionicons name="chatbubble-ellipses-outline" size={17} color={stylesheet.messagesText.color} />
                     <Text style={styles.messagesText}>{t('tabs.inbox')}</Text>
+                </Pressable>
+
+                <Pressable accessibilityRole="button" onPress={() => go('/agent-profiles')} testID="sidebar-party-agents-button" style={({ pressed }) => [styles.messagesRow, desktopDensity && styles.messagesRowDesktop, pressed && styles.navigationCardPressed]}>
+                    <Ionicons name="person-add-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>群聊 Agent 管理</Text>
                 </Pressable>
 
                 <Pressable
@@ -674,6 +687,7 @@ export const SidebarView = React.memo(({
             style={[
                 styles.container,
                 (desktopDensity || railNavigation) && styles.containerDesktop,
+                dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedFrame : theme.colors.desktopSkin.frame, borderColor: theme.colors.desktopSkin.border },
                 { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
             ]}
             testID={desktopDensity ? 'sidebar-desktop-density' : 'sidebar-mobile-rail-layout'}
@@ -690,7 +704,7 @@ export const SidebarView = React.memo(({
 
             {railNavigation ? (
                 <>
-                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
+                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : dreamskin ? [styles.desktopPrimaryColumn, { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedRail : theme.colors.desktopSkin.rail }] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
                         {mobileNavigation ? (
                             <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                                 {desktopNavigationRail}
@@ -698,7 +712,20 @@ export const SidebarView = React.memo(({
                         ) : <>{desktopNavigationRail}<View style={styles.desktopPrimarySpacer} /></>}
                         {footerNavigation}
                     </View>
-                    <View style={styles.desktopSecondaryColumn} testID="desktop-secondary-navigation-column">
+                    <View
+                        style={[styles.desktopSecondaryColumn, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedSidebar : theme.colors.desktopSkin.sidebar }, desktopPrimaryNavigation && {
+                            position: 'absolute', left: DESKTOP_PRIMARY_NAVIGATION_WIDTH,
+                            top: 0, bottom: 0, width: desktopSecondaryWidth,
+                            pointerEvents: desktopSecondaryVisible ? 'auto' : 'none',
+                        }]}
+                        {...(desktopPrimaryNavigation ? { dataSet: {
+                            happyMotion: 'desktop-sidebar',
+                            sidebarVisible: String(desktopSecondaryVisible),
+                        } } : {})}
+                        aria-hidden={desktopPrimaryNavigation && !desktopSecondaryVisible}
+                        {...(desktopPrimaryNavigation && !desktopSecondaryVisible ? { inert: true } as any : {})}
+                        testID="desktop-secondary-navigation-column"
+                    >
                         {mobileNavigation ? (
                             <>
                                 <View style={styles.mobileHeader}>
@@ -726,7 +753,7 @@ export const SidebarView = React.memo(({
                         ) : advisorSidebarActive ? (
                             <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />
                         ) : (
-                            <DesktopSidebarSessionsNavigation />
+                            <DesktopSidebarSessionsNavigation transparentSidebar={dreamskin} />
                         )}
                     </View>
                 </>

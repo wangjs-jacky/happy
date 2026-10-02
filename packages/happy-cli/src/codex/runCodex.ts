@@ -29,7 +29,7 @@ import { isMediaAttachment, type PendingAttachment } from '@/utils/MessageQueue2
 import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes, cleanupAllStagedMediaAttachments, cleanupMediaAttachments, secureAndRegisterStagedMediaPath } from '@/api/mediaAttachment';
 import { buildCodexTurnPayload } from './codexImageInput';
 import { projectPath } from '@/projectPath';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
@@ -71,9 +71,11 @@ import type { GoalCommand, UsageCommand } from '@/parsers/specialCommands';
 import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
-import { mergeReconnectMetadata } from './reconnectMetadata';
+import { mergeReconnectMetadata, applyCodexReconnectUpdate } from './reconnectMetadata';
 import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 import { startCodexAccountWorkerObserver, codexAccountSessionMetadata } from './codexAccountWorker';
+import { CodexSessionCredentialRecovery } from './codexSessionCredentialRecovery';
+import { CodexAuthTurnRecovery, runTurnWithCredentialRecovery } from './codexAuthTurnRecovery';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -99,6 +101,18 @@ export async function completeCodexProcessorStartup(
     await ensureThreadAvailable();
     session.processorReady();
     session.sendSessionEvent({ type: 'ready' });
+}
+
+export async function archiveFailedCodexProcessorStartup(
+    session: Pick<ApiSessionClient, 'updateMetadataAndAwait'>,
+): Promise<void> {
+    await session.updateMetadataAndAwait((metadata) => metadata.lifecycleState === 'archived' ? metadata : ({
+        ...metadata,
+        lifecycleState: 'archived',
+        lifecycleStateSince: Date.now(),
+        archivedBy: 'cli',
+        archiveReason: 'Codex processor failed before ready',
+    }));
 }
 
 function formatCodexGoal(goal: ThreadGoal): string {
@@ -349,6 +363,9 @@ export async function runCodex(opts: {
 
     const api = await ApiClient.create(opts.credentials, opts.startupLifecycle);
     const accountObserver = startCodexAccountWorkerObserver(api);
+    let credentialWaitAbort: AbortController | undefined;
+    let activeCredentialTurn: CodexAuthTurnRecovery | undefined;
+    let turnAbortGeneration = 0;
 
     // Log startup options
     logger.debug(`[codex] Starting with options: startedBy=${opts.startedBy || 'terminal'}`);
@@ -418,6 +435,8 @@ export async function runCodex(opts: {
     const metadata = {
         ...hydratedMetadata,
         ...codexAccountSessionMetadata(),
+        capabilities: { ...hydratedMetadata.capabilities, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+            && basename(process.env.CODEX_HOME).startsWith('happy-codex-home-')) },
         codexPawsOriginToken,
         ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle
             ? { summary: { text: importedSessionTitle, updatedAt: Date.now() } }
@@ -482,12 +501,7 @@ export async function runCodex(opts: {
     if (reconnectSessionId) {
         session.suppressNextArchiveSignal();
         session.skipExistingMessages();
-        reconnectMetadataReady = session.updateMetadataAndAwait((meta) => ({
-            ...meta,
-            codexPawsOriginToken: meta.codexPawsOriginToken ?? codexPawsOriginToken,
-            lifecycleState: 'running',
-            archivedBy: undefined,
-        })).then(() => {
+        reconnectMetadataReady = session.updateMetadataAndAwait((meta) => applyCodexReconnectUpdate(meta, metadata)).then(() => {
             codexPawsOriginToken = session.getMetadata()?.codexPawsOriginToken ?? codexPawsOriginToken;
         });
     }
@@ -773,6 +787,8 @@ export async function runCodex(opts: {
      * happening but keeps the session alive for new prompts.
      */
     async function handleAbort() {
+        turnAbortGeneration++;
+        credentialWaitAbort?.abort();
         if (abortInProgress) {
             await abortInProgress;
             return;
@@ -986,6 +1002,7 @@ export async function runCodex(opts: {
     let bufferCodexEvents = Boolean(opts.resumeThreadId);
     const bufferedCodexEvents: any[] = [];
     const handleCodexEvent = (msg: any) => {
+        activeCredentialTurn?.observe(msg);
         logger.debug(formatCodexEventForLog(msg));
 
         // Add messages to the ink UI buffer based on message type
@@ -1020,16 +1037,20 @@ export async function runCodex(opts: {
             // after the queue is actually drained.
             const failure = describeCodexFailure(msg);
             if (failure) {
-                messageBuffer.addMessage(`Task failed: ${failure}`, 'status');
-                session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
+                if (!(activeCredentialTurn?.needsCredential && credentialRecovery)) {
+                    messageBuffer.addMessage(`Task failed: ${failure}`, 'status');
+                    session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
+                }
             } else {
                 messageBuffer.addMessage('Task completed', 'status');
             }
         } else if (msg.type === 'turn_aborted') {
             const failure = describeCodexFailure(msg);
             if (failure) {
-                messageBuffer.addMessage(`Turn aborted: ${failure}`, 'status');
-                session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
+                if (!(activeCredentialTurn?.needsCredential && credentialRecovery)) {
+                    messageBuffer.addMessage(`Turn aborted: ${failure}`, 'status');
+                    session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
+                }
             } else {
                 messageBuffer.addMessage('Turn aborted', 'status');
             }
@@ -1127,7 +1148,10 @@ export async function runCodex(opts: {
             }
         }
     };
-    client.setTextStreamHandler((event) => session.sendSessionTextDelta(event));
+    client.setTextStreamHandler((event) => {
+        activeCredentialTurn?.observeText();
+        session.sendSessionTextDelta(event);
+    });
     client.setEventHandler((msg) => {
         if (bufferCodexEvents) {
             bufferedCodexEvents.push(msg);
@@ -1157,10 +1181,16 @@ export async function runCodex(opts: {
         }
     } as const;
     let first = true;
+    const accountHome = process.env.CODEX_HOME;
+    const credentialRecovery = accountHome && basename(accountHome).startsWith('happy-codex-home-')
+        && process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID
+        ? new CodexSessionCredentialRecovery(api, accountHome, machineId, session.sessionId)
+        : undefined;
     let appendSystemPromptInjected = false;
     let browserStepPromptInjected = false;
     const skillPathResolutionInstruction = createCodexSkillPathResolutionPromptLifecycle();
 
+    let processorStartupComplete = false;
     try {
         await reconnectMetadataReady;
         logger.debug('[codex]: client.connect begin');
@@ -1552,12 +1582,30 @@ export async function runCodex(opts: {
                     logger.debug(`[Codex] Attaching ${turnPayload.images.length} image(s) to turn`);
                 }
 
-                const result = await client.sendTurnAndWait(turnPayload.prompt, {
-                    model: opts.mode.model,
-                    approvalPolicy: executionPolicy.approvalPolicy,
-                    sandbox: executionPolicy.sandbox,
-                    effort: opts.mode.effort,
-                    images: turnPayload.images,
+                const initialAbortGeneration = turnAbortGeneration;
+                const result = await runTurnWithCredentialRecovery({
+                    prompt: turnPayload.prompt,
+                    sendTurn: async (prompt, attempt, continuing) => {
+                        activeCredentialTurn = attempt;
+                        try {
+                            return await client.sendTurnAndWait(
+                                continuing ? markPawsTurnOrigin(prompt, codexPawsOriginToken) : prompt,
+                                {
+                                    model: opts.mode.model,
+                                    approvalPolicy: executionPolicy.approvalPolicy,
+                                    sandbox: executionPolicy.sandbox,
+                                    effort: opts.mode.effort,
+                                    images: continuing ? [] : turnPayload.images,
+                                },
+                            );
+                        } finally { activeCredentialTurn = undefined; }
+                    },
+                    recovery: credentialRecovery,
+                    reconnect: () => client.reconnectAndResumeThread(),
+                    onWaiting: () => sendStatusMessage('Codex 登录已失效。请登录此会话原账号并运行 paws codex account upload；凭证更新后会自动继续本条消息。'),
+                    onResumed: () => sendStatusMessage('Codex 登录已恢复，正在继续原会话。'),
+                    onWaitController: controller => { credentialWaitAbort = controller; },
+                    shouldExit: () => shouldExit || turnAbortGeneration !== initialAbortGeneration,
                 });
                 if (includeSkillPathResolutionInstruction) {
                     skillPathResolutionInstruction.markPromptSent();
@@ -1601,6 +1649,7 @@ export async function runCodex(opts: {
             effort: currentEffort,
             fast: currentFastMode,
         }));
+        processorStartupComplete = true;
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
@@ -1842,6 +1891,15 @@ export async function runCodex(opts: {
         try {
             logger.debug('[codex]: sendSessionDeath');
             await codexCursorSync;
+            // A failed thread/start otherwise leaves an inactive but resumable
+            // session with no durable stop proof for its caller to reconcile.
+            if (!processorStartupComplete) {
+                try {
+                    await archiveFailedCodexProcessorStartup(session);
+                } catch (error) {
+                    logger.warn('[Codex] Could not persist startup failure lifecycle', error);
+                }
+            }
             session.sendSessionDeath();
             logger.debug('[codex]: flush begin');
             await session.flush();

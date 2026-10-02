@@ -145,9 +145,10 @@ vi.mock('./storage', () => ({ storage: mocks.storage,
     useIsDataReady: () => true,
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
+    useProfile: () => ({ id: 'test-profile', avatar: null }),
     useMachine: () => null,
     useSessionUsage: () => undefined,
-    useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
+    useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : key === 'sessionPinnedOrder' ? [] : false,
     useSettingUpdater: () => vi.fn(),
 }));
 vi.mock('./apiSocket', () => ({
@@ -419,7 +420,7 @@ async function seedLocalProjectionSession() {
     return storage;
 }
 
-async function localHistoryViewHarness(options: { historical?: boolean; holdLocalApply?: boolean } = {}) {
+async function localHistoryViewHarness(options: { historical?: boolean; anchoredLatest?: boolean; holdLocalApply?: boolean; complete?: boolean } = {}) {
     globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
     const storage = await useRealMessageComposition();
     storage.getState().applySessions([hydrated(snapshot('paint-history', 40))]);
@@ -442,11 +443,13 @@ async function localHistoryViewHarness(options: { historical?: boolean; holdLoca
         },
     }, new EncryptionCache()));
     await history.commitPage('paint-history', { direction: 'older', boundary: 2147483647,
-        messages: options.historical ? page(1, 400) : page(40, 40), hasMore: false });
-    const reading = { version: 1 as const, anchorId: 'message-150', anchorSeq: 150, offset: 12, expandedGroupIds: [] };
-    if (options.historical) await history.writeReadingState('paint-history', reading);
-    else await history.commitReconciliation({ changes: [{ sessionId: 'paint-history', revision: '1', deleted: false,
-        lastMessageSeq: 42, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        messages: options.historical ? page(1, 400) : options.anchoredLatest ? page(1, 40) : page(40, 40), hasMore: false });
+    const reading = { version: 1 as const, anchorId: options.anchoredLatest ? 'message-40' : 'message-150',
+        anchorSeq: options.anchoredLatest ? 40 : 150, offset: 12, expandedGroupIds: [],
+        ...(options.anchoredLatest ? { followLatest: false } : {}) };
+    if (options.historical || options.anchoredLatest) await history.writeReadingState('paint-history', reading);
+    if (!options.historical) await history.commitReconciliation({ changes: [{ sessionId: 'paint-history', revision: '1', deleted: false,
+        lastMessageSeq: options.complete ? 40 : 42, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
     const probe = installPhase2Probe('deep-link', { mountsRoute: true });
     const marker = vi.fn(probe.markFreshLatestMessageComplete);
     (globalThis as any).__happySessionCriticalPathProbe = { ...probe, markFreshLatestMessageComplete: marker };
@@ -739,6 +742,101 @@ describe('message visibility synchronization', () => {
         } finally { view.close(); }
     });
 
+    it('verifies a complete local tail before enabling failed-turn actions, including a warm reopen', async () => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ complete: true });
+        try {
+            await act(async () => { await expect(view.opening).resolves.toBe('ready'); });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+            await view.paint(); await view.paint();
+            expect(view.marker).toHaveBeenCalledTimes(1);
+            expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/paint-history/messages?after_seq=40&limit=100');
+            const originalEpoch = view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch;
+            sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+            await expect(sync.openSession('paint-history')).resolves.toBe('ready');
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBe(originalEpoch);
+            expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull();
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+        } finally { view.close(); }
+    });
+
+    it('verifies an anchored window that already contains the latest tail without losing the reading position', async () => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ complete: true, anchoredLatest: true });
+        try {
+            await act(async () => { await view.opening; });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+            expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/paint-history/messages?after_seq=40&limit=100');
+            expect(await view.history.readReadingState('paint-history')).toEqual(view.reading);
+            expect(view.storage.getState().sessionMessages['paint-history'].messages).toContainEqual(
+                expect.objectContaining({ kind: 'user-text', text: 'message-40' }));
+        } finally { view.close(); }
+    });
+
+    it.each([false, true])('keeps the visible reading anchor when background verification discovers multiple new pages (warm: %s)', async warm => {
+        let tail = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(tail.promise);
+        const view = await localHistoryViewHarness({ complete: true, anchoredLatest: true });
+        try {
+            await act(async () => { await view.opening; });
+            if (warm) {
+                await act(async () => { tail.resolve(response({ messages: [], hasMore: false })); });
+                await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+                mocks.apiRequest.mockReset();
+                tail = deferred<Response>();
+                mocks.apiRequest.mockReturnValueOnce(tail.promise);
+                sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+                await act(async () => { void sync.openSession('paint-history'); });
+            }
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+            mocks.apiRequest.mockResolvedValueOnce(response({ messages: view.page(416, 440), hasMore: true }));
+            await act(async () => { tail.resolve(response({ messages: view.page(41, 140), hasMore: true })); });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].hasMoreNewer).toBe(true));
+            const messages = view.storage.getState().sessionMessages['paint-history'];
+            expect(messages).toMatchObject({ isAtLatest: false, latestVerifiedOwnerEpoch: null });
+            expect(messages.messages).toContainEqual(expect.objectContaining({ kind: 'user-text', text: 'message-40' }));
+            expect(await view.history.readReadingState('paint-history')).toEqual(view.reading);
+            expect((await view.history.readWindow('paint-history'))?.newestSeq).toBe(440);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+        } finally { view.close(); }
+    });
+
+    it.each([false, true])('verifies a cached complete tail when returning from anchored history (concurrent cache load: %s)', async concurrentLoad => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ historical: true });
+        try {
+            await act(async () => { await view.opening; });
+            expect(mocks.apiRequest).not.toHaveBeenCalled();
+            await act(async () => {
+                const loading = concurrentLoad ? syncForTest.loadHistoryBoundary('paint-history', 'latest') : undefined;
+                await sync.jumpToLatestMessages('paint-history');
+                await loading;
+            });
+            expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/paint-history/messages?after_seq=400&limit=100');
+            expect(view.storage.getState().sessionMessages['paint-history']).toMatchObject({
+                isAtLatest: true, latestVerifiedOwnerEpoch: syncForTest.activeOpenSession.owner.ownerEpoch,
+            });
+        } finally { view.close(); }
+    });
+
+    it('verifies the network fallback on a warm reopen when durable message writes fail', async () => {
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
+        const view = await localHistoryViewHarness({ complete: true });
+        try {
+            await act(async () => { await view.opening; });
+            await vi.waitFor(() => expect(view.storage.getState().sessionMessages['paint-history'].latestVerifiedOwnerEpoch).not.toBeNull());
+            await view.history.invalidateMessages('paint-history');
+            vi.spyOn(view.history, 'commitPage').mockResolvedValue(false);
+            mocks.apiRequest.mockResolvedValue(response({ messages: view.page(40, 40), hasMore: false }));
+            sync.leaveSessionRoute(syncForTest.activeOpenSession.owner);
+            await expect(sync.openSession('paint-history')).resolves.toBe('ready');
+            expect(view.storage.getState().sessionMessages['paint-history']).toMatchObject({
+                isAtLatest: true, latestVerifiedOwnerEpoch: syncForTest.activeOpenSession.owner.ownerEpoch,
+            });
+            expect(await view.history.readWindow('paint-history')).toBeNull();
+        } finally { view.close(); }
+    });
+
     it('updates the retained Deferred consumer only after failed stale-tail verification is retried and committed', async () => {
         const tail = deferred<Response>();
         mocks.apiRequest.mockReturnValueOnce(tail.promise);
@@ -821,7 +919,7 @@ describe('message visibility synchronization', () => {
         } finally { tail.resolve(response({}, 503)); view.localApply.resolve(); view.close(); }
     });
 
-    it('restores an archived reading window and navigates cached history with zero body requests', async () => {
+    it('restores and pages cached history locally, then verifies an explicit jump to latest', async () => {
         globalThis.indexedDB = new IDBFactory();
         globalThis.IDBKeyRange = IDBKeyRange;
         installSession('archive');
@@ -835,10 +933,13 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(false);
         expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(300);
         await syncForTest.loadNewerMessages('archive');
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         await syncForTest.jumpToLatestMessages('archive');
         expect(mocks.state.sessionMessages.archive.isAtLatest).toBe(true);
         await syncForTest.loadOlderMessages('archive');
-        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/archive/messages?after_seq=400&limit=100');
         expect(mocks.state.sessionMessages.archive.messages.length).toBeGreaterThan(300);
         expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(500);
     }, 20000);
@@ -1045,6 +1146,107 @@ describe('message visibility synchronization', () => {
         expect(storage.getState().sessionMessages['projection-gap'].messages).toHaveLength(4);
     });
 
+    it.each([
+        ['memory', 'history-first'], ['memory', 'forward-first'],
+        ['disk', 'history-first'], ['disk', 'forward-first'],
+    ])('finishes a live result gap after an older history load supersedes its request (%s, %s)', async (cache, order) => {
+        Platform.OS = 'web';
+        const id = 'superseded-result-gap';
+        if (cache === 'disk') {
+            vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+            syncForTest.localHistory = await openLocalHistory('server|superseded-result-gap');
+        }
+        installSession(id);
+        mocks.state.currentViewingSessionId = id;
+        const lease = syncForTest.sessionMessageLoadGate.enter(id);
+        await syncForTest.applyLatestMessagePage(id, { messages: [apiMessage(100)], hasMore: true },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const forward = deferred<Response>();
+        const older = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(forward.promise)
+            .mockReturnValueOnce(older.promise)
+            .mockResolvedValueOnce(response({ messages: [apiMessage(101), apiMessage(103)], hasMore: false }));
+
+        await syncForTest.handleUpdate(newMessageUpdate(id, 103));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const loading = sync.loadOlderMessages(id);
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+        if (order === 'history-first') {
+            older.resolve(response({ messages: [apiMessage(99)], hasMore: true }));
+            await loading;
+        }
+        forward.resolve(response({ messages: [apiMessage(101), apiMessage(103)], hasMore: false }));
+        if (order === 'forward-first') {
+            await syncForTest.getSessionMessageLock(id).inLock(() => undefined);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            older.resolve(response({ messages: [apiMessage(99)], hasMore: true }));
+            await loading;
+        }
+        await syncForTest.messagesSync.get(id).awaitQueue();
+
+        expect(mocks.state.sessionMessages[id].latestAppliedSeq).toBe(103);
+        expect(syncForTest.historyWindows.get(id).messages.map((message: ApiMessage) => message.seq))
+            .toEqual([99, 100, 101, 103]);
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(['android', 'ios'] as const)('finishes both native older history and the superseded result gap on %s without IndexedDB', async platform => {
+        Platform.OS = platform;
+        const id = 'native-result-gap';
+        installSession(id);
+        mocks.state.currentViewingSessionId = id;
+        const lease = syncForTest.sessionMessageLoadGate.enter(id);
+        await syncForTest.applyLatestMessagePage(id, { messages: [apiMessage(100)], hasMore: true },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const forward = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(forward.promise).mockImplementation(async (url: string) => response({
+            messages: url.includes('before_seq=') ? [apiMessage(99)] : [apiMessage(101), apiMessage(103)], hasMore: false,
+        }));
+        await syncForTest.handleUpdate(newMessageUpdate(id, 103));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const older = sync.loadOlderMessages(id);
+        forward.resolve(response({ messages: [apiMessage(101), apiMessage(103)], hasMore: false }));
+        await older;
+        await syncForTest.messagesSync.get(id).awaitQueue();
+        expect(mocks.state.sessionMessages[id].messagesMap['message-99']).toBeDefined();
+        expect(mocks.state.sessionMessages[id].messagesMap['message-103']).toBeDefined();
+        expect(mocks.state.sessionMessages[id].latestAppliedSeq).toBe(103);
+        expect(mocks.state.sessionMessages[id].olderError).toBeNull();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(['historical', 'evicted', 'account'])('does not resume superseded result sync after %s navigation', async terminal => {
+        Platform.OS = 'android';
+        vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+        const id = 'abandoned-result-gap';
+        const history = (await openLocalHistory('server|abandoned-result-gap'))!;
+        syncForTest.localHistory = history;
+        installSession(id);
+        mocks.state.currentViewingSessionId = id;
+        await history.commitPage(id, { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 400 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        const lease = syncForTest.sessionMessageLoadGate.enter(id);
+        await syncForTest.applyHistoryWindow(id, await history.readWindow(id, { limit: 300 }),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const forward = deferred<Response>();
+        mocks.apiRequest.mockReturnValueOnce(forward.promise);
+        await syncForTest.handleUpdate(newMessageUpdate(id, 403));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        const pending = syncForTest.messagesSync.get(id).awaitQueue();
+        if (terminal === 'historical') await sync.loadOlderMessages(id);
+        else if (terminal === 'evicted') syncForTest.releaseSessionMessageCache(id);
+        else syncForTest.encryption = { ...syncForTest.encryption };
+        forward.resolve(response({ messages: [apiMessage(401), apiMessage(403)], hasMore: false }));
+        await pending;
+        await syncForTest.getSessionMessageLock(id).inLock(() => undefined);
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.state.sessionMessages[id]?.messages.some((message: any) => message.text === 'fetched-403') ?? false).toBe(false);
+        if (terminal === 'historical') {
+            expect(syncForTest.historyWindows.get(id).isAtLatest).toBe(false);
+            expect(mocks.state.sessionMessages[id].latestAppliedSeq).toBeLessThan(400);
+        }
+    });
+
     it.each([101, 102])('does not confuse ACK %s with a committed remote projection', async ackSeq => {
         Platform.OS = 'web';
         const storage = await seedLocalProjectionSession();
@@ -1066,7 +1268,7 @@ describe('message visibility synchronization', () => {
                 await vi.waitFor(() => expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBe(101), { timeout: 300 });
             } else {
                 expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBe(100);
-                await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?after_seq=100&limit=100'));
+                await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?after_seq=100&limit=100', expect.anything()));
             }
         } finally {
             http.resolve(response({ messages: [apiMessage(101), apiMessage(102), apiMessage(103)], hasMore: false }));
@@ -1105,7 +1307,7 @@ describe('message visibility synchronization', () => {
         try {
             await syncForTest.handleUpdate(newMessageUpdate('spawned-session', 101));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
         } finally {
             http.resolve(response({ messages: [apiMessage(99), apiMessage(100), apiMessage(101)], hasMore: true }));
             await syncForTest.getMessagesSync('spawned-session').awaitQueue();
@@ -1134,7 +1336,7 @@ describe('message visibility synchronization', () => {
         mocks.apiRequest.mockReturnValueOnce(http.promise);
         const opening = syncForTest.openSession('spawned-session');
         try {
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
         } finally {
             http.resolve(response({ messages: [apiMessage(99), apiMessage(100)], hasMore: true }));
@@ -1156,7 +1358,7 @@ describe('message visibility synchronization', () => {
         try {
             await syncForTest.handleUpdate(newMessageUpdate('spawned-session', 103));
             expect(storage.getState().sessionMessages['spawned-session'].latestAppliedSeq).toBeUndefined();
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25'));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/spawned-session/messages?before_seq=2147483647&limit=25', expect.anything()));
         } finally {
             http.resolve(response({ messages: [apiMessage(100), apiMessage(101), apiMessage(102), apiMessage(103)], hasMore: true }));
             await syncForTest.messagesSync.get('spawned-session')?.awaitQueue();
@@ -1291,7 +1493,7 @@ describe('message visibility synchronization', () => {
         const after = syncForTest.historyWindows.get('web-forward-history');
         expect(after.messages.map((message: ApiMessage) => message.seq))
             .toEqual(before.messages.map((message: ApiMessage) => message.seq));
-        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-forward-history/messages?after_seq=301&limit=100');
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-forward-history/messages?after_seq=301&limit=100', expect.anything());
     }, 20000);
 
     it('keeps visited Web history when a consecutive realtime row reaches the latest window', async () => {
@@ -1341,6 +1543,33 @@ describe('message visibility synchronization', () => {
         expect(after.messages.map((message: ApiMessage) => message.seq)).toEqual([...before, 302]);
         expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/web-reconciled-history/messages?after_seq=301&limit=100');
     }, 20000);
+
+    it('fetches results when session metadata is newer than the Web history change cursor', async () => {
+        globalThis.indexedDB = new IDBFactory();
+        globalThis.IDBKeyRange = IDBKeyRange;
+        Platform.OS = 'web';
+        installSession('stale-change');
+        const history = (await openLocalHistory('server|stale-change'))!;
+        await history.commitPage('stale-change', { direction: 'older', boundary: 2147483647,
+            messages: [apiMessage(75)], hasMore: false });
+        await history.commitReconciliation({ changes: [{ sessionId: 'stale-change', revision: '1', deleted: false,
+            lastMessageSeq: 75, metadataVersion: 0, agentStateVersion: 0 }], nextCursor: '1' });
+        syncForTest.localHistory = history;
+        await expect(syncForTest.openSession('stale-change')).resolves.toBe('ready');
+        expect(mocks.state.sessionMessages['stale-change'].latestAppliedSeq).toBe(75);
+        mocks.state.sessions['stale-change'].seq = 86;
+        mocks.apiRequest.mockResolvedValue(response({
+            messages: Array.from({ length: 11 }, (_, index) => apiMessage(76 + index)), hasMore: false,
+        }));
+
+        await syncForTest.ensureMessagesLoaded('stale-change');
+
+        expect(mocks.apiRequest).toHaveBeenCalledWith(
+            '/v3/sessions/stale-change/messages?after_seq=75&limit=100',
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+        expect(mocks.state.sessionMessages['stale-change'].latestAppliedSeq).toBe(86);
+    });
 
     it('keeps a restored Web history island reachable when a disconnected latest window is applied', async () => {
         globalThis.indexedDB = new IDBFactory();
@@ -1651,7 +1880,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
     });
 
-    it('makes zero body requests across ten cached opens, visibility signals and unchanged reconnect reconciliations', async () => {
+    it('verifies each cached latest open with one incremental request and keeps unchanged reconnects local', async () => {
         globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
         installSession('budget');
         const history = (await openLocalHistory('server|account'))!;
@@ -1667,19 +1896,22 @@ describe('message visibility synchronization', () => {
         });
         syncForTest.localHistory = history;
         mocks.state.currentViewingSessionId = 'budget';
+        mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         for (let i = 0; i < 10; i++) {
             await syncForTest.openSession('budget');
+            await vi.waitFor(() => expect(mocks.state.sessionMessages.budget.latestVerifiedOwnerEpoch).not.toBeNull());
             syncForTest.onSessionVisible('budget');
             await syncForTest.getMessagesSync('budget').awaitQueue();
             await syncForTest.fetchSessions(); // reconnect's existing invalidator target
         }
         expect(reconciliations).toBe(10);
-        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(10);
+        expect(mocks.apiRequest.mock.calls.every(([url]) => url === '/v3/sessions/budget/messages?after_seq=40&limit=100')).toBe(true);
         expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
         expect(mocks.state.sessionMessages.budget.isLoaded).toBe(true);
         syncForTest.releaseSessionMessageCache('budget');
         await syncForTest.ensureMessagesLoaded('budget');
-        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(10);
     });
 
     it('keeps realtime tail windows bounded and gives replayed rows stable wire identity', async () => {
@@ -2408,7 +2640,7 @@ describe('message visibility synchronization', () => {
         await syncForTest.loadOlderMessages('bounded-initial');
 
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(1,
-            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25');
+            '/v3/sessions/bounded-initial/messages?before_seq=2147483647&limit=25', expect.anything());
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(2,
             '/v3/sessions/bounded-initial/messages?before_seq=101&limit=100');
         expect(syncForTest.sessionMessageFrontiers.get('bounded-initial')?.olderBeforeSeq).toBe(1);
@@ -2430,6 +2662,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
+            expect.anything(),
         );
         expect(mocks.state.sessionMessages['warm-route'].latestVerifiedOwnerEpoch).not.toBeNull();
     });
@@ -3191,7 +3424,37 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/visible-session/messages?after_seq=4&limit=100',
+            expect.anything(),
         );
+    });
+
+    it('abandons a hung message request and fetches the missing result again', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            installSession('visible-session');
+            mocks.state.currentViewingSessionId = 'visible-session';
+            seedProjectedFrontier('visible-session', { latestSeq: 75, olderBeforeSeq: null, hasMoreOlder: false });
+            const hung = deferred<Response>();
+            let signal: AbortSignal | undefined;
+            mocks.apiRequest
+                .mockImplementationOnce((_path: string, options: RequestInit) => {
+                    signal = options.signal ?? undefined;
+                    return hung.promise;
+                })
+                .mockResolvedValueOnce(response({ messages: [apiMessage(76), apiMessage(77), apiMessage(78)], hasMore: false }));
+
+            await syncForTest.handleUpdate(newMessageUpdate('visible-session', 78));
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+            await vi.advanceTimersByTimeAsync(22_000);
+            await syncForTest.messagesSync.get('visible-session').awaitQueue();
+
+            expect(signal?.aborted).toBe(true);
+            expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+            expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-78']).toBeDefined();
+            expect(mocks.state.sessionMessages['visible-session']?.latestAppliedSeq).toBe(78);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('coalesces concurrent visible gaps into one forward operation', async () => {
@@ -3242,6 +3505,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenNthCalledWith(
             2,
             '/v3/sessions/visible-session/messages?after_seq=7&limit=100',
+            expect.anything(),
         );
         expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-8']).toBeDefined();
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(8);
@@ -3702,6 +3966,9 @@ describe('message visibility synchronization', () => {
         });
 
     it.each(['web', 'android'] as const)('renders a retryable no-IDB older failure on %s through mounted ChatList and clears it after retry', async platform => {
+        // The React renderer has no browser frame scheduler; this case does not exercise auto-fill.
+        vi.stubGlobal('requestAnimationFrame', (_callback: FrameRequestCallback) => 1);
+        vi.stubGlobal('cancelAnimationFrame', (_frame: number) => {});
         const { Platform } = await import('react-native');
         const previousPlatform = Platform.OS;
         (Platform as any).OS = platform;

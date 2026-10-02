@@ -1,5 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const [origin, indexPath, mode, browserOriginArgument] = process.argv.slice(2);
 
@@ -145,6 +147,7 @@ function expectedMimePattern(pathname) {
     if (pathname.endsWith('.wasm')) return /^application\/wasm\b/i;
     if (pathname.endsWith('.ttf')) return /^(?:font\/ttf|application\/(?:x-font-ttf|font-sfnt))\b/i;
     if (pathname.endsWith('.woff2')) return /^font\/woff2\b/i;
+    if (pathname.endsWith('.wav')) return /^audio\/(?:wav|wave|x-wav|vnd\.wave)\b/i;
     if (pathname.endsWith('.ico')) return /^image\/(?:x-icon|vnd\.microsoft\.icon)\b/i;
     if (pathname.endsWith('.svg')) return /^image\/svg\+xml\b/i;
     if (pathname.endsWith('.png')) return /^image\/png\b/i;
@@ -167,7 +170,7 @@ function assertMime(label, pathname, response) {
 
 function assertCachePolicy(label, pathname, response) {
     const cacheControl = response.headers.get('cache-control') ?? '';
-    const immutable = pathname.startsWith('/web/releases/') || pathname.startsWith('/_expo/') || pathname.startsWith('/assets/');
+    const immutable = pathname.startsWith('/web/releases/') || pathname.startsWith('/_expo/') || pathname.startsWith('/assets/') || pathname.startsWith('/desktop-skins/');
     if (immutable) {
         if (!/\bmax-age=31536000\b/i.test(cacheControl) || !/\bimmutable\b/i.test(cacheControl)) {
             throw new Error(`${label} cache-control is not immutable: ${cacheControl || '(missing)'}`);
@@ -215,6 +218,50 @@ const representativeImageUrl = assetUrlForFile(representativeImagePath);
 const representativeImageResponse = await fetchRequired('representative image asset', representativeImageUrl);
 assertMime('representative image asset', representativeImagePath, representativeImageResponse);
 assertCachePolicy('representative image asset', representativeImageUrl.slice(normalizedOrigin.length), representativeImageResponse);
+
+const skinDirectory = join(distDirectory, 'desktop-skins');
+const skinFiles = await listFiles(skinDirectory).catch((error) => {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+});
+const skinManifest = JSON.parse(await readFile(fileURLToPath(new URL('./desktop-skin-assets.json', import.meta.url)), 'utf8'));
+const requiredSkins = new Map(skinManifest.skins.map((skin) => [skin.assetId, skin.filename]));
+if (skinManifest.schemaVersion !== 1 || requiredSkins.size !== skinManifest.skins.length || skinFiles.length !== requiredSkins.size) {
+    throw new Error(`desktop skin background missing or ambiguous: found ${skinFiles.length}`);
+}
+const foundSkinIds = new Set();
+for (const skinPath of skinFiles) {
+    const relativePath = relative(skinDirectory, skinPath).split(sep).join('/');
+    const expectedHash = createHash('sha256').update(await readFile(skinPath)).digest('hex');
+    const skinId = relativePath.split('/')[0];
+    if (requiredSkins.get(skinId) !== `background.${expectedHash.slice(0, 16)}.webp`
+        || relativePath !== `${skinId}/${requiredSkins.get(skinId)}`) {
+        throw new Error(`desktop skin background is not content-addressed: ${relativePath}`);
+    }
+    foundSkinIds.add(skinId);
+    const pathname = `/desktop-skins/${relativePath}`;
+    const response = await fetchRequired('desktop skin background', `${normalizedOrigin}${pathname}`);
+    assertMime('desktop skin background', pathname, response);
+    assertCachePolicy('desktop skin background', pathname, response);
+    const remoteHash = createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
+    if (remoteHash !== expectedHash) throw new Error(`desktop skin background SHA-256 mismatch: ${pathname}`);
+}
+if (foundSkinIds.size !== requiredSkins.size) throw new Error('desktop skin background missing for a required skin');
+
+const requiredSoundPaths = ['approval', 'complete', 'error', 'start', 'submit']
+    .map((name) => `assets/sounds/codeisland/8bit_${name}.wav`);
+for (const soundPath of requiredSoundPaths) {
+    const filePath = join(distDirectory, ...soundPath.split('/'));
+    if (!assetFiles.includes(filePath)) throw new Error(`required audio asset missing from Web export: ${soundPath}`);
+    const url = `${normalizedOrigin}/${soundPath}`;
+    const response = await fetchRequired(`audio asset ${soundPath}`, url);
+    assertMime(`audio asset ${soundPath}`, soundPath, response);
+    assertCachePolicy(`audio asset ${soundPath}`, `/${soundPath}`, response);
+    const [expectedBytes, remoteBytes] = await Promise.all([readFile(filePath), response.arrayBuffer()]);
+    if (!expectedBytes.equals(Buffer.from(remoteBytes))) {
+        throw new Error(`audio asset ${soundPath} content mismatch`);
+    }
+}
 
 if (immutableMode) {
     const releasePrefix = `/web/releases/${expectedRevision}`;

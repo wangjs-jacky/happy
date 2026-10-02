@@ -114,6 +114,14 @@ function isInvalidInitializeParams(error: unknown): boolean {
 
 export type CodexApprovalAuthority = 'desktop' | 'paws';
 
+export type CodexAccountRateLimitsResponse = {
+    rateLimits: {
+        limitId?: string | null;
+        primary?: { usedPercent?: number; windowDurationMins?: number; resetsAt?: number } | null;
+        secondary?: { usedPercent?: number; windowDurationMins?: number; resetsAt?: number } | null;
+    } | null;
+};
+
 export type CodexAppServerConnection =
     | { type: 'spawn' }
     | {
@@ -1258,8 +1266,20 @@ export class CodexAppServerClient {
         logger.debug('[CodexAppServer] Disconnected');
     }
 
-    async disconnect(): Promise<void> {
-        await this.disconnectInternal();
+    async disconnect(options?: { waitForExit?: boolean }): Promise<void> {
+        const proc = options?.waitForExit ? this.process : null;
+        // Probe credentials must not be read/deleted while their producer can still write.
+        const exited = proc && proc.exitCode === null && proc.signalCode === null
+            ? new Promise<void>((resolve, reject) => {
+                const onExit = () => { clearTimeout(timer); resolve(); };
+                const timer = setTimeout(() => {
+                    proc.removeListener('exit', onExit);
+                    reject(new Error('Codex process did not exit before credential recovery'));
+                }, 5_000);
+                proc.once('exit', onExit);
+            })
+            : Promise.resolve();
+        await Promise.all([this.disconnectInternal(), exited]);
     }
 
     private buildThreadConfig(mcpServers?: Record<string, unknown>): Record<string, unknown> | null {
@@ -1327,7 +1347,9 @@ export class CodexAppServerClient {
             persistExtendedHistory: true,
         };
 
-        const result = await this.request('thread/start', params) as NewConversationResponse;
+        // Codex may spend its own shell-snapshot timeout preparing a new thread.
+        // Keep this startup RPC above that timeout without relaxing all RPCs.
+        const result = await this.request('thread/start', params, 120_000) as NewConversationResponse;
         this._threadId = result.thread.id;
         this._turnId = null;
         this.rememberThreadDefaults({
@@ -1511,6 +1533,10 @@ export class CodexAppServerClient {
 
     async readAccountUsage(): Promise<GetAccountTokenUsageResponse> {
         return await this.request('account/usage/read') as GetAccountTokenUsageResponse;
+    }
+
+    async readAccountRateLimits(): Promise<CodexAccountRateLimitsResponse> {
+        return await this.request('account/rateLimits/read', undefined, 15_000) as CodexAccountRateLimitsResponse;
     }
 
     async listMcpServerStatus(

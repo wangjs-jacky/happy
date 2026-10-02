@@ -6,8 +6,10 @@ import { createHeader } from '@/components/navigation/Header';
 import { Platform } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
-import { t } from '@/text';
+import { t, getCurrentLanguage } from '@/text';
 import { CardStackScene } from '@/components/CardStackScene';
+import { useIsTablet } from '@/utils/responsive';
+import { useLocalSetting } from '@/sync/storage';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -17,6 +19,12 @@ export default function RootLayout() {
     // Use custom header on Android and Mac Catalyst, native header on iOS (non-Catalyst)
     const shouldUseCustomHeader = Platform.OS === 'android' || isRunningOnMac() || Platform.OS === 'web';
     const { theme } = useUnistyles();
+    const isTablet = useIsTablet();
+    const isDesktopWeb = Platform.OS === 'web' && isTablet;
+    const desktopSkinId = useLocalSetting('desktopSkinId');
+    const photoSceneStyle = isDesktopWeb && desktopSkinId !== 'default'
+        ? { backgroundColor: 'transparent' as const }
+        : undefined;
 
     return (
         <CardStackScene>
@@ -44,7 +52,8 @@ export default function RootLayout() {
                 name="index"
                 options={{
                     headerShown: false,
-                    headerTitle: ''
+                    headerTitle: '',
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
             <Stack.Screen
@@ -65,8 +74,11 @@ export default function RootLayout() {
             />
             <Stack.Screen name="settings/account" options={{ headerTitle: t('settings.account') }} />
             <Stack.Screen name="accounts" options={{ headerTitle: t('accounts.title') }} />
+            <Stack.Screen name="agent-party-access" options={{ headerTitle: "连接群聊网站" }} />
+            <Stack.Screen name="agent-profiles" options={{ headerTitle: "我的群聊 Agent" }} />
             <Stack.Screen name="settings/agents" options={{ headerTitle: t('settings.agentDefaults') }} />
             <Stack.Screen name="settings/appearance" options={{ headerTitle: t('settings.appearance') }} />
+            <Stack.Screen name="settings/sound" options={{ headerTitle: getCurrentLanguage().startsWith('zh') ? '声音提醒' : 'Sound alerts' }} />
             <Stack.Screen name="settings/ask" options={{ headerTitle: t('settings.askApi') }} />
             <Stack.Screen name="settings/connect/claude" options={{ headerTitle: t('connectClaude.title') }} />
             <Stack.Screen name="settings/custom-instructions" options={{ headerTitle: t('settings.customInstructions') }} />
@@ -78,6 +90,7 @@ export default function RootLayout() {
             <Stack.Screen name="settings/skill" options={{ headerTitle: t('settingsSkills.detailTitle') }} />
             <Stack.Screen name="settings/skills" options={{ headerTitle: t('settingsSkills.title') }} />
             <Stack.Screen name="settings/usage" options={{ headerTitle: t('settings.usage') }} />
+            <Stack.Screen name="settings/agent-party-admin" options={{ headerTitle: 'AgentParty 管理' }} />
             <Stack.Screen name="settings/temporary-previews" options={{ headerTitle: t('interactivePreviews.title') }} />
             <Stack.Screen name="settings/voice" options={{ headerTitle: t('settings.voiceAssistant') }} />
             <Stack.Screen name="settings/voice/language" options={{ headerTitle: t('settingsVoice.languageTitle') }} />
@@ -92,7 +105,8 @@ export default function RootLayout() {
             <Stack.Screen
                 name="session/[id]"
                 options={{
-                    headerShown: false
+                    headerShown: false,
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
             <Stack.Screen
@@ -368,6 +382,7 @@ export default function RootLayout() {
                     // Hide the native stack header to avoid stacking two headers —
                     // same pattern as the "index" home screen above.
                     headerShown: false,
+                    ...(photoSceneStyle ? { contentStyle: photoSceneStyle } : {}),
                 }}
             />
         </Stack>

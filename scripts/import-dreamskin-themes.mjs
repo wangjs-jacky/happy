@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+
+// Repeatable import of pinned DreamSkin packages selected for Paws.
+// Their CSS targets DreamSkin-only data-ds-part elements; the Paws runtime maps
+// the verified palette to its own semantic tokens instead of injecting that CSS.
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { sourceForVersion, validateSources, validateThemePackage, versionFromThemeUrl } from './dreamskin-import-core.mjs';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const publicSkins = join(root, 'packages/happy-app/public/desktop-skins');
+const generatedCatalog = join(root, 'packages/happy-app/sources/importedDesktopSkins.generated.ts');
+const assetManifest = join(root, 'scripts/desktop-skin-assets.json');
+const sourceRegistry = join(root, 'scripts/dreamskin-sources.json');
+const existing = [
+    { id: 'dreamskin', assetId: 'dreamskin' },
+    { id: 'warmNight', assetId: 'warm-night' },
+];
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const run = (command, args, options = {}) => execFileSync(command, args, { maxBuffer: 20 * 1024 * 1024, ...options });
+const fail = (message) => { throw new Error(message); };
+
+function readZipEntry(archive, name) {
+    if (!/^[a-z][a-z0-9.]*$/i.test(name)) fail(`unsafe ZIP entry: ${name}`);
+    return run('unzip', ['-p', archive, name]);
+}
+
+async function writeExpected(path, bytes, check) {
+    if (check) {
+        const current = await readFile(path).catch(() => null);
+        if (!current?.equals(bytes)) fail(`generated output differs: ${path}`);
+        return;
+    }
+    await mkdir(resolve(path, '..'), { recursive: true });
+    await writeFile(path, bytes);
+}
+
+async function singleBackground(assetId) {
+    const names = (await readdir(join(publicSkins, assetId))).filter((name) => /^background\.[0-9a-f]{16}\.webp$/.test(name));
+    if (names.length !== 1) fail(`${assetId}: expected exactly one hashed WebP`);
+    const bytes = await readFile(join(publicSkins, assetId, names[0]));
+    if (sha256(bytes).slice(0, 16) !== names[0].split('.')[1]) fail(`${assetId}: background hash mismatch`);
+    return names[0];
+}
+
+let archiveDir = null, check = false;
+const additions = [];
+for (let index = 2; index < process.argv.length; index++) {
+    const arg = process.argv[index];
+    if (arg === '--check') check = true;
+    else if (arg === '--archive-dir' || arg === '--add') {
+        const value = process.argv[++index];
+        if (!value || value.startsWith('--')) fail(`${arg} requires a value`);
+        if (arg === '--archive-dir') archiveDir = value;
+        else additions.push(versionFromThemeUrl(value));
+    } else fail(`Unknown option: ${arg}`);
+}
+if (check && additions.length) fail('--check cannot be combined with --add');
+const sources = validateSources(JSON.parse(await readFile(sourceRegistry, 'utf8')));
+for (const spec of sources) {
+    if (existing.some((item) => item.id === spec.id || item.assetId === spec.assetId)) {
+        fail(`${spec.versionId}: source collides with a reviewed desktop skin`);
+    }
+}
+const seenVersions = new Set(sources.map((spec) => spec.versionId));
+const seenIds = new Set([...existing.map((spec) => spec.id), ...sources.map((spec) => spec.id)]);
+const seenAssets = new Set([...existing.map((spec) => spec.assetId), ...sources.map((spec) => spec.assetId)]);
+for (const versionId of additions) {
+    if (seenVersions.has(versionId)) fail(`${versionId}: already imported`);
+    seenVersions.add(versionId);
+}
+const temporary = await mkdtemp(join(tmpdir(), 'paws-dreamskin-import-'));
+
+try {
+    const imported = [];
+    const assets = [];
+    const imageChanges = [];
+    for (const spec of existing) assets.push({ ...spec, filename: await singleBackground(spec.assetId) });
+    const pending = [];
+    for (const versionId of additions) {
+        const archive = archiveDir ? join(archiveDir, `${versionId.slice(4)}.zip`) : join(temporary, `${versionId}.zip`);
+        if (!archiveDir) run('curl', ['-fsSL', '--retry', '3', '--retry-all-errors', '--retry-delay', '2', '--max-time', '90', `https://api.dreamskin.cc/v1/themes/${versionId}/download`, '-o', archive], { timeout: 110_000 });
+        const spec = sourceForVersion(versionId, sha256(await readFile(archive)));
+        if (seenIds.has(spec.id) || seenAssets.has(spec.assetId)) fail(`${versionId}: generated ID collision`);
+        seenIds.add(spec.id); seenAssets.add(spec.assetId);
+        pending.push({ ...spec, archive });
+    }
+    // Adding a theme uses the already checked-in outputs for pinned sources.
+    // A full no-argument run (or --check) still verifies every source ZIP.
+    if (pending.length) {
+        const cached = (await readFile(generatedCatalog, 'utf8')).match(/^\/\/ Generated by scripts\/import-dreamskin-themes\.mjs; do not edit by hand\.\nexport const importedDesktopSkins = ([\s\S]+) as const;\n$/);
+        if (!cached) fail('Existing generated catalog is missing or invalid');
+        const previous = JSON.parse(cached[1]);
+        if (previous.length !== sources.length) fail('Existing generated catalog does not match source registry');
+        for (const [index, spec] of sources.entries()) {
+            const skin = previous[index];
+            const filename = await singleBackground(spec.assetId);
+            if (skin.id !== spec.id || skin.assetId !== spec.assetId || skin.sourceVersionId !== spec.versionId
+                || skin.backgroundUrl !== `/desktop-skins/${spec.assetId}/${filename}`) {
+                fail(`${spec.versionId}: existing catalog or background differs from source registry`);
+            }
+            imported.push(skin);
+            assets.push({ id: spec.id, assetId: spec.assetId, filename });
+        }
+    }
+    for (const spec of pending.length ? pending : sources) {
+        const archive = spec.archive ?? (archiveDir ? join(archiveDir, `${spec.versionId.slice(4)}.zip`) : join(temporary, `${spec.id}.zip`));
+        if (!spec.archive && !archiveDir) run('curl', ['-fsSL', '--retry', '3', '--retry-all-errors', '--retry-delay', '2', '--max-time', '90', `https://api.dreamskin.cc/v1/themes/${spec.versionId}/download`, '-o', archive], { timeout: 110_000 });
+        const archiveHash = sha256(await readFile(archive));
+        if (archiveHash !== spec.zipSha256) fail(`${spec.versionId}: ZIP SHA-256 mismatch (${archiveHash})`);
+        const manifest = JSON.parse(readZipEntry(archive, 'manifest.json').toString('utf8'));
+        const themeBytes = readZipEntry(archive, 'theme.json');
+        const theme = JSON.parse(themeBytes.toString('utf8'));
+        validateThemePackage(manifest, theme, spec.versionId);
+        for (const file of manifest.files) {
+            const data = readZipEntry(archive, file.path);
+            if (data.length !== file.bytes || sha256(data) !== file.sha256) fail(`${spec.versionId}: corrupt ${file.path}`);
+        }
+        const sourceImage = join(temporary, theme.image);
+        const compressedImage = join(temporary, `${spec.id}.webp`);
+        await writeFile(sourceImage, readZipEntry(archive, theme.image));
+        // Preserve the composition while avoiding large background decoding.
+        run('cwebp', ['-quiet', '-q', '82', '-m', '6', '-resize', '1920', '0', sourceImage, '-o', compressedImage]);
+        const image = await readFile(compressedImage);
+        const filename = `background.${sha256(image).slice(0, 16)}.webp`;
+        const targetDir = join(publicSkins, spec.assetId);
+        if (check) {
+            await writeExpected(join(targetDir, filename), image, true);
+        } else {
+            imageChanges.push({ targetDir, filename, image });
+        }
+        assets.push({ id: spec.id, assetId: spec.assetId, filename });
+        imported.push({
+            id: spec.id,
+            assetId: spec.assetId,
+            sourceVersionId: spec.versionId,
+            name: theme.name,
+            publisher: manifest.publisher.displayName,
+            license: manifest.license,
+            appearance: theme.appearance,
+            backgroundUrl: `/desktop-skins/${spec.assetId}/${filename}`,
+            focusX: theme.art.focusX,
+            focusY: theme.art.focusY,
+            colors: theme.colors,
+        });
+        console.log(`${spec.id}: ${image.length} bytes, ${filename}`);
+    }
+    const catalog = Buffer.from(`// Generated by scripts/import-dreamskin-themes.mjs; do not edit by hand.\nexport const importedDesktopSkins = ${JSON.stringify(imported, null, 4)} as const;\n`);
+    const manifest = Buffer.from(`${JSON.stringify({ schemaVersion: 1, skins: assets }, null, 2)}\n`);
+    for (const { targetDir, filename, image } of imageChanges) {
+        await mkdir(targetDir, { recursive: true });
+        for (const name of await readdir(targetDir)) if (name.startsWith('background.') && name !== filename) await rm(join(targetDir, name));
+        await writeExpected(join(targetDir, filename), image, false);
+    }
+    await writeExpected(generatedCatalog, catalog, check);
+    await writeExpected(assetManifest, manifest, check);
+    if (pending.length) await writeFile(sourceRegistry, `${JSON.stringify([...sources, ...pending].map(({ archive, ...spec }) => spec), null, 2)}\n`);
+} finally {
+    await rm(temporary, { recursive: true, force: true });
+}

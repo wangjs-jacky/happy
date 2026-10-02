@@ -317,11 +317,17 @@ export class ApiClient {
   uploadCodexAccount(auth: CodexAccountAuth): Promise<{ profile: CodexAccountProfile }> {
     return this.codexAccountRequest('POST', 'codex-accounts/upload', { auth });
   }
+  createCodexSessionGrant(request: { machineId: string; sourceSessionId: string }): Promise<{ grant: string }> {
+    return this.codexAccountRequest('POST', 'codex-session-grants', request);
+  }
   redeemCodexSessionGrant(request: { machineId: string; grant: string }): Promise<CodexGrantRedemption> {
     return this.codexAccountRequest('POST', 'codex-session-grants/redeem', request);
   }
   attachCodexSession(launchId: string, request: { machineId: string; sourceSessionId: string }): Promise<{ success: true }> {
     return this.codexAccountRequest('POST', `codex-session-grants/${encodeURIComponent(launchId)}/session`, request);
+  }
+  readCodexSessionCredential(launchId: string, request: { machineId: string; sourceSessionId: string; knownVersion: number }): Promise<import('./codexAccountTypes').CodexSessionCredential> {
+    return this.codexAccountRequest('POST', `codex-session-grants/${encodeURIComponent(launchId)}/credential`, request);
   }
   updateCodexAccountCredential(profileId: string, request: CodexLaunchAttribution & { expectedVersion: number; auth: CodexAccountAuth }): Promise<{ profile: CodexAccountProfile }> {
     return this.codexAccountRequest('PUT', `codex-accounts/${encodeURIComponent(profileId)}/credential`, request);

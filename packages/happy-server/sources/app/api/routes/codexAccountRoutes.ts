@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { CodexAccountError, codexAccountStore } from './codexAccountStore';
 import {
     CODEX_AUTH_MAX_BYTES, uploadCodexAccountSchema, renameCodexAccountSchema, bindCodexAccountSchema,
-    createCodexGrantSchema, redeemCodexGrantSchema, registerCodexSessionSchema, updateCodexCredentialSchema, reportCodexQuotaSchema, reportCodexQuotaProbeSchema, reportCodexStatusSchema,
+    createCodexGrantSchema, redeemCodexGrantSchema, registerCodexSessionSchema, updateCodexCredentialSchema, reportCodexQuotaSchema, reportCodexQuotaProbeSchema, reportCodexStatusSchema, readCodexSessionCredentialSchema,
 } from './codexAccountTypes';
 
 export * from './codexAccountTypes';
@@ -30,7 +30,10 @@ export function codexAccountRoutes(app: Fastify): void {
     app.patch<{ Params: { id: string } }>('/v1/codex-accounts/:id', options, (req, reply) => guarded(reply, () => codexAccountStore.rename(req.userId, profileId.parse(req.params.id), renameCodexAccountSchema.parse(req.body).displayName)));
     app.delete<{ Params: { id: string } }>('/v1/codex-accounts/:id', options, (req, reply) => guarded(reply, () => codexAccountStore.delete(req.userId, profileId.parse(req.params.id))));
     app.put<{ Params: { machineId: string } }>('/v1/machines/:machineId/codex-account', options, (req, reply) => guarded(reply, () => codexAccountStore.bind(req.userId, machineId.parse(req.params.machineId), bindCodexAccountSchema.parse(req.body))));
-    app.post('/v1/codex-session-grants', options, (req, reply) => guarded(reply, () => codexAccountStore.createGrant(req.userId, createCodexGrantSchema.parse(req.body).machineId)));
+    app.post('/v1/codex-session-grants', options, (req, reply) => guarded(reply, () => {
+        const input = createCodexGrantSchema.parse(req.body);
+        return codexAccountStore.createGrant(req.userId, input.machineId, input.sourceSessionId);
+    }));
     app.post('/v1/codex-session-grants/redeem', options, (req, reply) => guarded(reply, () => {
         const input = redeemCodexGrantSchema.parse(req.body);
         return codexAccountStore.redeem(req.userId, input.machineId, input.grant);
@@ -38,6 +41,10 @@ export function codexAccountRoutes(app: Fastify): void {
     app.post<{ Params: { id: string } }>('/v1/codex-session-grants/:id/session', options, (req, reply) => guarded(reply, () => {
         const input = registerCodexSessionSchema.parse(req.body);
         return codexAccountStore.registerSession(req.userId, profileId.parse(req.params.id), input.machineId, input.sourceSessionId);
+    }));
+    app.post<{ Params: { id: string } }>('/v1/codex-session-grants/:id/credential', options, (req, reply) => guarded(reply, () => {
+        const input = readCodexSessionCredentialSchema.parse(req.body);
+        return codexAccountStore.readSessionCredential(req.userId, profileId.parse(req.params.id), input);
     }));
     app.put<{ Params: { id: string } }>('/v1/codex-accounts/:id/credential', options, (req, reply) => guarded(reply, () => codexAccountStore.updateCredential(req.userId, profileId.parse(req.params.id), updateCodexCredentialSchema.parse(req.body))));
     app.put<{ Params: { id: string } }>('/v1/codex-accounts/:id/quota-snapshot', options, (req, reply) => guarded(reply, () => codexAccountStore.reportQuota(req.userId, profileId.parse(req.params.id), reportCodexQuotaSchema.parse(req.body))));

@@ -1,3 +1,4 @@
+import { accountRuntimeCurrent } from '@/auth/accountRuntime';
 import type { HistoryViewportReader, HistoryViewportRange } from './historyWindowPolicy';
 import Constants from 'expo-constants';
 import { refreshNativeUpdateStatus } from './nativeUpdate';
@@ -6,6 +7,7 @@ import { SessionStreamEnvelopeSchema } from '@slopus/happy-wire';
 import { sessionTextStream } from './sessionTextStream';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
+import { playWebSessionEventSound, startWebSoundAlerts } from '@/sync/webSoundAlerts';
 import { AuthCredentials } from '@/auth/tokenStorage';
 import { Encryption } from '@/sync/encryption/encryption';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
@@ -75,6 +77,7 @@ import { log } from '@/log';
 import { gitStatusSync } from './gitStatusSync';
 import { resyncOnForeground } from './foregroundResync';
 import { AsyncLock } from '@/utils/lock';
+import { FailedCodexSessionRecovery } from './failedCodexSessionRecovery';
 import { voiceHooks } from '@/realtime/hooks/voiceHooks';
 import { Message } from './typesMessage';
 import { EncryptionCache } from './encryption/encryptionCache';
@@ -104,6 +107,7 @@ import { getPluginCatalog } from './plugins';
 import { shouldMarkSessionEventUnread } from '@/utils/sessionAttentionBadge';
 import { PluginCatalogStore, type PluginCatalogSnapshot } from './pluginCatalogStore';
 import {
+    SessionRequestError,
     fetchActiveSessionSnapshots,
     fetchLegacySessionSnapshots,
     fetchSessionSnapshot,
@@ -150,6 +154,39 @@ type V3GetSessionMessagesResponse = {
     // Local-only ownership stamp, captured before HTTP starts.
     nativeCacheGeneration?: object;
 };
+
+const MESSAGE_PAGE_DEADLINE_MS = 20_000;
+
+async function fetchMessagePageWithDeadline(path: string): Promise<{
+    status: number;
+    ok: boolean;
+    data: V3GetSessionMessagesResponse | null;
+}> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+            reject(new Error(`Message page request timed out: ${path}`));
+            controller.abort();
+        }, MESSAGE_PAGE_DEADLINE_MS);
+    });
+    try {
+        return await Promise.race([
+            (async () => {
+                const response = await apiSocket.request(path, { signal: controller.signal });
+                return {
+                    status: response.status,
+                    ok: response.ok,
+                    data: response.ok ? await response.json() as V3GetSessionMessagesResponse : null,
+                };
+            })(),
+            deadline,
+        ]);
+    } finally {
+        clearTimeout(timer!);
+        controller.abort();
+    }
+}
 
 type SessionOpenResolution = 'ready' | 'not-found';
 function memoryHistoryPage(current: HistoryWindow | undefined, page: V3GetSessionMessagesResponse,
@@ -378,6 +415,11 @@ function mergeHydratedSessions(sessions: HydratedSession[]): HydratedSession {
             agentStateVersion: agentStateWinner.agentStateVersion,
         };
     }
+    const terminal = merged.agentState?.turnStatus;
+    if (merged.thinking && terminal && (terminal.status === 'completed' || terminal.status === 'failed')
+        && terminal.updatedAt >= merged.thinkingAt) {
+        return { ...merged, thinking: false, thinkingAt: terminal.updatedAt };
+    }
     return merged;
 }
 
@@ -450,6 +492,9 @@ class Sync {
     private sessionQueueProcessing = new Map<string, object>();
     private sessionFallbackTitleInFlight = new Set<string>();
     private sessionMessageLocks = new Map<string, AsyncLock>();
+    private continuationSendLocks = new Map<string, AsyncLock>();
+    // Delivery evidence belongs to the session, never to its evictable viewport.
+    private continuationDeliveries = new Map<string, { owner: Encryption; source: string; localId?: string; confirmed: boolean }>();
     // Tracks incremental session writes so a full refresh can retain sessions
     // that appeared after its request began, even when they are absent from
     // that response's snapshot.
@@ -495,6 +540,8 @@ class Sync {
     private lastRecalculationTime = 0;
 
     constructor() {
+        // storage imports Sync, so subscribe after both modules finish initializing.
+        if (Platform.OS === 'web') setTimeout(startWebSoundAlerts, 0);
         subscribeLocalHistoryInvalidation(event => {
             if (event.scope !== this.localHistory?.scope || event.kind === 'session-deleted') return;
             const owner = this.sessionRouteOwnership.current();
@@ -875,7 +922,7 @@ class Sync {
         return true;
     };
 
-    private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest', viewport?: HistoryViewportReader): Promise<void> => {
+    private loadHistoryBoundary = (id: string, direction: 'older' | 'newer' | 'latest', viewport?: HistoryViewportReader, verifyLatest = false, preserveReading = false): Promise<void> => {
         const existing = this.historyWindowLoads.get(id);
         if (existing && this.historyBoundaryLoadingTokens.get(id)?.isCurrent()) return existing;
         const history = this.localHistory;
@@ -906,9 +953,12 @@ class Sync {
             } }) : state);
             patch({ [field]: true, [direction === 'older' ? 'olderError' : 'newerError']: null });
             try {
+                const reading = preserveReading ? await this.readSessionReadingState(id) : null;
+                if (!owner.isCurrent()) return;
+                const readingAnchor = reading && reading.followLatest !== true ? reading.anchorSeq : undefined;
                 let latest = direction === 'latest' ? await history?.readWindow(id) ?? null : null;
                 if (!owner.isCurrent()) return;
-                if (latest && !latest.isAtLatest) {
+                if (latest && (!latest.isAtLatest || verifyLatest)) {
                     const afterSeq = latest.newestSeq ?? 0;
                     const response = await apiSocket.request(`/v3/sessions/${id}/messages?after_seq=${afterSeq}&limit=100`);
                     if (!owner.isCurrent()) return;
@@ -945,6 +995,7 @@ class Sync {
                         if (!owner.isCurrent()) return;
                         if (response.status === 404) { this.removeSessionLocally(id); return; }
                         if (!response.ok) throw new Error(`History ${direction} failed: ${response.status}`);
+                        if (direction === 'latest') verifiedLatestFromNetwork = true;
                         const data = await response.json() as V3GetSessionMessagesResponse;
                         if (!owner.isCurrent()) return;
                         page = { direction: direction === 'newer' ? 'newer' : 'older', boundary: boundary!, ...data };
@@ -980,6 +1031,15 @@ class Sync {
                         }
                     }
                 }
+                if (latest && readingAnchor !== undefined) {
+                    // 后台验证保留原阅读锚点；只有用户主动跳转才替换为最新尾部。
+                    const anchored = await history?.readWindow(id, { anchorSeq: readingAnchor, limit: 300 });
+                    if (!owner.isCurrent()) return;
+                    if (anchored) latest = anchored;
+                    else if (current) latest = { ...current,
+                        isAtLatest: current.isAtLatest && latest.isAtLatest && current.newestSeq === latest.newestSeq,
+                        hasMoreNewer: !current.isAtLatest || !latest.isAtLatest || current.newestSeq !== latest.newestSeq };
+                }
                 if (latest && owner.isCurrent()) {
                     const applied = await this.applyHistoryWindow(id, latest, operation, {
                         retainCurrentWebRows: direction !== 'latest',
@@ -1001,6 +1061,8 @@ class Sync {
         })().finally(() => { if (this.historyWindowLoads.get(id) === pending) this.historyWindowLoads.delete(id); });
         this.historyWindowLoads.set(id, pending); return pending;
     };
+    public retryLatestMessageVerification = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'latest', undefined, true, true);
+
     public loadNewerMessages = (id: string, viewport?: HistoryViewportReader): Promise<void> => this.historyWindows.get(id)?.hasMoreNewer === false
         ? Promise.resolve() : this.loadHistoryBoundary(id, 'newer', viewport);
     public jumpToLatestMessages = async (id: string): Promise<void> => {
@@ -1009,8 +1071,12 @@ class Sync {
         const pending = this.historyWindowLoads.get(id);
         if (pending) await pending;
         if (this.localHistory !== history || this.encryption !== encryption) return;
-        if (pending && this.historyWindows.get(id)?.isAtLatest) return;
-        await this.loadHistoryBoundary(id, 'latest');
+        const route = this.activeOpenSession;
+        const verifyLatest = route?.sessionId === id && this.sessionRouteOwnership.owns(route.owner);
+        if (pending && this.historyWindows.get(id)?.isAtLatest && (!verifyLatest
+            || storage.getState().sessionMessages[id]?.latestVerifiedOwnerEpoch === route.owner.ownerEpoch)) return;
+        // 当前会话回到最新时校验网络；离线路径继续允许浏览完整缓存。
+        await this.loadHistoryBoundary(id, 'latest', undefined, verifyLatest);
     };
 
     private reconcileHistory = (): Promise<void> => {
@@ -1322,19 +1388,35 @@ class Sync {
             sync?.stop();
             let retryPending = false;
             sync = new CoalescingMessageSync(lease, async () => {
-                const operation = this.sessionMessageLoadGate.begin(lease);
-                const route = this.activeOpenSession;
-                if (retryPending && route?.sessionId === sessionId && route.messageLease === lease
-                    && !route.cancelled && this.sessionRouteOwnership.owns(route.owner)
-                    && this.sessionMessageLoadGate.isCurrent(operation)) {
-                    markSessionCriticalPathHydrationRetry();
-                }
-                try {
-                    await this.fetchMessages(sessionId, operation);
-                    retryPending = false;
-                } catch (error) {
-                    retryPending = true;
-                    throw error;
+                const owner = this.captureHistoryOwner(sessionId);
+                while (owner.isCurrent() && this.sessionMessageLoadGate.isLeaseCurrent(lease)) {
+                    const operation = this.sessionMessageLoadGate.begin(lease);
+                    const route = this.activeOpenSession;
+                    if (retryPending && route?.sessionId === sessionId && route.messageLease === lease
+                        && !route.cancelled && this.sessionRouteOwnership.owns(route.owner)
+                        && this.sessionMessageLoadGate.isCurrent(operation)) {
+                        markSessionCriticalPathHydrationRetry();
+                    }
+                    try {
+                        await this.fetchMessages(sessionId, operation);
+                        retryPending = false;
+                        if (this.sessionMessageLoadGate.isCurrent(operation)) return;
+                        // A history navigation can supersede this request without
+                        // applying the live target. Let that navigation finish, then
+                        // resume catch-up only if it still displays the latest edge.
+                        // Otherwise CoalescingMessageSync sees no progress and stops
+                        // permanently when the final result was the last socket event.
+                        await this.historyWindowLoads.get(sessionId);
+                        if (!owner.isCurrent() || !this.sessionMessageLoadGate.isLeaseCurrent(lease)) return;
+                        // Native pagination without IndexedDB waits on this lock
+                        // instead of historyWindowLoads. Drain its queued work
+                        // before a new load epoch could cancel that navigation.
+                        await this.getSessionMessageLock(sessionId).inLock(() => undefined);
+                        if (this.historyWindows.get(sessionId)?.isAtLatest === false) return;
+                    } catch (error) {
+                        retryPending = true;
+                        throw error;
+                    }
                 }
             }, () => this.getSessionProjectedMessageSeq(sessionId), () => (
                 this.sessionMessageLoadGate.isLeaseCurrent(lease)
@@ -1675,6 +1757,7 @@ class Sync {
             }
             pending.length = 0;
             this.pendingOutbox.delete(sessionId);
+            this.continuationDeliveries.delete(sessionId);
             sessionIds.push(sessionId);
         }
 
@@ -1754,7 +1837,85 @@ class Sync {
         return { uploaded, failed };
     }
 
+    private failedCodexRecovery = new FailedCodexSessionRecovery();
+
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
+        const recoveryOwner = this.encryption;
+        const failedSession = storage.getState().sessions[sessionId];
+        await this.failedCodexRecovery.ensure(failedSession, recoveryOwner, async () => {
+            const { machineResumeSession } = await import('./ops');
+            if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) {
+                throw new Error('local-message-session-unavailable');
+            }
+            const modes = resolveMessageModeMeta(failedSession!, storage.getState().settings);
+            return machineResumeSession({ machineId: failedSession!.metadata!.machineId!, sessionId, agent: 'codex',
+                model: modes.model ?? undefined, permissionMode: modes.permissionMode, effort: modes.effort,
+                ...(failedSession!.agentState!.turnStatus!.status === 'failed'
+                    ? { expectedFailedTurn: failedSession!.agentState!.turnStatus! }
+                    : { expectedWorkerPid: failedSession!.metadata!.hostPid }) });
+        });
+        if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) {
+            throw new Error('local-message-session-unavailable');
+        }
+        const snapshots = { session: storage.getState().sessions[sessionId], settings: storage.getState().settings };
+        if (!snapshots.session?.metadata?.continuationContext || !snapshots.session.metadata.continuationOfSessionId) {
+            return this.sendMessageWithContext(sessionId, text, options, snapshots);
+        }
+        const encryptionOwner = this.encryption;
+        const encryption = encryptionOwner.getSessionEncryption(sessionId);
+        const isCurrent = () => accountRuntimeCurrent() && (options?.isCurrent?.() ?? true)
+            && this.encryption === encryptionOwner && encryptionOwner.getSessionEncryption(sessionId) === encryption
+            && !!storage.getState().sessions[sessionId];
+        let lock = this.continuationSendLocks.get(sessionId);
+        if (!lock) { lock = new AsyncLock(); this.continuationSendLocks.set(sessionId, lock); }
+        return lock.inLock(() => this.sendMessageWithContext(sessionId, text, { ...options, isCurrent }, snapshots));
+    }
+
+    private async hasDeliveredContinuation(sessionId: string, source: string, isCurrent: () => boolean): Promise<boolean> {
+        const owner = this.encryption;
+        const encryption = owner.getSessionEncryption(sessionId);
+        const assertCurrent = () => {
+            if (!isCurrent() || this.encryption !== owner || owner.getSessionEncryption(sessionId) !== encryption) {
+                throw new Error('local-message-session-unavailable');
+            }
+        };
+        assertCurrent();
+        if (!encryption) throw new Error('local-message-session-unavailable');
+        const delivery = this.continuationDeliveries.get(sessionId);
+        if (delivery?.owner === owner && delivery.source === source && (delivery.confirmed
+            || this.pendingOutbox.get(sessionId)?.some(message => message.localId === delivery.localId))) return true;
+        // Read from the beginning independently of history windows. This also
+        // recovers evidence after reload and across devices, without moving the
+        // user's reading position. Never infer successful delivery from a local
+        // optimistic row whose outbox may have been cancelled.
+        let afterSeq = 0;
+        const detached = encryption.createDetached();
+        for (;;) {
+            const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
+            assertCurrent();
+            if (!response.ok) throw new Error(`Failed to verify continuation delivery: ${response.status}`);
+            const data = await response.json() as V3GetSessionMessagesResponse;
+            assertCurrent();
+            if (!Array.isArray(data.messages)) throw new Error('Invalid continuation history page');
+            const decrypted = await detached.decryptMessages(data.messages);
+            assertCurrent();
+            if (decrypted.length !== data.messages.length || decrypted.some(message => !message?.content)) {
+                throw new Error('Failed to decrypt continuation history');
+            }
+            if (decrypted.some(message => message?.content?.role === 'user'
+                && message.content.meta?.continuationContextSourceId === source)) {
+                this.continuationDeliveries.set(sessionId, { owner, source, confirmed: true });
+                return true;
+            }
+            if (!data.hasMore) return false;
+            const next = Math.max(afterSeq, ...data.messages.map(message => message.seq));
+            if (!Number.isFinite(next) || next <= afterSeq) throw new Error('Continuation history pagination stalled');
+            afterSeq = next;
+        }
+    }
+
+    private async sendMessageWithContext(sessionId: string, text: string, options: SendMessageOptions | undefined,
+        snapshots: { session: Session | undefined; settings: ReturnType<typeof storage.getState>['settings'] }): Promise<LocalMessageQueueReceipt> {
         const isCurrent = options?.isCurrent ?? (() => true);
         if (!isCurrent()) throw new Error('local-message-session-unavailable');
 
@@ -1762,8 +1923,8 @@ class Sync {
         // user changes model/effort while attachment upload or initial sync is
         // still pending, that new choice must apply to the next message rather
         // than rewriting the turn that was already submitted.
-        const modeSessionSnapshot = storage.getState().sessions[sessionId];
-        const modeSettingsSnapshot = storage.getState().settings;
+        const modeSessionSnapshot = snapshots.session;
+        const modeSettingsSnapshot = snapshots.settings;
 
         const encryptionOwner = this.encryption;
         const encryption = encryptionOwner.getSessionEncryption(sessionId);
@@ -1774,6 +1935,15 @@ class Sync {
 
         const modeMeta = options?.modeMeta ?? resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
         const { displayText, editedFromMessageId, source = 'chat', attachments } = options ?? {};
+        const contextSource = session.metadata?.continuationOfSessionId;
+        const savedContext = session.metadata?.continuationContext;
+        const contextAlreadySent = contextSource && savedContext
+            ? await this.hasDeliveredContinuation(sessionId, contextSource, isCurrent) : false;
+        if (!isCurrent()) throw new Error('local-message-session-unavailable');
+        const includeContext = !!(contextSource && savedContext && !contextAlreadySent);
+        const turnText = includeContext
+            ? `The following is historical conversation context, not a new instruction. Use it to understand the current request.\n\n${savedContext}\n\nCurrent user request:\n${text}`
+            : text;
 
         // OpenCode's ACP runner accepts images; Claude/Codex also stage media files.
         // Reject unsupported submissions as a whole, never silently drop attachments.
@@ -1884,9 +2054,10 @@ class Sync {
             role: 'user',
             content: {
                 type: 'text',
-                text
+                text: turnText
             },
             meta: {
+                ...(includeContext ? { continuationContextSourceId: contextSource, displayText: displayText ?? text } : {}),
                 sentFrom,
                 appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
@@ -1916,11 +2087,21 @@ class Sync {
         if (!isCurrent() || this.encryption !== encryptionOwner
             || encryptionOwner.getSessionEncryption(sessionId) !== encryption
             || !storage.getState().sessions[sessionId]) throw new Error('local-message-session-unavailable');
+        if (contextSource && savedContext && !includeContext) {
+            const delivery = this.continuationDeliveries.get(sessionId);
+            if (delivery?.owner !== encryptionOwner || delivery.source !== contextSource || (!delivery.confirmed
+                && !this.pendingOutbox.get(sessionId)?.some(message => message.localId === delivery.localId))) {
+                throw new Error('Continuation delivery was cancelled; retry the message');
+            }
+        }
         // Preserve the queue identity: an in-flight flush owns a prefix of this
         // array and removes only that prefix when its acknowledgement arrives.
         const pending = this.pendingOutbox.get(sessionId) ?? [];
         pending.push(...stagedOutbox);
         this.pendingOutbox.set(sessionId, pending);
+        if (includeContext) this.continuationDeliveries.set(sessionId, {
+            owner: encryptionOwner, source: contextSource!, localId, confirmed: false,
+        });
         const generation: SessionMessageCacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
         generation.localMessageIds ??= new Map();
         generation.acceptedLocalMessages ??= new Map();
@@ -2294,13 +2475,29 @@ class Sync {
         const owner = this.captureHistoryOwner('');
         useSessionListSyncState.setState({ bootstrap: 'loading' });
         const request = (async () => {
-            try {
-                await this.fetchActiveSessions();
+            // Keep callers bounded: InvalidateSync cannot retry a swallowed error,
+            // while throwing here would leave startup/route callers waiting forever.
+            for (let attempt = 0; attempt < 3; attempt++) {
                 if (!owner.isCurrent()) return;
-                storage.getState().applyReady();
-                useSessionListSyncState.setState({ bootstrap: 'ready' });
-            } catch {
-                if (owner.isCurrent()) useSessionListSyncState.setState({ bootstrap: 'error' });
+                const startedAt = Date.now();
+                try {
+                    await this.fetchActiveSessions();
+                    if (!owner.isCurrent()) return;
+                    storage.getState().applyReady();
+                    useSessionListSyncState.setState({ bootstrap: 'ready' });
+                    return;
+                } catch (error) {
+                    if (!owner.isCurrent()) return;
+                    const failure = error instanceof SessionRequestError ? error : null;
+                    const retry = failure?.retryable === true && attempt < 2;
+                    log.log(`session-list-refresh-failed kind=${failure?.kind ?? 'sync'} status=${failure?.status ?? 'none'} attempt=${attempt + 1} elapsedMs=${Date.now() - startedAt} retry=${retry}`);
+                    if (!retry) {
+                        useSessionListSyncState.setState({ bootstrap: 'error' });
+                        return;
+                    }
+                    // Preserve cached rows and suppress a premature failure banner.
+                    await new Promise<void>(resolve => setTimeout(resolve, attempt === 0 ? 1_000 : 3_000));
+                }
             }
         })().finally(() => {
             if (this.sessionBootstrapInFlight === request) this.sessionBootstrapInFlight = null;
@@ -2466,6 +2663,12 @@ class Sync {
      * broadcast also invalidates the same sync. The session and even its first
      * reply could already exist while the compose page kept spinning.
      */
+    /** Confirm an unavailable continuation against the server; transient failures remain retryable. */
+    public checkSessionExists = async (sessionId: string): Promise<boolean> => {
+        if (!this.credentials) throw new Error('Session credentials unavailable');
+        return (await fetchSessionSnapshot(this.credentials, sessionId)) !== null;
+    };
+
     public ensureSessionHydrated = async (sessionId: string): Promise<boolean> => {
         const existing = this.sessionHydrations.get(sessionId);
         if (existing) return existing;
@@ -2719,7 +2922,7 @@ class Sync {
                 const reading = await historyOwner.readReadingState(sessionId);
                 const window = await historyOwner.readWindow(sessionId, { anchorSeq: reading?.anchorSeq });
                 if (window) return { messages: window.messages, hasMore: window.hasMoreOlder, localWindow: window,
-                    revalidateTail: (!reading || reading.followLatest === true) && !window.isAtLatest };
+                    revalidateTail: !reading || reading.followLatest === true || window.isAtLatest };
                 return this.fetchLatestMessagePageRaw(sessionId);
             })() : this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
@@ -2748,7 +2951,9 @@ class Sync {
             if (!found) return 'not-found';
 
             if (hasLoadedMessageCache) {
-                if (!this.localHistory) {
+                if (this.localHistory && storage.getState().sessionMessages[sessionId]?.isAtLatest !== false) {
+                    await this.loadHistoryBoundary(sessionId, 'latest', undefined, true, true);
+                } else if (!this.localHistory) {
                     await this.getMessagesSync(sessionId).invalidateAndAwait();
                     this.markLatestVerified(sessionId, operation.committedPageOperation);
                 }
@@ -2776,8 +2981,9 @@ class Sync {
                         // Replaying that winner as local history would clear its
                         // verification before Deferred can paint it.
                         if (this.localHistory === historyOwner && this.sessionRouteOwnership.owns(owner)
-                            && this.historyWindows.get(sessionId)?.isAtLatest !== true) {
-                            void this.jumpToLatestMessages(sessionId);
+                            && this.sessionMessageLoadGate.isCurrent(operation.messageLoad)
+                            && storage.getState().sessionMessages[sessionId]?.latestVerifiedOwnerEpoch !== owner.ownerEpoch) {
+                            void this.loadHistoryBoundary(sessionId, 'latest', undefined, true, true);
                         }
                     }, 0);
                     return 'ready';
@@ -3710,6 +3916,10 @@ class Sync {
                 }));
                 if (!owner.isCurrent() || this.pendingOutbox.get(sessionId) !== pending) return;
             }
+            const delivery = this.continuationDeliveries.get(sessionId);
+            if (delivery?.owner === this.encryption && batch.some(message => message.localId === delivery.localId)) {
+                delivery.confirmed = true;
+            }
             pending.splice(0, batch.length);
             // The outbox survives eviction, but an old acknowledgement does not
             // own the released or subsequently remounted message cache.
@@ -3769,7 +3979,11 @@ class Sync {
                 const change = await this.localHistory.readChange(sessionId);
                 if (!owner.isCurrent()) return;
                 if (change?.deleted) { this.removeSessionLocally(sessionId); return; }
-                const target = Math.max(change?.lastMessageSeq ?? 0, this.pendingHistoryTargets.get(sessionId) ?? 0);
+                const target = Math.max(
+                    change?.lastMessageSeq ?? 0,
+                    this.pendingHistoryTargets.get(sessionId) ?? 0,
+                    storage.getState().sessions[sessionId]?.seq ?? 0,
+                );
                 const projectedSeq = this.getSessionProjectedMessageSeq(sessionId) ?? 0;
                 if (!window.isAtLatest || (change && target <= projectedSeq)) return;
                 // Unknown target is reconciled through metadata, never by probing old bodies.
@@ -3819,7 +4033,7 @@ class Sync {
     ): Promise<V3GetSessionMessagesResponse> => {
         const owner = this.captureHistoryOwner(sessionId);
         const nativeCacheGeneration = sessionHistoryPageCache.generation;
-        const response = await apiSocket.request(
+        const response = await fetchMessagePageWithDeadline(
             `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=${INITIAL_LATEST_MESSAGE_LIMIT}`,
         );
         if (!owner.isCurrent()) throw new SessionWriteCancelled();
@@ -3827,7 +4041,7 @@ class Sync {
         if (!response.ok) {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
         }
-        const data = await response.json() as V3GetSessionMessagesResponse;
+        const data = response.data!;
         if (!owner.isCurrent()) throw new SessionWriteCancelled();
         const page = {
             messages: Array.isArray(data.messages) ? data.messages : [],
@@ -3968,7 +4182,7 @@ class Sync {
         let didInvalidateGit = false;
         while (true) {
             if (!owner.isCurrent()) return;
-            const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
+            const response = await fetchMessagePageWithDeadline(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
             if (!owner.isCurrent()) return;
             if (response.status === 404) {
                 this.removeSessionLocally(sessionId);
@@ -3977,7 +4191,7 @@ class Sync {
             if (!response.ok) {
                 throw new Error(`Failed to forward-sync ${sessionId}: ${response.status}`);
             }
-            const data = await response.json() as V3GetSessionMessagesResponse;
+            const data = response.data!;
             if (!owner.isCurrent()) return;
             const messages = Array.isArray(data.messages) ? data.messages : [];
 
@@ -4348,6 +4562,8 @@ class Sync {
                             type?: string;
                             data?: {
                                 type?: string;
+                                time?: number;
+                                subagent?: string;
                                 ev?: { t?: string };
                             }
                         }
@@ -4355,6 +4571,10 @@ class Sync {
                     const contentType = rawContent?.content?.type;
                     const dataType = rawContent?.content?.data?.type;
                     const sessionEventType = rawContent?.content?.data?.ev?.t;
+                    const lifecycleAt = contentType === 'session'
+                        ? rawContent?.content?.data?.time ?? decrypted.createdAt
+                        : decrypted.createdAt;
+                    const isSubagentEvent = contentType === 'session' && !!rawContent?.content?.data?.subagent;
                     
                     // Debug logging to trace lifecycle events
                     if (dataType === 'task_complete' || dataType === 'turn_aborted' || dataType === 'task_started' || sessionEventType === 'turn-start' || sessionEventType === 'turn-end') {
@@ -4381,8 +4601,8 @@ class Sync {
                             updatedAt: updateData.createdAt,
                             seq: Math.max(session.seq, updateData.body.message.seq),
                             // Update thinking state based on task lifecycle events
-                            ...(isTaskComplete ? { thinking: false } : {}),
-                            ...(isTaskStarted ? { thinking: true } : {})
+                            ...(!isSubagentEvent && lifecycleAt >= session.thinkingAt && (isTaskComplete || isTaskStarted)
+                                ? { thinking: isTaskStarted, thinkingAt: lifecycleAt } : {})
                         }])
                     }
 
@@ -4517,18 +4737,23 @@ class Sync {
                     : session.metadata;
                 assertCurrent();
 
+                // Decryption may race a terminal message or activity update.
+                // Preserve live presence/thinking rather than restoring the
+                // snapshot captured before the awaits.
+                const liveSession = storage.getState().sessions[updateData.body.id];
+                if (!liveSession) return;
                 this.applySessions([{
-                    ...session,
-                    agentState,
+                    ...liveSession,
+                    agentState: updateData.body.agentState ? agentState : liveSession.agentState,
                     agentStateVersion: updateData.body.agentState
                         ? updateData.body.agentState.version
-                        : session.agentStateVersion,
-                    metadata,
+                        : liveSession.agentStateVersion,
+                    metadata: updateData.body.metadata ? metadata : liveSession.metadata,
                     metadataVersion: updateData.body.metadata
                         ? updateData.body.metadata.version
-                        : session.metadataVersion,
+                        : liveSession.metadataVersion,
                     updatedAt: updateData.createdAt,
-                    seq: session.seq
+                    seq: liveSession.seq
                 }]);
 
                 const history = historyOwner?.history;
@@ -4882,12 +5107,17 @@ class Sync {
         for (const [sessionId, update] of updates) {
             const session = storage.getState().sessions[sessionId];
             if (session) {
+                const terminal = session.agentState?.turnStatus;
+                const terminalAt = terminal && (terminal.status === 'completed' || terminal.status === 'failed')
+                    ? terminal.updatedAt : 0;
+                const staleThinking = update.activeAt < session.thinkingAt
+                    || (update.thinking === true && update.activeAt <= terminalAt);
                 sessions.push({
                     ...session,
-                    active: update.active,
-                    activeAt: update.activeAt,
-                    thinking: update.thinking ?? false,
-                    thinkingAt: update.activeAt // Always use activeAt for consistency
+                    active: update.activeAt >= session.activeAt ? update.active : session.active,
+                    activeAt: Math.max(update.activeAt, session.activeAt),
+                    thinking: staleThinking ? session.thinking : update.thinking ?? false,
+                    thinkingAt: staleThinking ? session.thinkingAt : update.activeAt
                 });
             }
         }
@@ -4935,6 +5165,7 @@ class Sync {
         // unread counter on these only, ignore the noisy per-message stream.
         if (updateData.type === 'session-event') {
             notifyUnreadMessage();
+            playWebSessionEventSound(updateData);
             const currentState = storage.getState();
             if (shouldMarkSessionEventUnread(
                 this.appState,
@@ -5076,6 +5307,8 @@ class Sync {
         }
         this.releaseSessionMessageCache(sessionId);
         this.acceptedLocalMessageReceipts.delete(sessionId);
+        this.continuationDeliveries.delete(sessionId);
+        this.continuationSendLocks.delete(sessionId);
         this.observedLocalMessageIds.delete(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);

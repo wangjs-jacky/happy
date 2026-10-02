@@ -30,7 +30,7 @@ import { disconnectService } from '@/sync/apiServices';
 import { useProfile } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
 import { MascotSwitcher } from '@/components/MascotSwitcher';
-import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
+import { t, getCurrentLanguage, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 import * as Localization from 'expo-localization';
 import { loadAppConfig } from '@/sync/appConfig';
 import { getSettingsFeatureEntries } from '@/components/settingsFeatureEntries';
@@ -292,6 +292,12 @@ export const SettingsView = React.memo(function SettingsView() {
                     icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.text} />}
                     onPress={() => router.push('/settings/account')}
                 />
+                <Item
+                    title="AgentParty 管理"
+                    subtitle="访客访问、Token 配额与执行器状态"
+                    icon={<Ionicons name="people-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => router.push('/settings/agent-party-admin' as any)}
+                />
             </ItemGroup>
 
             {/* Connect Terminal - Only show on native platforms */}
@@ -323,7 +329,13 @@ export const SettingsView = React.memo(function SettingsView() {
                         showChevron={false}
                     />
                 </ItemGroup>
+
+
             )}
+
+                <ItemGroup title="Agent 群聊">
+                    <Item title="群聊 Agent 管理" subtitle="配置角色、头像与设备，在独立群聊网站使用" icon={<Ionicons name="person-add-outline" size={29} color={theme.colors.accent}/>} onPress={() => router.push('/agent-profiles')}/>
+                </ItemGroup>
 
             {/* General — 主题/语言入口（照图3，列表行 + 右侧当前值） */}
             <ItemGroup title={t('settings.general')}>
@@ -339,6 +351,13 @@ export const SettingsView = React.memo(function SettingsView() {
                     detail={languageDetailText}
                     onPress={() => router.push('/settings/language')}
                 />
+                {Platform.OS === 'web' && <Item
+                    title={getCurrentLanguage().startsWith('zh') ? '声音提醒' : 'Sound alerts'}
+                    subtitle={getCurrentLanguage().startsWith('zh') ? '设置任务状态音效、音量和提醒范围' : 'Choose sounds, volume, and alert scope'}
+                    icon={<Ionicons name="volume-medium-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => router.push('/settings/sound' as any)}
+                    testID="web-sound-settings-entry"
+                />}
             </ItemGroup>
 
             <ItemGroup title={t('settings.connectedAccounts')}>

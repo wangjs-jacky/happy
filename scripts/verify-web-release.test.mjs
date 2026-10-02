@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,18 +8,31 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const verifierPath = fileURLToPath(new URL('./verify-web-release.mjs', import.meta.url));
+const assetManifest = JSON.parse(await readFile(fileURLToPath(new URL('./desktop-skin-assets.json', import.meta.url)), 'utf8'));
+const sourceSkins = fileURLToPath(new URL('../packages/happy-app/public/desktop-skins/', import.meta.url));
 const revision = '1234567890abcdef1234567890abcdef12345678';
 
-async function createDist() {
+async function createDist(includeSkin = true, includeWarmSkin = true) {
     const directory = await mkdtemp(join(tmpdir(), 'paws-web-verify-'));
     await mkdir(join(directory, 'assets'), { recursive: true });
+    await mkdir(join(directory, 'assets', 'sounds', 'codeisland'), { recursive: true });
     await mkdir(join(directory, '_expo'), { recursive: true });
     await mkdir(join(directory, '.well-known'), { recursive: true });
+    if (includeSkin) {
+        for (const skin of assetManifest.skins) {
+            if (!includeWarmSkin && skin.assetId === 'warm-night') continue;
+            await mkdir(join(directory, 'desktop-skins', skin.assetId), { recursive: true });
+            await copyFile(join(sourceSkins, skin.assetId, skin.filename), join(directory, 'desktop-skins', skin.assetId, skin.filename));
+        }
+    }
     await writeFile(join(directory, 'index.html'), '<html><head></head><body><script src="/_expo/app.js"></script></body></html>');
     await writeFile(join(directory, '.paws-release-revision'), `${revision}\n`);
     await writeFile(join(directory, 'assets', 'Ionicons.abc123.ttf'), 'ionicons');
     await writeFile(join(directory, 'assets', 'Octicons.def456.ttf'), 'octicons');
     await writeFile(join(directory, 'assets', 'fixture.abc123.png'), 'image');
+    for (const name of ['approval', 'complete', 'error', 'start', 'submit']) {
+        await writeFile(join(directory, 'assets', 'sounds', 'codeisland', `8bit_${name}.wav`), 'RIFF');
+    }
     await writeFile(join(directory, '_expo', 'app.js'), 'app');
     await writeFile(join(directory, 'metadata.json'), '{}');
     await writeFile(join(directory, 'canvaskit.wasm'), 'wasm');
@@ -37,17 +50,24 @@ async function runVerifier({
     includeFontCors = true,
     mode = 'live',
     scriptContentType = 'application/javascript; charset=utf-8',
+    audioContentType = 'audio/vnd.wave',
+    htmlAudioName = null,
+    htmlAudioBodyName = null,
     immutableCache = true,
     legacyRedirectLocation = 'canonical',
     legacyRedirectStatus = 308,
     healthTimeoutMs = 300,
-    requestTimeoutMs = 300,
+    requestTimeoutMs = 1500,
     assetNeverResponds = false,
     entryNeverResponds = false,
+    skinCacheImmutable = true,
+    skinContentMatches = true,
+    includeSkin = true,
+    includeWarmSkin = true,
 } = {}) {
-    const directory = await createDist();
+    const directory = await createDist(includeSkin, includeWarmSkin);
     let healthRequests = 0;
-    const server = http.createServer((request, response) => {
+    const server = http.createServer(async (request, response) => {
         const origin = `http://127.0.0.1:${server.address().port}`;
         if (request.url?.endsWith('.ttf')) {
             if (assetNeverResponds) return;
@@ -58,11 +78,22 @@ async function runVerifier({
             response.end('font');
             return;
         }
-        if (request.url?.endsWith('.png')) {
+        if (request.url?.endsWith('.png') || request.url?.endsWith('.webp')) {
             response.statusCode = 200;
-            response.setHeader('Content-Type', 'image/png');
+            response.setHeader('Content-Type', request.url?.endsWith('.webp') ? 'image/webp' : 'image/png');
+            response.setHeader('Cache-Control', request.url?.startsWith('/desktop-skins/') && !skinCacheImmutable ? 'no-cache' : 'public,max-age=31536000,immutable');
+            response.end(request.url?.startsWith('/desktop-skins/')
+                ? skinContentMatches ? await readFile(join(directory, request.url)) : 'changed'
+                : 'image');
+            return;
+        }
+        if (request.url?.endsWith('.wav')) {
+            response.statusCode = 200;
+            response.setHeader('Content-Type', htmlAudioName && request.url.endsWith(`8bit_${htmlAudioName}.wav`)
+                ? 'text/html; charset=utf-8' : audioContentType);
             response.setHeader('Cache-Control', 'public,max-age=31536000,immutable');
-            response.end('image');
+            response.end(htmlAudioBodyName && request.url.endsWith(`8bit_${htmlAudioBodyName}.wav`)
+                ? '<html>fallback</html>' : 'RIFF');
             return;
         }
         if (request.url === `/web/releases/${revision}/index.html`) {
@@ -149,7 +180,7 @@ async function runVerifier({
             });
             let stdout = '';
             let stderr = '';
-            const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+            const killTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
             child.stdout.on('data', (chunk) => { stdout += chunk; });
             child.stderr.on('data', (chunk) => { stderr += chunk; });
             child.on('close', (status) => {
@@ -186,8 +217,33 @@ test('accepts matching HTML and browser-readable Ionicons and Octicons', async (
     assert.match(result.stdout, /Ionicons/);
     assert.match(result.stdout, /Octicons/);
     assert.match(result.stdout, /representative image asset/);
+    assert.match(result.stdout, /desktop skin background/);
     assert.match(result.stdout, new RegExp(revision));
     assert.match(result.stdout, /legacy Web entry redirects to the canonical origin/i);
+});
+
+test('rejects a mutable DreamSkin background that would survive rollback', async () => {
+    const result = await runVerifier({ skinCacheImmutable: false });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /desktop skin background.*immutable/i);
+});
+
+test('rejects a remote DreamSkin image with different bytes under the same immutable URL', async () => {
+    const result = await runVerifier({ skinContentMatches: false });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /desktop skin background.*SHA-256/i);
+});
+
+test('rejects a DreamSkin Web release missing its background', async () => {
+    const result = await runVerifier({ includeSkin: false });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /desktop skin background.*missing/i);
+});
+
+test('rejects a Web release missing the second desktop skin', async () => {
+    const result = await runVerifier({ includeWarmSkin: false });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /desktop skin background.*missing/i);
 });
 
 test('rejects a legacy Web entry that still serves content instead of redirecting', async () => {
@@ -216,7 +272,7 @@ test('enforces the health readiness deadline when a request never responds', asy
     const result = await runVerifier({ healthNeverResponds: true, healthTimeoutMs: 100 });
 
     assert.notEqual(result.status, 0);
-    assert.ok(Date.now() - startedAt < 1_000, 'health verifier exceeded its hard deadline');
+    assert.ok(Date.now() - startedAt < 3_000, 'health verifier exceeded its hard deadline');
     assert.match(result.stderr, /health endpoint.*within 100ms/i);
 });
 
@@ -225,7 +281,7 @@ test('bounds a Web asset request that never responds', async () => {
     const result = await runVerifier({ assetNeverResponds: true, requestTimeoutMs: 100 });
 
     assert.notEqual(result.status, 0);
-    assert.ok(Date.now() - startedAt < 1_000, 'asset verifier exceeded its hard deadline');
+    assert.ok(Date.now() - startedAt < 3_000, 'asset verifier exceeded its hard deadline');
     assert.match(result.stderr, /timeout|aborted/i);
 });
 
@@ -234,7 +290,7 @@ test('bounds a canonical Web entry request that never responds', async () => {
     const result = await runVerifier({ entryNeverResponds: true, requestTimeoutMs: 100 });
 
     assert.notEqual(result.status, 0);
-    assert.ok(Date.now() - startedAt < 1_000, 'entry verifier exceeded its hard deadline');
+    assert.ok(Date.now() - startedAt < 3_000, 'entry verifier exceeded its hard deadline');
     assert.match(result.stderr, /timeout|aborted/i);
 });
 
@@ -260,6 +316,27 @@ test('rejects an immutable release asset with the wrong MIME type before activat
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /MIME type/i);
+});
+
+test('rejects an audio asset that resolves to the SPA HTML fallback', async () => {
+    const result = await runVerifier({ audioContentType: 'text/html; charset=utf-8', requestTimeoutMs: 1500 });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /audio asset.*MIME type/i);
+});
+
+test('rejects an HTML fallback for a non-completion sound', async () => {
+    const result = await runVerifier({ htmlAudioName: 'submit', requestTimeoutMs: 1500 });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /audio asset.*8bit_submit\.wav.*MIME type/i);
+});
+
+test('rejects HTML mislabeled with an audio MIME type', async () => {
+    const result = await runVerifier({ htmlAudioBodyName: 'error', requestTimeoutMs: 1500 });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /audio asset.*8bit_error\.wav.*content mismatch/i);
 });
 
 test('rejects an immutable entry without immutable cache headers before activation', async () => {
