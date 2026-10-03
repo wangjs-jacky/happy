@@ -22,9 +22,9 @@ export default function AuthorizeApp() {
     const router = useRouter();
     const styles = authorizationStyles;
     const [request, setRequest] = React.useState<AppAuthorizationRequest | null>(null);
-    const [workers, setWorkers] = React.useState<string[]>([]);
+    const [workers, setWorkers] = React.useState<{ machineId: string; protocol?: number }[]>([]);
     const [selected, setSelected] = React.useState('');
-    const [days, setDays] = React.useState(1);
+    const [days, setDays] = React.useState<number | null>(1);
     const [error, setError] = React.useState('');
     const [busy, setBusy] = React.useState(false);
     const [approved, setApproved] = React.useState(false);
@@ -35,19 +35,21 @@ export default function AuthorizeApp() {
         if (!credentials || !id || !/^[0-9a-f-]{36}$/.test(id)) { setError(t('appAuthorization.invalidRequest')); return; }
         void Promise.all([
             appAuthorizationRequest<AppAuthorizationRequest>(credentials.token, `/requests/${id}`),
-            appAuthorizationRequest<{ workers: { machineId: string }[] }>(credentials.token, '/workers'),
-        ]).then(([data, available]) => { if (!disposed) { setRequest(data); setWorkers(available.workers.map(w => w.machineId)); } }).catch(e => { if (!disposed) setError(e.message); });
+            appAuthorizationRequest<{ workers: { machineId: string; protocol?: number }[] }>(credentials.token, '/workers'),
+        ]).then(([data, available]) => { if (!disposed) { setRequest(data); setWorkers(available.workers); } }).catch(e => { if (!disposed) setError(e.message); });
         return () => { disposed = true; };
     }, [id, credentials]);
-    const availableMachines = machines.filter(machine => workers.includes(machine.id));
+    const availableMachines = machines.filter(machine => workers.some(worker => worker.machineId === machine.id));
     const selectedMachine = availableMachines.find(machine => machine.id === selected);
+    const permanentAvailable = request?.supportsPermanent === true && workers.some(worker => worker.machineId === selected && worker.protocol === 2);
+    const canApprove = !!selectedMachine && (days !== null || permanentAvailable);
     const approve = async () => {
-        if (!request || request.id !== id || !credentials || !selectedMachine || lock.current) return;
+        if (!request || request.id !== id || !credentials || !canApprove || lock.current) return;
         lock.current = true; setBusy(true); setError('');
         try {
             const encryption = sync.encryption.getMachineEncryption(selected);
             if (!encryption) throw new Error(t('appAuthorization.encryptionUnavailable'));
-            const expiresAt = new Date(Date.now() + days * 86400_000 - 30_000).toISOString();
+            const expiresAt = days === null ? null : new Date(Date.now() + days * 86400_000 - 30_000).toISOString();
             const envelope = { v: 1, grantId: request.id, appId: request.app.id, machineId: selected, scope: 'codex:chat', expiresAt, key: encodeBase64(getRandomBytes(32)) };
             const appEnvelope = encodeBase64(encryptBox(new TextEncoder().encode(JSON.stringify(envelope)), decodeBase64(request.publicKey)));
             const machineEnvelope = await encryption.encryptRaw(envelope);
@@ -93,6 +95,9 @@ export default function AuthorizeApp() {
                     {[1, 7].map(value => <View key={value} style={styles.action}><AuthorizationChoice
                         title={t(value === 1 ? 'appAuthorization.oneDay' : 'appAuthorization.sevenDays')}
                         selected={days === value} disabled={busy} onPress={() => setDays(value)} testID={`authorization-days-${value}`} /></View>)}
+                    {request.supportsPermanent ? <View style={styles.action}><AuthorizationChoice
+                        title={t('appConversations.permanent')} subtitle={t('appConversations.permanentHint')}
+                        selected={days === null} disabled={busy} onPress={() => setDays(null)} testID="authorization-days-permanent" /></View> : null}
                 </View>
             </AuthorizationSection>
             <View style={styles.section}>
@@ -100,9 +105,10 @@ export default function AuthorizeApp() {
                 <View style={styles.actions}>
                     <View style={styles.action}><RoundButton title={t('common.cancel')} display="inverted" disabled={busy} style={styles.secondaryButton} textStyle={styles.buttonText} onPress={() => router.back()} /></View>
                     <View style={styles.action}><RoundButton title={busy ? t('appAuthorization.authorizing') : t('appAuthorization.allowConnection')}
-                        disabled={!selectedMachine || busy || request.id !== id} loading={busy} style={styles.button} textStyle={styles.buttonText} onPress={() => void approve()} /></View>
+                        disabled={!canApprove || busy || request.id !== id} loading={busy} style={styles.button} textStyle={styles.buttonText} onPress={() => void approve()} /></View>
                 </View>
                 {!selectedMachine ? <Text style={styles.hint} accessibilityLiveRegion="polite">{t('appAuthorization.selectDeviceRequired')}</Text> : null}
+                {selectedMachine && days === null && !permanentAvailable ? <Text style={styles.hint} accessibilityLiveRegion="polite">{t('appConversations.permanentUnavailable')}</Text> : null}
                 {busy ? <Text style={styles.hint} accessibilityLiveRegion="polite">{t('appAuthorization.authorizing')}</Text> : null}
             </View>
         </> : null}

@@ -9,7 +9,7 @@ import { t } from '@/text';
 import { AppAuthorizationLayout, AuthorizationNotice, authorizationStyles } from '@/components/appAuthorization/AppAuthorizationLayout';
 import { Modal } from '@/modal';
 import { useAllMachines } from '@/sync/storage';
-import { appAuthorizationRequest, type AppAuthorizationGrant } from '@/sync/apiAppDelegation';
+import { appAuthorizationRequest, type AppAuthorizationGrant, isAppGrantActive } from '@/sync/apiAppDelegation';
 
 export default function AuthorizedApps() {
     const { credentials } = useAuth();
@@ -45,7 +45,7 @@ export default function AuthorizedApps() {
         {loaded && !grants.length ? <AuthorizationNotice title={t('appAuthorization.emptyTitle')} message={t('appAuthorization.emptyHint')} /> : null}
         {grants.map(grant => {
             const machine = machines.find(m => m.id === grant.machineId);
-            const active = ['approved', 'redeemed'].includes(grant.state) && !!grant.expiresAt && Date.parse(grant.expiresAt) > Date.now();
+            const active = isAppGrantActive(grant);
             const isRevoking = revokingId === grant.id;
             return <View key={grant.id} style={styles.card} testID={`authorization-grant-${grant.id}`}>
                 <View style={styles.row}>
@@ -60,7 +60,7 @@ export default function AuthorizedApps() {
                     <View style={styles.textColumn}>
                         <Text style={styles.body}>{machine?.metadata?.displayName || machine?.metadata?.host || grant.machineId || t('appAuthorization.deviceRemoved')}</Text>
                         <Text style={styles.small}>{t('appAuthorization.chatOnly')}</Text>
-                        {active ? <Text style={styles.small}>{t('appAuthorization.expiresAt', { date: new Date(grant.expiresAt!).toLocaleString() })}</Text> : null}
+                        {active ? <Text style={styles.small}>{grant.expiresAt === null ? t('appConversations.permanent') : t('appAuthorization.expiresAt', { date: new Date(grant.expiresAt).toLocaleString() })}</Text> : null}
                     </View>
                 </View>
                 {active ? <><View style={styles.divider} /><Item title={t(isRevoking ? 'appAuthorization.revoking' : 'appAuthorization.revoke')}

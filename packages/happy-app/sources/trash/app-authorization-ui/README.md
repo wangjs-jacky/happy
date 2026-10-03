@@ -31,3 +31,11 @@ Root app typecheck, 6 button/keyboard tests and 7 OTA contract tests passed.
 Before/after PR screenshot request was pending; supplied user screenshots establish
 original defects, base revision 459a4994. Skills progress frames show the verified
 new component states; no matched Before/After PR matrix is claimed.
+
+## Integration with permanent authorization (main #677)
+
+Mac mini advertises protocol 2; MacBook Pro advertises protocol 1. Select permanent
+authorization on MacBook Pro: Allow connection stays disabled with an upgrade hint.
+Select 1 day to restore it, then Mac mini + permanent: request expiresAt must be null.
+The active fixture grant is permanent and must remain active/revocable in the list.
+Verified 2026-10-03 in Ego task 428; 16 targeted tests and app typecheck passed.
