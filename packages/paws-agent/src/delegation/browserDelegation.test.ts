@@ -121,3 +121,15 @@ it('projects legacy second-turn history to the strict v1 worker schema', async (
     expect(input.v).toBe(1);
     expect(input.messages[1]).toEqual({ role: 'assistant', text: 'answer' });
 });
+
+it('reads v2 model-bound history through the read-only reader', async () => {
+    const access = { v: 1 as const, appId: 'relationship-advisor' as const, conversationId: 'conversation', grantId: 'grant', key: connection.key, token: 'paws_history.scoped', expiresAt: connection.expiresAt };
+    const binding = { v: 2, grantId: 'grant', conversationId: 'conversation', turnId: 'turn', selection: { engine: 'claude', model: 'opus' } };
+    const input = encrypted({ ...binding, direction: 'input', sequence: 0, messages: [{ role: 'user', text: 'hello' }] });
+    const output = encrypted({ ...binding, direction: 'output', sequence: 1, text: 'answer', actualModel: 'resolved-opus' });
+    const payload = { conversationId: 'conversation', turns: [{ id: 'turn', input, output, sequence: 1 }] };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload))));
+    expect((await createDelegatedHistoryReader(connection.serverUrl, access).read()).turns[0]).toMatchObject({ text: 'answer', selection: { engine: 'claude', model: 'opus' }, actualModel: 'resolved-opus' });
+    payload.turns[0].output = encrypted({ ...binding, direction: 'output', sequence: 1, text: 'wrong', selection: { engine: 'codex', model: 'gpt-6-astra' } });
+    await expect(createDelegatedHistoryReader(connection.serverUrl, access).read()).rejects.toThrow('model context mismatch');
+});

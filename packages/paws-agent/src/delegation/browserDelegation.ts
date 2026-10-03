@@ -142,13 +142,17 @@ export function createDelegatedHistoryReader(serverUrl: string, access: Delegate
                 const decode = (ciphertext: string, direction: Binding['direction'], sequence: number) => {
                     const data = open(ciphertext, access.key);
                     const expected: Binding = { v: 1, grantId: access.grantId, conversationId: access.conversationId, turnId: turn.id, direction, sequence };
-                    for (const [key, value] of Object.entries(expected)) if (data[key] !== value) throw new Error('Application message context mismatch');
+                    for (const [key, value] of Object.entries(expected)) if (key === 'v' ? data.v !== 1 && data.v !== 2 : data[key] !== value) throw new Error('Application message context mismatch');
                     return data;
                 };
-                const messages = decode(turn.input, 'input', 0).messages;
-                const text = turn.output ? decode(turn.output, 'output', turn.sequence).text : '';
+                const input = decode(turn.input, 'input', 0);
+                const output = turn.output ? decode(turn.output, 'output', turn.sequence) : null;
+                const selection = (input.selection ?? defaultSelection) as DelegatedSelection;
+                if (input.v === 2 && !input.selection) throw new Error('Missing model selection');
+                if (input.selection && output && (input.v !== output.v || selection.engine !== (output.selection as DelegatedSelection)?.engine || selection.model !== (output.selection as DelegatedSelection)?.model)) throw new Error('Application model context mismatch');
+                const messages = input.messages, text = output?.text ?? '';
                 if (!Array.isArray(messages) || messages.length > 100 || typeof text !== 'string' || !messages.every(message => message && ['user', 'assistant'].includes(message.role) && typeof message.text === 'string' && (message.images === undefined || (Array.isArray(message.images) && message.images.length <= 4 && message.images.every((url: unknown) => typeof url === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(url)))))) throw new Error('Invalid application history');
-                return { ...turn, messages: messages as DelegatedMessage[], text };
+                return { ...turn, messages: messages as DelegatedMessage[], text, selection, actualModel: output?.actualModel as string | undefined };
             }) };
         },
     };

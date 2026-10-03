@@ -1,7 +1,7 @@
 # Advisor engine/model selection acceptance
 
-Base: Paws `0a15e3c0`; companion advisor repository `2f50046`.
-Companion implementation: `../relationship-advisor--models` (standalone service, no Git remote configured).
+Base: Paws `221ea84f` (including scoped history); companion advisor repository `fddd8af`.
+Companion implementation: `../relationship-advisor--models`, commit `2758f9d` (standalone service, no Git remote configured). Reproducible source delta: [advisor-ui.patch](advisor-ui.patch); apply to advisor `fddd8af`, then rebuild its SDK from this Paws checkout. The patch was verified with `git apply --check`.
 
 | Case | Pass criterion | Evidence / result |
 | --- | --- | --- |
@@ -25,11 +25,11 @@ Companion implementation: `../relationship-advisor--models` (standalone service,
 
 ## Checks
 
-- Advisor `npm test`: 5 pass.
-- Server delegation/routes: 16 pass (real ephemeral PGlite, including old-worker fencing).
-- Browser SDK delegation: 16 pass (cryptographic binding, legacy authority, model mismatch).
+- Advisor `npm test`: 8 pass.
+- Server delegation/routes: 18 pass (real ephemeral PGlite, including old-worker fencing).
+- Browser SDK delegation: 24 pass (cryptographic binding, legacy authority, model mismatch).
 - Shared model catalog: 6 pass.
-- Paws authorization API and OTA contract: 10 pass.
+- Paws authorization API and OTA contract: 10 pass; scoped history binding: 10 pass.
 - Restricted Claude and existing proxy environment suite: 12 pass.
 - CLI build and typecheck; server, SDK and App typechecks.
 
@@ -45,3 +45,7 @@ pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/appDe
 ```
 
 Browser automation uses Ego only. Paws main worktree remains clean and unchanged.
+
+Latest integration browser check: ordinary chat loads via chat.js, a protocol 3 Claude/Opus conversation opens through the independent read-only history route, URL fragment is removed, composer is hidden and normal connection credentials are preserved. Final screenshot: [readonly-history.png](readonly-history.png). This uses disposable encrypted fixture data.
+
+Screenshots: [model menu](model-menu.png), [per-message model history](model-history.png). Desktop layout was unchanged by the history integration.
