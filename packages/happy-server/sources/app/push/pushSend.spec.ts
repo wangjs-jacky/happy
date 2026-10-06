@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sendPushNotifications } from './pushSend';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+});
 
 describe('sendPushNotifications', () => {
     it('isolates tokens so a mixed-project batch cannot reject the current device', async () => {
@@ -44,6 +47,62 @@ describe('sendPushNotifications', () => {
             details: { error: 'PUSH_TOO_MANY_EXPERIENCE_IDS' },
         }]);
         expect(JSON.stringify(tickets)).not.toContain('private-device-token');
+    });
+
+    it('does not expose a push token from an Expo error ticket', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+            data: [{
+                status: 'error',
+                message: 'ExponentPushToken[private-device-token] is not registered',
+                details: { error: 'DeviceNotRegistered', expoPushToken: 'ExponentPushToken[private-device-token]' },
+            }],
+        }), { status: 200 })));
+
+        const tickets = await sendPushNotifications([{ to: 'ExponentPushToken[current]' }]);
+
+        expect(tickets).toEqual([{
+            status: 'error',
+            message: 'Expo ticket error',
+            details: { error: 'DeviceNotRegistered' },
+        }]);
+        expect(JSON.stringify(tickets)).not.toContain('private-device-token');
+    });
+
+    it('sends a later token while an earlier request is still pending and preserves ticket order', async () => {
+        let releaseFirst!: (response: Response) => void;
+        const firstResponse = new Promise<Response>(resolve => { releaseFirst = resolve; });
+        const fetchImpl = vi.fn((_url: string, init: RequestInit) => {
+            const [{ to }] = JSON.parse(String(init.body));
+            return to === 'ExponentPushToken[old]'
+                ? firstResponse
+                : Promise.resolve(new Response(JSON.stringify({ data: [{ status: 'ok', id: 'current-ticket' }] }), { status: 200 }));
+        });
+        vi.stubGlobal('fetch', fetchImpl);
+
+        const result = sendPushNotifications([
+            { to: 'ExponentPushToken[old]' },
+            { to: 'ExponentPushToken[current]' },
+        ]);
+        await Promise.resolve();
+
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        releaseFirst(new Response(JSON.stringify({ data: [{ status: 'ok', id: 'old-ticket' }] }), { status: 200 }));
+        expect(await result).toEqual([
+            { status: 'ok', id: 'old-ticket' },
+            { status: 'ok', id: 'current-ticket' },
+        ]);
+    });
+
+    it('bounds a request that never resolves', async () => {
+        vi.useFakeTimers();
+        const fetchImpl = vi.fn(() => new Promise<Response>(() => {}));
+        vi.stubGlobal('fetch', fetchImpl);
+
+        const result = sendPushNotifications([{ to: 'ExponentPushToken[stalled]' }]);
+        await vi.runAllTimersAsync();
+
+        expect(await result).toEqual([{ status: 'error', message: 'Network error' }]);
+        expect(fetchImpl).toHaveBeenCalledTimes(3);
     });
 
     it('retries a transient network failure before giving up on a device', async () => {
