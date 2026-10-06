@@ -55,6 +55,7 @@ function normalizeTicket(value: unknown): PushTicket {
 async function requestWithTimeout(message: PushMessage, attempt: number): Promise<PushTicket | null> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let responseStatus: number | undefined;
     try {
         return await Promise.race([
             (async () => {
@@ -65,6 +66,7 @@ async function requestWithTimeout(message: PushMessage, attempt: number): Promis
                     // Expo's global fetch type uses a different AbortSignal declaration.
                     signal: controller.signal as unknown as RequestInit['signal']
                 });
+                responseStatus = response.status;
                 if (!response.ok) {
                     if ((response.status === 429 || response.status >= 500) && attempt + 1 < MAX_ATTEMPTS) {
                         return null;
@@ -88,6 +90,13 @@ async function requestWithTimeout(message: PushMessage, attempt: number): Promis
                 }, REQUEST_TIMEOUT_MS);
             })
         ]);
+    } catch (error) {
+        // A 4xx is already known once headers arrive. If its body stalls,
+        // return that terminal response instead of posting it again.
+        if (responseStatus !== undefined && responseStatus >= 400 && responseStatus < 500 && responseStatus !== 429) {
+            return { status: 'error', message: `HTTP ${responseStatus}` };
+        }
+        throw error;
     } finally {
         if (timer) clearTimeout(timer);
     }

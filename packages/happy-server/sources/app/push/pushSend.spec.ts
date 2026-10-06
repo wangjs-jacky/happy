@@ -120,6 +120,22 @@ describe('sendPushNotifications', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(3);
     });
 
+    it('does not retry HTTP 400 when its response body stalls', async () => {
+        vi.useFakeTimers();
+        const fetchImpl = vi.fn(async () => ({
+            ok: false,
+            status: 400,
+            json: () => new Promise<unknown>(() => {}),
+        } as Response));
+        vi.stubGlobal('fetch', fetchImpl);
+
+        const result = sendPushNotifications([{ to: 'ExponentPushToken[invalid]' }]);
+        await vi.runAllTimersAsync();
+
+        expect(await result).toEqual([{ status: 'error', message: 'HTTP 400' }]);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
     it('retries a transient network failure before giving up on a device', async () => {
         const fetchImpl = vi.fn()
             .mockRejectedValueOnce(new Error('proxy connection reset'))
