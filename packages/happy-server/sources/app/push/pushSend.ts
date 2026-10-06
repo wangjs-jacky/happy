@@ -52,18 +52,35 @@ function normalizeTicket(value: unknown): PushTicket {
     return { status: 'error', message: 'Malformed Expo response' };
 }
 
-async function requestWithTimeout(message: PushMessage): Promise<Response> {
+async function requestWithTimeout(message: PushMessage, attempt: number): Promise<PushTicket | null> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         return await Promise.race([
-            fetch(EXPO_PUSH_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify([message]),
-                // Expo's global fetch type uses a different AbortSignal declaration.
-                signal: controller.signal as unknown as RequestInit['signal']
-            }),
+            (async () => {
+                const response = await fetch(EXPO_PUSH_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify([message]),
+                    // Expo's global fetch type uses a different AbortSignal declaration.
+                    signal: controller.signal as unknown as RequestInit['signal']
+                });
+                if (!response.ok) {
+                    if ((response.status === 429 || response.status >= 500) && attempt + 1 < MAX_ATTEMPTS) {
+                        return null;
+                    }
+                    const errorBody = await response.json().catch(() => null) as { errors?: Array<{ code?: unknown }> } | null;
+                    const errorCode = safeErrorCode(errorBody?.errors?.[0]?.code);
+                    return {
+                        status: 'error' as const,
+                        message: `HTTP ${response.status}`,
+                        ...(errorCode ? { details: { error: errorCode } } : {})
+                    };
+                }
+
+                const result = await response.json() as { data?: unknown };
+                return normalizeTicket(Array.isArray(result?.data) ? result.data[0] : undefined);
+            })(),
             new Promise<never>((_resolve, reject) => {
                 timer = setTimeout(() => {
                     controller.abort();
@@ -79,30 +96,16 @@ async function requestWithTimeout(message: PushMessage): Promise<Response> {
 async function sendSingle(message: PushMessage): Promise<PushTicket> {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-            const response = await requestWithTimeout(message);
-            if (!response.ok) {
-                if ((response.status === 429 || response.status >= 500) && attempt + 1 < MAX_ATTEMPTS) {
-                    await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
-                    continue;
-                }
-                const errorBody = await response.json().catch(() => null) as { errors?: Array<{ code?: unknown }> } | null;
-                const errorCode = safeErrorCode(errorBody?.errors?.[0]?.code);
-                return {
-                    status: 'error',
-                    message: `HTTP ${response.status}`,
-                    ...(errorCode ? { details: { error: errorCode } } : {})
-                };
+            const ticket = await requestWithTimeout(message, attempt);
+            if (ticket) {
+                return ticket;
             }
-
-            const result = await response.json() as { data?: unknown };
-            return normalizeTicket(Array.isArray(result?.data) ? result.data[0] : undefined);
         } catch {
-            if (attempt + 1 < MAX_ATTEMPTS) {
-                await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
-                continue;
+            if (attempt + 1 >= MAX_ATTEMPTS) {
+                return { status: 'error', message: 'Network error' };
             }
-            return { status: 'error', message: 'Network error' };
         }
+        await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
     }
     return { status: 'error', message: 'Network error' };
 }

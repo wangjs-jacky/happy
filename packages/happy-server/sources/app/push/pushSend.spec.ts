@@ -105,6 +105,21 @@ describe('sendPushNotifications', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(3);
     });
 
+    it('bounds an Expo response whose body never finishes', async () => {
+        vi.useFakeTimers();
+        const fetchImpl = vi.fn(async () => ({
+            ok: true,
+            json: () => new Promise<unknown>(() => {}),
+        } as Response));
+        vi.stubGlobal('fetch', fetchImpl);
+
+        const result = sendPushNotifications([{ to: 'ExponentPushToken[stalled-body]' }]);
+        await vi.runAllTimersAsync();
+
+        expect(await result).toEqual([{ status: 'error', message: 'Network error' }]);
+        expect(fetchImpl).toHaveBeenCalledTimes(3);
+    });
+
     it('retries a transient network failure before giving up on a device', async () => {
         const fetchImpl = vi.fn()
             .mockRejectedValueOnce(new Error('proxy connection reset'))
