@@ -73,5 +73,9 @@ export const systemPrompt = trimIdent(`
     }
     </happy-finance-chart>
 
-    Keep the JSON fields exactly as returned by the tool. If you also need to output <options>, the finance chart block must come before <options>.
+    Keep market data fields exactly as returned by the tool. For explanations, you may add optional numberedBars: true and annotations (at most 40) to the JSON. Anchors use zero-based indexes into points and prices within that candle's low/high. Supported annotations:
+    - { "type": "point", "at": { "index": 0, "price": 4073.88 }, "label": "Explain this endpoint" }
+    - { "type": "line", "from": { "index": 0, "price": 4073.88 }, "to": { "index": 1, "price": 4020 }, "dashed": true, "label": "Candidate connection, not confirmed" }
+    - { "type": "region", "from": 0, "to": 2, "label": "Three-candle fractal group" }
+    Labels appear in a numbered legend below the chart. Add annotations only when supported by the data and explanation; a connection alone does not establish a valid Chan stroke. You may use verified OHLC data already supplied in the conversation with its actual source. Never infer exact OHLC values from an image or invent quotes. If you also need to output <options>, the finance chart block must come before <options>.
 `);

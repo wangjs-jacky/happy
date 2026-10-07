@@ -82,3 +82,32 @@ describe('sessionFinanceCharts', () => {
         expect(charts[0].symbol).toBe('000001.SS');
     });
 });
+
+
+describe('teaching annotations', () => {
+    const payload = JSON.parse(financeJson);
+    const point = { type: 'point', at: { index: 0, price: 4142.77 }, label: 'Top' };
+    it('preserves point, line and inclusive region annotations', () => {
+        const annotations = [point,
+            { type: 'line', from: point.at, to: { index: 1, price: 4018.22 }, label: 'Candidate', dashed: true },
+            { type: 'region', from: 0, to: 2, label: 'Group' }];
+        const chart = parseFinanceChartSection(JSON.stringify({ ...payload, numberedBars: true, annotations }));
+        expect(chart?.annotations).toEqual(annotations);
+        expect(chart?.numberedBars).toBe(true);
+    });
+    it('ignores invalid annotations without dropping valid ones or the chart', () => {
+        const annotations = [null, { ...point, at: { index: 3, price: 4142 } },
+            { ...point, at: { index: 0, price: 9999 } },
+            { type: 'region', from: 2, to: 0 }, { type: 'region', from: 0.5, to: 1 }, point];
+        expect(parseFinanceChartSection(JSON.stringify({ ...payload, annotations }))?.annotations).toEqual([point]);
+    });
+    it('does not shift annotation anchors when a malformed candle is filtered out', () => {
+        expect(parseFinanceChartSection(JSON.stringify({ ...payload, points: [null, ...payload.points], annotations: [point] }))?.annotations).toEqual([]);
+    });
+    it('keeps legacy cards working and bounds untrusted overlay content', () => {
+        expect(parseFinanceChartSection(financeJson)?.annotations).toEqual([]);
+        const chart = parseFinanceChartSection(JSON.stringify({ ...payload, annotations: Array(100).fill({ ...point, label: 'x'.repeat(1000) }) }));
+        expect(chart?.annotations).toHaveLength(40);
+        expect(chart?.annotations?.[0].label).toHaveLength(200);
+    });
+});
