@@ -75,7 +75,7 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
   authority={ kind:'turn',id:job.record.id,lease:job.lease };
   let latest='',sequence=job.sequence??0,flushing:Promise<unknown>=Promise.resolve(),heartbeat:NodeJS.Timeout|undefined;
   let key:Uint8Array|undefined, phase:NativePhase|undefined;
-  let messages:NativeConversationMessage[]|undefined;
+  let messages:NativeConversationMessage[]|undefined, terminalObserved=false;
   const publish=(body:object)=>request(`${path}/turns/${job.record.id}`,{ lease:job.lease,...(phase ? {phase}:{}),...body });
   const encode=()=>encodeBase64(encryptLegacy({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest,...(messages ? {messages}: {}) },key!));
   try {
@@ -84,7 +84,12 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
     flushing=flushing.then(async()=> { if (!control.signal.aborted) await publish({ output:encode(),sequence }); }).catch(()=>control.abort());
    },3000);
    if (!native) throw new Error('protocol-incompatible');
-   if(job.record.status==='cancel-requested'){const confirmed=await native.cancel(job.record.binding,job.record.requestId,job.record.sessionId);await publish(confirmed ? {status:'cancelled',error:{code:'execution-interrupted',retryable:false}} : {phase:'recovering'});return;}
+   if(job.record.status==='cancel-requested'){
+    const outcome=await native.cancel(job.record.binding,job.record.requestId,job.record.sessionId);
+    if(outcome.status==='pending')await publish({phase:'recovering'});
+    else {terminalObserved=true;latest=outcome.text;messages=outcome.messages;const output=encode();await publish({status:outcome.status,output,sequence,actual:outcome.actual,...(outcome.status==='completed'?{}:{error:{code:'execution-interrupted',retryable:false}})});}
+    return;
+   }
    const verified=await request<{target:ServiceTarget}>(`${path}/authority`,authority);
    if (!sameServiceTarget(job.record.binding,verified.target)) throw new Error('account-identity-changed');
    const data=await request<{policy:AppPolicy;ref:BusinessPromptRef;prompt:string}>(`${path}/policy`,authority);
@@ -96,14 +101,14 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
      else if(event.type==='messages')messages=event.messages;
      else {phase=event.phase;flushing=flushing.then(()=>publish({})).catch(()=>control.abort());}
     });
-   latest=result.text;messages=result.messages;
+   terminalObserved=true;latest=result.text;messages=result.messages;
 
    clearInterval(heartbeat); heartbeat=undefined; await flushing;
    const output=encode();
    await publish({ output,sequence,status:result.status,actual:result.actual,...(result.status!=='completed' ? {error:{code:'execution-interrupted',retryable:false}} : {}) });
   } catch(error) {
    control.abort(); await flushing;
-   if(error instanceof Error && error.message==='native-execution-pending'){phase='recovering';await publish({}).catch(()=>undefined);return;}
+   if(terminalObserved || error instanceof Error && error.message==='native-execution-pending'){phase='recovering';await publish({}).catch(()=>undefined);return;}
    const parsed=ServiceErrorCodeSchema.safeParse(error instanceof Error ? error.message : '');
    await publish({ status:'failed',error:{ code:parsed.success ? parsed.data : 'execution-interrupted',retryable:false } }).catch(()=>undefined);
   } finally { if (heartbeat) clearInterval(heartbeat); await flushing; authority=null; policyData=null; lifetime.removeEventListener('abort',abort); }

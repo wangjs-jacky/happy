@@ -78,6 +78,10 @@ rl.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(li
  expect(nativeCalls.filter(call=>call.method === 'turn/start')).toHaveLength(0);
  expect(nativePrompt).toContain('Summarize the supplied topic');
  expect((await readdir(join(root,'jobs'))).filter(name=>name.startsWith('job-'))).toEqual([]);
+ f.job.record.status='cancel-requested';f.job.record.sessionId='native-session';
+ await worker.tick();
+ const reconciled=calls.filter(call=>call.path.endsWith('/turns/turn')&&call.body.status).at(-1)!;
+ expect(reconciled.body.status).toBe('completed');expect(decryptLegacy(decodeBase64(reconciled.body.output),f.key)).toMatchObject({text:'Summary answer'});
 },15000);
 it('shares the old machine-wide exclusion primitive',async()=>{
  const root=await mkdtemp(join(tmpdir(),'shared-worker-lock-'));roots.push(root);

@@ -9,6 +9,7 @@ afterEach(async()=>{await Promise.all(roots.splice(0).map(path=>rm(path,{recursi
 const binding={id:'binding',serviceId:'service',revision:1,appId:'advisor',machineId:'machine',engine:'codex',accountRef:{kind:'codex-profile',id:'precise'},requestedModel:'model',reasoning:{mode:'explicit',value:'medium'},permissions:['chat'],permissionMode:'chat-only'} as ExecutionBinding;
 async function fixture() {
  const root=await mkdtemp(join(tmpdir(),'paws-native-'));roots.push(root);
+ const phases:string[]=[];
  const messages:NativeMessage[]=[];const listeners=new Set<(message:NativeMessage)=>void>();
  let active=true,running=false,starts=0,sends=0,dropResponse=false;
  const append=(content:unknown,localId:string|null=null)=>{const message={id:String(messages.length+1),seq:messages.length+1,content,localId};messages.push(message);for(const consume of listeners)consume(message);};
@@ -21,8 +22,8 @@ async function fixture() {
   send:async input=>{sends++;append({role:'user',content:{type:'text',text:input.text}},input.localId);event({t:'turn-start',localIds:[input.localId]},input.localId);event({t:'text',text:'answer'},input.localId);event({t:'turn-end',status:'completed'},input.localId);if(dropResponse)throw Error('lost acknowledgment');},cancel:async()=>{throw Error('must not cancel another surface');},
  };
  const runtime=createNativeSessionRuntime({hooks,root,machineId:'machine',readyTimeoutMs:20,pollMs:1});
- const execute=(requestId:string,sessionId?:string,signal=new AbortController().signal)=>runtime.execute(binding,{id:requestId,requestId,conversationId:'conversation',createdAt:0,messages:[{role:'assistant',text:'stale history'},{role:'user',text:requestId}]},{sessionId,systemPrompt:'policy',codexSessionGrant:'exact-grant',attach:async()=>{}},signal,()=>{});
- return {runtime,hooks,execute,messages,append,event,setActive:(value:boolean)=>{active=value;},setRunning:(value:boolean)=>{running=value;},drop:()=>{dropResponse=true;},counts:()=>({starts,sends})};
+ const execute=(requestId:string,sessionId?:string,signal=new AbortController().signal)=>runtime.execute(binding,{id:requestId,requestId,conversationId:'conversation',createdAt:0,messages:[{role:'assistant',text:'stale history'},{role:'user',text:requestId}]},{sessionId,systemPrompt:'policy',codexSessionGrant:'exact-grant',attach:async()=>{}},signal,event=>{if(event.type==='phase')phases.push(event.phase);});
+ return {runtime,hooks,execute,phases,messages,append,event,setActive:(value:boolean)=>{active=value;},setRunning:(value:boolean)=>{running=value;},drop:()=>{dropResponse=true;},counts:()=>({starts,sends})};
 }
 describe('native application sessions',()=>{
  it('spawns once, sends only new input, then reuses the same session',async()=>{const f=await fixture();expect((await f.execute('first')).sessionId).toBe('session');await f.execute('second','session');expect(f.counts()).toEqual({starts:1,sends:2});expect(nativeTranscript(f.messages).filter(m=>m.role==='user').map(m=>m.text)).toEqual(['first','second']);});
@@ -44,8 +45,60 @@ describe('native application sessions',()=>{
   f.hooks.send=async()=>{throw Error('must not resend');};
   expect((await f.execute('first','session')).text).toBe('recovered answer');
  });
- it('cancels an unsubmitted request without touching a Paws execution',async()=>{const f=await fixture();f.setRunning(true);expect(await f.runtime.cancel(binding,'never-submitted','session')).toBe(true);expect(f.counts().sends).toBe(0);});
+ it('cancels an unsubmitted request without touching a Paws execution',async()=>{const f=await fixture();f.setRunning(true);expect(await f.runtime.cancel(binding,'never-submitted','session')).toMatchObject({status:'cancelled'});expect(f.counts().sends).toBe(0);});
  it('reads Paws-side followups from native history and excludes private thinking',async()=>{const f=await fixture();await f.execute('first');f.append({role:'user',content:{type:'text',text:'from Paws'}},'paws');f.event({t:'text',text:'private',thinking:true});f.event({t:'text',text:'Paws reply'},'paws');const snapshot=await f.runtime.snapshot(binding,'session');expect(snapshot.messages.map(m=>m.text)).toEqual(['first','answer','from Paws','Paws reply']);expect(snapshot.messages.every(m=>m.id&&m.seq)).toBe(true);});
 });
 
 it('reports an online idle process as an idle conversation', async()=>{const f=await fixture();expect(await f.runtime.snapshot(binding,'session')).toMatchObject({active:false});f.setRunning(true);expect(await f.runtime.snapshot(binding,'session')).toMatchObject({active:true,phase:'generating'});});
+
+it.each(['connect','get','historyPage','watch'] as const)('keeps an accepted request recovering when %s setup fails',async operation=>{
+ const f=await fixture();const control=new AbortController();let localId='';let sends=0;
+ f.hooks.send=async input=>{sends++;localId=input.localId;f.append({role:'user',content:{type:'text',text:input.text}},localId);f.event({t:'turn-start',localIds:[localId]},localId);control.abort();};
+ await expect(f.execute('recover',undefined,control.signal)).rejects.toThrow('native-execution-pending');
+ const original=f.hooks[operation];f.hooks[operation]=async()=>{throw Error('transient transport failure');};
+ await expect(f.execute('recover','session')).rejects.toThrow('native-execution-pending');
+ Object.assign(f.hooks,{[operation]:original});
+ f.event({t:'text',text:'actual answer'},localId);f.event({t:'turn-end',status:'completed'},localId);
+ expect((await f.execute('recover','session')).text).toBe('actual answer');expect(sends).toBe(1);
+});
+it('retains binding rejection even for an accepted request',async()=>{
+ const f=await fixture();await f.execute('first');const get=f.hooks.get;f.hooks.get=async id=>({...await get(id),metadata:{machineId:'other'}});
+ await expect(f.execute('first','session')).rejects.toThrow('permission-denied');
+});
+it('includes paginated canonical native users and deduplicates linked raw echoes only',async()=>{
+ const f=await fixture();const native=(data:unknown)=>f.append({role:'session',content:{type:'session',data}});
+ f.append({role:'user',content:{type:'text',text:'same question'}},'raw-one');
+ native({id:'claude-user',claudeUuid:'uuid-user',role:'user',ev:{t:'text',text:'same question'}});
+ f.event({t:'turn-start',localIds:['raw-one']},'claude-turn');f.event({t:'text',text:'first answer'},'claude-turn');
+ native({id:'codex-user',turn:'local-turn',codexItemId:'native-item',role:'user',ev:{t:'text',text:'same question'}});
+ f.event({t:'text',text:'native answer'},'local-turn');
+ const cursors:number[]=[];f.hooks.historyPage=async(_id,{afterSeq})=>{cursors.push(afterSeq);const messages=f.messages.filter(message=>message.seq>afterSeq);return {messages:messages.slice(0,2),hasMore:messages.length>2};};
+ const snapshot=await f.runtime.snapshot(binding,'session');
+ expect(snapshot.messages.map(message=>message.text)).toEqual(['same question','first answer','same question','native answer']);expect(cursors.length).toBe(3);
+});
+it.each(['completed','failed','cancelled'] as const)('preserves native %s when cancellation arrives after the terminal event',async status=>{
+ const f=await fixture();await f.execute('first');const terminal=f.messages.at(-1)!;
+ (terminal.content as {content:{data:{ev:{status:string}}}}).content.data.ev.status=status;
+ const result=await f.runtime.cancel(binding,'first','session');expect(result).toMatchObject({status,text:'answer',messages:[{role:'user',text:'first'}]});
+});
+it('reports submitted until the matching native turn actually starts',async()=>{
+ const f=await fixture();f.hooks.send=async input=>{
+  f.append({role:'user',content:{type:'text',text:input.text}},input.localId);
+  setTimeout(()=>{expect(f.phases.at(-1)).toBe('submitted');f.event({t:'turn-start',localIds:[input.localId]},input.localId);expect(f.phases.at(-1)).toBe('generating');f.event({t:'text',text:'queued answer'},input.localId);f.event({t:'turn-end',status:'completed'},input.localId);},0);
+ };
+ expect((await f.execute('queued')).text).toBe('queued answer');
+});
+it('rehydrates native image file envelopes before their associated user text',async()=>{
+ const f=await fixture();const data='data:image/png;base64,YQ==';
+ f.append({role:'session',content:{type:'session',data:{role:'user',ev:{t:'file',ref:'sessions/session/attachments/image.enc',mimeType:'image/png',name:'image.png',size:1}}}},'photo:image:0');
+ f.append({role:'user',content:{type:'text',text:'photo question'}},'photo');
+ await expect(f.runtime.snapshot(binding,'session')).rejects.toThrow('protocol-incompatible');
+ f.hooks.readImage=async(sessionId,ref,mimeType)=>{expect([sessionId,ref,mimeType]).toEqual(['session','sessions/session/attachments/image.enc','image/png']);return data;};
+ const snapshot=await f.runtime.snapshot(binding,'session');expect(snapshot.messages).toEqual([{id:'2',seq:2,role:'user',text:'photo question',images:[data]}]);
+});
+
+it('keeps the current submitted images in the returned turn transcript',async()=>{
+ const f=await fixture(),images=['data:image/png;base64,YQ=='];
+ const result=await f.runtime.execute(binding,{id:'image-turn',requestId:'image-turn',conversationId:'conversation',createdAt:0,messages:[{role:'user',text:'photo',images}]},{systemPrompt:'policy',attach:async()=>{}},new AbortController().signal,()=>{});
+ expect(result.messages.at(-1)).toMatchObject({role:'user',text:'photo',images});
+});
