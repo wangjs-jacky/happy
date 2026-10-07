@@ -265,8 +265,8 @@ describe('service panel using the real SDK controller', () => {
         expect(f.root.querySelector('[role="dialog"]')?.contains(document.activeElement)).toBe(true);
         f.finishRead(); await settle();
         expect(document.activeElement).toBe(button(f.root, '更新模型目录'));
-        const model = select(f.root, '模型'); model.focus(); change(model, 'catalog-default');
-        expect(document.activeElement).toBe(select(f.root, '模型'));
+        const model = select(f.root, '模型'); f.root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="模型"]')!.focus(); change(model, 'catalog-default');
+        expect(document.activeElement).toBe(f.root.querySelector('[role="combobox"][aria-label="模型"]'));
     });
     it('unsubscribes on destroy without disposing the host controller or removing host children', async () => {
         const f = await mounted(); const host = document.createElement('p'); host.textContent = 'Host content'; f.root.append(host);

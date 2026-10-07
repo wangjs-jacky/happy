@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { enhanceSelect } from './select';
 import { AIServiceClientError, type BindingOverrides, type ClientErrorCode, type ServiceController, type ServiceControllerState, type ServiceSource } from '@wangjs-jacky/paws-agent/services/browser';
 
 export interface ServicePanelAppearance {
@@ -74,6 +75,7 @@ export function mountServicePanel(element: HTMLElement, { controller, appearance
     let localError: ClientErrorCode | null = null, notice = '', modal: 'advanced' | 'details' | null = null, opener = '';
     let focusRecovery: string | null = null;
     let connectAbort: AbortController | null = null;
+    const selections = new Map<HTMLSelectElement,ReturnType<typeof enhanceSelect>>();
 
     function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
         const el = doc.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el;
@@ -275,6 +277,8 @@ export function mountServicePanel(element: HTMLElement, { controller, appearance
             if (modal === 'advanced') advanced(dialog); else details(dialog);
             backdrop.addEventListener('click', event => { if (event.target === backdrop) closeModal(); }); backdrop.append(dialog); root.append(backdrop);
         }
+        for(const [select,control] of selections)if(!root.contains(select)){control.destroy();selections.delete(select);}
+        for(const select of root.querySelectorAll('select'))if(!selections.has(select))selections.set(select,enhanceSelect(select));
         const target = findFocus(focusRecovery ?? active ?? '');
         if (target && !target.hasAttribute('disabled')) {
             target.focus();
@@ -287,7 +291,7 @@ export function mountServicePanel(element: HTMLElement, { controller, appearance
         if (!modal) return;
         if (event.key === 'Escape') { event.preventDefault(); closeModal(); return; }
         if (event.key !== 'Tab') return;
-        const focusable = [...root.querySelectorAll<HTMLElement>('[role="dialog"] button:not(:disabled), [role="dialog"] select:not(:disabled), [role="dialog"] a[href]')];
+        const focusable = [...root.querySelectorAll<HTMLElement>('[role="dialog"] button:not(:disabled), [role="dialog"] select:not(:disabled), [role="dialog"] a[href]')].filter(el=>el.tabIndex>=0&&!el.closest('[hidden]'));
         const first = focusable[0], last = focusable.at(-1);
         if (event.shiftKey && (doc.activeElement === first || !root.querySelector('[role="dialog"]')?.contains(doc.activeElement))) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && (doc.activeElement === last || !root.querySelector('[role="dialog"]')?.contains(doc.activeElement))) { event.preventDefault(); first?.focus(); }
@@ -306,6 +310,6 @@ export function mountServicePanel(element: HTMLElement, { controller, appearance
     });
     return { destroy() {
         if (destroyed) return;
-        destroyed = true; epoch++; unsubscribe(); connectAbort?.abort(); doc.removeEventListener('keydown', keydown); root.remove();
+        destroyed = true; epoch++; unsubscribe(); connectAbort?.abort(); doc.removeEventListener('keydown', keydown); for(const control of selections.values())control.destroy();selections.clear();root.remove();
     } };
 }

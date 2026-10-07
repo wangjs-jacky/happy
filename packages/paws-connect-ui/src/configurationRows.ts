@@ -1,4 +1,5 @@
 import type { CapabilityCatalog, ServiceReasoning, ServiceTarget } from '@wangjs-jacky/paws-agent/services/browser';
+import { enhanceSelect } from './select';
 
 export interface ConfigurationRowValue {
     target?: ServiceTarget;
@@ -15,6 +16,7 @@ export interface ConfigurationRow {
     allowModelOverride?: boolean;
     allowReasoningOverride?: boolean;
     loading?: boolean;
+    loadingStage?: 'configuration' | 'models';
     error?: string;
     value: ConfigurationRowValue;
     targets: { target: ServiceTarget; machineName: string; accountName: string }[];
@@ -45,6 +47,7 @@ export function mountServiceConfigurationRows(
     const root = doc.createElement('section');
     root.className = 'paws-service-rows'; root.setAttribute('aria-label', '应用服务设置'); element.append(root);
     let rows = options.rows, destroyed = false, renderVersion = 0;
+    let selections: ReturnType<typeof enhanceSelect>[] = [];
 
     function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
         const el = doc.createElement(tag); if (className) el.className = className; if (text !== undefined) el.textContent = text; return el;
@@ -68,20 +71,20 @@ export function mountServiceConfigurationRows(
         const wrap = node('div', `paws-service-rows-field paws-service-rows-${key}`);
         const select = node('select'); controlIdentity(select, row, key, label); select.disabled = disabled;
         const available = choices.some(choice => choice.value === value);
-        const displayed = available ? choices : [{ value, label: `${unavailableLabel} · 不可用`, disabled: true }, ...choices];
+        const displayed = available ? choices : [{ value, label: row.loading || !row.catalog ? unavailableLabel : `${unavailableLabel} · 不可用`, disabled: true }, ...choices];
         for (const choice of displayed) {
             const option = node('option', undefined, choice.label); option.value = choice.value; option.disabled = choice.disabled ?? false; select.append(option);
         }
         select.value = value;
         select.title = `${label}：${select.selectedOptions[0]?.textContent ?? unavailableLabel}`;
-        if (select.selectedOptions[0]?.disabled) select.setAttribute('aria-invalid', 'true');
+        if (select.selectedOptions[0]?.disabled && !row.loading && row.catalog) select.setAttribute('aria-invalid', 'true');
         const version = renderVersion;
         select.addEventListener('change', () => {
             if (destroyed || version !== renderVersion || select.disabled) return;
             if (!choices.some(choice => choice.value === select.value && !choice.disabled)) { select.value = value; return; }
             action(select.value);
         });
-        wrap.append(select); return wrap;
+        wrap.append(select); selections.push(enhanceSelect(select)); return wrap;
     }
     function button(row: ConfigurationRow, key: string, label: string, disabled: boolean, action: () => void) {
         const el = node('button'); el.type = 'button'; el.disabled = disabled; controlIdentity(el, row, key, label); el.title = label;
@@ -93,10 +96,15 @@ export function mountServiceConfigurationRows(
         section.setAttribute('aria-busy', String(!!row.loading));
         const heading = node('div', 'paws-service-rows-heading'); heading.append(node('strong', undefined, row.name));
         if (row.description) heading.append(node('p', undefined, row.description));
+        if (row.loadingStage === 'configuration') {
+            const loading=node('div','paws-service-rows-loading');loading.setAttribute('role','status');
+            loading.append(node('span','paws-service-spinner'),node('span',undefined,'正在读取账号与服务配置…'));
+            section.append(heading,loading);return section;
+        }
         const controls = node('div', 'paws-service-rows-controls'); controls.setAttribute('role', 'group'); controls.setAttribute('aria-label', `${row.name} 执行设置`);
         const target = row.value.target ?? row.catalog ?? undefined;
         const catalog = row.catalog && (!target || sameTarget(target, row.catalog)) ? row.catalog : null;
-        const disabled = !!row.loading || !catalog || catalog.availability !== 'online';
+        const disabled = !!row.loading || !!row.error || !catalog || catalog.availability !== 'online';
         const emit = (patch: Partial<ConfigurationRowValue>) => options.onChange(row.id, patch);
         const modelId = row.value.modelId ?? '';
         const effectiveModel = catalog?.models.find(model => model.id === (modelId || catalog.defaultModelId));
@@ -130,8 +138,9 @@ export function mountServiceConfigurationRows(
             const fast = button(row, 'fast', 'Fast', disabled, () => emit({ serviceTier: active ? 'default' : 'fast' }));
             fast.setAttribute('aria-pressed', String(active)); fast.append(icon('fast'), node('span', undefined, 'Fast')); controls.append(fast);
         }
-        const refresh = button(row, 'refresh', '更新模型目录', !!row.loading, () => options.onRefresh(row.id));
-        refresh.className = 'paws-service-rows-refresh'; refresh.append(icon('refresh')); controls.append(refresh);
+        const refresh = button(row, 'refresh', row.error ? '重试读取模型' : '更新模型目录', !!row.loading, () => options.onRefresh(row.id));
+        refresh.className = 'paws-service-rows-refresh'; refresh.hidden=!target; refresh.append(icon('refresh')); controls.append(refresh);
+        if(row.loading)refresh.classList.add('is-loading');
 
         const targetIndex = target ? row.targets.findIndex(item => sameTarget(item.target, target)) : -1;
         const targetChoices: Choice[] = row.targets.map((item, index) => ({
@@ -144,27 +153,34 @@ export function mountServiceConfigurationRows(
             if (selected) emit({ target: selected.target, ...(row.allowModelOverride === false ? {} : {modelId: null}), ...(row.allowReasoningOverride === false ? {} : {reasoning: {mode:'default' as const}}), permissionMode: 'chat-only', serviceTier: 'default' });
         });
         const targetName = targetIndex >= 0 ? row.targets[targetIndex].machineName : target ? `${target.machineId} · 不可用` : row.targets.length ? '选择执行设备' : '暂无执行设备';
-        const deviceLabel = node('span', 'paws-service-rows-device-label'); deviceLabel.setAttribute('aria-hidden', 'true');
-        deviceLabel.append(icon('device'), node('span', undefined, targetName), node('span', 'paws-service-rows-chevron', '⌄'));
-        targetField.prepend(deviceLabel);
+        const deviceTrigger=targetField.querySelector<HTMLButtonElement>('.paws-select-trigger')!;
+        deviceTrigger.querySelector('span')!.textContent=targetName;deviceTrigger.prepend(icon('device'));
         section.append(heading, controls, targetField);
 
         const messages: string[] = [];
-        if (row.loading) messages.push('正在读取模型目录…');
-        else if (!catalog) messages.push('请更新模型目录。');
-        else if (catalog.availability === 'offline') messages.push('执行设备离线。');
-        else if (catalog.completeness === 'limited') messages.push('模型目录不完整。');
-        if (!permissions.length && row.value.permissionMode && row.value.permissionMode !== 'chat-only') messages.push(`${permissionNames[row.value.permissionMode]} 权限不可用。`);
-        if (row.value.serviceTier === 'fast' && !fastSupported) messages.push('Fast 不可用。');
-        if (row.error) { const error = node('p', 'paws-service-rows-message', row.error); error.setAttribute('role', 'alert'); section.append(error); }
-        if (messages.length) { const status = node('p', 'paws-service-rows-message', messages.join(' ')); status.setAttribute('role', 'status'); section.append(status); }
+        if (row.loading) messages.push('正在读取模型与可用选项… 完成后即可调整。');
+        else if (!catalog && !row.error) messages.push('尚未读取模型。请点击更新模型目录。');
+        else if (catalog?.availability === 'offline') messages.push('执行设备离线。');
+        else if (catalog?.completeness === 'limited') messages.push('模型目录不完整。');
+        if (catalog && !row.loading && !row.error) {
+            if (!permissions.length && row.value.permissionMode && row.value.permissionMode !== 'chat-only') messages.push(`${permissionNames[row.value.permissionMode]} 权限不可用。`);
+            if (row.value.serviceTier === 'fast' && !fastSupported) messages.push('Fast 不可用。');
+        }
+        if (row.error) {
+            const errors:Record<string,string>={'resource-busy':'设备正忙，暂时无法读取模型。','machine-offline':'执行设备离线，暂时无法读取模型。','transport-error':'模型读取失败，请检查网络。','account-login-required':'执行账号需要重新登录。','permission-denied':'没有读取此账号模型的权限。'};
+            const error=node('div','paws-service-rows-message paws-service-rows-error');error.setAttribute('role','alert');
+            error.append(node('span',undefined,errors[row.error]??'暂时无法读取模型。请稍后重试。'));
+            if(target){const retry=button(row,'retry','重试读取模型',!!row.loading,()=>options.onRefresh(row.id));retry.textContent='重新读取';error.append(retry);}section.append(error);
+        }
+        if (messages.length) { const status = node('p', 'paws-service-rows-message', messages.join(' ')); status.setAttribute('role', 'status'); if(row.loading)status.prepend(node('span','paws-service-spinner'));section.append(status); }
         return section;
     }
     function render() {
         if (destroyed) return;
-        const focused = root.contains(doc.activeElement) ? doc.activeElement as HTMLElement : null;
+        const focused = root.contains(doc.activeElement) ? (doc.activeElement?.closest('.paws-service-rows-field')?.querySelector('.paws-select-trigger')??doc.activeElement) as HTMLElement : null;
         const focusId = focused?.dataset.rowId, focusControl = focused?.dataset.control;
         renderVersion++;
+        for(const selection of selections)selection.destroy(); selections=[];
         root.replaceChildren(...rows.map(renderRow));
         if (focusId !== undefined && focusControl) {
             const next = [...root.querySelectorAll<HTMLElement>('[data-control]')].find(el => el.dataset.rowId === focusId && el.dataset.control === focusControl);
@@ -174,6 +190,6 @@ export function mountServiceConfigurationRows(
     render();
     return {
         update(nextRows) { if (!destroyed) { rows = nextRows; render(); } },
-        destroy() { destroyed = true; root.remove(); },
+        destroy() { destroyed = true; for(const selection of selections)selection.destroy();selections=[];root.remove(); },
     };
 }
