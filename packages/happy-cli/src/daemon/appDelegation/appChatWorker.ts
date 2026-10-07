@@ -38,7 +38,10 @@ export function startAppChatWorker(token: string, machine: Machine, nativeSessio
     const binary = configuredBinary && isAbsolute(configuredBinary) ? configuredBinary : 'codex';
     const request = async <T>(path: string, body: unknown, method = 'POST', cleanup = false): Promise<T> => {
         const response = await fetch(`${configuration.serverUrl}/v1/${path}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: cleanup ? AbortSignal.timeout(7000) : AbortSignal.any([lifetime.signal, AbortSignal.timeout(7000)]), redirect: 'error' });
+        if (response.status === 413) throw new Error('snapshot-too-large');
         const data = await response.json() as any;
+        const validation = typeof data?.message === 'string' ? data.message : '';
+        if (!response.ok && (data?.error?.code === 'snapshot-too-large' || response.status === 400 && /output|ciphertext/.test(validation) && /too big|too_big|maximum|max.*characters/i.test(validation))) throw new Error('snapshot-too-large');
         if (response.status === 404 && path.startsWith('ai-service-worker/')) throw new Error('shared-protocol-unavailable');
         if (!response.ok) throw new Error(response.status === 409 && data.error === 'codex-account-unbound' ? 'codex-account-unbound' : 'authorization-unavailable');
         return data as T;
