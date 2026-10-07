@@ -1,7 +1,7 @@
 import { getServerUrl } from '@/sync/serverConfig';
 
 export interface AppAuthorizationRequest { id: string; supportsPermanent?: boolean; publicKey: string; expiresAt: string; app: { id: string; name: string; origin: string; scope: string; protocol: number } }
-export interface AppAuthorizationGrant { id: string; appId: string; machineId: string | null; state: string; expiresAt: string | null; createdAt: string }
+export interface AppAuthorizationGrant { id: string; appId: string; machineId: string | null; state: string; expiresAt: string | null; createdAt: string; protocol?: 'ai-services/1' }
 export async function appAuthorizationRequest<T>(token: string, path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', signal?: AbortSignal): Promise<T> {
     const server = getServerUrl();
     if (!server.startsWith('https://') && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(server)) throw new Error('请使用 HTTPS 连接 Paws');
@@ -22,6 +22,8 @@ export async function appAuthorizationRequest<T>(token: string, path: string, bo
 
 export interface AppConversationEntry {
     id: string;
+    protocol?: 'ai-services/1';
+    machineId?: string;
     grantId: string;
     createdAt: string;
     lastActivityAt: string;

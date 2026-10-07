@@ -2,6 +2,7 @@ import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { MachineMetadata, MachineMetadataSchema } from '../storageTypes';
 import { EncryptionCache } from './encryptionCache';
 import { Decryptor, Encryptor } from './encryptor';
+import { decryptBox } from '@/encryption/libsodium';
 
 export class MachineEncryption {
     private machineId: string;
@@ -11,7 +12,8 @@ export class MachineEncryption {
     constructor(
         machineId: string,
         encryptor: Encryptor & Decryptor,
-        cache: EncryptionCache
+        cache: EncryptionCache,
+        private readonly serviceEnvelopeKey?: Uint8Array,
     ) {
         this.machineId = machineId;
         this.encryptor = encryptor;
@@ -118,5 +120,16 @@ export class MachineEncryption {
             console.error('Failed to decrypt raw data:', error);
             return null;
         }
+    }
+
+    /** Open only this device's ai-services/1 recipient envelope; keys never leave Paws memory. */
+    async decryptServiceEnvelope(encrypted: string): Promise<unknown | null> {
+        if (!this.serviceEnvelopeKey) return null;
+        try {
+            const plain = decryptBox(decodeBase64(encrypted), this.serviceEnvelopeKey);
+            if (!plain) return null;
+            try { return JSON.parse(new TextDecoder().decode(plain)); }
+            finally { plain.fill(0); }
+        } catch { return null; }
     }
 }

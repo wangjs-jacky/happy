@@ -3,20 +3,20 @@ import { act } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
-const mocks = vi.hoisted(() => ({ token: 'owner-a', server: 'https://paws.test', request: vi.fn(), decryptRaw: vi.fn() }));
+const mocks = vi.hoisted(() => ({ token: 'owner-a', server: 'https://paws.test', request: vi.fn(), decryptRaw: vi.fn(), decryptServiceEnvelope: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'native' }, AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) } }));
 vi.mock('expo-router', () => ({ useFocusEffect: (callback: () => (() => void) | undefined) => React.useEffect(callback, [callback]) }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: { token: mocks.token } }) }));
 vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => mocks.server }));
 vi.mock('@/sync/apiAppDelegation', () => ({ appAuthorizationRequest: mocks.request }));
-vi.mock('@/sync/sync', () => ({ sync: { encryption: { getMachineEncryption: () => ({ decryptRaw: mocks.decryptRaw }) } } }));
+vi.mock('@/sync/sync', () => ({ sync: { encryption: { getMachineEncryption: () => ({ decryptRaw: mocks.decryptRaw, decryptServiceEnvelope: mocks.decryptServiceEnvelope }) } } }));
 vi.mock('@/sync/appConversationHistory', () => ({ parseAppConversationHistory: (data: unknown) => data, decryptAppConversationHistory: (data: unknown) => data }));
 import { useAppConversationHistory } from './useAppConversationHistory';
 let latest: ReturnType<typeof useAppConversationHistory>;
 let renderer: any;
 function Probe({ id }: { id: string }) { latest = useAppConversationHistory(id); return null; }
 const data = (id: string) => ({ conversationId: id, machineId: 'machine', machineEnvelope: 'sealed', messages: [{ role: 'user', text: id }] });
-beforeEach(() => { mocks.token = 'owner-a'; mocks.server = 'https://paws.test'; mocks.request.mockReset(); mocks.decryptRaw.mockReset().mockResolvedValue({}); });
+beforeEach(() => { mocks.token = 'owner-a'; mocks.server = 'https://paws.test'; mocks.request.mockReset(); mocks.decryptRaw.mockReset().mockResolvedValue({}); mocks.decryptServiceEnvelope.mockReset().mockResolvedValue({}); });
 afterEach(() => { if (renderer) act(() => renderer.unmount()); renderer = null; });
 it('aborts a previous selection and rejects its late result after another conversation is visible', async () => {
     let resolveA!: (value: unknown) => void;
@@ -50,5 +50,21 @@ it('does not publish decrypted content after the server changes during decryptio
     await act(async () => { renderer = TestRenderer.create(<Probe id="a" />); });
     mocks.server = 'https://other.test';
     await act(async () => { decrypt({}); });
+    expect(latest.content).toBeNull();
+});
+it('uses service device envelopes for new history and never tries the legacy decryptor', async () => {
+    mocks.request.mockResolvedValue({ ...data('service'), protocol: 'ai-services/1' });
+    await act(async () => { renderer = TestRenderer.create(<Probe id="service" />); });
+    expect(mocks.decryptServiceEnvelope).toHaveBeenCalledWith('sealed');
+    expect(mocks.decryptRaw).not.toHaveBeenCalled();
+    expect(latest.content?.conversationId).toBe('service');
+});
+it('does not publish new service history after an account change during envelope decryption', async () => {
+    let decrypt!: (value: unknown) => void;
+    mocks.request.mockResolvedValueOnce({ ...data('service'), protocol: 'ai-services/1' }).mockReturnValueOnce(new Promise(() => {}));
+    mocks.decryptServiceEnvelope.mockReturnValueOnce(new Promise(resolve => { decrypt = resolve; }));
+    await act(async () => { renderer = TestRenderer.create(<Probe id="service" />); });
+    mocks.token = 'owner-b';
+    await act(async () => { renderer.update(<Probe id="service" />); decrypt({}); });
     expect(latest.content).toBeNull();
 });

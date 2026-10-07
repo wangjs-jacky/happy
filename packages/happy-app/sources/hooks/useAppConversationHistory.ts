@@ -35,7 +35,9 @@ export function useAppConversationHistory(id?: string) {
                 if (!current()) return;
                 const history = parseAppConversationHistory(raw, id);
                 const encryption = sync.encryption.getMachineEncryption(history.machineId);
-                const envelope = encryption ? await encryption.decryptRaw(history.machineEnvelope) : null;
+                const envelope = encryption ? await (history.protocol === 'ai-services/1'
+                    ? encryption.decryptServiceEnvelope(history.machineEnvelope)
+                    : encryption.decryptRaw(history.machineEnvelope)) : null;
                 if (!current()) return;
                 if (!envelope) { setSnapshot({ token, server, id, content: null, error: 'key' }); return; }
                 const content = decryptAppConversationHistory(history, envelope);

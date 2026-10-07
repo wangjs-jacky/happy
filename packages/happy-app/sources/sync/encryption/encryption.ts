@@ -8,6 +8,7 @@ import { encodeBase64, decodeBase64 } from "@/encryption/base64";
 import sodium from '@/encryption/libsodium.lib';
 import { decryptBox, encryptBox } from "@/encryption/libsodium";
 import { randomUUID } from 'expo-crypto';
+import { serviceMachineKey } from '@/encryption/serviceMachineKey';
 
 export class Encryption {
 
@@ -26,12 +27,13 @@ export class Encryption {
         const masterBlobKey = await deriveKey(masterSecret, 'Happy Blobs', ['master']);
 
         // Create encryption
-        return new Encryption(anonID, masterSecret, contentKeyPair, masterBlobKey);
+        return new Encryption(anonID, masterSecret, contentKeyPair, masterBlobKey, await serviceMachineKey(masterSecret));
     }
 
     private readonly legacyEncryption: SecretBoxEncryption;
     private readonly contentKeyPair: sodium.KeyPair;
     private readonly masterBlobKey: Uint8Array;
+    private readonly legacyServiceKey: Uint8Array;
     readonly anonID: string;
     readonly contentDataKey: Uint8Array;
 
@@ -41,11 +43,12 @@ export class Encryption {
     private sessionBlobKeys = new Map<string, Uint8Array>();
     private cache: EncryptionCache;
 
-    private constructor(anonID: string, masterSecret: Uint8Array, contentKeyPair: sodium.KeyPair, masterBlobKey: Uint8Array) {
+    private constructor(anonID: string, masterSecret: Uint8Array, contentKeyPair: sodium.KeyPair, masterBlobKey: Uint8Array, legacyServiceKey: Uint8Array) {
         this.anonID = anonID;
         this.contentKeyPair = contentKeyPair;
         this.legacyEncryption = new SecretBoxEncryption(masterSecret);
         this.masterBlobKey = masterBlobKey;
+        this.legacyServiceKey = legacyServiceKey;
         this.cache = new EncryptionCache();
         this.contentDataKey = contentKeyPair.publicKey;
     }
@@ -183,7 +186,8 @@ export class Encryption {
             const machineEnc = new MachineEncryption(
                 machineId,
                 encryptor,
-                this.cache
+                this.cache,
+                dataKey ? await serviceMachineKey(dataKey) : this.legacyServiceKey
             );
             this.machineEncryptions.set(machineId, machineEnc);
         }
