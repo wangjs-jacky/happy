@@ -12,6 +12,7 @@ import { t } from '@/text';
 import { usePathname, useRouter } from 'expo-router';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { AppConnectionsMenu } from './AppConnectionsMenu';
+import { createAIServicesAPI } from '@/sync/apiAIServices';
 
 const emptyDirectory: AppConversationDirectory = { conversations: [], nextCursor: null };
 const appInfo = (id: string) => id === 'relationship-advisor'
@@ -19,9 +20,12 @@ const appInfo = (id: string) => id === 'relationship-advisor'
     : { name: id, origin: null };
 const turnLabel = (state?: string) => {
     switch (state) {
+        case 'accepted':
         case 'queued': return t('appConversations.queued');
+        case 'cancel-requested':
         case 'running': return t('appConversations.running');
         case 'completed': return t('appConversations.completed');
+        case 'interrupted':
         case 'failed': return t('appConversations.failed');
         case 'cancelled': return t('appConversations.cancelled');
         default: return t('appConversations.idle');
@@ -90,8 +94,8 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
             setLoading(true);
             try {
                 const [authorization, conversations] = await Promise.all([
-                    appAuthorizationRequest<{ grants: AppAuthorizationGrant[] }>(token, '', undefined, 'GET', controller.signal),
-                    appAuthorizationRequest<AppConversationDirectory>(token, `/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, 'GET', controller.signal),
+                    appAuthorizationRequest<{ grants: AppAuthorizationGrant[] }>(token, '?includeServices=1', undefined, 'GET', controller.signal),
+                    appAuthorizationRequest<AppConversationDirectory>(token, `/conversations?includeServices=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, 'GET', controller.signal),
                 ]);
                 if (!disposed) { setSnapshot({ token, server, grants: authorization.grants, directory: conversations }); setError(false); }
             } catch {
@@ -109,11 +113,13 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
 
     const changeGrant = async (grant: AppAuthorizationGrant, remove: boolean) => {
         if (!token || busy) return;
+        if (remove && grant.protocol === 'ai-services/1') return;
         if (!await Modal.confirm(remove ? t('appConversations.remove') : t('appConversations.revoke'), remove ? t('appConversations.removeConfirm') : t('appConversations.revokeConfirm'), { confirmText: remove ? t('appConversations.remove') : t('appConversations.revoke'), destructive: true })) return;
         if (owner.current.token !== token || owner.current.server !== server) return;
         setBusy(true);
         try {
-            await appAuthorizationRequest(token, `/${grant.id}${remove ? '/history' : ''}`, undefined, 'DELETE');
+            if (grant.protocol === 'ai-services/1') await createAIServicesAPI(token).revoke(grant.id);
+            else await appAuthorizationRequest(token, `/${grant.id}${remove ? '/history' : ''}`, undefined, 'DELETE');
             closeMenu(); refresh();
         } catch { setError(true); }
         finally { setBusy(false); }
@@ -147,7 +153,7 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
                         const state = conversation.turns[0]?.state;
                         return <Pressable key={conversation.id} accessibilityRole="button" accessibilityLabel={`${t('appConversations.openConversation')} · ${new Date(conversation.createdAt).toLocaleString()}`} accessibilityHint={t('appConversations.openHint')} aria-pressed={pathname === `/apps/conversations/${conversation.id}`} accessibilityState={{ selected: pathname === `/apps/conversations/${conversation.id}` }} onPress={() => openConversation(conversation.id)} style={({ pressed }) => [styles.row, pathname === `/apps/conversations/${conversation.id}` && styles.selected, pressed && styles.pressed]} testID={`app-conversation-${conversation.id}`}>
                             <Text style={styles.title} numberOfLines={1}>{t('appConversations.conversation')} · {new Date(conversation.createdAt).toLocaleString()}</Text>
-                            <Text style={styles.secondary} numberOfLines={1}>{deviceName(grant.machineId)}</Text>
+                            <Text style={styles.secondary} numberOfLines={1}>{deviceName(conversation.machineId ?? grant.machineId)}</Text>
                             <View style={styles.statusRow}>
                                 <Text style={styles.secondary}>{turnLabel(state)}</Text>
                                 <Text style={styles.secondary}>{new Date(conversation.lastActivityAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>

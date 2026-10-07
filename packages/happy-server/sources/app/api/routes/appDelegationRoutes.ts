@@ -6,6 +6,8 @@ import { appConversations, appTurns, deleteAppConversation, approveAppPairing, c
 
 import { openOwnedAppConversation, readAppHistory, readOwnedAppConversation } from '@/app/appDelegation/appHistory';
 
+import { ownerAuthorizations, ownerServiceConversations, readOwnedServiceConversation } from '@/app/aiServices/ownerHistory';
+
 const id = z.string().uuid();
 const secret = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const envelope = z.string().min(80).max(16384);
@@ -44,11 +46,11 @@ export function appDelegationRoutes(app: Fastify) {
         routes.post('/v1/apps/pairings/:id/redeem', { bodyLimit: 2048, schema: { params: z.object({ id }), body: z.object({ verifier: secret, credential: secret }).strict() } }, async request => redeemAppPairing(request.params.id, request.body.verifier, request.body.credential));
         routes.get('/v1/app-authorizations/requests/:id', { preHandler: app.authenticate, schema: { params: z.object({ id }) } }, async request => describeAppPairing(request.params.id));
         routes.post('/v1/app-authorizations/requests/:id/approve', { bodyLimit: 40 * 1024, preHandler: app.authenticate, schema: { params: z.object({ id }), body: z.object({ machineId: z.string().min(1).max(200), expiresAt: z.string().datetime().nullable(), appEnvelope: envelope, machineEnvelope: envelope, protocol: z.literal(3).optional() }).strict() } }, async request => approveAppPairing(request.userId, request.params.id, request.body));
-        routes.get('/v1/app-authorizations', { preHandler: app.authenticate }, async request => ({ grants: await db.appDelegation.findMany({ where: { accountId: request.userId, protocol: { lte: 3 } }, select: { id: true, appId: true, machineId: true, state: true, expiresAt: true, createdAt: true }, orderBy: { createdAt: 'desc' } }) }));
+        routes.get('/v1/app-authorizations', { preHandler: app.authenticate, schema: { querystring: z.object({ includeServices: z.literal('1').optional() }) } }, async request => request.query.includeServices ? ownerAuthorizations(request.userId) : ({ grants: await db.appDelegation.findMany({ where: { accountId: request.userId, protocol: { lte: 3 } }, select: { id: true, appId: true, machineId: true, state: true, expiresAt: true, createdAt: true }, orderBy: { createdAt: 'desc' } }) }));
         routes.get('/v1/app-authorizations/workers', { preHandler: app.authenticate }, async request => ({ workers: await db.appChatWorker.findMany({ where: { accountId: request.userId, activeUntil: { gt: new Date() }, protocol: { in: [1, 2, 3] } }, select: { machineId: true, protocol: true } }) }));
-        routes.get('/v1/app-authorizations/conversations', { preHandler: app.authenticate, schema: { querystring: z.object({ cursor: id.optional() }) } }, async request => ownerAppConversations(request.userId, request.query.cursor));
+        routes.get('/v1/app-authorizations/conversations', { preHandler: app.authenticate, schema: { querystring: z.object({ cursor: id.optional(), includeServices: z.literal('1').optional() }) } }, async request => request.query.includeServices ? ownerServiceConversations(request.userId, request.query.cursor) : ownerAppConversations(request.userId, request.query.cursor));
         routes.post('/v1/app-authorizations/conversations/:id/open', { preHandler: app.authenticate, schema: { params: z.object({ id }), body: z.object({}).strict() } }, async request => openOwnedAppConversation(request.userId, request.params.id));
-        routes.get('/v1/app-authorizations/conversations/:id/history', { preHandler: app.authenticate, schema: { params: z.object({ id }) } }, async request => readOwnedAppConversation(request.userId, request.params.id));
+        routes.get('/v1/app-authorizations/conversations/:id/history', { preHandler: app.authenticate, schema: { params: z.object({ id }) } }, async request => await readOwnedServiceConversation(request.userId, request.params.id) ?? readOwnedAppConversation(request.userId, request.params.id));
         routes.get('/v1/apps/history/:id', { schema: { params: z.object({ id }) } }, async request => readAppHistory(bearer(request.headers.authorization), request.params.id));
         routes.delete('/v1/app-authorizations/:id/history', { preHandler: app.authenticate, schema: { params: z.object({ id }) } }, async request => deleteOwnedAppGrant(request.userId, request.params.id));
         routes.delete('/v1/app-authorizations/:id', { preHandler: app.authenticate, schema: { params: z.object({ id }) } }, async request => revokeAppGrant(request.userId, request.params.id));

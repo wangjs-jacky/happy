@@ -6,7 +6,7 @@ import { decryptAppConversationHistory, parseAppConversationHistory, type AppCon
 const key = new Uint8Array(32).fill(7);
 const envelope = { v: 1, grantId: 'grant', machineId: 'machine', appId: 'relationship-advisor', scope: 'codex:chat', expiresAt: null, key: Buffer.from(key).toString('base64') };
 const context = { v: 1, grantId: 'grant', conversationId: 'conversation', turnId: 'turn' };
-const base: AppConversationHistory = { app: { id: 'relationship-advisor', origin: 'https://advisor.paws.rodeo' }, conversationId: 'conversation', grantId: 'grant', machineId: 'machine', grantExpiresAt: null, machineEnvelope: 'sealed', createdAt: '2026-10-03T07:00:00.000Z', turns: [] };
+const base: Extract<AppConversationHistory, { protocol?: undefined }> = { app: { id: 'relationship-advisor', origin: 'https://advisor.paws.rodeo' }, conversationId: 'conversation', grantId: 'grant', machineId: 'machine', grantExpiresAt: null, machineEnvelope: 'sealed', createdAt: '2026-10-03T07:00:00.000Z', turns: [] };
 beforeAll(async () => { await sodium.ready; });
 function seal(value: unknown) {
     const nonce = new Uint8Array(24);
@@ -47,4 +47,49 @@ it('binds protocol 3 scopes and Codex/Claude model selections', () => {
     expect(() => decryptAppConversationHistory(data, envelope)).toThrow();
     expect(() => decryptAppConversationHistory(history({ v: 2, selection }, { v: 2, selection: { ...selection, engine: 'codex' } }), envelope)).toThrow();
     expect(() => decryptAppConversationHistory(history({ v: 2 }), envelope)).toThrow();
+});
+
+const serviceBinding = { id: 'conversation', appId: 'relationship-advisor', serviceId: 'service', revision: 1,
+    machineId: 'machine', engine: 'codex', accountRef: { kind: 'codex-profile', id: 'profile' },
+    requestedModel: null, reasoning: { mode: 'default' }, permissions: ['chat'] };
+const serviceScope = { appId: serviceBinding.appId, serviceId: 'service', targets: [{ machineId: 'machine',
+    engine: 'codex', accountRef: serviceBinding.accountRef }], permissions: ['chat'], expiresAt: null };
+const serviceEnvelope = { protocol: 'ai-services/1', grantId: 'grant', ownerId: 'owner', appId: serviceBinding.appId,
+    serviceId: 'service', machineId: 'machine', scope: serviceScope, messageKey: Buffer.from(key).toString('base64') };
+const serviceContext = { protocol: 'ai-services/1', grantId: 'grant', appId: serviceBinding.appId, serviceId: 'service',
+    bindingId: 'conversation', requestId: 'request' };
+function serviceHistory(input: Record<string, unknown> = {}, output: Record<string, unknown> = {}) {
+    return { ...base, protocol: 'ai-services/1', ownerId: 'owner', binding: serviceBinding, scope: serviceScope,
+        turns: [{ id: 'turn', requestId: 'request', sequence: 2, state: 'completed', createdAt: base.createdAt,
+            input: seal({ ...serviceContext, direction: 'input', sequence: 0,
+                messages: [{ role: 'user', text: 'Prior question' }, { role: 'assistant', text: 'Prior answer' }, { role: 'user', text: 'New question' }], ...input }),
+            output: seal({ ...serviceContext, turnId: 'turn', direction: 'output', sequence: 2, text: 'New answer', ...output }) }] };
+}
+it('reads new service history including its previous messages without exposing grant keys', () => {
+    const history = parseAppConversationHistory(serviceHistory(), 'conversation');
+    const result = decryptAppConversationHistory(history, serviceEnvelope);
+    expect(result.messages.map(message => message.text)).toEqual(['Prior question', 'Prior answer', 'New question', 'New answer']);
+    expect(result.state).toBe('completed');
+    expect(result).not.toHaveProperty('messageKey'); expect(result).not.toHaveProperty('scope');
+});
+it.each(['ownerId', 'grantId', 'appId', 'serviceId', 'machineId', 'protocol'])('rejects a service envelope with a different %s', field => {
+    const history = parseAppConversationHistory(serviceHistory(), 'conversation');
+    expect(() => decryptAppConversationHistory(history, { ...serviceEnvelope, [field]: 'foreign' })).toThrow();
+});
+it.each(['grantId', 'appId', 'serviceId', 'bindingId', 'requestId', 'direction', 'sequence'])('rejects service input/output replay with a different %s', field => {
+    expect(() => decryptAppConversationHistory(parseAppConversationHistory(serviceHistory({ [field]: 'foreign' }), 'conversation'), serviceEnvelope)).toThrow();
+    expect(() => decryptAppConversationHistory(parseAppConversationHistory(serviceHistory({}, { [field]: 'foreign' }), 'conversation'), serviceEnvelope)).toThrow();
+});
+it('rejects a substituted service binding, output turn and grant scope', () => {
+    expect(() => parseAppConversationHistory({ ...serviceHistory(), binding: { ...serviceBinding, id: 'foreign' } }, 'conversation')).toThrow();
+    expect(() => decryptAppConversationHistory(parseAppConversationHistory(serviceHistory({}, { turnId: 'foreign' }), 'conversation'), serviceEnvelope)).toThrow();
+    expect(() => decryptAppConversationHistory(parseAppConversationHistory(serviceHistory(), 'conversation'), { ...serviceEnvelope, scope: { ...serviceScope, permissions: ['chat', 'tools'] } })).toThrow();
+});
+it('keeps accepted, cancellation and interrupted service history readable', () => {
+    for (const state of ['accepted', 'cancel-requested', 'interrupted']) {
+        const raw = serviceHistory(); raw.turns[0].state = state;
+        const result = decryptAppConversationHistory(parseAppConversationHistory(raw, 'conversation'), serviceEnvelope);
+        expect(result.messages).toHaveLength(4);
+        expect(result.state).toBe(state === 'accepted' ? 'queued' : state === 'cancel-requested' ? 'running' : 'failed');
+    }
 });

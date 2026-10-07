@@ -48,3 +48,11 @@ it('labels finite expiry and disables destructive actions while a mutation is pe
     expect(byId('app-connection-revoke-finite').props.disabled).toBe(true);
     expect(byId('app-connection-remove-finite').props.disabled).toBe(true);
 });
+it('keeps service revocation available without exposing unsupported legacy history deletion', () => {
+    const shared = { ...grant('service'), protocol: 'ai-services/1' as const };
+    act(() => { renderer = TestRenderer.create(<AppConnectionsMenu app={{ name: 'Advisor', origin: null }} anchor={{ x: 0, y: 0 }} grants={[shared]}
+        deviceName={() => 'Mac mini'} busy={false} onClose={vi.fn()} onOpenApp={vi.fn()} onChangeGrant={vi.fn()} />); });
+    act(() => byId('app-connection-toggle-service').props.onPress());
+    expect(renderer.root.findAllByProps({ testID: 'app-connection-revoke-service' }).length).toBeGreaterThan(0);
+    expect(renderer.root.findAllByProps({ testID: 'app-connection-remove-service' })).toHaveLength(0);
+});

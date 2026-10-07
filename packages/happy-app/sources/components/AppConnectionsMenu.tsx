@@ -82,10 +82,10 @@ export const AppConnectionsMenu = React.memo((props: {
                                     icon={<Ionicons name="unlink-outline" size={18} color={theme.colors.textSecondary} />}
                                     onPress={() => props.onChangeGrant(grant, false)} showChevron={false} showDivider={false}
                                     style={styles.action} titleStyle={styles.itemTitle} testID={`app-connection-revoke-${grant.id}`} /> : null}
-                                <Item title={t('appConversations.remove')} disabled={props.busy} destructive
+                                {grant.protocol !== 'ai-services/1' ? <Item title={t('appConversations.remove')} disabled={props.busy} destructive
                                     icon={<Ionicons name="trash-outline" size={18} color={theme.colors.textDestructive} />}
                                     onPress={() => props.onChangeGrant(grant, true)} showChevron={false} showDivider={false}
-                                    style={styles.action} titleStyle={styles.itemTitle} testID={`app-connection-remove-${grant.id}`} />
+                                    style={styles.action} titleStyle={styles.itemTitle} testID={`app-connection-remove-${grant.id}`} /> : null}
                             </View> : null}
                         </View>;
                     })}
