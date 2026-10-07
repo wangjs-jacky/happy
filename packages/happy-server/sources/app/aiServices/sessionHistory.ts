@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { ServiceErrorCodeSchema, TurnPhaseSchema, type ServicePrincipal } from '@slopus/happy-wire';
+import { NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES, ServiceErrorCodeSchema, TurnPhaseSchema, type ServicePrincipal } from '@slopus/happy-wire';
 import type { AIServiceStore } from '@/app/aiServices/store';
 import { authorizeWorkerBinding } from '@/app/aiServices/turns';
 import { lockServiceQuota, serviceTransaction } from '@/app/aiServices/transactions';
-import { deny, AIServiceError } from '@/app/aiServices/errors';
+import { deny, AIServiceError, AIServicePayloadTooLargeError } from '@/app/aiServices/errors';
 
 /** Broker fresh grant-encrypted history. Each request retains its own response until all live readers have timed out. */
 export function createSessionHistory(database: PrismaClient, store: AIServiceStore) {
@@ -63,7 +63,8 @@ export function createSessionHistory(database: PrismaClient, store: AIServiceSto
             });
         },
         async publish(ownerId: string, machineId: string, bindingId: string, input: { requestId: string; sessionId: string; ciphertext: string }) {
-            if (input.ciphertext.length < 60 || Buffer.byteLength(input.ciphertext) > 5 * 1024 * 1024) deny('invalid-request');
+            if (input.ciphertext.length < 60) deny('invalid-request');
+            if (Buffer.byteLength(input.ciphertext) > NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES) throw new AIServicePayloadTooLargeError();
             return serviceTransaction(database, ownerId, async tx => {
                 const auth = await authorizeWorkerBinding(tx, ownerId, machineId, bindingId);
                 // Same grant lock used by turn admission/output prevents separate bindings exceeding their shared budget.

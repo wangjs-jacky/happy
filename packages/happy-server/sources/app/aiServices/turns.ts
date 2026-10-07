@@ -1,10 +1,10 @@
 import { lockServiceAccount, lockServiceQuota, serviceTransaction } from './transactions';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { PrismaClient, Prisma, AppChatTurn } from '@prisma/client';
-import { ExecutionBindingSchema, ServicePrincipalSchema, TurnRecordSchema, TurnActualSchema, ServiceErrorSchema, type ServicePrincipal, type ExecutionBinding, type TurnRecord, type TurnActual, type ServiceError, type TurnPhase, TurnPhaseSchema } from '@slopus/happy-wire';
+import { NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES, ExecutionBindingSchema, ServicePrincipalSchema, TurnRecordSchema, TurnActualSchema, ServiceErrorSchema, type ServicePrincipal, type ExecutionBinding, type TurnRecord, type TurnActual, type ServiceError, type TurnPhase, TurnPhaseSchema } from '@slopus/happy-wire';
 import { verifyServiceIdentity, type AIServiceStore } from './store';
 import { authorizeServicePrincipal, targetKey } from './bindings';
-import { deny } from './errors';
+import { deny, AIServicePayloadTooLargeError } from './errors';
 
 export function boundTurnRecord(row: AppChatTurn, binding: ExecutionBinding): TurnRecord {
  return TurnRecordSchema.parse({ id: row.id, conversationId: row.conversationId, requestId: row.requestId, binding,
@@ -167,7 +167,8 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
     const row = await tx.appChatTurn.findUniqueOrThrow({ where: { id } });
     if (!['running','cancel-requested'].includes(row.state) || row.lease !== input.lease || !row.leaseUntil || row.leaseUntil.getTime() <= Date.now() || row.deadline.getTime() <= Date.now()) deny('execution-interrupted');
     if (row.state === 'cancel-requested' && input.status !== 'cancelled' && !(row.minimumProtocol === 5 && row.sessionId && ['completed','failed'].includes(input.status ?? '')) && !(input.phase === 'recovering' && input.status === undefined && input.output === undefined)) deny('execution-interrupted');
-    if (input.output && (!input.sequence || input.sequence <= row.sequence || Buffer.byteLength(input.output) > 1024*1024)) deny('invalid-request');
+    if (input.output && Buffer.byteLength(input.output) > (row.minimumProtocol === 5 ? NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES : 1024*1024)) throw new AIServicePayloadTooLargeError();
+    if (input.output && (!input.sequence || input.sequence <= row.sequence)) deny('invalid-request');
     if (input.status === 'completed' && !input.output && !row.output) deny('invalid-request');
     const phase = input.phase === undefined ? undefined : TurnPhaseSchema.parse(input.phase);
     const actual = input.actual ? TurnActualSchema.parse(input.actual) : undefined;

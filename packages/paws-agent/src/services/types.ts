@@ -1,7 +1,7 @@
-import type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnPhase } from '@slopus/happy-wire/ai-services';
+import type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnPhase, NativeSnapshotError } from '@slopus/happy-wire/ai-services';
 export type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceGrant, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnActual, TurnPhase } from '@slopus/happy-wire/ai-services';
 export type ServiceSource = 'platform' | 'personal';
-export type ClientErrorCode = ServiceErrorCode | 'transport-error' | 'context-mismatch' | 'storage-unavailable' | 'disposed' | 'aborted' | 'observation-expired';
+export type ClientErrorCode = ServiceErrorCode | 'transport-error' | 'context-mismatch' | 'storage-unavailable' | 'disposed' | 'aborted' | 'observation-expired' | 'snapshot-too-large';
 export class AIServiceClientError extends Error {
     constructor(readonly code: ClientErrorCode, readonly retryable = false, readonly requestId?: string, readonly submission: 'uncertain' | 'not-submitted' = 'uncertain') { super(code); this.name = 'AIServiceClientError'; }
 }
@@ -48,6 +48,7 @@ export interface TurnLocator {
     requestId?: string;
 }
 export interface TurnSnapshot {
+    snapshotError?: NativeSnapshotError;
     record: TurnRecord;
     sequence: number;
     text: string;

@@ -1,7 +1,7 @@
 import { beginSubmission, type SubmissionProvenance } from './submission';
 import nacl from 'tweetnacl';
 import { sha256 } from '@noble/hashes/sha256';
-import { TurnPhaseSchema, AppPolicySchema, ServiceConfigurationSchema, ServiceTargetSchema, ServicePermissionModeSchema, ServiceTierSchema, CapabilityCatalogSchema, ExecutionBindingSchema, GrantReceiptSchema, ServiceErrorSchema, ServiceRefSchema, TurnRecordSchema } from '@slopus/happy-wire/ai-services';
+import { NATIVE_SNAPSHOT_PLAINTEXT_MAX_BYTES, NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES, NativeSnapshotErrorSchema, TurnPhaseSchema, AppPolicySchema, ServiceConfigurationSchema, ServiceTargetSchema, ServicePermissionModeSchema, ServiceTierSchema, CapabilityCatalogSchema, ExecutionBindingSchema, GrantReceiptSchema, ServiceErrorSchema, ServiceRefSchema, TurnRecordSchema } from '@slopus/happy-wire/ai-services';
 import { decodeBase64, encodeBase64, getRandomBytes } from '../crypto/encryption';
 import { AIServiceClientError, type AIServiceTransport, type CallOptions, type GrantReceipt, type ExecutionBinding, type ServiceMessage, type ConversationSnapshot, type StartTurnInput, type TurnLocator, type TurnSnapshot, type BindingOverrides } from './types';
 import type { ServiceStorage } from './storage';
@@ -32,7 +32,7 @@ export function validateMessages(input: unknown): ServiceMessage[] {
 }
 /** Native snapshots may be empty or end in an assistant message, unlike turn inputs. */
 export function validateHistoryMessages(input: unknown): ServiceMessage[] {
-    if (!Array.isArray(input) || input.length > 10000 || new TextEncoder().encode(JSON.stringify(input)).length > 5 * 1024 * 1024) throw new AIServiceClientError('context-mismatch');
+    if (!Array.isArray(input) || input.length > 10000 || new TextEncoder().encode(JSON.stringify(input)).length > NATIVE_SNAPSHOT_PLAINTEXT_MAX_BYTES) throw new AIServiceClientError('context-mismatch');
     return input.map(value => {
         if (!value || !['user','assistant'].includes(value.role) || typeof value.text !== 'string' || (value.id !== undefined && (typeof value.id !== 'string' || !value.id || value.id.length > 256)) || (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || value.seq < 0)) || (value.images !== undefined && (!Array.isArray(value.images) || value.images.length > 4 || !value.images.every((image: unknown) => typeof image === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(image))))) throw new AIServiceClientError('context-mismatch');
         return {role:value.role,text:value.text,...(value.id === undefined ? {} : {id:value.id}),...(value.seq === undefined ? {} : {seq:value.seq}),...(value.images === undefined ? {} : {images:[...value.images]})};
@@ -99,7 +99,7 @@ export async function serviceRequest<T>(fetcher: typeof fetch, url: string, init
             const error = ServiceErrorSchema.safeParse({ code: data?.error?.code, retryable: data?.error?.retryable });
             if (error.success)
                 throw new AIServiceClientError(error.data.code, error.data.retryable, typeof data.error.requestId === 'string' ? data.error.requestId : undefined, data.error.submission === 'not-submitted' && typeof data.error.requestId === 'string' ? 'not-submitted' : 'uncertain');
-            if (data?.error && ['transport-error', 'context-mismatch', 'storage-unavailable', 'disposed', 'aborted', 'observation-expired'].includes(data.error.code) && typeof data.error.retryable === 'boolean')
+            if (data?.error && ['transport-error', 'context-mismatch', 'storage-unavailable', 'disposed', 'aborted', 'observation-expired', 'snapshot-too-large'].includes(data.error.code) && typeof data.error.retryable === 'boolean')
                 throw new AIServiceClientError(data.error.code, data.error.retryable);
             throw new AIServiceClientError('internal-error');
         }
@@ -156,7 +156,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
     function open(ciphertext: string): Record<string, unknown> {
         try {
             const value = decodeBase64(ciphertext), plain = nacl.secretbox.open(value.subarray(24), value.subarray(0, 24), decodeBase64(connectionReceipt().messageKey));
-            if (!plain)
+            if (!plain || plain.byteLength > NATIVE_SNAPSHOT_PLAINTEXT_MAX_BYTES)
                 throw 0;
             const parsed = JSON.parse(new TextDecoder().decode(plain));
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -184,7 +184,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
         sequence: number;
     }, locator: TurnLocator): TurnSnapshot {
         const row = record(value.record, locator.bindingId, locator.requestId, locator.turnId), r = connectionReceipt();
-        if (!Number.isSafeInteger(value.sequence) || value.sequence < 0 || typeof value.input !== 'string' || value.input.length > 8 * 1024 * 1024 || (value.output !== null && typeof value.output !== 'string') || value.output !== null && value.sequence === 0 || value.output !== null && value.output.length > 1024 * 1024)
+        if (!Number.isSafeInteger(value.sequence) || value.sequence < 0 || typeof value.input !== 'string' || value.input.length > 8 * 1024 * 1024 || (value.output !== null && typeof value.output !== 'string') || value.output !== null && value.sequence === 0 || value.output !== null && value.output.length > (row.sessionId ? NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES : 1024 * 1024))
             throw new AIServiceClientError('context-mismatch');
         const context = { protocol: 'ai-services/1', grantId: r.id, appId: options.appId, serviceId: r.scope.serviceId, bindingId: locator.bindingId, requestId: row.requestId };
         const verify = (data: Record<string, unknown>, expected: Record<string, unknown>) => { for (const [key, want] of Object.entries(expected))
@@ -194,19 +194,24 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
         verify(input, { ...context, direction: 'input', sequence: 0 });
         let messages = validateMessages(input.messages);
         let text = '';
+        let snapshotError: TurnSnapshot['snapshotError'];
         if (value.output !== null) {
             const output = open(value.output);
             verify(output, { ...context, turnId: row.id, direction: 'output', sequence: value.sequence });
             if (typeof output.text !== 'string')
                 throw new AIServiceClientError('context-mismatch');
             text = output.text;
-            if (output.messages !== undefined) messages = validateHistoryMessages(output.messages);
+            if (output.snapshotError !== undefined) {
+                if (!NativeSnapshotErrorSchema.safeParse(output.snapshotError).success || !row.sessionId) throw new AIServiceClientError('context-mismatch');
+                snapshotError = 'snapshot-too-large';
+                messages = [];
+            } else if (output.messages !== undefined) messages = validateHistoryMessages(output.messages);
         }
         const previous = sequences.get(row.id);
         if (previous && (value.sequence < previous.sequence || value.sequence === previous.sequence && value.output !== previous.output))
             throw new AIServiceClientError('context-mismatch');
         sequences.set(row.id, { sequence: value.sequence, output: value.output });
-        return { record: row, sequence: value.sequence, text, messages };
+        return { record: row, sequence: value.sequence, text, messages, ...(snapshotError ? {snapshotError} : {}) };
     }
     const transport: AIServiceTransport = {
         appId: options.appId, source: kind === 'platform-grant' ? 'platform' : 'personal',
@@ -262,10 +267,11 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
         async readConversation(bindingId, call) {
             const data = await request<{sessionId:string|null;requestId:string|null;ciphertext:string|null;active?:boolean;phase?:unknown}>(`/v1/apps/ai-services/bindings/${validateIdentifier(bindingId)}/session`,undefined,call);
             if(data.sessionId === null && data.requestId === null && data.ciphertext === null) return validateConversationSnapshot({sessionId:null,messages:[],active:data.active ?? false,...(data.phase === undefined ? {} : {phase:data.phase})});
-            if(typeof data.sessionId !== 'string' || typeof data.requestId !== 'string' || typeof data.ciphertext !== 'string' || data.ciphertext.length > 5*1024*1024) throw new AIServiceClientError('context-mismatch');
+            if(typeof data.sessionId !== 'string' || typeof data.requestId !== 'string' || typeof data.ciphertext !== 'string' || data.ciphertext.length > NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES) throw new AIServiceClientError('context-mismatch');
             const plain = open(data.ciphertext), r = connectionReceipt();
             const context = {protocol:'ai-services/1',direction:'session-history',grantId:r.id,appId:options.appId,serviceId:r.scope.serviceId,bindingId,sessionId:data.sessionId,requestId:data.requestId};
             for(const [key,value] of Object.entries(context)) if(plain[key] !== value) throw new AIServiceClientError('context-mismatch');
+            if (plain.snapshotError !== undefined) { if(!NativeSnapshotErrorSchema.safeParse(plain.snapshotError).success) throw new AIServiceClientError('context-mismatch'); throw new AIServiceClientError('snapshot-too-large'); }
             return validateConversationSnapshot(plain);
         },
         async start(input: StartTurnInput, call) {

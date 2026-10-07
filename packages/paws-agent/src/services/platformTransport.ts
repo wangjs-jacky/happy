@@ -1,5 +1,5 @@
 import { beginSubmission, type SubmissionProvenance } from './submission';
-import { ServiceConfigurationSchema, ServiceTargetSchema, ExecutionBindingSchema, TurnRecordSchema, CapabilityCatalogSchema, AppPolicySchema, ServiceRefSchema } from '@slopus/happy-wire/ai-services';
+import { NativeSnapshotErrorSchema, ServiceConfigurationSchema, ServiceTargetSchema, ExecutionBindingSchema, TurnRecordSchema, CapabilityCatalogSchema, AppPolicySchema, ServiceRefSchema } from '@slopus/happy-wire/ai-services';
 import { validateConversationSnapshot, validateHistoryMessages, canonical, serviceRequest, validateIdentifier, validateMessages, validateOverrides } from './scopedTransport';
 import { AIServiceClientError, type AIServiceTransport, type CallOptions, type TurnLocator, type TurnSnapshot } from './types';
 import type { ServiceStorage } from './storage';
@@ -41,8 +41,8 @@ export function createBrowserPlatformTransport(options: BrowserPlatformOptions):
         throw new AIServiceClientError('context-mismatch'); return b.data; }
     function snapshot(value: TurnSnapshot, locator: TurnLocator) { const row = TurnRecordSchema.safeParse(value?.record); if (!row.success)
         throw new AIServiceClientError('context-mismatch'); parseBinding(row.data.binding, locator.bindingId); if (row.data.conversationId !== locator.bindingId || (locator.turnId && row.data.id !== locator.turnId) || (locator.requestId && row.data.requestId !== locator.requestId) || !Number.isSafeInteger(value.sequence) || value.sequence < 0 || typeof value.text !== 'string')
-        throw new AIServiceClientError('context-mismatch'); const messages = validateHistoryMessages(value.messages); const last = sequences.get(row.data.id); if (last && (value.sequence < last.sequence || value.sequence === last.sequence && value.text !== last.text))
-        throw new AIServiceClientError('context-mismatch'); sequences.set(row.data.id, { sequence: value.sequence, text: value.text }); return { record: row.data, sequence: value.sequence, text: value.text, messages }; }
+        throw new AIServiceClientError('context-mismatch'); const messages = validateHistoryMessages(value.messages); if(value.snapshotError !== undefined && (!NativeSnapshotErrorSchema.safeParse(value.snapshotError).success || messages.length || !row.data.sessionId)) throw new AIServiceClientError('context-mismatch'); const last = sequences.get(row.data.id); if (last && (value.sequence < last.sequence || value.sequence === last.sequence && value.text !== last.text))
+        throw new AIServiceClientError('context-mismatch'); sequences.set(row.data.id, { sequence: value.sequence, text: value.text }); return { record: row.data, sequence: value.sequence, text: value.text, messages, ...(value.snapshotError ? {snapshotError:value.snapshotError} : {}) }; }
     const transport: AIServiceTransport = {
         appId: options.appId, source: 'platform',
         async authorize(input = {}) { if (input.receipt)

@@ -1,14 +1,14 @@
 import { createSessionHistory } from '@/app/aiServices/sessionHistory';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { TurnPhaseSchema, ServiceGrantScopeSchema, CapabilityCatalogSchema, ServiceTargetSchema, ServiceErrorSchema, TurnActualSchema, ServiceErrorCodeSchema, type CapabilityCatalog } from '@slopus/happy-wire';
+import { NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES, TurnPhaseSchema, ServiceGrantScopeSchema, CapabilityCatalogSchema, ServiceTargetSchema, ServiceErrorSchema, TurnActualSchema, ServiceErrorCodeSchema, type CapabilityCatalog } from '@slopus/happy-wire';
 import type { Fastify } from '../types';
 import type { SharedAIServices } from '@/app/aiServices/composition';
 import { BindingOverridesSchema, readTrustedCatalog } from '@/app/aiServices/bindings';
 import { authorizeServiceCredential } from '@/app/aiServices/authority';
 import { createApplicationRegistry } from '@/app/aiServices/registry';
 import { createServiceCodexGrant } from './codexAccountStore';
-import { deny, AIServiceError } from '@/app/aiServices/errors';
+import { deny, AIServiceError, AIServicePayloadTooLargeError } from '@/app/aiServices/errors';
 const id = z.string().min(1).max(256), secret = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const envelope = z.string().min(80).max(16384);
 const authority = z.object({ kind: z.enum(['probe','turn']), id, lease: secret }).strict();
@@ -32,7 +32,7 @@ export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) 
   routes.addHook('onRequest', async (_request,reply) => { reply.header('Cache-Control','no-store'); reply.header('Referrer-Policy','no-referrer'); });
   routes.setErrorHandler((error,_request,reply) => {
    const code = error instanceof AIServiceError ? error.code : 'internal-error';
-   const status = code === 'permission-denied' ? 403 : code === 'internal-error' ? (error as any).statusCode ?? 500 : 409;
+   const status = error instanceof AIServicePayloadTooLargeError ? 413 : code === 'permission-denied' ? 403 : code === 'internal-error' ? (error as any).statusCode ?? 500 : 409;
    return reply.code(status).send({ error: { code: status === 400 || status === 413 ? 'invalid-request' : code, retryable: false } });
   });
   const authenticate = async (request: { headers: { authorization?: string; origin?: string } }) => grants.authenticate(request.headers.authorization?.replace(/^Bearer /,'') ?? '',request.headers.origin);
@@ -87,7 +87,7 @@ export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) 
   routes.get('/v1/apps/ai-services/bindings/:bindingId/session', { schema:{ params:z.object({ bindingId:id }) } }, async request => history.read(await authenticate(request),request.params.bindingId));
   const machineParams=z.object({ machineId:id });
   routes.post('/v1/ai-service-worker/:machineId/history/claim', {preHandler:app.authenticate,schema:{params:machineParams}}, async request => ({history:await history.claim(request.userId,request.params.machineId)}));
-  routes.post('/v1/ai-service-worker/:machineId/history/:bindingId', {preHandler:app.authenticate,bodyLimit:6*1024*1024,schema:{params:z.object({machineId:id,bindingId:id}),body:z.object({requestId:id,sessionId:id,ciphertext:z.string().min(60).max(5*1024*1024)}).strict()}}, request => history.publish(request.userId,request.params.machineId,request.params.bindingId,request.body));
+  routes.post('/v1/ai-service-worker/:machineId/history/:bindingId', {preHandler:app.authenticate,bodyLimit:NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES+8192,schema:{params:z.object({machineId:id,bindingId:id}),body:z.object({requestId:id,sessionId:id,ciphertext:z.string().min(60)}).strict()}}, request => history.publish(request.userId,request.params.machineId,request.params.bindingId,request.body));
   routes.post('/v1/ai-service-worker/:machineId/turns/:id/session', {preHandler:app.authenticate,schema:{params:z.object({machineId:id,id}),body:z.object({lease:secret,sessionId:id}).strict()}}, request => turns.attachSession(request.userId,request.params.machineId,request.params.id,request.body));
   routes.post('/v1/ai-service-worker/:machineId/announce', { preHandler:app.authenticate,schema:{ params:machineParams,body:z.object({ protocol:z.literal('ai-services/1'),nativeSessions:z.boolean().optional(),publicKey:z.string().max(100),claudeIdentity:z.object({ identityId:z.string().regex(/^claude:[a-f0-9]{64}$/),observedAt:z.number().int().nonnegative() }).strict().nullable().optional() }).strict() } }, request => probes.announce(request.userId,request.params.machineId,request.body.publicKey,request.body.claudeIdentity,request.body.nativeSessions));
   routes.post('/v1/ai-service-worker/:machineId/claim', { preHandler:app.authenticate,schema:{ params:machineParams } }, async request => {
@@ -107,6 +107,6 @@ export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) 
    if (!prompt) deny('protocol-incompatible');
    return { policy,prompt,ref:policy.businessPrompt };
   }));
-  routes.post('/v1/ai-service-worker/:machineId/turns/:id', { preHandler:app.authenticate,bodyLimit:2*1024*1024,schema:{ params:z.object({ machineId:id,id }),body:z.object({ lease:secret,phase:TurnPhaseSchema.optional(),output:z.string().min(60).max(1024*1024).optional(),sequence:z.number().int().positive().optional(),status:z.enum(['completed','failed','cancelled']).optional(),actual:TurnActualSchema.optional(),error:ServiceErrorSchema.optional() }).strict() } }, request => turns.publish(request.userId,request.params.machineId,request.params.id,request.body));
+  routes.post('/v1/ai-service-worker/:machineId/turns/:id', { preHandler:app.authenticate,bodyLimit:NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES+8192,schema:{ params:z.object({ machineId:id,id }),body:z.object({ lease:secret,phase:TurnPhaseSchema.optional(),output:z.string().min(60).optional(),sequence:z.number().int().positive().optional(),status:z.enum(['completed','failed','cancelled']).optional(),actual:TurnActualSchema.optional(),error:ServiceErrorSchema.optional() }).strict() } }, request => turns.publish(request.userId,request.params.machineId,request.params.id,request.body));
  });
 }

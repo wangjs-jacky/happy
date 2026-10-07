@@ -1,5 +1,8 @@
+import { deflateSync } from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 import { it, expect } from 'vitest';
 import { createAIServiceClient } from './client';
+import { createBrowserPlatformTransport } from './platformTransport';
 import { createNodePlatformTransport } from './nodePlatformTransport';
 import { createPlatformServiceHandler } from './nodePlatformHandler';
 import { createMemoryServiceStorage } from './storage';
@@ -48,5 +51,44 @@ it('preserves pending pre-attachment work without fabricating native history', a
  const transport=createNodePlatformTransport({appId:'advisor',receipt:makeReceipt('platform-grant'),serverUrl:'https://paws.test',storage:createMemoryServiceStorage(),fetch:async (url,init)=>String(url).endsWith('/session') ? Response.json({sessionId:null,requestId:null,ciphertext:null,active:true,phase:'preparing'}) : upstream.fetcher(url,init)});
  await transport.authorize();
  expect(await transport.readConversation!('binding')).toEqual({sessionId:null,messages:[],active:true,phase:'preparing'});
+ transport.dispose();
+});
+
+function screenshotFixture():string {
+ const chunk=(type:string,data:Buffer)=>{const body=Buffer.concat([Buffer.from(type),data]);let crc=0xffffffff;for(const byte of body){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}const length=Buffer.alloc(4),checksum=Buffer.alloc(4);length.writeUInt32BE(data.length);checksum.writeUInt32BE((crc^0xffffffff)>>>0);return Buffer.concat([length,body,checksum]);};
+ const header=Buffer.alloc(13);header.writeUInt32BE(512,0);header.writeUInt32BE(512,4);header[8]=8;header[9]=2;
+ const scanlines=Buffer.alloc((512*3+1)*512);for(let row=0;row<512;row++)randomBytes(512*3).copy(scanlines,row*(512*3+1)+1);
+ return 'data:image/png;base64,'+Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',deflateSync(scanlines)),chunk('IEND',Buffer.alloc(0))]).toString('base64');
+}
+it('round-trips an encrypted screenshot above the legacy cap and surfaces explicit oversize markers', async () => {
+ const upstream=fixture(),image=screenshotFixture();let marker=false;
+ const transport=createNodePlatformTransport({appId:'advisor',receipt:makeReceipt('platform-grant'),serverUrl:'https://paws.test',storage:createMemoryServiceStorage(),fetch:async (url,init)=>{
+  const context={protocol:'ai-services/1',grantId:'grant',appId:'advisor',serviceId:'service',bindingId:'binding'};
+  if(String(url).endsWith('/session')) return Response.json({sessionId:'native',requestId:'history',ciphertext:encrypt({...context,sessionId:'native',requestId:'history',direction:'session-history',active:false,messages:[],snapshotError:'snapshot-too-large'})});
+  const response=await upstream.fetcher(url,init);
+  if(!String(url).endsWith('/turns/turn')) return response;
+  const row=await response.json();row.record.sessionId='native';row.sequence=marker?2:1;
+  row.output=encrypt({...context,requestId:'request',turnId:'turn',direction:'output',sequence:row.sequence,text:'Native answer',...(marker?{snapshotError:'snapshot-too-large',messages:[]}:{messages:[{role:'user',text:'Screenshot',images:[image]}]})});
+  if(!marker) expect(row.output.length).toBeGreaterThan(1024*1024);
+  return Response.json(row);
+ }});
+ await transport.authorize();
+ await expect(transport.start({binding,requestId:'request',messages:[{role:'user',text:'hello'}]})).rejects.toMatchObject({code:'transport-error'});
+ expect((await transport.read({bindingId:'binding',turnId:'turn'})).messages[0].images).toEqual([image]);
+ marker=true;
+ expect(await transport.read({bindingId:'binding',turnId:'turn'})).toMatchObject({record:{status:'completed',sessionId:'native'},text:'Native answer',messages:[],snapshotError:'snapshot-too-large'});
+ await expect(transport.readConversation!('binding')).rejects.toMatchObject({code:'snapshot-too-large',retryable:false});
+ transport.dispose();
+});
+
+it('keeps snapshot markers and size errors across the same-origin browser bridge',async()=>{
+ const transport=createBrowserPlatformTransport({appId:'advisor',baseUrl:'/api/ai',origin:'https://app.test',storage:createMemoryServiceStorage(),fetch:async url=>{
+  if(String(url).endsWith('/connection')) return Response.json({id:'grant',source:'platform',appId:'advisor',serviceId:'service',expiresAt:null});
+  if(String(url).endsWith('/session')) return Response.json({error:{code:'snapshot-too-large',retryable:false}},{status:409});
+  return Response.json({record:{id:'turn',conversationId:'binding',requestId:'request',binding,status:'completed',sessionId:'native',actual:{modelId:null,reasoning:null},createdAt:1,startedAt:1,completedAt:2,error:null},sequence:1,text:'Native answer',messages:[],snapshotError:'snapshot-too-large'});
+ }});
+ await transport.authorize();
+ expect(await transport.read({bindingId:'binding',turnId:'turn'})).toMatchObject({record:{status:'completed'},text:'Native answer',messages:[],snapshotError:'snapshot-too-large'});
+ await expect(transport.readConversation!('binding')).rejects.toMatchObject({code:'snapshot-too-large',retryable:false});
  transport.dispose();
 });
