@@ -43,7 +43,7 @@ export function nativeTranscript(messages:NativeMessage[]):NativeConversationMes
  for(const [index,message] of messages.entries()) {
   const content=object(message.content), inner=object(content.content), envelope=nativeEnvelope(message);
   if(envelope.role==='user' && envelope.ev?.t==='file' && typeof envelope.ev.ref==='string' && /^image\/(png|jpeg|webp)$/.test(envelope.ev.mimeType)){attachments.push({ref:envelope.ev.ref,mimeType:envelope.ev.mimeType});continue;}
-  if(content.role==='user' && inner.type==='text' && typeof inner.text==='string') rows.set(`user:${message.localId||message.id}`,{id:message.id,seq:message.seq,role:'user',text:inner.text,...(attachments.length?{attachments:attachments.splice(0)}:{})});
+  if(content.role==='user' && inner.type==='text' && typeof inner.text==='string') rows.set(`user:${message.localId||message.id}`,{id:message.localId||message.id,seq:message.seq,role:'user',text:inner.text,...(attachments.length?{attachments:attachments.splice(0)}:{})});
   else if(envelope.role==='user' && !envelope.subagent && envelope.ev?.t==='text' && typeof envelope.ev.text==='string') {
    // Codex echoes carry a turn; Claude emits the native user before its start.
    // Only an explicitly linked raw input with identical text proves duplication.

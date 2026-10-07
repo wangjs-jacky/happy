@@ -94,13 +94,18 @@ it('rehydrates native image file envelopes before their associated user text',as
  f.append({role:'user',content:{type:'text',text:'photo question'}},'photo');
  await expect(f.runtime.snapshot(binding,'session')).rejects.toThrow('protocol-incompatible');
  f.hooks.readImage=async(sessionId,ref,mimeType)=>{expect([sessionId,ref,mimeType]).toEqual(['session','sessions/session/attachments/image.enc','image/png']);return data;};
- const snapshot=await f.runtime.snapshot(binding,'session');expect(snapshot.messages).toEqual([{id:'2',seq:2,role:'user',text:'photo question',images:[data]}]);
+ const snapshot=await f.runtime.snapshot(binding,'session');expect(snapshot.messages).toEqual([{id:'photo',seq:2,role:'user',text:'photo question',images:[data]}]);
 });
 
 it('keeps the current submitted images in the returned turn transcript',async()=>{
  const f=await fixture(),images=['data:image/png;base64,YQ=='];
  const result=await f.runtime.execute(binding,{id:'image-turn',requestId:'image-turn',conversationId:'conversation',createdAt:0,messages:[{role:'user',text:'photo',images}]},{systemPrompt:'policy',attach:async()=>{}},new AbortController().signal,()=>{});
  expect(result.messages.at(-1)).toMatchObject({role:'user',text:'photo',images});
+});
+
+it('uses the durable user localId as transcript identity and falls back to the server id',()=>{
+ const messages:NativeMessage[]=[{id:'server-row-1',seq:1,localId:'application:request-local-id',content:{role:'user',content:{type:'text',text:'same question'}}},{id:'server-row-2',seq:2,localId:null,content:{role:'user',content:{type:'text',text:'same question'}}}];
+ expect(nativeTranscript(messages).map(message=>message.id)).toEqual(['application:request-local-id','server-row-2']);
 });
 
 it('carries approved legacy context and images in one first native submission only',async()=>{
