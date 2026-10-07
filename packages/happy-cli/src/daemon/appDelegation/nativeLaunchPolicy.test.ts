@@ -61,3 +61,23 @@ it('attributes Claude turns to each accepted batch rather than later queued mess
 });
 
 it('discards correlation for input cancelled before provider output',()=>{const state:ClaudeSessionProtocolState={currentTurnId:null,acceptedLocalIds:[['cancelled']]};closeClaudeTurnWithStatus(state,'cancelled');state.acceptedLocalIds!.push(['next']);const result=mapClaudeLogMessageToSessionEnvelopes({type:'assistant',uuid:'a',message:{role:'assistant',content:[{type:'text',text:'reply'}]}} as any,state);expect(result.envelopes[0].ev).toEqual({t:'turn-start',localIds:['next']});});
+
+it('emits a failed correlated terminal for A with no assistant and gives only B its later answer',()=>{
+ const state:ClaudeSessionProtocolState={currentTurnId:null,acceptedLocalIds:[['A']]};
+ const failed=closeClaudeTurnWithStatus(state,'failed');
+ expect(failed.envelopes.map(e=>e.ev)).toEqual([{t:'turn-start',localIds:['A']},{t:'turn-end',status:'failed'}]);
+ expect(failed.envelopes[0].turn).toBe(failed.envelopes[1].turn);
+ state.acceptedLocalIds!.push(['B']);
+ const response=mapClaudeLogMessageToSessionEnvelopes({type:'assistant',uuid:'B-answer',message:{role:'assistant',content:[{type:'text',text:'B only'}]}} as any,state);
+ expect(response.envelopes[0].ev).toEqual({t:'turn-start',localIds:['B']});
+ expect(closeClaudeTurnWithStatus(state,'completed').envelopes[0].ev).toEqual({t:'turn-end',status:'completed'});
+ expect(state.acceptedLocalIds).toEqual([]);
+});
+it('retires command-only batches and failure batches one at a time without clearing later inputs',()=>{
+ const state:ClaudeSessionProtocolState={currentTurnId:null,acceptedLocalIds:[[],['next']]};
+ expect(closeClaudeTurnWithStatus(state,'completed').envelopes.map(e=>e.ev)).toEqual([{t:'turn-start'},{t:'turn-end',status:'completed'}]);
+ expect(state.acceptedLocalIds).toEqual([['next']]);
+ state.acceptedLocalIds!.unshift(['failed']);
+ expect(closeClaudeTurnWithStatus(state,'failed').envelopes[0].ev).toEqual({t:'turn-start',localIds:['failed']});
+ expect(state.acceptedLocalIds).toEqual([['next']]);
+});

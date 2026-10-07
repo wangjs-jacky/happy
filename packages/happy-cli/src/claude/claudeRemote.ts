@@ -1,3 +1,4 @@
+import type { SessionTurnEndStatus } from '@slopus/happy-wire';
 import { nativeLaunchPolicy, nativeClaudeExecutable } from '@/daemon/appDelegation/nativeLaunchPolicy';
 import { verifyClaudeIdentity } from '@/daemon/appDelegation/serviceCapabilities';
 import { verifyRestrictedClaude } from '@/daemon/appDelegation/restrictedClaude';
@@ -40,7 +41,7 @@ export async function claudeRemote(opts: {
 
     // Dynamic parameters
     nextMessage: () => Promise<{ message: MessageParam['content'], mode: EnhancedMode } | null>,
-    onReady: () => void,
+    onReady: (status?: SessionTurnEndStatus) => void,
     isAborted: (toolCallId: string) => boolean,
 
     // Callbacks
@@ -271,8 +272,8 @@ export async function claudeRemote(opts: {
                     isCompactCommand = false;
                 }
 
-                // Send ready event
-                opts.onReady();
+                // A provider result is terminal even when there was no assistant output.
+                opts.onReady(message.is_error || message.subtype !== 'success' ? 'failed' : 'completed');
 
                 // Wait for next user message without blocking the message loop.
                 // Background task messages (task_started, task_progress, task_notification)

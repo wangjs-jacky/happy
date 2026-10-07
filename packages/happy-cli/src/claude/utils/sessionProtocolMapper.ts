@@ -480,9 +480,10 @@ export function closeClaudeTurnWithStatus(
     status: SessionTurnEndStatus,
 ): ClaudeMapperResult {
     const envelopes: SessionEnvelope[] = [];
+    // An accepted request owns a terminal even when the provider emitted no assistant output.
+    // Consume exactly its batch; later accepted inputs remain queued for their own turns.
+    if (!state.currentTurnId && state.acceptedLocalIds?.length) ensureTurn(state, envelopes);
     closeTurn(state, status, envelopes);
-    // Never label a later turn with an input cancelled before provider output.
-    if (status !== 'completed') state.acceptedLocalIds = [];
     return {
         currentTurnId: state.currentTurnId,
         envelopes,

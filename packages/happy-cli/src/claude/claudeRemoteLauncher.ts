@@ -437,12 +437,12 @@ export async function claudeRemoteLauncher(session: Session, onProcessorReady?: 
                         logger.debug('[remote]: Session reset');
                         session.clearSessionId();
                     },
-                    onReady: () => {
+                    onReady: (status = 'completed') => {
                         const completedMedia = mediaAwaitingCleanup;
                         mediaAwaitingCleanup = [];
                         void cleanupMediaAttachments(completedMedia);
-                        session.client.closeClaudeSessionTurn('completed');
-                        if (!pending && session.queue.size() === 0) {
+                        session.client.closeClaudeSessionTurn(status);
+                        if (status === 'completed' && !pending && session.queue.size() === 0) {
                             session.api.push().sendSessionNotification({
                                 kind: 'done',
                                 metadata: session.client.getMetadata(),
