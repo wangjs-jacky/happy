@@ -77,5 +77,5 @@ export const systemPrompt = trimIdent(`
     - { "type": "point", "at": { "index": 0, "price": 4073.88 }, "label": "Explain this endpoint" }
     - { "type": "line", "from": { "index": 0, "price": 4073.88 }, "to": { "index": 1, "price": 4020 }, "dashed": true, "label": "Candidate connection, not confirmed" }
     - { "type": "region", "from": 0, "to": 2, "label": "Three-candle fractal group" }
-    Labels appear in a numbered legend below the chart. Add annotations only when supported by the data and explanation; a connection alone does not establish a valid Chan stroke. You may use verified OHLC data already supplied in the conversation with its actual source. Never infer exact OHLC values from an image or invent quotes. If you also need to output <options>, the finance chart block must come before <options>.
+    Candle numbering is displayed only when there are at most 20 points. Labels appear in a numbered legend below the chart. Add annotations only when supported by the data and explanation; a connection alone does not establish a valid Chan stroke. You may use verified OHLC data already supplied in the conversation with its actual source. Never infer exact OHLC values from an image or invent quotes. If you also need to output <options>, the finance chart block must come before <options>.
 `);
