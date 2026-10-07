@@ -34,6 +34,8 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
  const scoped = (principal: ServicePrincipal) => { if (principal.kind === 'owner') deny('permission-denied'); return principal; };
  async function lockTurn(tx: Prisma.TransactionClient, id: string) { await tx.$queryRaw`SELECT "id" FROM "AppChatTurn" WHERE "id" = ${id} FOR UPDATE`; }
  async function expire(tx: Prisma.TransactionClient, machineId: string) {
+  // A pre-upgrade accepted service turn cannot run through the native executor. Retain it with an explicit outcome.
+  await tx.appChatTurn.updateMany({where:{minimumProtocol:4,state:'accepted',binding:{snapshot:{path:['machineId'],equals:machineId}}},data:{state:'interrupted',completedAt:new Date(),lease:null,leaseUntil:null,serviceError:{code:'protocol-incompatible',retryable:false}}});
   // Unknown native execution is reconciled under the SAME turn/localId, never made retryable as a new request.
   for (const state of ['running','accepted','cancel-requested']) await tx.appChatTurn.updateMany({where:{minimumProtocol:5,binding:{snapshot:{path:['machineId'],equals:machineId}},state,
    OR:[{deadline:{lte:new Date()}},...(state==='accepted'?[]:[{leaseUntil:{lte:new Date()}}])]},data:{state:state==='cancel-requested'?'cancel-requested':'accepted',phase:'recovering',lease:null,leaseUntil:null,deadline:new Date(Date.now()+240000)}});
@@ -106,6 +108,7 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
    });
   },
   async claim(ownerId: string, machineId: string) {
+   if (!await database.machine.findFirst({where:{id:machineId,accountId:ownerId}})) deny('permission-denied');
    // Expiration takes only turn-row locks; commit it before taking authorization locks.
    await database.$transaction(tx => expire(tx,machineId));
    return serviceTransaction(database, ownerId, async tx => {
@@ -158,11 +161,12 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
     await tx.$queryRaw`SELECT "machineId" FROM "AppChatWorker" WHERE "machineId" = ${machineId} AND "accountId" = ${ownerId} FOR UPDATE`;
     const before = await tx.appChatTurn.findUnique({ where: { id } });
     if (!before?.bindingId) deny('permission-denied');
-    await authorizeWorkerBinding(tx,ownerId,machineId,before.bindingId);
+    const auth = await authorizeWorkerBinding(tx,ownerId,machineId,before.bindingId);
+    await tx.$queryRaw`SELECT "id" FROM "AppDelegation" WHERE "id" = ${auth.grant.id} FOR UPDATE`;
     await lockTurn(tx,id);
     const row = await tx.appChatTurn.findUniqueOrThrow({ where: { id } });
     if (!['running','cancel-requested'].includes(row.state) || row.lease !== input.lease || !row.leaseUntil || row.leaseUntil.getTime() <= Date.now() || row.deadline.getTime() <= Date.now()) deny('execution-interrupted');
-    if (row.state === 'cancel-requested' && input.status !== 'cancelled' && !(input.phase === 'recovering' && input.status === undefined && input.output === undefined)) deny('execution-interrupted');
+    if (row.state === 'cancel-requested' && input.status !== 'cancelled' && !(row.minimumProtocol === 5 && row.sessionId && ['completed','failed'].includes(input.status ?? '')) && !(input.phase === 'recovering' && input.status === undefined && input.output === undefined)) deny('execution-interrupted');
     if (input.output && (!input.sequence || input.sequence <= row.sequence || Buffer.byteLength(input.output) > 1024*1024)) deny('invalid-request');
     if (input.status === 'completed' && !input.output && !row.output) deny('invalid-request');
     const phase = input.phase === undefined ? undefined : TurnPhaseSchema.parse(input.phase);

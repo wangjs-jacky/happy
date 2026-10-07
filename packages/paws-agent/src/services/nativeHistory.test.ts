@@ -42,3 +42,11 @@ it('checks host ownership before native history and refuses malformed history', 
  for(const value of [{sessionId:null,messages:[{role:'user',text:'invalid'}],active:false},{sessionId:'native',messages:[],active:'false'},{sessionId:'native',messages:[],active:false,phase:'imaginary'}]) expect(()=>validateConversationSnapshot(value)).toThrow();
  client.dispose();
 });
+
+it('preserves pending pre-attachment work without fabricating native history', async () => {
+ const upstream=fixture();
+ const transport=createNodePlatformTransport({appId:'advisor',receipt:makeReceipt('platform-grant'),serverUrl:'https://paws.test',storage:createMemoryServiceStorage(),fetch:async (url,init)=>String(url).endsWith('/session') ? Response.json({sessionId:null,requestId:null,ciphertext:null,active:true,phase:'preparing'}) : upstream.fetcher(url,init)});
+ await transport.authorize();
+ expect(await transport.readConversation!('binding')).toEqual({sessionId:null,messages:[],active:true,phase:'preparing'});
+ transport.dispose();
+});

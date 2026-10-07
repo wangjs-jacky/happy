@@ -42,7 +42,7 @@ export function validateConversationSnapshot(value: unknown): ConversationSnapsh
     const data = value as ConversationSnapshot;
     if (!data || (data.sessionId !== null && (typeof data.sessionId !== 'string' || !data.sessionId.trim() || data.sessionId.length > 256)) || typeof data.active !== 'boolean' || data.phase !== undefined && !TurnPhaseSchema.safeParse(data.phase).success) throw new AIServiceClientError('context-mismatch');
     const messages = validateHistoryMessages(data.messages);
-    if (data.sessionId === null && (messages.length || data.active || data.phase !== undefined)) throw new AIServiceClientError('context-mismatch');
+    if (data.sessionId === null && messages.length) throw new AIServiceClientError('context-mismatch');
     return {sessionId:data.sessionId,messages,active:data.active,...(data.phase === undefined ? {} : {phase:data.phase})};
 }
 export function validateOverrides(value: BindingOverrides = {}): BindingOverrides {
@@ -260,8 +260,8 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
             binding: unknown;
         }>(`/v1/apps/ai-services/conversations/${validateIdentifier(appConversationId)}/binding`, undefined, call); return data.binding === null ? null : parseBinding(data.binding); },
         async readConversation(bindingId, call) {
-            const data = await request<{sessionId:string|null;requestId:string|null;ciphertext:string|null}>(`/v1/apps/ai-services/bindings/${validateIdentifier(bindingId)}/session`,undefined,call);
-            if(data.sessionId === null && data.requestId === null && data.ciphertext === null) return {sessionId:null,messages:[],active:false};
+            const data = await request<{sessionId:string|null;requestId:string|null;ciphertext:string|null;active?:boolean;phase?:unknown}>(`/v1/apps/ai-services/bindings/${validateIdentifier(bindingId)}/session`,undefined,call);
+            if(data.sessionId === null && data.requestId === null && data.ciphertext === null) return validateConversationSnapshot({sessionId:null,messages:[],active:data.active ?? false,...(data.phase === undefined ? {} : {phase:data.phase})});
             if(typeof data.sessionId !== 'string' || typeof data.requestId !== 'string' || typeof data.ciphertext !== 'string' || data.ciphertext.length > 5*1024*1024) throw new AIServiceClientError('context-mismatch');
             const plain = open(data.ciphertext), r = connectionReceipt();
             const context = {protocol:'ai-services/1',direction:'session-history',grantId:r.id,appId:options.appId,serviceId:r.scope.serviceId,bindingId,sessionId:data.sessionId,requestId:data.requestId};

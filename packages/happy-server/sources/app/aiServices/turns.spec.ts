@@ -54,6 +54,7 @@ it('deduplicates turns, fences cancel/completion, and never replays expired leas
  expect(recovered?.sequence).toBe(0);
  await expect(turns.publish('turn-owner',target.machineId,a.id,{lease:job!.lease})).rejects.toMatchObject({code:'execution-interrupted'});
  job = recovered;
+ await db.appChatTurn.update({where:{id:a.id},data:{minimumProtocol:4}});
  await turns.cancelBoundTurn(principal, binding.id, a.id);
  await expect(turns.publish('turn-owner', target.machineId, a.id, { lease: job!.lease, status: 'completed', output: 'c'.repeat(80), sequence: 1 })).rejects.toMatchObject({ code: 'execution-interrupted' });
  expect((await turns.readBoundTurn(principal, binding.id, a.id)).record.status).toBe('cancel-requested');
