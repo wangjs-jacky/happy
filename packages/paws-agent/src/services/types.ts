@@ -1,5 +1,5 @@
-import type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord } from '@slopus/happy-wire/ai-services';
-export type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceGrant, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnActual } from '@slopus/happy-wire/ai-services';
+import type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnPhase } from '@slopus/happy-wire/ai-services';
+export type { AppPolicy, CapabilityCatalog, ExecutionBinding, GrantReceipt, ServiceGrant, ServiceErrorCode, ServicePermission, ServiceReasoning, ServiceRef, ServiceTarget, ServicePermissionMode, ServiceTier, ServiceConfiguration, ServiceConfig, TurnRecord, TurnActual, TurnPhase } from '@slopus/happy-wire/ai-services';
 export type ServiceSource = 'platform' | 'personal';
 export type ClientErrorCode = ServiceErrorCode | 'transport-error' | 'context-mismatch' | 'storage-unavailable' | 'disposed' | 'aborted' | 'observation-expired';
 export class AIServiceClientError extends Error {
@@ -13,9 +13,17 @@ export interface ServiceConnection {
     expiresAt: number | null;
 }
 export interface ServiceMessage {
+    id?: string;
+    seq?: number;
     role: 'user' | 'assistant';
     text: string;
     images?: string[];
+}
+export interface ConversationSnapshot {
+    sessionId: string | null;
+    messages: ServiceMessage[];
+    active: boolean;
+    phase?: TurnPhase;
 }
 export interface BindingOverrides {
     target?: ServiceTarget;
@@ -73,6 +81,7 @@ export interface AIServiceTransport {
     readCapabilities(options?: CapabilityReadOptions): Promise<CapabilityCatalog | null>;
     createConversation(input?: CreateConversationInput, options?: CallOptions): Promise<ExecutionBinding>;
     findConversation(appConversationId: string, options?: CallOptions): Promise<ExecutionBinding | null>;
+    readConversation?(bindingId: string, options?: CallOptions): Promise<ConversationSnapshot>;
     start(input: StartTurnInput, options?: CallOptions): Promise<TurnSnapshot>;
     read(locator: TurnLocator, options?: CallOptions): Promise<TurnSnapshot>;
     cancel(locator: TurnLocator & {

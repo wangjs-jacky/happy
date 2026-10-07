@@ -626,6 +626,7 @@ model AppDelegation {
 }
 
 model AppChatWorker {
+    nativeSessions Boolean @default(false)
     serviceProtocol String?
     servicePublicKey String?
     serviceClaudeIdentity String?
@@ -648,6 +649,8 @@ model AppChatConversation {
 }
 
 model AppChatTurn {
+    sessionId String?
+    phase String?
     bindingId String?
     binding AIServiceBinding? @relation(fields: [bindingId], references: [id])
     requestId String?
@@ -733,6 +736,10 @@ model AIServiceAuthorization {
 }
 
 model AIServiceBinding {
+    sessionId String? @unique
+    historyRequestId String?
+    historyDeadline DateTime?
+    historyCiphertext String?
     appConversationId String?
     creationInput Json?
     turns AppChatTurn[]

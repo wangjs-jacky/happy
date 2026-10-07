@@ -29,7 +29,7 @@ beforeAll(async()=>{
 beforeEach(async()=>{
  owner=`transport-${++seq}`;machine=`${owner}-machine`;await ctx.database.account.create({ data:{ id:owner,publicKey:owner } });
  await ctx.database.machine.create({ data:{ id:machine,accountId:owner,metadata:'sealed' } });token=await auth.createToken(owner);
- expect((await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64') })).statusCode).toBe(200);
+ expect((await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',nativeSessions:true,publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64') })).statusCode).toBe(200);
 });
 afterAll(async()=>{ await app.close();await ctx.database.$disconnect();await ctx.pg.close(); });
 async function setup() {
@@ -84,7 +84,7 @@ it('accepts a scoped target for capability discovery and rejects a foreign tuple
 });
 it('upgrades an existing grant and its machine envelopes atomically while old bindings keep working',async()=>{
  const machineKeys=nacl.box.keyPair();
- await req(`/v1/ai-service-worker/${machine}/announce`,{protocol:'ai-services/1',publicKey:Buffer.from(machineKeys.publicKey).toString('base64')});
+ await req(`/v1/ai-service-worker/${machine}/announce`,{protocol:'ai-services/1',nativeSessions:true,publicKey:Buffer.from(machineKeys.publicKey).toString('base64')});
  const f=await setup();
  const creating=services.store.resolveBinding(f.principal,'relationship-advisor',f.service.id,{});
  await completeProbe(await nextProbe(),f.target);const binding=await creating;
@@ -160,14 +160,14 @@ it('revocation during a queued native probe denies credentials and atomic bindin
 
 it('exposes safe daemon-observed Claude identity only to its owner',async()=>{
  const f=await setup(),identityId='claude:'+ 'a'.repeat(64);
- const published=await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64'),claudeIdentity:{ identityId,observedAt:Date.now() } });
+ const published=await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',nativeSessions:true,publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64'),claudeIdentity:{ identityId,observedAt:Date.now() } });
  expect(published.statusCode,published.body).toBe(200);
  const own=await app.inject({ method:'GET',url:'/v1/ai-services/workers',headers:{ authorization:`Bearer ${token}` } });
  expect(own.json().workers).toEqual([expect.objectContaining({ machineId:machine,serviceClaudeIdentity:identityId })]);
  expect(own.body).not.toContain('tokens');expect(own.body).not.toContain('email');
  expect((await app.inject({ method:'GET',url:'/v1/ai-services/workers',headers:{ authorization:`Bearer ${f.receipt.credential}` } })).statusCode).toBe(401);
  const foreign=await auth.createToken('foreign');
- expect((await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64') },foreign)).statusCode).toBe(403);
+ expect((await req(`/v1/ai-service-worker/${machine}/announce`,{ protocol:'ai-services/1',nativeSessions:true,publicKey:Buffer.from(nacl.box.keyPair().publicKey).toString('base64') },foreign)).statusCode).toBe(403);
  expect((await app.inject({ method:'GET',url:'/v1/ai-services/workers',headers:{ authorization:`Bearer ${foreign}` } })).json()).toEqual({ workers:[] });
 });
 

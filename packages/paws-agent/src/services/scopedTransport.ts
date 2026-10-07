@@ -1,9 +1,9 @@
 import { beginSubmission, type SubmissionProvenance } from './submission';
 import nacl from 'tweetnacl';
 import { sha256 } from '@noble/hashes/sha256';
-import { AppPolicySchema, ServiceConfigurationSchema, ServiceTargetSchema, ServicePermissionModeSchema, ServiceTierSchema, CapabilityCatalogSchema, ExecutionBindingSchema, GrantReceiptSchema, ServiceErrorSchema, ServiceRefSchema, TurnRecordSchema } from '@slopus/happy-wire/ai-services';
+import { TurnPhaseSchema, AppPolicySchema, ServiceConfigurationSchema, ServiceTargetSchema, ServicePermissionModeSchema, ServiceTierSchema, CapabilityCatalogSchema, ExecutionBindingSchema, GrantReceiptSchema, ServiceErrorSchema, ServiceRefSchema, TurnRecordSchema } from '@slopus/happy-wire/ai-services';
 import { decodeBase64, encodeBase64, getRandomBytes } from '../crypto/encryption';
-import { AIServiceClientError, type AIServiceTransport, type CallOptions, type GrantReceipt, type ExecutionBinding, type ServiceMessage, type StartTurnInput, type TurnLocator, type TurnSnapshot, type BindingOverrides } from './types';
+import { AIServiceClientError, type AIServiceTransport, type CallOptions, type GrantReceipt, type ExecutionBinding, type ServiceMessage, type ConversationSnapshot, type StartTurnInput, type TurnLocator, type TurnSnapshot, type BindingOverrides } from './types';
 import type { ServiceStorage } from './storage';
 export interface ScopedTransportOptions {
     appId: string;
@@ -29,6 +29,21 @@ export function validateMessages(input: unknown): ServiceMessage[] {
     if (messages.at(-1)?.role !== 'user' || new TextEncoder().encode(JSON.stringify(messages)).length > 5 * 1024 * 1024)
         throw new AIServiceClientError('invalid-request');
     return messages;
+}
+/** Native snapshots may be empty or end in an assistant message, unlike turn inputs. */
+export function validateHistoryMessages(input: unknown): ServiceMessage[] {
+    if (!Array.isArray(input) || input.length > 10000 || new TextEncoder().encode(JSON.stringify(input)).length > 5 * 1024 * 1024) throw new AIServiceClientError('context-mismatch');
+    return input.map(value => {
+        if (!value || !['user','assistant'].includes(value.role) || typeof value.text !== 'string' || (value.id !== undefined && (typeof value.id !== 'string' || !value.id || value.id.length > 256)) || (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || value.seq < 0)) || (value.images !== undefined && (!Array.isArray(value.images) || value.images.length > 4 || !value.images.every((image: unknown) => typeof image === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(image))))) throw new AIServiceClientError('context-mismatch');
+        return {role:value.role,text:value.text,...(value.id === undefined ? {} : {id:value.id}),...(value.seq === undefined ? {} : {seq:value.seq}),...(value.images === undefined ? {} : {images:[...value.images]})};
+    });
+}
+export function validateConversationSnapshot(value: unknown): ConversationSnapshot {
+    const data = value as ConversationSnapshot;
+    if (!data || (data.sessionId !== null && (typeof data.sessionId !== 'string' || !data.sessionId.trim() || data.sessionId.length > 256)) || typeof data.active !== 'boolean' || data.phase !== undefined && !TurnPhaseSchema.safeParse(data.phase).success) throw new AIServiceClientError('context-mismatch');
+    const messages = validateHistoryMessages(data.messages);
+    if (data.sessionId === null && (messages.length || data.active || data.phase !== undefined)) throw new AIServiceClientError('context-mismatch');
+    return {sessionId:data.sessionId,messages,active:data.active,...(data.phase === undefined ? {} : {phase:data.phase})};
 }
 export function validateOverrides(value: BindingOverrides = {}): BindingOverrides {
     if (!value || Object.keys(value).some(k => !['modelId', 'reasoning', 'permissions', 'target', 'permissionMode', 'serviceTier'].includes(k)))
@@ -177,7 +192,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
                 throw new AIServiceClientError('context-mismatch'); };
         const input = open(value.input);
         verify(input, { ...context, direction: 'input', sequence: 0 });
-        const messages = validateMessages(input.messages);
+        let messages = validateMessages(input.messages);
         let text = '';
         if (value.output !== null) {
             const output = open(value.output);
@@ -185,6 +200,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
             if (typeof output.text !== 'string')
                 throw new AIServiceClientError('context-mismatch');
             text = output.text;
+            if (output.messages !== undefined) messages = validateHistoryMessages(output.messages);
         }
         const previous = sequences.get(row.id);
         if (previous && (value.sequence < previous.sequence || value.sequence === previous.sequence && value.output !== previous.output))
@@ -243,6 +259,15 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
         async findConversation(appConversationId, call) { const data = await request<{
             binding: unknown;
         }>(`/v1/apps/ai-services/conversations/${validateIdentifier(appConversationId)}/binding`, undefined, call); return data.binding === null ? null : parseBinding(data.binding); },
+        async readConversation(bindingId, call) {
+            const data = await request<{sessionId:string|null;requestId:string|null;ciphertext:string|null}>(`/v1/apps/ai-services/bindings/${validateIdentifier(bindingId)}/session`,undefined,call);
+            if(data.sessionId === null && data.requestId === null && data.ciphertext === null) return {sessionId:null,messages:[],active:false};
+            if(typeof data.sessionId !== 'string' || typeof data.requestId !== 'string' || typeof data.ciphertext !== 'string' || data.ciphertext.length > 5*1024*1024) throw new AIServiceClientError('context-mismatch');
+            const plain = open(data.ciphertext), r = connectionReceipt();
+            const context = {protocol:'ai-services/1',direction:'session-history',grantId:r.id,appId:options.appId,serviceId:r.scope.serviceId,bindingId,sessionId:data.sessionId,requestId:data.requestId};
+            for(const [key,value] of Object.entries(context)) if(plain[key] !== value) throw new AIServiceClientError('context-mismatch');
+            return validateConversationSnapshot(plain);
+        },
         async start(input: StartTurnInput, call) {
             const binding = parseBinding(input.binding), messages = validateMessages(input.messages), r = connectionReceipt(), requestId = input.requestId ?? globalThis.crypto.randomUUID();
             validateIdentifier(requestId);

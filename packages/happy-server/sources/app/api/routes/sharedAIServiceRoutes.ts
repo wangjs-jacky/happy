@@ -1,6 +1,7 @@
+import { createSessionHistory } from '@/app/aiServices/sessionHistory';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { ServiceGrantScopeSchema, CapabilityCatalogSchema, ServiceTargetSchema, ServiceErrorSchema, TurnActualSchema, ServiceErrorCodeSchema, type CapabilityCatalog } from '@slopus/happy-wire';
+import { TurnPhaseSchema, ServiceGrantScopeSchema, CapabilityCatalogSchema, ServiceTargetSchema, ServiceErrorSchema, TurnActualSchema, ServiceErrorCodeSchema, type CapabilityCatalog } from '@slopus/happy-wire';
 import type { Fastify } from '../types';
 import type { SharedAIServices } from '@/app/aiServices/composition';
 import { BindingOverridesSchema, readTrustedCatalog } from '@/app/aiServices/bindings';
@@ -24,6 +25,7 @@ function clientCatalog(catalog: CapabilityCatalog | null, executionPresets?: boo
 }
 export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) {
  const { database, store, grants, turns, probes } = services;
+ const history = createSessionHistory(database, store);
  app.register(async instance => {
   const routes = instance.withTypeProvider<ZodTypeProvider>();
   routes.addHook('onRoute', options => { options.bodyLimit ??= 8192; });
@@ -82,8 +84,12 @@ export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) 
   routes.get('/v1/apps/ai-services/bindings/:bindingId/requests/:requestId', { schema:{ params:z.object({ bindingId:id,requestId:id }) } }, async request => turns.readBoundRequest(await authenticate(request),request.params.bindingId,request.params.requestId));
   routes.get('/v1/apps/ai-services/bindings/:bindingId/turns/:id', { schema:{ params:z.object({ bindingId:id,id }) } }, async request => turns.readBoundTurn(await authenticate(request),request.params.bindingId,request.params.id));
   routes.post('/v1/apps/ai-services/bindings/:bindingId/turns/:id/cancel', { schema:{ params:z.object({ bindingId:id,id }) } }, async request => turns.cancelBoundTurn(await authenticate(request),request.params.bindingId,request.params.id));
+  routes.get('/v1/apps/ai-services/bindings/:bindingId/session', { schema:{ params:z.object({ bindingId:id }) } }, async request => history.read(await authenticate(request),request.params.bindingId));
   const machineParams=z.object({ machineId:id });
-  routes.post('/v1/ai-service-worker/:machineId/announce', { preHandler:app.authenticate,schema:{ params:machineParams,body:z.object({ protocol:z.literal('ai-services/1'),publicKey:z.string().max(100),claudeIdentity:z.object({ identityId:z.string().regex(/^claude:[a-f0-9]{64}$/),observedAt:z.number().int().nonnegative() }).strict().nullable().optional() }).strict() } }, request => probes.announce(request.userId,request.params.machineId,request.body.publicKey,request.body.claudeIdentity));
+  routes.post('/v1/ai-service-worker/:machineId/history/claim', {preHandler:app.authenticate,schema:{params:machineParams}}, async request => ({history:await history.claim(request.userId,request.params.machineId)}));
+  routes.post('/v1/ai-service-worker/:machineId/history/:bindingId', {preHandler:app.authenticate,bodyLimit:6*1024*1024,schema:{params:z.object({machineId:id,bindingId:id}),body:z.object({requestId:id,sessionId:id,ciphertext:z.string().min(60).max(5*1024*1024)}).strict()}}, request => history.publish(request.userId,request.params.machineId,request.params.bindingId,request.body));
+  routes.post('/v1/ai-service-worker/:machineId/turns/:id/session', {preHandler:app.authenticate,schema:{params:z.object({machineId:id,id}),body:z.object({lease:secret,sessionId:id}).strict()}}, request => turns.attachSession(request.userId,request.params.machineId,request.params.id,request.body));
+  routes.post('/v1/ai-service-worker/:machineId/announce', { preHandler:app.authenticate,schema:{ params:machineParams,body:z.object({ protocol:z.literal('ai-services/1'),nativeSessions:z.boolean().optional(),publicKey:z.string().max(100),claudeIdentity:z.object({ identityId:z.string().regex(/^claude:[a-f0-9]{64}$/),observedAt:z.number().int().nonnegative() }).strict().nullable().optional() }).strict() } }, request => probes.announce(request.userId,request.params.machineId,request.body.publicKey,request.body.claudeIdentity,request.body.nativeSessions));
   routes.post('/v1/ai-service-worker/:machineId/claim', { preHandler:app.authenticate,schema:{ params:machineParams } }, async request => {
    const probe=await probes.claim(request.userId,request.params.machineId);
    if (!probe && await database.aIServiceProbe.count({ where:{ ownerId:request.userId,machineId:request.params.machineId,state:'running',deadline:{ gt:new Date() } } })) return { probe:null,job:null };
@@ -101,6 +107,6 @@ export function sharedAIServiceRoutes(app: Fastify, services: SharedAIServices) 
    if (!prompt) deny('protocol-incompatible');
    return { policy,prompt,ref:policy.businessPrompt };
   }));
-  routes.post('/v1/ai-service-worker/:machineId/turns/:id', { preHandler:app.authenticate,bodyLimit:2*1024*1024,schema:{ params:z.object({ machineId:id,id }),body:z.object({ lease:secret,output:z.string().min(60).max(1024*1024).optional(),sequence:z.number().int().positive().optional(),status:z.enum(['completed','failed','cancelled']).optional(),actual:TurnActualSchema.optional(),error:ServiceErrorSchema.optional() }).strict() } }, request => turns.publish(request.userId,request.params.machineId,request.params.id,request.body));
+  routes.post('/v1/ai-service-worker/:machineId/turns/:id', { preHandler:app.authenticate,bodyLimit:2*1024*1024,schema:{ params:z.object({ machineId:id,id }),body:z.object({ lease:secret,phase:TurnPhaseSchema.optional(),output:z.string().min(60).max(1024*1024).optional(),sequence:z.number().int().positive().optional(),status:z.enum(['completed','failed','cancelled']).optional(),actual:TurnActualSchema.optional(),error:ServiceErrorSchema.optional() }).strict() } }, request => turns.publish(request.userId,request.params.machineId,request.params.id,request.body));
  });
 }

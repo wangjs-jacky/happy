@@ -128,9 +128,13 @@ export type TurnStatus = z.infer<typeof TurnStatusSchema>;
 export const TurnActualSchema = z.object({ modelId: IdentifierSchema.nullable(), reasoning: IdentifierSchema.nullable(), permissionMode: ServicePermissionModeSchema.nullable().optional(), serviceTier: IdentifierSchema.nullable().optional() }).strict();
 export type TurnActual = z.infer<typeof TurnActualSchema>;
 
+export const TurnPhaseSchema = z.enum(['connecting', 'preparing', 'starting', 'resuming', 'submitted', 'generating', 'recovering']);
+export type TurnPhase = z.infer<typeof TurnPhaseSchema>;
+
 const TurnRecordObjectSchema = z.object({
     id: IdentifierSchema, conversationId: IdentifierSchema, requestId: IdentifierSchema,
     binding: ExecutionBindingSchema, status: TurnStatusSchema, actual: TurnActualSchema,
+    sessionId: IdentifierSchema.nullable().optional(), phase: TurnPhaseSchema.optional(),
     createdAt: TimestampSchema, startedAt: TimestampSchema.nullable(), completedAt: TimestampSchema.nullable(),
     error: ServiceErrorSchema.nullable(),
 }).strict();
