@@ -7,6 +7,7 @@ import {
 } from '@slopus/happy-wire';
 
 export type ClaudeSessionProtocolState = {
+    acceptedLocalIds?: string[][];
     currentTurnId: string | null;
     uuidToProviderSubagent?: Map<string, string>;
     taskPromptToSubagents?: Map<string, string[]>;
@@ -398,7 +399,8 @@ function ensureTurn(state: ClaudeSessionProtocolState, envelopes: SessionEnvelop
     }
 
     const turnId = createId();
-    envelopes.push(createEnvelope('agent', { t: 'turn-start' }, { turn: turnId }));
+    const localIds = state.acceptedLocalIds?.shift();
+    envelopes.push(createEnvelope('agent', { t: 'turn-start', ...(localIds?.length ? { localIds } : {}) }, { turn: turnId }));
     state.currentTurnId = turnId;
     return turnId;
 }
@@ -479,6 +481,8 @@ export function closeClaudeTurnWithStatus(
 ): ClaudeMapperResult {
     const envelopes: SessionEnvelope[] = [];
     closeTurn(state, status, envelopes);
+    // Never label a later turn with an input cancelled before provider output.
+    if (status !== 'completed') state.acceptedLocalIds = [];
     return {
         currentTurnId: state.currentTurnId,
         envelopes,

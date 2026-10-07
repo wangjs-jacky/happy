@@ -285,7 +285,7 @@ export class ApiSessionClient extends EventEmitter {
                     }
                     const body = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(data.body.message.content.c));
                     logger.debugLargeJson('[SOCKET] [UPDATE] Received update:', body)
-                    this.routeIncomingMessage(body);
+                    this.routeIncomingMessage(body, data.body.message.localId);
                     this.lastSeq = messageSeq;
                 } else if (data.body.t === 'update-session') {
                     if (data.body.metadata && data.body.metadata.version > this.metadataVersion) {
@@ -589,9 +589,11 @@ export class ApiSessionClient extends EventEmitter {
         };
     }
 
-    private routeIncomingMessage(message: unknown) {
+    private routeIncomingMessage(message: unknown, localId?: string | null) {
         const userResult = UserMessageSchema.safeParse(message);
         if (userResult.success) {
+            // Never trust a localId supplied inside encrypted user content.
+            userResult.data.localId = localId ?? undefined;
             if (this.pendingMessageCallback) {
                 this.pendingMessageCallback(userResult.data);
             } else {
@@ -653,7 +655,7 @@ export class ApiSessionClient extends EventEmitter {
 
                 try {
                     const body = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(message.content.c));
-                    this.routeIncomingMessage(body);
+                    this.routeIncomingMessage(body, message.localId);
                 } catch (error) {
                     logger.debug('[API] Failed to decrypt fetched message', {
                         sessionId: this.sessionId,
@@ -727,10 +729,11 @@ export class ApiSessionClient extends EventEmitter {
         }
     }
 
-    /**
-     * Send message to session
-     * @param body - Message body (can be MessageContent or raw content for agent messages)
-     */
+    /** Link each accepted native input batch to the next durable Claude turn. */
+    acceptClaudeInput(localIds: string[]): void {
+        (this.claudeSessionProtocolState.acceptedLocalIds ??= []).push(localIds);
+    }
+
     sendClaudeSessionMessage(body: RawJSONLines) {
         const mapped = mapClaudeLogMessageToSessionEnvelopes(body, this.claudeSessionProtocolState);
         this.claudeSessionProtocolState.currentTurnId = mapped.currentTurnId;

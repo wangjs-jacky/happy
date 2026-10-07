@@ -76,7 +76,7 @@ export function createNativeSessionRuntime(context:{hooks:NativeSessionHooks;roo
   async snapshot(binding:ExecutionBinding,sessionId:string,signal?:AbortSignal) {
    await hooks.connect(); const session=await hooks.get(sessionId);assertNativeBinding(session,binding);
    const messages=nativeTranscript(await readNativeHistory(hooks,sessionId,signal));
-   return {sessionId,messages,active:session.active,phase:object(session.agentState).turnStatus?.status==='running' ? 'generating' as const : undefined};
+   return {sessionId,messages,active:object(session.agentState).turnStatus?.status==='running',phase:object(session.agentState).turnStatus?.status==='running' ? 'generating' as const : undefined};
   },
   async execute(binding:ExecutionBinding,turn:BoundTurnInput,options:{sessionId?:string|null;codexSessionGrant?:string;systemPrompt:string;attach:(sessionId:string)=>Promise<void>},signal:AbortSignal,onEvent:(event:NativeEvent)=>void) {
    if(binding.machineId!==context.machineId || turn.messages.at(-1)?.role!=='user')throw new Error('permission-denied');

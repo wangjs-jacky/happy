@@ -47,3 +47,5 @@ describe('native application sessions',()=>{
  it('cancels an unsubmitted request without touching a Paws execution',async()=>{const f=await fixture();f.setRunning(true);expect(await f.runtime.cancel(binding,'never-submitted','session')).toBe(true);expect(f.counts().sends).toBe(0);});
  it('reads Paws-side followups from native history and excludes private thinking',async()=>{const f=await fixture();await f.execute('first');f.append({role:'user',content:{type:'text',text:'from Paws'}},'paws');f.event({t:'text',text:'private',thinking:true});f.event({t:'text',text:'Paws reply'},'paws');const snapshot=await f.runtime.snapshot(binding,'session');expect(snapshot.messages.map(m=>m.text)).toEqual(['first','answer','from Paws','Paws reply']);expect(snapshot.messages.every(m=>m.id&&m.seq)).toBe(true);});
 });
+
+it('reports an online idle process as an idle conversation', async()=>{const f=await fixture();expect(await f.runtime.snapshot(binding,'session')).toMatchObject({active:false});f.setRunning(true);expect(await f.runtime.snapshot(binding,'session')).toMatchObject({active:true,phase:'generating'});});
