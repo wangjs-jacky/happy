@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Theme service selectors with a shared keyboard-accessible listbox. Keep the current selection visible.
+- Show named service rows while account settings and model capabilities load. Explain busy/offline failures and provide a retry action.
+
 ## Unreleased — shared AI services local candidate
 
 - Add a DOM panel and React adapter for service selection, personal authorization and turn recovery.

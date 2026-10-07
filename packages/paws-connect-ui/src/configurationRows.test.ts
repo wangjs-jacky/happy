@@ -22,6 +22,21 @@ function row(id = 'summary', name = '资料摘要'): ConfigurationRow {
         ], catalog: structuredClone(catalog),
     };
 }
+it('keeps service names visible and explains both loading stages without false unavailable warnings', () => {
+    const pending: ConfigurationRow={id:'summary',name:'资料摘要',value:{},targets:[],catalog:null,loading:true,loadingStage:'configuration'};
+    const {element,panel}=mount([pending]);
+    expect(element.textContent).toContain('资料摘要'); expect(element.textContent).toContain('正在读取账号与服务配置');
+    expect(element.querySelector('[aria-busy="true"]')).not.toBeNull();
+    const models=row(); models.loading=true; models.loadingStage='models'; models.catalog=null; models.value.permissionMode='yolo'; models.value.serviceTier='fast';
+    panel.update([models]); expect(element.textContent).toContain('正在读取模型'); expect(element.textContent).not.toContain('不可用');
+});
+it('explains a busy device and offers a labelled retry while keeping the selected configuration', () => {
+    const failed=row(); failed.error='resource-busy';
+    const {element,onRefresh}=mount([failed]);
+    expect(element.textContent).toContain('设备正忙'); expect(element.textContent).not.toContain('resource-busy');
+    expect(select(element,'资料摘要 模型').disabled).toBe(true);
+    button(element,'资料摘要 重试读取模型')!.click(); expect(onRefresh).toHaveBeenCalledWith('summary');
+});
 const cleanups: (() => void)[] = [];
 afterEach(() => { cleanups.splice(0).forEach(fn => fn()); document.body.replaceChildren(); });
 function mount(rows: ConfigurationRow[] = [row()]) {
@@ -149,18 +164,18 @@ describe('shared application service rows', () => {
         const { element, panel, onChange } = mount([configured]);
         const targets = select(element, '资料摘要 执行设备与账号');
         expect(targets.value).not.toBe(''); expect(targets.selectedOptions[0].disabled).toBe(true);
-        expect(targets.selectedOptions[0].textContent).toContain('不可用');
+        expect(targets.selectedOptions[0].textContent).not.toContain('不可用');
         expect(select(element, '资料摘要 模型').disabled).toBe(true);
         expect(button(element, '资料摘要 更新模型目录')!.disabled).toBe(true);
         expect(element.textContent).toContain('正在读取');
-        configured.loading = false; configured.error = '设备离线。请重新连接。'; panel.update([configured]);
-        expect(element.querySelector('[role="alert"]')?.textContent).toBe('设备离线。请重新连接。');
+        configured.loading = false; configured.error = 'machine-offline'; panel.update([configured]);
+        expect(element.querySelector('[role="alert"]')?.textContent).toContain('执行设备离线');
         expect(onChange).not.toHaveBeenCalled();
     });
     it('preserves focus on host updates and disables callbacks from destroyed controls', () => {
         const rows = [row()]; const { element, panel, onChange, onRefresh } = mount(rows);
-        select(element, '资料摘要 模型').focus(); panel.update(rows);
-        expect(document.activeElement).toBe(select(element, '资料摘要 模型'));
+        element.querySelector<HTMLButtonElement>('[role="combobox"][data-control="model"]')!.focus(); panel.update(rows);
+        expect(document.activeElement).toBe(element.querySelector('[role="combobox"][data-control="model"]'));
         const model = select(element, '资料摘要 模型'), refresh = button(element, '资料摘要 更新模型目录')!;
         panel.destroy(); change(model, 'native-b'); refresh.click(); panel.update(rows);
         expect(onChange).not.toHaveBeenCalled(); expect(onRefresh).not.toHaveBeenCalled();

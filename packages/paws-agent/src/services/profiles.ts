@@ -15,6 +15,7 @@ export interface ServiceProfileRow extends ServiceProfileSlot {
     allowModelOverride?: boolean;
     allowReasoningOverride?: boolean;
     loading?: boolean;
+    loadingStage?: 'configuration' | 'models';
     error?: string;
     value: ServiceProfileValue;
     targets: ServiceConfiguration['targets'];
@@ -45,6 +46,7 @@ export interface ServiceProfilesState {
     saving: boolean;
     rows: ServiceProfileRow[];
     error: ClientErrorCode | null;
+    errorStage?: 'configuration' | 'save' | null;
 }
 export interface ServiceProfiles {
     begin(): Promise<void>;
@@ -153,20 +155,21 @@ export function createServiceProfiles(options: ServiceProfilesOptions): ServiceP
     }
     async function refreshRow(id: string, value: NonNullable<typeof context>, generation: number) {
         const row = slotRow(id), revision = (revisions.get(id) ?? 0) + 1;
-        revisions.set(id, revision); row.loading = true; row.error = undefined; emit();
+        revisions.set(id, revision); row.loading = true; row.loadingStage = 'models'; row.error = undefined; emit();
         const active = () => !disposed && generation === epoch && current(value) && revisions.get(id) === revision;
         try {
             checkTarget(value.configuration, row.value);
             const catalog = await probe(value, row.value.target!, generation);
             if (active()) { row.catalog = catalog; row.error = catalog?.availability === 'online' ? undefined : 'machine-offline'; }
-        } catch (error) { if (active()) { row.catalog = null; row.error = safeServiceError(error).code; } }
-        finally { if (active()) { row.loading = false; emit(); } }
+        } catch (error) { if (active()) { row.error = safeServiceError(error).code; } }
+        finally { if (active()) { row.loading = false; row.loadingStage = undefined; emit(); } }
     }
     function validateRow(row: ServiceProfileRow, configuration: ServiceConfiguration) {
         checkTarget(configuration, row.value);
         checkPermission(configuration, row.value);
         const catalog = row.catalog;
         if (row.loading) fail('resource-busy');
+        if (row.error) fail(row.error as ClientErrorCode);
         if (!catalog || catalog.availability !== 'online') return fail('machine-offline');
         if (targetKey(catalog) !== targetKey(row.value.target!)) fail('context-mismatch');
         const model = catalog.models.find(model => model.id === (row.value.modelId ?? catalog.defaultModelId));
@@ -183,7 +186,8 @@ export function createServiceProfiles(options: ServiceProfilesOptions): ServiceP
             open(); if (state.saving) fail('resource-busy');
             const value = capture(); invalidate(); const generation = epoch;
             context = null; baseline = [];
-            state = { ...value.scope, editing: true, loading: true, saving: false, rows: [], error: null }; emit();
+            state = { ...value.scope, editing: true, loading: true, saving: false,
+                rows: slots.map(slot=>({...slot,value:{},targets:[],catalog:null,loading:true,loadingStage:'configuration'})), error: null }; emit();
             try {
                 const loaded = await load(value);
                 if (disposed || generation !== epoch || !current(value)) return;
@@ -193,7 +197,9 @@ export function createServiceProfiles(options: ServiceProfilesOptions): ServiceP
                 baseline = structuredClone(state.rows); state.loading = false; emit();
             } catch (error) {
                 if (disposed || generation !== epoch || !current(value)) return;
-                state.loading = false; state.error = safeServiceError(error).code; emit(); throw safeServiceError(error);
+                state.loading = false; state.error = safeServiceError(error).code; state.errorStage='configuration';
+                for(const row of state.rows){row.loading=false;row.loadingStage=undefined;row.error=state.error;}
+                emit(); throw safeServiceError(error);
             }
         },
         update(id, patch) {
@@ -212,17 +218,17 @@ export function createServiceProfiles(options: ServiceProfilesOptions): ServiceP
             const value = requireDraft(), generation = epoch;
             for (const row of state.rows) validateRow(row, value.configuration);
             const record: ServiceProfilesRecord = { version: 1, slots: Object.fromEntries(state.rows.map(row => [row.id, structuredClone(row.value)])) };
-            state.saving = true; state.error = null; emit();
+            state.saving = true; state.error = null; state.errorStage=null; emit();
             try {
                 await options.write(structuredClone(value.scope), record);
                 if (disposed || generation !== epoch || !current(value)) return;
                 baseline = structuredClone(state.rows); state.editing = false;
             } catch {
-                if (!disposed && generation === epoch && current(value)) state.error = 'storage-unavailable';
+                if (!disposed && generation === epoch && current(value)) {state.error = 'storage-unavailable';state.errorStage='save';}
                 return fail('storage-unavailable');
             } finally { if (!disposed && generation === epoch) { state.saving = false; emit(); } }
         },
-        cancel() { open(); if (state.saving) fail('resource-busy'); invalidate(); state.rows = structuredClone(baseline); state.editing = false; state.loading = false; state.error = null; emit(); },
+        cancel() { open(); if (state.saving) fail('resource-busy'); invalidate(); state.rows = structuredClone(baseline); state.editing = false; state.loading = false; state.error = null;state.errorStage=null; emit(); },
         async getOverrides(id) {
             if (!slots.some(slot => slot.id === id)) return fail('invalid-request');
             const value = capture(), loaded = await load(value), row = loaded.rows.find(row => row.id === id)!;

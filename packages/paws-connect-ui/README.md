@@ -73,3 +73,9 @@ python3 -m http.server 4186 --bind 127.0.0.1 --directory fixture-dist
 Open `http://127.0.0.1:4186/?case=initial`. The fixture uses fake transport data through the real SDK controller. It does not contact a provider. Its controls simulate approval and a catalog change. Use `?case=pending`, `?case=ready`, `?case=reasoning-only`, `?case=limited`, or one of the recovery code names shown in the scenario menu. Add `&theme=dark` for a dark system theme. Storage warnings are simulated status data; they do not test real browser storage denial.
 
 Fixture files are excluded from package exports and packed runtime files. Browser acceptance uses Ego. Real mobile approval and provider availability require separate integration acceptance.
+
+### Loading and selection states
+
+Service rows accept `loadingStage: "configuration" | "models"`. Keep slot names visible during discovery. Loading controls cannot change or save values. A failed refresh keeps the selected values and shows a retry action. Hosts must block saving when any row is loading or has an error.
+
+Selectors use a shared themed listbox. The native select remains hidden to preserve its value and change-event contract. Popovers inherit the host semantic tokens. Optional `--paws-service-menu` and `--paws-service-menu-shadow` tokens set the menu surface. Direction keys, Home, End, Enter, Escape, and outside clicks are supported.

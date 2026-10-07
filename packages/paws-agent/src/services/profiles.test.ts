@@ -3,6 +3,27 @@ import type { CapabilityCatalog, ServiceConfiguration, ServiceTarget } from '@sl
 import { createServiceProfiles } from './profiles';
 import type { ServiceProfilesClient, ServiceProfilesScope } from './profiles';
 import type { ServiceConnection } from './types';
+import { AIServiceClientError } from './types';
+
+it('shows named loading rows while configuration is pending and separates the catalog stage', async () => {
+    const f=setup(); let resolve!: (value: ServiceConfiguration) => void;
+    f.configuration(()=>new Promise(r=>{resolve=r;}));
+    const pending=f.profiles.begin();
+    expect(f.profiles.getState().rows.map(row=>[row.id,row.loadingStage,row.loading])).toEqual([['reply','configuration',true],['summary','configuration',true]]);
+    const stages:string[]=[]; f.profiles.subscribe(state=>stages.push(...state.rows.map(row=>row.loadingStage??'ready')));
+    resolve(directory()); await pending;
+    expect(stages).toContain('models'); expect(f.profiles.getState().rows.every(row=>!row.loading&&!row.loadingStage)).toBe(true);
+    f.profiles.dispose();
+});
+
+it('retains the selected configuration after a busy refresh and blocks saving until a successful retry', async () => {
+    const f=setup();await f.profiles.begin();f.profiles.update('reply',{modelId:'other-model'});
+    f.capabilities(async()=>{throw new AIServiceClientError('resource-busy');});await f.profiles.refresh('reply');
+    const failed=f.profiles.getState().rows[0];expect(failed.value.modelId).toBe('other-model');expect(failed.catalog?.models.length).toBe(2);expect(failed.error).toBe('resource-busy');
+    await expect(f.profiles.save()).rejects.toMatchObject({code:'resource-busy'});expect(f.writes).toHaveLength(0);
+    f.capabilities(async({target})=>catalog(target));await f.profiles.refresh('reply');await f.profiles.save();
+    expect(f.writes).toHaveLength(1);expect((await f.profiles.getOverrides('reply')).modelId).toBe('other-model');f.profiles.dispose();
+});
 
 const first: ServiceTarget = { machineId: 'first', engine: 'codex', accountRef: { kind: 'codex-profile', id: 'account-a' } };
 const second: ServiceTarget = { machineId: 'second', engine: 'codex', accountRef: { kind: 'codex-profile', id: 'account-b' } };
