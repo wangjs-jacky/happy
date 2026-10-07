@@ -177,7 +177,8 @@ export class MessagesResourceImpl implements MessagesResource {
 
     private async getEncryption(sessionId: string) {
         let encryption = this.encryption.getSession(sessionId);
-        if (!encryption) {
+        const credentials = await this.transport.getCredentials();
+        if (!encryption || 'resolveRecordKey' in credentials) {
             await this.sessions.get(sessionId);
             encryption = this.encryption.getSession(sessionId);
         }
