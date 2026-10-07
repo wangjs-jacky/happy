@@ -203,6 +203,7 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                             x={index => xForIndex(index, props.chart.points.length)}
                             y={value => yForValue(value, range.min, range.max)}
                             color={theme.colors.textLink}
+                            background={theme.colors.surface}
                         />
                         {props.chart.points.map((point, index) => {
                             const x = xForIndex(index, props.chart.points.length);
@@ -236,6 +237,7 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                             x={index => xForIndex(index, props.chart.points.length)}
                             y={value => yForValue(value, range.min, range.max)}
                             color={theme.colors.textLink}
+                            background={theme.colors.surface}
                         />
                         {props.chart.numberedBars && props.chart.points.length <= 20 ? props.chart.points.map((point, index) => (
                             <SvgText key={`number-${index}`} x={xForIndex(index, props.chart.points.length)} y={FINANCE_CHART_HEIGHT - 8} textAnchor="middle" fontSize={10} fill={theme.colors.textSecondary}>{index + 1}</SvgText>

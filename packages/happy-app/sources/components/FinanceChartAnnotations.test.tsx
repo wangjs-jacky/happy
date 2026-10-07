@@ -10,7 +10,7 @@ const annotations: FinanceChartAnnotation[] = [
     { type: 'point', at: { index: 1, price: 12 }, label: 'Top' },
     { type: 'line', from: { index: 1, price: 12 }, to: { index: 3, price: 8 }, dashed: true, label: 'Candidate' },
 ];
-const props = { annotations, count: 5, x: (i: number) => 30 + i * 69, y: (p: number) => 140 - p * 5, color: 'currentColor' };
+const props = { annotations, count: 5, x: (i: number) => 30 + i * 69, y: (p: number) => 140 - p * 5, color: 'currentColor', background: 'white' };
 describe('FinanceChartAnnotations', () => {
     it('uses candle coordinate transforms for endpoint and candidate line', () => {
         const html = renderToStaticMarkup(<FinanceChartAnnotations {...props} layer="marks" />);
@@ -24,7 +24,7 @@ describe('FinanceChartAnnotations', () => {
     it('clips inclusive region bands to the plot and keeps them behind marks', () => {
         const html = renderToStaticMarkup(<FinanceChartAnnotations {...props} layer="regions" />);
         expect(html).toContain('x="30" y="14" width="172.5"');
-        expect(html).not.toContain('<circle');
+        expect(html).not.toContain('r="5"');
         expect(html).toContain('>1</text>');
     });
 });
