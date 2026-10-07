@@ -1,3 +1,4 @@
+import type { NativeMessage } from './nativeSessionRuntime';
 import { afterEach, it, expect } from 'vitest';
 import { mkdtemp, writeFile, rm, readdir, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -48,7 +49,14 @@ rl.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(li
  await writeFile(claude,'#!/usr/bin/env node\nconsole.log('+JSON.stringify(JSON.stringify({ loggedIn:true,authMethod:'oauth',apiProvider:'firstParty',email:'fixture@example.test',orgId:'fixture-org',tokens:'never-publish' }))+');',{ mode:0o700 });
  const f=jobFixture(),calls:{ path:string;body:any }[]=[],saved:any[]=[];let phase=0;
  f.job.scope={ ...f.job.scope,targets:[{ machineId:target.machineId,engine:target.engine,accountRef:{ id:target.accountRef.id,kind:target.accountRef.kind } }] };
+ const nativeMessages:NativeMessage[]=[];let consumer:((message:NativeMessage)=>void)|undefined,nativePrompt='';
+ const append=(content:unknown,localId:string|null=null)=>{const message={id:String(nativeMessages.length+1),seq:nativeMessages.length+1,localId,content};nativeMessages.push(message);consumer?.(message);};
  const worker=createSharedServiceWorker({ machine,recoveryRoot:join(root,'jobs'),lifetime:new AbortController().signal,codexBinary:binary,claudeBinary:claude,
+  nativeSessionHooks:{connect:async()=>{},get:async()=>({id:'native-session',active:true,metadata:{machineId:machine.id,application:{appId:binding.appId,bindingId:binding.id},codexAccountProfileId:'exact-profile',currentModelCode:'native'},agentState:{}}),
+   start:async input=>{nativePrompt=input.systemPrompt;expect(input.codexSessionGrant).toBe('g'.repeat(43));append({role:'agent',content:{type:'event',data:{type:'ready'}}});return {type:'success',sessionId:'native-session'};},
+   historyPage:async(_id,{afterSeq})=>({messages:nativeMessages.filter(message=>message.seq>afterSeq),hasMore:false}),
+   watch:async(_id,options)=>{consumer=message=>{if(message.seq>options.afterSeq)options.onMessage(message);};nativeMessages.forEach(consumer);return {sync:async()=>{},unsubscribe:()=>{consumer=undefined;}};},
+   send:async input=>{append({role:'user',content:{type:'text',text:input.text}},input.localId);for(const ev of [{t:'turn-start',localIds:[input.localId]},{t:'text',text:'Summary answer'},{t:'turn-end',status:'completed'}])append({role:'session',content:{type:'session',data:{role:'agent',turn:'native-turn',ev}}});},cancel:async()=>{}},
   request:async <T>(path:string,body:any):Promise<T>=>{
    calls.push({ path,body });
    if(path.endsWith('/announce'))return {} as T;
@@ -67,8 +75,8 @@ rl.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(li
  expect(published!.body.output).not.toContain('Summary answer');expect(decryptLegacy(decodeBase64(published!.body.output),f.key)).toMatchObject({ text:'Summary answer',bindingId:'binding',requestId:'request',direction:'output' });
  expect(published!.body.actual.modelId).toBe('native');
  const nativeCalls=(await readFile(audit,'utf8')).trim().split('\n').map(line=>JSON.parse(line));
- expect(nativeCalls.filter(call=>call.method === 'turn/start')).toHaveLength(1);
- expect(nativeCalls.find(call=>call.method === 'thread/start').params.baseInstructions).toContain('Summarize the supplied topic');
+ expect(nativeCalls.filter(call=>call.method === 'turn/start')).toHaveLength(0);
+ expect(nativePrompt).toContain('Summarize the supplied topic');
  expect((await readdir(join(root,'jobs'))).filter(name=>name.startsWith('job-'))).toEqual([]);
 },15000);
 it('shares the old machine-wide exclusion primitive',async()=>{

@@ -1,3 +1,4 @@
+import type { NativeSessionHooks } from './nativeSessionRuntime';
 /** Bounded leased worker for application-owned chats; independent of unrestricted RPC. */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -27,7 +28,7 @@ const messageSchema = z.object({ role: z.enum(['user', 'assistant']), text: z.st
 
 const activeHomes = new Set<string>();
 
-export function startAppChatWorker(token: string, machine: Machine): () => void {
+export function startAppChatWorker(token: string, machine: Machine, nativeSessionHooks?: NativeSessionHooks): () => void {
     const lifetime = new AbortController();
     let active: AbortController | null = null;
     let recoveryWarning = false;
@@ -50,7 +51,7 @@ export function startAppChatWorker(token: string, machine: Machine): () => void 
         reportCodexAccountQuota: (id, data) => request(`codex-accounts/${id}/quota-snapshot`, data, 'PUT', true),
         reportCodexAccountStatus: (id, data) => request(`codex-accounts/${id}/status`, data, 'PUT', true),
     };
-    const shared = createSharedServiceWorker({ machine, request, api, recoveryRoot: join(configuration.happyHomeDir, 'ai-service-credentials', createHash('sha256').update(machine.id).digest('hex')), lifetime: lifetime.signal, codexBinary: binary, claudeBinary });
+    const shared = createSharedServiceWorker({ machine, request, api, recoveryRoot: join(configuration.happyHomeDir, 'ai-service-credentials', createHash('sha256').update(machine.id).digest('hex')), lifetime: lifetime.signal, codexBinary: binary, claudeBinary, nativeSessionHooks });
     const recoverCredentials = () => recoverAppChatCredentialJobs(recoveryRoot, machine.id, api, activeHomes);
     const execute = async (job: Job) => {
         const control = new AbortController(); active = control;
@@ -119,13 +120,15 @@ export function startAppChatWorker(token: string, machine: Machine): () => void 
         if (configuredBinary && !isAbsolute(configuredBinary)) return;
         const readiness = await Promise.all([verifyRestrictedCodex(binary), verifyRestrictedClaude(claudeBinary)]);
         engines = ['codex', 'claude'].filter((_, index) => readiness[index]);
-        if (!engines.length) return;
+        if (!engines.length && !nativeSessionHooks) return;
         let release: (() => Promise<void>) | null = null;
         while (!lifetime.signal.aborted && !release) {
             release = await acquireMachineLock(machine.id, () => lifetime.abort());
             if (!release) await new Promise(resolve => setTimeout(resolve, 1000));
         }
         if (!release) return;
+        let historyBusy=false;
+        const historyTimer=setInterval(()=>{if(historyBusy||lifetime.signal.aborted)return;historyBusy=true;void shared.tickHistory().catch(()=>undefined).finally(()=>{historyBusy=false;});},1000);
         try { while (!lifetime.signal.aborted) {
             try {
                 if (!await recoverCredentials()) {
@@ -143,7 +146,7 @@ export function startAppChatWorker(token: string, machine: Machine): () => void 
                 function done() { clearTimeout(timer); lifetime.signal.removeEventListener('abort', done); resolve(); }
                 lifetime.signal.addEventListener('abort', done, { once: true });
             });
-        } } finally { await release(); }
+        } } finally { clearInterval(historyTimer); await release(); }
     })();
     return () => { lifetime.abort(); active?.abort(); };
 }

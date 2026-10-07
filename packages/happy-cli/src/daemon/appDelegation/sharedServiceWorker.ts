@@ -1,3 +1,5 @@
+import { createNativeSessionRuntime, type NativeSessionHooks, type NativePhase, type NativeConversationMessage } from './nativeSessionRuntime';
+import { loadApplicationPolicy } from './applicationPolicy';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -14,7 +16,7 @@ import { CodexAccountLaunch, type AccountApi } from '@/daemon/codexAccountLaunch
 import { createBoundServiceRuntime, type BoundWorkspace, type BoundCredentialLease, type BoundTurnInput } from './executionBinding';
 import { recoverAppChatCredentialJobs } from './credentialRecovery';
 
-export interface SharedServiceJob { record: TurnRecord; lease: string; input: string; envelope: string; kind: string; grantId: string; ownerId: string; scope: ServiceGrantScope }
+export interface SharedServiceJob { record: TurnRecord; lease: string; input: string; envelope: string; kind: string; grantId: string; ownerId: string; scope: ServiceGrantScope; sequence?:number }
 interface Probe { id: string; lease: string; target: ServiceTarget; deadline: number }
 type Authority = { kind: 'probe'|'turn'; id: string; lease: string };
 type Request = <T>(path: string, body: unknown) => Promise<T>;
@@ -38,8 +40,9 @@ export function decodeServiceJob(machine: Machine, job: SharedServiceJob) {
  return { key,messages:payload.messages as BoundTurnInput['messages'] };
 }
 /** Called only inside the existing legacy/new machine lock. It never starts its own competing loop. */
-export function createSharedServiceWorker(context: { machine: Machine; request: Request; api: AccountApi; recoveryRoot: string; lifetime: AbortSignal; codexBinary: string; claudeBinary: string }) {
+export function createSharedServiceWorker(context: { machine: Machine; request: Request; api: AccountApi; recoveryRoot: string; lifetime: AbortSignal; codexBinary: string; claudeBinary: string; nativeSessionHooks?: NativeSessionHooks }) {
  const { machine,request,api,lifetime }=context;
+ const native=context.nativeSessionHooks ? createNativeSessionRuntime({ hooks:context.nativeSessionHooks,root:join(context.recoveryRoot,'native'),machineId:machine.id }) : null;
  const path=`ai-service-worker/${encodeURIComponent(machine.id)}`;
  let authority: Authority | null=null;
  let claudeIdentity: { identityId:string; observedAt:number } | null=null;
@@ -70,25 +73,56 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
  async function execute(job:SharedServiceJob) {
   const control=new AbortController(), abort=()=>control.abort(); lifetime.addEventListener('abort',abort,{ once:true });
   authority={ kind:'turn',id:job.record.id,lease:job.lease };
-  let latest='',sequence=0,flushing:Promise<unknown>=Promise.resolve(),heartbeat:NodeJS.Timeout|undefined;
-  let key:Uint8Array|undefined;
-  const publish=(body:object)=>request(`${path}/turns/${job.record.id}`,{ lease:job.lease,...body });
-  const encode=()=>encodeBase64(encryptLegacy({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest },key!));
+  let latest='',sequence=job.sequence??0,flushing:Promise<unknown>=Promise.resolve(),heartbeat:NodeJS.Timeout|undefined;
+  let key:Uint8Array|undefined, phase:NativePhase|undefined;
+  let messages:NativeConversationMessage[]|undefined;
+  const publish=(body:object)=>request(`${path}/turns/${job.record.id}`,{ lease:job.lease,...(phase ? {phase}:{}),...body });
+  const encode=()=>encodeBase64(encryptLegacy({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest,...(messages ? {messages}: {}) },key!));
   try {
    const decoded=decodeServiceJob(machine,job); key=decoded.key;
    heartbeat=setInterval(()=> {
     flushing=flushing.then(async()=> { if (!control.signal.aborted) await publish({ output:encode(),sequence }); }).catch(()=>control.abort());
    },3000);
-   const result=await runtime.executeBoundTurn(job.record.binding,{ id:job.record.id,conversationId:job.record.conversationId,requestId:job.record.requestId,createdAt:job.record.createdAt,messages:decoded.messages },control.signal,event=> { if (event.type === 'text') latest=event.text; });
+   if (!native) throw new Error('protocol-incompatible');
+   if(job.record.status==='cancel-requested'){const confirmed=await native.cancel(job.record.binding,job.record.requestId,job.record.sessionId);await publish(confirmed ? {status:'cancelled',error:{code:'execution-interrupted',retryable:false}} : {phase:'recovering'});return;}
+   const verified=await request<{target:ServiceTarget}>(`${path}/authority`,authority);
+   if (!sameServiceTarget(job.record.binding,verified.target)) throw new Error('account-identity-changed');
+   const data=await request<{policy:AppPolicy;ref:BusinessPromptRef;prompt:string}>(`${path}/policy`,authority);
+   const {systemPrompt}=await loadApplicationPolicy(job.record.binding.appId,job.record.binding.permissions,async()=>data.policy,async ref=>ref.id===data.ref.id && ref.version===data.ref.version ? data.prompt:null,job.record.binding.permissionMode);
+   const grant=job.record.binding.engine==='codex' ? await request<{grant:string}>(`${path}/credential`,authority):undefined;
+   const result=await native.execute(job.record.binding,{id:job.record.id,conversationId:job.record.conversationId,requestId:job.record.requestId,createdAt:job.record.createdAt,messages:decoded.messages},
+    {sessionId:job.record.sessionId,codexSessionGrant:grant?.grant,systemPrompt,attach:async id=>{await request(`${path}/turns/${job.record.id}/session`,{lease:job.lease,sessionId:id});}},control.signal,event=>{
+     if(event.type==='text')latest=event.text;
+     else if(event.type==='messages')messages=event.messages;
+     else {phase=event.phase;flushing=flushing.then(()=>publish({})).catch(()=>control.abort());}
+    });
+   latest=result.text;messages=result.messages;
+
    clearInterval(heartbeat); heartbeat=undefined; await flushing;
    const output=encode();
-   await publish({ output,sequence,status:result.status,actual:result.actual,...(result.error ? { error:result.error } : {}) });
-  } catch {
+   await publish({ output,sequence,status:result.status,actual:result.actual,...(result.status!=='completed' ? {error:{code:'execution-interrupted',retryable:false}} : {}) });
+  } catch(error) {
    control.abort(); await flushing;
-   await publish({ status:'failed',error:{ code:'execution-interrupted',retryable:false } }).catch(()=>undefined);
+   if(error instanceof Error && error.message==='native-execution-pending'){phase='recovering';await publish({}).catch(()=>undefined);return;}
+   const parsed=ServiceErrorCodeSchema.safeParse(error instanceof Error ? error.message : '');
+   await publish({ status:'failed',error:{ code:parsed.success ? parsed.data : 'execution-interrupted',retryable:false } }).catch(()=>undefined);
   } finally { if (heartbeat) clearInterval(heartbeat); await flushing; authority=null; policyData=null; lifetime.removeEventListener('abort',abort); }
  }
  return {
+  async tickHistory():Promise<void> {
+   if(!native)return;
+   const {history}=await request<{history:null|{id:string;sessionId:string;binding:ExecutionBinding;grantId:string;ownerId:string;scope:ServiceGrantScope;envelope:string;requestId:string}}>(`${path}/history/claim`,{});
+   if(!history)return;
+   const bundle=decodeBase64(history.envelope),keys=serviceMachineKey(machine);
+   const opened=nacl.box.open(bundle.slice(56),bundle.slice(32,56),bundle.slice(0,32),keys.secretKey);
+   if(!opened)throw new Error('permission-denied');
+   const envelope=JSON.parse(Buffer.from(opened).toString('utf8')),binding=history.binding;
+   if(envelope.protocol!=='ai-services/1'||envelope.grantId!==history.grantId||envelope.ownerId!==history.ownerId||envelope.appId!==binding.appId||envelope.serviceId!==binding.serviceId||envelope.machineId!==machine.id||binding.machineId!==machine.id||history.id!==binding.id||JSON.stringify(ServiceGrantScopeSchema.parse(envelope.scope))!==JSON.stringify(ServiceGrantScopeSchema.parse(history.scope))||!history.scope.targets.some(target=>sameServiceTarget(target,binding))||binding.permissions.some(permission=>!history.scope.permissions.includes(permission))||(history.scope.expiresAt!==null&&history.scope.expiresAt<=Date.now()))throw new Error('permission-denied');
+   const key=decodeBase64(envelope.messageKey);if(key.length!==32)throw new Error('permission-denied');
+   const snapshot=await native.snapshot(binding,history.sessionId,lifetime);
+   const ciphertext=encodeBase64(encryptLegacy({protocol:'ai-services/1',direction:'session-history',grantId:history.grantId,appId:binding.appId,serviceId:binding.serviceId,bindingId:binding.id,requestId:history.requestId,...snapshot},key));
+   await request(`${path}/history/${history.id}`,{requestId:history.requestId,sessionId:history.sessionId,ciphertext});
+  },
   async tick():Promise<boolean> {
    lifetime.throwIfAborted();
    // Both roots are recovered while holding the one machine lock, before any native observation.
@@ -101,7 +135,7 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
      claudeIdentity={ identityId:claudeIdentityId(JSON.parse(stdout)),observedAt:Date.now() };
     } catch { /* Never return login JSON, email, tokens, or an invented identity. */ }
    }
-   await request(`${path}/announce`,{ protocol:'ai-services/1',publicKey:Buffer.from(serviceMachineKey(machine).publicKey).toString('base64'),claudeIdentity });
+   await request(`${path}/announce`,{ protocol:'ai-services/1',nativeSessions:!!context.nativeSessionHooks,publicKey:Buffer.from(serviceMachineKey(machine).publicKey).toString('base64'),claudeIdentity });
    const { probe,job }=await request<{ probe:Probe|null;job:SharedServiceJob|null }>(`${path}/claim`,{});
    if (probe) {
     authority={ kind:'probe',id:probe.id,lease:probe.lease };
