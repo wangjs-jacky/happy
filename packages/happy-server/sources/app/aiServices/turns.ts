@@ -1,4 +1,4 @@
-import { lockServiceAccount, serviceTransaction } from './transactions';
+import { lockServiceAccount, lockServiceQuota, serviceTransaction } from './transactions';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { PrismaClient, Prisma, AppChatTurn } from '@prisma/client';
 import { ExecutionBindingSchema, ServicePrincipalSchema, TurnRecordSchema, TurnActualSchema, ServiceErrorSchema, type ServicePrincipal, type ExecutionBinding, type TurnRecord, type TurnActual, type ServiceError, type TurnPhase, TurnPhaseSchema } from '@slopus/happy-wire';
@@ -54,7 +54,7 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
    if (existing) { if (existing.input !== envelope.ciphertext) deny('invalid-request'); return boundTurnRecord(existing, binding); }
    return store.withValidatedBinding(user, user.scope.appId, bindingId, async (tx, binding) => {
     // Lock the grant's shadow storage row to serialize request deduplication and resource accounting.
-    await tx.$queryRaw`SELECT "id" FROM "AppDelegation" WHERE "id" = ${user.grantId} FOR UPDATE`;
+    await lockServiceQuota(tx, user.grantId);
     const repeated = await tx.appChatTurn.findUnique({ where: { bindingId_requestId: { bindingId, requestId } } });
     if (repeated) { if (repeated.input !== envelope.ciphertext) deny('invalid-request'); return boundTurnRecord(repeated, binding); }
     const mapped = await tx.aIServiceBinding.findUniqueOrThrow({where:{id:bindingId}});
@@ -162,7 +162,7 @@ export function createServiceTurns(database: PrismaClient, store: AIServiceStore
     const before = await tx.appChatTurn.findUnique({ where: { id } });
     if (!before?.bindingId) deny('permission-denied');
     const auth = await authorizeWorkerBinding(tx,ownerId,machineId,before.bindingId);
-    await tx.$queryRaw`SELECT "id" FROM "AppDelegation" WHERE "id" = ${auth.grant.id} FOR UPDATE`;
+    await lockServiceQuota(tx, auth.grant.id);
     await lockTurn(tx,id);
     const row = await tx.appChatTurn.findUniqueOrThrow({ where: { id } });
     if (!['running','cancel-requested'].includes(row.state) || row.lease !== input.lease || !row.leaseUntil || row.leaseUntil.getTime() <= Date.now() || row.deadline.getTime() <= Date.now()) deny('execution-interrupted');

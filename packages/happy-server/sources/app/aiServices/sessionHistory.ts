@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { ServiceErrorCodeSchema, TurnPhaseSchema, type ServicePrincipal } from '@slopus/happy-wire';
 import type { AIServiceStore } from '@/app/aiServices/store';
 import { authorizeWorkerBinding } from '@/app/aiServices/turns';
-import { serviceTransaction } from '@/app/aiServices/transactions';
+import { lockServiceQuota, serviceTransaction } from '@/app/aiServices/transactions';
 import { deny, AIServiceError } from '@/app/aiServices/errors';
 
 /** Broker fresh grant-encrypted history. Each request retains its own response until all live readers have timed out. */
@@ -25,13 +25,7 @@ export function createSessionHistory(database: PrismaClient, store: AIServiceSto
                 // Readers arriving before completion share the request. Completed responses are never overwritten.
                 const existing = await tx.aIServiceHistoryRequest.findFirst({ where: { bindingId, state: { in: ['queued', 'running'] }, deadline: { gt: new Date() } }, orderBy: { createdAt: 'asc' } });
                 if (existing) return { pending: false as const, ...existing };
-                await tx.$queryRaw`SELECT "id" FROM "AppDelegation" WHERE "id" = ${auth.grant.id} FOR UPDATE`;
-                const expired = await tx.aIServiceHistoryRequest.findMany({ where: { bindingId, deadline: { lt: new Date(Date.now() - 60000) } }, select: { id: true, ciphertext: true } });
-                const bytes = expired.reduce((sum, item) => sum + Buffer.byteLength(item.ciphertext ?? ''), 0);
-                if (expired.length) {
-                    await tx.aIServiceHistoryRequest.deleteMany({ where: { id: { in: expired.map(item => item.id) } } });
-                    await tx.appDelegation.update({ where: { id: auth.grant.id }, data: { storedBytes: { decrement: bytes } } });
-                }
+                await lockServiceQuota(tx, auth.grant.id);
                 if (await tx.aIServiceHistoryRequest.count({ where: { bindingId } }) >= 100) deny('resource-busy');
                 const created = await tx.aIServiceHistoryRequest.create({ data: { id: randomUUID(), bindingId, sessionId: row.sessionId, deadline: new Date(Date.now() + 20000) } });
                 return { pending: false as const, ...created };
@@ -73,7 +67,7 @@ export function createSessionHistory(database: PrismaClient, store: AIServiceSto
             return serviceTransaction(database, ownerId, async tx => {
                 const auth = await authorizeWorkerBinding(tx, ownerId, machineId, bindingId);
                 // Same grant lock used by turn admission/output prevents separate bindings exceeding their shared budget.
-                await tx.$queryRaw`SELECT "id" FROM "AppDelegation" WHERE "id" = ${auth.grant.id} FOR UPDATE`;
+                await lockServiceQuota(tx, auth.grant.id);
                 const storage = await tx.appDelegation.findUniqueOrThrow({ where: { id: auth.grant.id } });
                 const bytes = Buffer.byteLength(input.ciphertext);
                 if (storage.storedBytes + bytes > 100 * 1024 * 1024) deny('resource-busy');

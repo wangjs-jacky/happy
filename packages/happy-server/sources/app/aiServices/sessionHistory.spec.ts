@@ -97,3 +97,28 @@ it('preserves a durable native completion observed after cancellation was reques
  await f.turns.publish(f.ownerId,f.machineId,turn.id,{lease:job!.lease,status:'completed',sequence:1,output:'done'.repeat(20)});
  expect((await f.turns.readBoundTurn(f.principal,b.id,turn.id)).record.status).toBe('completed');
 },30000);
+
+it.each(['history-read', 'history-publish', 'turn-start', 'turn-publish'] as const)('reclaims expired A history through %s on B without charging other grants', async operation => {
+ const f=await fixture(),other=await fixture(),a=await f.bind(),b=await f.bind(),foreign=await other.bind();
+ let historyJob: Awaited<ReturnType<typeof f.claim>> | undefined;
+ let historyRead: ReturnType<typeof f.history.read> | undefined;
+ let turn: Awaited<ReturnType<typeof f.turns.startBoundTurn>> | undefined;
+ let turnJob: Awaited<ReturnType<typeof f.turns.claim>> | undefined;
+ if(operation==='history-publish') {historyRead=f.history.read(f.principal,b.id);historyJob=await f.claim();}
+ if(operation==='turn-publish') {turn=await f.turns.startBoundTurn(f.principal,b.id,'turn',{ciphertext:'i'.repeat(80)});turnJob=await f.turns.claim(f.ownerId,f.machineId);}
+ await f.db.aIServiceHistoryRequest.createMany({data:[
+  {id:`expired-${a.id}`,bindingId:a.id,sessionId:`session-${a.id}`,state:'completed',ciphertext:'a'.repeat(80),deadline:new Date(0)},
+  {id:`retained-${a.id}`,bindingId:a.id,sessionId:`session-${a.id}`,state:'completed',ciphertext:'live'.repeat(20),deadline:new Date()},
+  {id:`foreign-${foreign.id}`,bindingId:foreign.id,sessionId:`session-${foreign.id}`,state:'completed',ciphertext:'foreign'.repeat(20),deadline:new Date(0)},
+ ]});
+ await f.db.appDelegation.update({where:{id:f.receipt.id},data:{storedBytes:100*1024*1024-20}});
+ await f.db.appDelegation.update({where:{id:other.receipt.id},data:{storedBytes:140}});
+ if(operation==='history-read') {historyRead=f.history.read(f.principal,b.id);historyJob=await f.claim();}
+ if(historyJob){await f.history.publish(f.ownerId,f.machineId,b.id,{requestId:historyJob.requestId,sessionId:historyJob.sessionId,ciphertext:'b'.repeat(80)});await historyRead;}
+ if(operation==='turn-start') await f.turns.startBoundTurn(f.principal,b.id,'turn',{ciphertext:'b'.repeat(80)});
+ if(turnJob) await f.turns.publish(f.ownerId,f.machineId,turn!.id,{lease:turnJob.lease,output:'b'.repeat(80),sequence:1,status:'completed'});
+ expect(await f.db.aIServiceHistoryRequest.findUnique({where:{id:`expired-${a.id}`}})).toBeNull();
+ expect(await f.db.aIServiceHistoryRequest.count({where:{id:{in:[`retained-${a.id}`,`foreign-${foreign.id}`]}}})).toBe(2);
+ expect((await f.db.appDelegation.findUniqueOrThrow({where:{id:f.receipt.id}})).storedBytes).toBe(100*1024*1024-20);
+ expect((await f.db.appDelegation.findUniqueOrThrow({where:{id:other.receipt.id}})).storedBytes).toBe(140);
+},30000);
