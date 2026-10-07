@@ -48,6 +48,8 @@ export interface TurnLocator {
     requestId?: string;
 }
 export interface TurnSnapshot {
+    /** False for request-only/heartbeat snapshots. Omission means authoritative history. */
+    historyComplete?: false;
     snapshotError?: NativeSnapshotError;
     record: TurnRecord;
     sequence: number;

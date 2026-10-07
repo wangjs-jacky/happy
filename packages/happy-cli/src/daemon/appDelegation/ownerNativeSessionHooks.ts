@@ -36,6 +36,7 @@ export function createOwnerNativeSessionHooks(input: {
     const client = new PawsAgentClient({
         serverUrl: input.serverUrl,
         credentials: { getCredentials: async () => credentials },
+        maxImagesPerMessage: 12,
     });
     return {
         connect: () => client.connect(),

@@ -19,7 +19,7 @@ async function fixture(variant: 'legacy' | 'dataKey') {
         dataEncryptionKey: variant === 'dataKey' ? 'opaque-owner-encrypted-key' : null });
     const state = { scoped: true, permitted: true, rows: [] as Array<{ id: string; seq: number; localId: string; content: { t: string; c: string }; createdAt: number; updatedAt: number }>,
         rpc: [] as string[], requests: [] as string[], unauthorized: false, rpcError: false,
-        attachment: new Uint8Array() as Uint8Array, oversized: false, oversizedStream: false, revokeDuringDownload: false, externalUrl: '' };
+        attachment: new Uint8Array() as Uint8Array, uploads: [] as Buffer[], oversized: false, oversizedStream: false, revokeDuringDownload: false, externalUrl: '' };
     const server = createServer(async (request, response) => {
         state.requests.push(`${request.method} ${request.url}`);
         const authorized = request.headers.authorization === 'Bearer owner-token';
@@ -30,7 +30,13 @@ async function fixture(variant: 'legacy' | 'dataKey') {
         if (url.pathname === '/v1/machines') response.end(JSON.stringify([record('owner-machine'), record('other-machine')]));
         else if (url.pathname === '/v1/sessions') response.end(JSON.stringify({ sessions: [record('owner-session'), record('other-session')] }));
         else if (url.pathname.startsWith('/v2/sessions/')) response.end(JSON.stringify({ session: record(url.pathname.split('/').at(-1)!) }));
-        else if (url.pathname.endsWith('/attachments/request-download')) {
+        else if (url.pathname.endsWith('/attachments/request-upload')) {
+            let body = ''; for await (const chunk of request) body += chunk;
+            const {filename}=JSON.parse(body);
+            response.end(JSON.stringify({ref:`sessions/owner-session/attachments/${filename}.enc`,method:'PUT',uploadUrl:`http://127.0.0.1:${(server.address() as { port: number }).port}/upload`}));
+        } else if (url.pathname === '/upload') {
+            const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(chunk);state.uploads.push(Buffer.concat(chunks));response.end('{}');
+        } else if (url.pathname.endsWith('/attachments/request-download')) {
             let body = ''; for await (const chunk of request) body += chunk;
             expect(JSON.parse(body).ref).toBe('sessions/owner-session/attachments/image.enc');
             response.end(JSON.stringify({ downloadUrl: state.externalUrl || `http://127.0.0.1:${(server.address() as { port: number }).port}/blob` }));
@@ -78,6 +84,16 @@ async function fixture(variant: 'legacy' | 'dataKey') {
 }
 
 describe('owner native SDK bridge', () => {
+    it('sends twelve consented context images in one native user batch and rejects thirteen',async()=>{
+        const f=await fixture('dataKey');
+        const images=Array.from({length:12},(_,index)=>({name:`image-${index}`,mimeType:'image/png',bytes:f.png}));
+        await f.hooks.send({sessionId:'owner-session',localId:'carry',text:'untrusted migrated context',images});
+        expect(f.state.uploads).toHaveLength(12);expect(f.state.requests.filter(path=>path==='POST /v3/sessions/owner-session/messages')).toHaveLength(1);
+        const page=await f.hooks.historyPage('owner-session',{afterSeq:0,limit:500});expect(page.messages).toHaveLength(13);
+        expect(page.messages.at(-1)).toMatchObject({localId:'carry',content:{role:'user',content:{text:'untrusted migrated context'}}});
+        expect(page.messages.slice(0,-1).every(message=>(message.content as any).content.data.ev.t==='file')).toBe(true);
+        const before=f.state.requests.length;await expect(f.hooks.send({sessionId:'owner-session',localId:'too-many',text:'too many',images:[...images,images[0]]})).rejects.toMatchObject({code:'INVALID_ARGUMENT'});expect(f.state.requests).toHaveLength(before);
+    });
     it.each(['legacy', 'dataKey'] as const)('reads encrypted %s image history through native attachment download', async variant => {
         const f = await fixture(variant);
         const image = await f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png');

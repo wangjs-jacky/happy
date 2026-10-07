@@ -90,7 +90,7 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
   let key:Uint8Array|undefined, phase:NativePhase|undefined;
   let messages:NativeConversationMessage[]|undefined, terminalObserved=false;
   const publish=(body:object)=>request(`${path}/turns/${job.record.id}`,{ lease:job.lease,...(phase ? {phase}:{}),...body });
-  const encode=(includeHistory=true,forceTooLarge=false)=>encodeNativeServiceSnapshot({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest,...(includeHistory && messages ? {messages}: {}) },key!,forceTooLarge);
+  const encode=(includeHistory=true,forceTooLarge=false)=>encodeNativeServiceSnapshot({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest,...(includeHistory && messages ? {messages}: {historyComplete:false}) },key!,forceTooLarge);
   const publishTerminal=async(body:object)=>{
    let output=encode();
    try{await publish({...body,output,sequence});}

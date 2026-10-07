@@ -7,7 +7,30 @@ import { createNodePlatformTransport } from './nodePlatformTransport';
 import { createPlatformServiceHandler } from './nodePlatformHandler';
 import { createMemoryServiceStorage } from './storage';
 import { binding, fixture, makeReceipt, encrypt } from './testFixtures';
-import { validateConversationSnapshot } from './scopedTransport';
+import { validateConversationSnapshot, validateHistoryMessages, validateMessages } from './scopedTransport';
+
+it('preserves twelve carried native images in one history message while keeping request image limits',()=>{
+ const images=Array.from({length:12},()=> 'data:image/png;base64,YQ==');
+ expect(validateHistoryMessages([{role:'user',text:'carried context',images}])[0].images).toEqual(images);
+ expect(()=>validateHistoryMessages([{role:'user',text:'too many',images:[...images,images[0]]}])).toThrow('context-mismatch');
+ expect(()=>validateMessages([{role:'user',text:'ordinary input',images:images.slice(0,5)}])).toThrow('invalid-request');
+});
+
+it('marks absent worker history as partial across initial phases, heartbeats and the browser bridge',async()=>{
+ const upstream=fixture();let phase=0;
+ const transport=createNodePlatformTransport({appId:'advisor',receipt:makeReceipt('platform-grant'),serverUrl:'https://paws.test',storage:createMemoryServiceStorage(),fetch:async(url,init)=>{
+  const response=await upstream.fetcher(url,init);if(!String(url).endsWith('/turns/turn'))return response;
+  const row=await response.json();row.record.sessionId='native';row.record.status='running';row.record.startedAt=2;row.record.completedAt=null;row.record.phase=phase?'generating':'resuming';row.sequence=phase;
+  row.output=phase?encrypt({protocol:'ai-services/1',grantId:'grant',appId:'advisor',serviceId:'service',bindingId:'binding',requestId:'request',turnId:'turn',direction:'output',sequence:phase,text:'partial'}):null;
+  return Response.json(row);
+ }});
+ await transport.authorize();await expect(transport.start({binding,requestId:'request',messages:[{role:'user',text:'hello'}]})).rejects.toMatchObject({code:'transport-error'});
+ const initial=await transport.read({bindingId:'binding',turnId:'turn'});expect(initial).toMatchObject({historyComplete:false,text:'',messages:[{role:'user',text:'hello'}]});
+ phase=1;const heartbeat=await transport.read({bindingId:'binding',turnId:'turn'});expect(heartbeat).toMatchObject({historyComplete:false,text:'partial',messages:[{role:'user',text:'hello'}]});
+ const browser=createBrowserPlatformTransport({appId:'advisor',baseUrl:'/api/ai',origin:'https://app.test',storage:createMemoryServiceStorage(),fetch:async url=>String(url).endsWith('/connection')?Response.json({id:'grant',source:'platform',appId:'advisor',serviceId:'service',expiresAt:null}):Response.json(heartbeat)});
+ await browser.authorize();expect(await browser.read({bindingId:'binding',turnId:'turn'})).toMatchObject({historyComplete:false,text:'partial'});
+ browser.dispose();transport.dispose();
+});
 
 it('reads fresh native Paws followups through grant-encrypted, binding-scoped history', async () => {
  const upstream=fixture(); let serial=0,wrong=false;

@@ -22,7 +22,7 @@ async function fixture() {
   send:async input=>{sends++;append({role:'user',content:{type:'text',text:input.text}},input.localId);event({t:'turn-start',localIds:[input.localId]},input.localId);event({t:'text',text:'answer'},input.localId);event({t:'turn-end',status:'completed'},input.localId);if(dropResponse)throw Error('lost acknowledgment');},cancel:async()=>{throw Error('must not cancel another surface');},
  };
  const runtime=createNativeSessionRuntime({hooks,root,machineId:'machine',readyTimeoutMs:20,pollMs:1});
- const execute=(requestId:string,sessionId?:string,signal=new AbortController().signal)=>runtime.execute(binding,{id:requestId,requestId,conversationId:'conversation',createdAt:0,messages:[{role:'assistant',text:'stale history'},{role:'user',text:requestId}]},{sessionId,systemPrompt:'policy',codexSessionGrant:'exact-grant',attach:async()=>{}},signal,event=>{if(event.type==='phase')phases.push(event.phase);});
+ const execute=(requestId:string,sessionId?:string,signal=new AbortController().signal)=>runtime.execute(binding,{id:requestId,requestId,conversationId:'conversation',createdAt:0,messages:[{role:'user',text:requestId}]},{sessionId,systemPrompt:'policy',codexSessionGrant:'exact-grant',attach:async()=>{}},signal,event=>{if(event.type==='phase')phases.push(event.phase);});
  return {runtime,hooks,execute,phases,messages,append,event,setActive:(value:boolean)=>{active=value;},setRunning:(value:boolean)=>{running=value;},drop:()=>{dropResponse=true;},counts:()=>({starts,sends})};
 }
 describe('native application sessions',()=>{
@@ -101,4 +101,21 @@ it('keeps the current submitted images in the returned turn transcript',async()=
  const f=await fixture(),images=['data:image/png;base64,YQ=='];
  const result=await f.runtime.execute(binding,{id:'image-turn',requestId:'image-turn',conversationId:'conversation',createdAt:0,messages:[{role:'user',text:'photo',images}]},{systemPrompt:'policy',attach:async()=>{}},new AbortController().signal,()=>{});
  expect(result.messages.at(-1)).toMatchObject({role:'user',text:'photo',images});
+});
+
+it('carries approved legacy context and images in one first native submission only',async()=>{
+ const f=await fixture(),send=f.hooks.send,submitted:Parameters<NativeSessionHooks['send']>[0][]=[];
+ f.hooks.send=async input=>{submitted.push(input);return send(input);};
+ const oldImage='data:image/png;base64,YQ==',newImage='data:image/jpeg;base64,Yg==';
+ const messages=[{role:'user' as const,text:'old private question',images:[oldImage]},{role:'assistant' as const,text:'old private answer'},{role:'user' as const,text:'continue using the old answer',images:[newImage]}];
+ const execute=(requestId:string,sessionId?:string)=>f.runtime.execute(binding,{id:requestId,requestId,conversationId:'conversation',createdAt:0,messages},{sessionId,systemPrompt:'policy',attach:async()=>{}},new AbortController().signal,()=>{});
+ await execute('carry');
+ expect(submitted).toHaveLength(1);
+ expect(submitted[0].text).toContain(JSON.stringify(messages.map(({role,text})=>({role,text}))));
+ expect(submitted[0].text).toContain('untrusted');
+ expect(submitted[0].images?.map(image=>Buffer.from(image.bytes).toString())).toEqual(['a','b']);
+ await execute('carry','session');expect(submitted).toHaveLength(1);
+ await execute('next','session');expect(submitted).toHaveLength(2);
+ expect(submitted[1].text).toBe('continue using the old answer');
+ expect(submitted[1].images?.map(image=>Buffer.from(image.bytes).toString())).toEqual(['b']);
 });

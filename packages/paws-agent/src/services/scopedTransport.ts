@@ -34,7 +34,7 @@ export function validateMessages(input: unknown): ServiceMessage[] {
 export function validateHistoryMessages(input: unknown): ServiceMessage[] {
     if (!Array.isArray(input) || input.length > 10000 || new TextEncoder().encode(JSON.stringify(input)).length > NATIVE_SNAPSHOT_PLAINTEXT_MAX_BYTES) throw new AIServiceClientError('context-mismatch');
     return input.map(value => {
-        if (!value || !['user','assistant'].includes(value.role) || typeof value.text !== 'string' || (value.id !== undefined && (typeof value.id !== 'string' || !value.id || value.id.length > 256)) || (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || value.seq < 0)) || (value.images !== undefined && (!Array.isArray(value.images) || value.images.length > 4 || !value.images.every((image: unknown) => typeof image === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(image))))) throw new AIServiceClientError('context-mismatch');
+        if (!value || !['user','assistant'].includes(value.role) || typeof value.text !== 'string' || (value.id !== undefined && (typeof value.id !== 'string' || !value.id || value.id.length > 256)) || (value.seq !== undefined && (!Number.isSafeInteger(value.seq) || value.seq < 0)) || (value.images !== undefined && (!Array.isArray(value.images) || value.images.length > 12 || !value.images.every((image: unknown) => typeof image === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(image))))) throw new AIServiceClientError('context-mismatch');
         return {role:value.role,text:value.text,...(value.id === undefined ? {} : {id:value.id}),...(value.seq === undefined ? {} : {seq:value.seq}),...(value.images === undefined ? {} : {images:[...value.images]})};
     });
 }
@@ -194,6 +194,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
         verify(input, { ...context, direction: 'input', sequence: 0 });
         let messages = validateMessages(input.messages);
         let text = '';
+        let partialHistory = true;
         let snapshotError: TurnSnapshot['snapshotError'];
         if (value.output !== null) {
             const output = open(value.output);
@@ -201,17 +202,18 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
             if (typeof output.text !== 'string')
                 throw new AIServiceClientError('context-mismatch');
             text = output.text;
+            if (output.historyComplete !== undefined && output.historyComplete !== false) throw new AIServiceClientError('context-mismatch');
             if (output.snapshotError !== undefined) {
                 if (!NativeSnapshotErrorSchema.safeParse(output.snapshotError).success || !row.sessionId) throw new AIServiceClientError('context-mismatch');
                 snapshotError = 'snapshot-too-large';
                 messages = [];
-            } else if (output.messages !== undefined) messages = validateHistoryMessages(output.messages);
+            } else if (output.messages !== undefined) { messages = validateHistoryMessages(output.messages); partialHistory = output.historyComplete === false; }
         }
         const previous = sequences.get(row.id);
         if (previous && (value.sequence < previous.sequence || value.sequence === previous.sequence && value.output !== previous.output))
             throw new AIServiceClientError('context-mismatch');
         sequences.set(row.id, { sequence: value.sequence, output: value.output });
-        return { record: row, sequence: value.sequence, text, messages, ...(snapshotError ? {snapshotError} : {}) };
+        return { record: row, sequence: value.sequence, text, messages, ...(partialHistory ? {historyComplete:false as const} : {}), ...(snapshotError ? {snapshotError} : {}) };
     }
     const transport: AIServiceTransport = {
         appId: options.appId, source: kind === 'platform-grant' ? 'platform' : 'personal',
@@ -312,7 +314,7 @@ export function createScopedServiceTransport(options: ScopedTransportOptions, ki
                 // A duplicate POST may already be running or complete. Only the encrypted
                 // persisted snapshot is authoritative for its text and sequence.
                 if (row.status !== 'accepted') return await transport.read({ bindingId: binding.id, requestId, turnId: row.id }, call);
-                return { record: row, sequence: 0, text: '', messages };
+                return { record: row, sequence: 0, text: '', messages, historyComplete:false };
             }
             catch (error) {
                 throw await submission.failure(error);

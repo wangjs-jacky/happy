@@ -273,6 +273,8 @@ export type PawsAgentEventListener = (event: PawsAgentEvent) => void;
 export type PawsAgentClientOptions = {
     serverUrl: string;
     credentials: ClientCredentialProvider;
+    /** Native service migration can carry twelve images; normal sends default to four. */
+    maxImagesPerMessage?: 4 | 12;
     storage?: AgentStorage;
     logger?: AgentLogger;
     reconnect?: ReconnectPolicy;
