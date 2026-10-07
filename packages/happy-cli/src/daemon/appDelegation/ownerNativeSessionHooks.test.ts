@@ -2,7 +2,8 @@
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
+import { decodeBase64, decrypt, encodeBase64, encrypt, encryptBlob } from '@/api/encryption';
+import { deriveKey } from '@/utils/deriveKey';
 import { createOwnerNativeSessionHooks } from './ownerNativeSessionHooks';
 import type { NativeMessage } from './nativeSessionRuntime';
 
@@ -17,7 +18,8 @@ async function fixture(variant: 'legacy' | 'dataKey') {
         metadataVersion: 1, agentState: null, agentStateVersion: 0, daemonState: null, daemonStateVersion: 0,
         dataEncryptionKey: variant === 'dataKey' ? 'opaque-owner-encrypted-key' : null });
     const state = { scoped: true, permitted: true, rows: [] as Array<{ id: string; seq: number; localId: string; content: { t: string; c: string }; createdAt: number; updatedAt: number }>,
-        rpc: [] as string[], requests: [] as string[], unauthorized: false, rpcError: false };
+        rpc: [] as string[], requests: [] as string[], unauthorized: false, rpcError: false,
+        attachment: new Uint8Array() as Uint8Array, oversized: false, oversizedStream: false, revokeDuringDownload: false, externalUrl: '' };
     const server = createServer(async (request, response) => {
         state.requests.push(`${request.method} ${request.url}`);
         const authorized = request.headers.authorization === 'Bearer owner-token';
@@ -28,6 +30,17 @@ async function fixture(variant: 'legacy' | 'dataKey') {
         if (url.pathname === '/v1/machines') response.end(JSON.stringify([record('owner-machine'), record('other-machine')]));
         else if (url.pathname === '/v1/sessions') response.end(JSON.stringify({ sessions: [record('owner-session'), record('other-session')] }));
         else if (url.pathname.startsWith('/v2/sessions/')) response.end(JSON.stringify({ session: record(url.pathname.split('/').at(-1)!) }));
+        else if (url.pathname.endsWith('/attachments/request-download')) {
+            let body = ''; for await (const chunk of request) body += chunk;
+            expect(JSON.parse(body).ref).toBe('sessions/owner-session/attachments/image.enc');
+            response.end(JSON.stringify({ downloadUrl: state.externalUrl || `http://127.0.0.1:${(server.address() as { port: number }).port}/blob` }));
+        } else if (url.pathname === '/blob') {
+            response.setHeader('Content-Type', 'application/octet-stream');
+            if (state.oversized) response.setHeader('Content-Length', 11 * 1024 * 1024);
+            if (state.oversizedStream) { response.write(new Uint8Array(1024)); response.end(new Uint8Array(10 * 1024 * 1024)); }
+            else response.end(state.attachment);
+            if (state.revokeDuringDownload) state.scoped = false;
+        }
         else if (url.pathname.endsWith('/messages')) {
             if (request.method === 'POST') {
                 let body = ''; for await (const chunk of request) body += chunk;
@@ -58,10 +71,56 @@ async function fixture(variant: 'legacy' | 'dataKey') {
     });
     cleanups.push(async () => { await hooks.dispose(); await new Promise<void>(resolve => io.close(() => resolve())); });
     await hooks.connect();
-    return { hooks, state, start, io, seal };
+    const png = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nZcAAAAASUVORK5CYII=', 'base64'));
+    const blobKey = await deriveKey(key, 'Happy Blobs', [variant === 'legacy' ? 'master' : 'session']);
+    state.attachment = encryptBlob(png, blobKey);
+    return { hooks, state, start, io, seal, png };
 }
 
 describe('owner native SDK bridge', () => {
+    it.each(['legacy', 'dataKey'] as const)('reads encrypted %s image history through native attachment download', async variant => {
+        const f = await fixture(variant);
+        const image = await f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png');
+        expect(image).toBe(`data:image/png;base64,${Buffer.from(f.png).toString('base64')}`);
+        expect(f.state.requests).toContain('POST /v1/sessions/owner-session/attachments/request-download');
+        expect(f.state.requests).toContain('GET /blob');
+        expect(f.state.unauthorized).toBe(false);
+    });
+    it('rejects image refs outside the session and unsupported media without downloading', async () => {
+        const f = await fixture('dataKey');
+        const baseline = f.state.requests.length;
+        for (const [ref, mime] of [
+            ['sessions/other-session/attachments/image.enc', 'image/png'],
+            ['sessions/owner-session/attachments/../image.enc', 'image/png'],
+            ['sessions/owner-session/attachments/image.enc', 'image/svg+xml'],
+        ]) await expect(f.hooks.readImage!('owner-session', ref, mime)).rejects.toThrow('invalid-request');
+        expect(f.state.requests).toHaveLength(baseline);
+    });
+    it('rejects corrupt images, mismatched MIME and oversized downloads', async () => {
+        const f = await fixture('legacy');
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/jpeg')).rejects.toThrow('invalid-request');
+        f.state.attachment[40] ^= 1;
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toThrow('invalid-request');
+        f.state.oversized = true;
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toThrow('attachment-unavailable');
+    });
+    it('bounds image reads without Content-Length and rechecks scope after the download', async () => {
+        const f = await fixture('dataKey');
+        f.state.oversizedStream = true;
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toThrow('attachment-unavailable');
+        f.state.oversizedStream = false; f.state.revokeDuringDownload = true;
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+    it('denies image history after ownership revocation and rejects unrelated unsigned download origins', async () => {
+        const f = await fixture('dataKey');
+        f.state.permitted = false;
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+        expect(f.state.requests).not.toContain('GET /blob');
+        f.state.permitted = true;
+        f.state.externalUrl = 'http://127.0.0.1:1/unrelated';
+        await expect(f.hooks.readImage!('owner-session', 'sessions/owner-session/attachments/image.enc', 'image/png')).rejects.toThrow('attachment-unavailable');
+        expect(f.state.requests).not.toContain('GET /blob');
+    });
     it.each(['legacy', 'dataKey'] as const)('connects and sends/reads/watches using %s owner-process keys', async variant => {
         const f = await fixture(variant);
         expect((await f.hooks.get('owner-session')).metadata).toMatchObject({ machineId: 'owner-machine' });
