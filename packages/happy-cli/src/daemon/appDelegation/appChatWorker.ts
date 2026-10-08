@@ -43,7 +43,12 @@ export function startAppChatWorker(token: string, machine: Machine, nativeSessio
         const validation = typeof data?.message === 'string' ? data.message : '';
         if (!response.ok && (data?.error?.code === 'snapshot-too-large' || response.status === 400 && /output|ciphertext/.test(validation) && /too big|too_big|maximum|max.*characters/i.test(validation))) throw new Error('snapshot-too-large');
         if (response.status === 404 && path.startsWith('ai-service-worker/')) throw new Error('shared-protocol-unavailable');
-        if (!response.ok) throw new Error(response.status === 409 && data.error === 'codex-account-unbound' ? 'codex-account-unbound' : 'authorization-unavailable');
+        if (!response.ok) {
+            const error=new Error(response.status === 409 && data.error === 'codex-account-unbound' ? 'codex-account-unbound' : 'authorization-unavailable');
+            const code=typeof data?.error==='string' ? data.error : data?.error?.code;
+            if(path.includes('/history/'))Object.assign(error,{code:`history-http-${response.status}-${typeof code==='string' && /^[A-Za-z0-9_-]{1,80}$/.test(code) ? code : 'unknown'}`});
+            throw error;
+        }
         return data as T;
     };
     const recoveryRoot = join(configuration.happyHomeDir, 'app-chat-credentials', createHash('sha256').update(machine.id).digest('hex'));
