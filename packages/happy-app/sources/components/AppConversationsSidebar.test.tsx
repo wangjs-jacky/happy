@@ -12,13 +12,11 @@ vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (f: any) => f({
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: { token: mocks.token } }) }));
 vi.mock('@/sync/storage', () => ({ useAllMachines: () => [], useSessionListViewData: () => mocks.rows }));
 vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'https://paws.test' }));
-vi.mock('@/sync/apiAppDelegation', () => ({ isAppGrantActive: () => true, appAuthorizationRequest: async (_token: string, path: string) => path === '' ? { grants: [{ id: 'grant', appId: 'advisor', machineId: null }] } : { conversations: [{ id: 'legacy', grantId: 'grant', createdAt: 1, lastActivityAt: 1, turns: [] }], nextCursor: null } }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('expo-router', () => ({ usePathname: () => '/session/native', useRouter: () => ({ navigate: mocks.navigate }) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
-vi.mock('./AppConnectionsMenu', () => ({ AppConnectionsMenu: 'AppConnectionsMenu' }));
 vi.mock('./ActiveSessionsGroupCompact', () => ({ CompactSessionRow: (props: any) => React.createElement('CompactSessionRow', props) }));
 
 describe('application session directory', () => {
@@ -41,9 +39,7 @@ describe('application session directory', () => {
         await act(async () => { renderer.update(<AppConversationsSidebar />); });
         expect(renderer.root.findAllByType('CompactSessionRow').map((row: any) => row.props.session.id)).toEqual(['completed']);
 
-        const legacy = renderer.root.findAllByProps({ testID: 'app-conversation-legacy' }).find((node: any) => node.type === 'Pressable');
-        act(() => legacy.props.onPress());
-        expect(mocks.navigate).toHaveBeenCalledWith('/apps/conversations/legacy');
+        expect(renderer.root.findAllByProps({ testID: 'app-conversation-legacy' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 });
