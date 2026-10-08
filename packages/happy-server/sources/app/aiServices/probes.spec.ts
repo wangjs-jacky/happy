@@ -49,6 +49,19 @@ it('shares same-principal discovery and reuses fresh results without caching aut
  expect(next?.id).not.toBe(job!.id);
  await probes.publish(owner,target.machineId,next!.id,next!.lease,{...catalog,observedAt:Date.now()});
  expect(await refresh).toHaveProperty('value');
+ // A Claude login is local to the device. Even a fresh catalog for A cannot
+ // substitute for discovery after the worker announces a different login B.
+ const claude={machineId:target.machineId,engine:'claude' as const,accountRef:{kind:'device-identity' as const,machineId:target.machineId,identityId:'claude:'+'a'.repeat(64)}};
+ const claudeCatalog:CapabilityCatalog={...catalog,...claude};
+ const ownerPrincipal={kind:'owner' as const,ownerId:owner};
+ await db.aIServiceProbe.create({data:{id:'cached-claude',ownerId:owner,machineId:target.machineId,principal:ownerPrincipal,target:claude,fingerprint:claude.accountRef.identityId,state:'completed',deadline:new Date(Date.now()+25000),catalog:claudeCatalog}});
+ await probes.announce(owner,target.machineId,Buffer.from(nacl.box.keyPair().publicKey).toString('base64'),{identityId:'claude:'+'b'.repeat(64),observedAt:Date.now()},true);
+ const claudeRead=probes.source.readLive(owner,claude,ownerPrincipal).then(value=>({value}),error=>({error}));
+ let claudeJob:Awaited<ReturnType<typeof probes.claim>>=null;
+ for(let i=0;i<50&&!claudeJob;i++){claudeJob=await probes.claim(owner,target.machineId);if(!claudeJob)await new Promise(resolve=>setTimeout(resolve,10));}
+ expect(claudeJob?.target).toEqual(claude);
+ await probes.publish(owner,target.machineId,claudeJob!.id,claudeJob!.lease,null,'account-identity-changed');
+ expect(await claudeRead).toMatchObject({error:{code:'account-identity-changed'}});
  await store.revokeAuthorization(owner,receipt.id);
  await expect(probes.source.readLive(owner,target,principal)).rejects.toMatchObject({code:'authorization-revoked'});
 },30000);

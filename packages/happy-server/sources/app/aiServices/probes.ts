@@ -21,9 +21,11 @@ export function createServiceProbes(database: PrismaClient) {
     // A catalog is descriptive data, never authorization. Reuse only a recent
     // trusted observation for this exact owner/target/account fingerprint, after
     // the caller's CURRENT grant and worker liveness have been checked above.
-    const recent = await tx.aIServiceProbe.findFirst({ where: { ownerId, machineId: target.machineId,
+    // Claude identity is device-local: its preflight fingerprint is not a fresh
+    // login observation. Preserve live discovery for that engine.
+    const recent = target.engine === 'codex' ? await tx.aIServiceProbe.findFirst({ where: { ownerId, machineId: target.machineId,
      target: { equals: ServiceTargetSchema.parse(target) }, fingerprint: identity.fingerprint,
-     state: 'completed', createdAt: { gt: new Date(Date.now()-60000) } }, orderBy: { createdAt: 'desc' } });
+     state: 'completed', createdAt: { gt: new Date(Date.now()-60000) } }, orderBy: { createdAt: 'desc' } }) : null;
     const catalog = CapabilityCatalogSchema.safeParse(recent?.catalog);
     if (catalog.success && catalog.data.availability === 'online' && targetKey(catalog.data) === targetKey(target)
      && catalog.data.observedAt <= Date.now() && Date.now()-catalog.data.observedAt < 60000) return catalog.data;
