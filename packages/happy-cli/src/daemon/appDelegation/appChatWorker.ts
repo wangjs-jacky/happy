@@ -131,7 +131,14 @@ export function startAppChatWorker(token: string, machine: Machine, nativeSessio
         }
         if (!release) return;
         let historyBusy=false;
-        const historyTimer=setInterval(()=>{if(historyBusy||lifetime.signal.aborted)return;historyBusy=true;void shared.tickHistory().catch(()=>undefined).finally(()=>{historyBusy=false;});},1000);
+        const historyTimer=setInterval(()=>{if(historyBusy||lifetime.signal.aborted)return;historyBusy=true;void shared.tickHistory().catch(error=>{
+            const value=error instanceof Error ? error : undefined;
+            const code=(value as Error & {code?:unknown})?.code ?? value?.message;
+            logger.debug('[APP CHAT] Native history sync failed',{
+                errorCode:typeof code==='string' && /^[A-Za-z0-9_-]{1,80}$/.test(code) ? code : 'history-sync-failed',
+                stackFrames:value?.stack?.split('\n').slice(1,4).filter(line=>/^\s+at /.test(line)),
+            });
+        }).finally(()=>{historyBusy=false;});},1000);
         try { while (!lifetime.signal.aborted) {
             try {
                 if (!await recoverCredentials()) {
