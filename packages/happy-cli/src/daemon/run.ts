@@ -1,6 +1,7 @@
 import { ExecutionBindingSchema } from '@slopus/happy-wire';
 import { NativeLaunchPolicyStore, NATIVE_POLICY_ENV, type NativeLaunchPolicy } from './appDelegation/nativeLaunchPolicy';
 import { createOwnerNativeSessionHooks } from './appDelegation/ownerNativeSessionHooks';
+import { nativeSessionReconnectEnvironment } from './appDelegation/nativeSessionReconnect';
 import { verifyClaudeIdentity } from './appDelegation/serviceCapabilities';
 import fs from 'fs/promises';
 import os from 'os';
@@ -51,7 +52,7 @@ import {
   type StartupTraceWriter,
 } from './sessionStartupTrace';
 
-type TracedSpawnSessionOptions = SpawnSessionOptions & { traceId?: string; nativeApplicationPolicy?: NativeLaunchPolicy };
+type TracedSpawnSessionOptions = SpawnSessionOptions & { traceId?: string; nativeApplicationPolicy?: NativeLaunchPolicy; nativeReconnectEnvironment?: Record<string, string> };
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -495,7 +496,10 @@ export async function startDaemon(): Promise<void> {
           };
         }
 
-        if (options.nativeApplicationPolicy) extraEnv[NATIVE_POLICY_ENV] = JSON.stringify(options.nativeApplicationPolicy);
+        if (options.nativeApplicationPolicy) {
+          Object.assign(extraEnv, options.nativeReconnectEnvironment);
+          extraEnv[NATIVE_POLICY_ENV] = JSON.stringify(options.nativeApplicationPolicy);
+        }
 
         // Check if tmux is available and should be used
         const tmuxAvailable = await isTmuxAvailable();
@@ -1204,7 +1208,10 @@ export async function startDaemon(): Promise<void> {
           if (input.binding.engine === 'codex' && !input.codexSessionGrant) throw new Error('Exact Codex account grant required');
           if (input.binding.engine === 'claude') await verifyClaudeIdentity(input.binding, 'claude', process.env, input.directory, AbortSignal.timeout(5000));
           await nativePolicyStore.save(policy);
-          const result = await spawnSession({ directory: input.directory, agent: input.binding.engine, codexSessionGrant: input.codexSessionGrant, nativeApplicationPolicy: policy });
+          const environmentVariables = nativeSessionReconnectEnvironment(policy,
+            [...sessionIdToFinishedSession.values(), ...pidToTrackedSession.values()],
+            pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+          const result = await spawnSession({ directory: input.directory, agent: input.binding.engine, codexSessionGrant: input.codexSessionGrant, nativeApplicationPolicy: policy, nativeReconnectEnvironment: environmentVariables });
           if (result.type === 'success') await nativePolicyStore.save({ ...policy, sessionId: result.sessionId });
           return result.type === 'requestToApproveDirectoryCreation' ? { type: 'error', errorMessage: 'Native session directory unavailable' } : result;
         } catch (error) { return { type: 'error', errorMessage: error instanceof Error ? error.message : 'Native launch failed' }; }
