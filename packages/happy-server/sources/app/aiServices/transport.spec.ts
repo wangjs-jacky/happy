@@ -245,3 +245,29 @@ it('accepts native encrypted screenshots through real routes, retains legacy lim
  const tooLarge=await req(`/v1/ai-service-worker/${machine}/history/${binding.id}`,{requestId:'over-limit',sessionId,ciphertext:'A'.repeat(NATIVE_SNAPSHOT_CIPHERTEXT_MAX_BYTES+1)});
  expect(tooLarge.statusCode).toBe(413);
 },30000);
+
+it('registers only the owned native session of a live service turn and retains the launch for owner resume', async () => {
+ const f=await setup(),resolving=services.store.resolveBinding(f.principal,'relationship-advisor',f.service.id,{});
+ const probe=await nextProbe();
+ const probeGrant=(await req(`/v1/ai-service-worker/${machine}/credential`,{kind:'probe',id:probe.id,lease:probe.lease})).json();
+ const probeLaunch=(await req('/v1/codex-session-grants/redeem',{machineId:machine,grant:probeGrant.grant})).json();
+ await completeProbe(probe,f.target);const binding=await resolving;
+ const starting=services.turns.startBoundTurn(f.principal,binding.id,'native-launch-registration',{ciphertext:'x'.repeat(80)});
+ const turnProbe=await nextProbe();await completeProbe(turnProbe,f.target);const record=await starting;
+ const job=(await req(`/v1/ai-service-worker/${machine}/claim`)).json().job;
+ const grant=(await req(`/v1/ai-service-worker/${machine}/credential`,{kind:'turn',id:record.id,lease:job.lease})).json();
+ const launch=(await req('/v1/codex-session-grants/redeem',{machineId:machine,grant:grant.grant})).json();
+ const session=await ctx.database.session.create({data:{accountId:owner,tag:`app-service:${binding.id}`,metadata:'sealed'}});
+ const ordinary=await ctx.database.session.create({data:{accountId:owner,tag:'ordinary-session',metadata:'sealed'}});
+ const register=(launchId:string,sourceSessionId=session.id,target=machine,bearer=token)=>req(`/v1/codex-session-grants/${launchId}/session`,{machineId:target,sourceSessionId},bearer);
+ expect((await register(probeLaunch.launchId)).statusCode).not.toBe(200);
+ expect((await register(launch.launchId,ordinary.id)).statusCode).not.toBe(200);
+ expect((await register(launch.launchId,session.id,'foreign-machine')).statusCode).not.toBe(200);
+ expect((await register(launch.launchId,session.id,machine,await auth.createToken('foreign-owner'))).statusCode).not.toBe(200);
+ const attached=await register(launch.launchId);expect(attached.statusCode,attached.body).toBe(200);
+ expect((await register(launch.launchId)).statusCode).toBe(200);
+ expect((await register(launch.launchId,ordinary.id)).statusCode).not.toBe(200);
+ const resume=await codexAccountStore.createGrant(owner,machine,session.id);expect(resume.profile.id).toBe(f.profile.id);
+ await ctx.database.appChatTurn.update({where:{id:record.id},data:{leaseUntil:new Date(0)}});
+ expect((await register(launch.launchId)).statusCode).not.toBe(200);
+},20000);
