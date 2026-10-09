@@ -8,7 +8,8 @@ This change follows the October 9 Advisor timing audit. That audit separated col
 - Extract machine metadata from the daemon implementation. Load interactive authentication UI only when authentication is needed, and Codex terminal UI only with a TTY. Preserve authentication, launch policy, and worker tracing order.
 - Add opt-in, bounded authenticated turn observation. A cursor covers the complete record plus sequence, so phase/cancellation/completion do not require new text. Local committed writes wake readers; one-second authoritative reads cover other server instances and revocation. No transaction is held while waiting.
 - Teach the SDK (including the application bridge) to wait for changes. Old servers keep ordinary polling. A retryable transport failure disables waiting for that subscription and retries ordinary reads. Authorization/context failures still stop observation. Host ownership is checked again after a wait.
-- Reduce serialized native text coalescing from 250ms to 50ms; retain backpressure and terminal flushing.
+- Publish the first nonempty native text through the existing serialized queue immediately; coalesce later text for 50ms instead of the original 250ms. Retain backpressure and terminal flushing.
+- Wake native readiness waits on the verified ready event, watch error, or cancellation instead of waiting for the next 250ms poll. Recheck binding, active state, errors and cancellation after the session read; retain bounded polling as a fallback for active-state propagation.
 - Advisor's companion change upgrades its vendored SDK and propagates browser disconnects to bridge reads.
 
 ## Local evidence
@@ -39,6 +40,13 @@ These are module evaluation measurements, not total worker startup. Earlier runs
 - New tests cover stale/future/oversized/corrupt catalogs, account/profile isolation, concurrent writers, FIFO/symlink handling, state-only updates, notification races, cross-server fallback, disconnect cleanup, and revocation during an actual route wait.
 - CLI, server and SDK typechecks passed. SDK and CLI builds passed. Independent review: PASS after two identified edge cases were fixed.
 - Advisor companion: build passed; 188 tests passed and 2 existing cases skipped with the new installed tarball.
+- First-text follow-up: 35 focused native-runtime/worker tests passed, with CLI build/typecheck. Readiness tests use a 10-second fallback and verify that ready/error/abort wake it immediately, that changed bindings prevent sending, and that timers/subscriptions are cleaned up. Publication tests verify no first-text coalescing timer, burst coalescing, a blocked first publication followed by more text and completion, and monotonically increasing output sequences. Independent follow-up review: PASS.
+
+## Production baseline retest before activation
+
+The production Ego retest on October 9 still ran the prior deployed release: a new conversation first displayed text after 19.012s; a repeated short answer after 4.437s; a longer answer after 3.389s and finished at 9.488s, with roughly one-second display updates. These are not results of this branch. PR #698 has no CI checks; workflow dispatch returned HTTP 422, `Actions has been disabled for this repository`, so it has not been merged or activated.
+
+The additional readiness and first-text changes remove application scheduling waits (up to one poll interval and the initial coalescing window), not native provider computation. Their end-to-end benefit must be measured after activation. They do not justify promising a specific new UI first-token time.
 
 ## Release and remaining limits
 
