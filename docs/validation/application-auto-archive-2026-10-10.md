@@ -19,17 +19,20 @@
 - completed 先到、ready 后到时，ready 清除 thinking 后立即更新归档投影。
 - 本地待发集合从 staging messages 和 barriers 投影；服务端分页/刷新不覆盖该集合。
   原 staging 持久化和账号隔离保持不变。
+- 移除应用侧栏原有的每 10 秒授权/旧会话目录轮询（每次 2 个 GET）。目录仅在面板打开、
+  回到前台、手动刷新、分页或本地授权修改后加载；原生会话状态继续使用现有推送。
+  页面空闲不再为这个目录产生周期请求。旧版目录没有变更推送，跨设备修改需要上述刷新时机。
 
 ## 验证
 
-64 个相关测试通过，App typecheck、`git diff --check` 通过。
+66 个相关测试通过（原有 64 个，加上轮询移除的 2 个回归测试），App typecheck、`git diff --check` 通过。
 
 | 文件 | 测试数 | 覆盖 |
 | --- | ---: | --- |
 | `sources/utils/sessionLifecycle.test.ts` | 10 | 自动/手动归档、普通会话、未完成状态、精确 turn 恢复 |
 | `sources/sync/storage.lifecycle.test.ts` | 11 | 列表投影、草稿、刷新、ready 乱序、本地待发与延迟加载 |
 | `sources/sync/ops.sessionMetadata.test.ts` | 3 | metadata 加密更新、版本冲突后保留恢复标记与并发字段 |
-| `sources/components/AppConversationsSidebar.test.tsx` | 1 | 应用当前/历史分组及显式恢复 |
+| `sources/components/AppConversationsSidebar.test.tsx` | 3 | 应用当前/历史分组；空闲 60 秒无额外请求；前台/手动刷新、在途合并、监听清理 |
 | `sources/sync/messageStagingQueue.test.ts` | 17 | 排队、重试、barrier 与发送互斥 |
 | `sources/sync/messageStagingQueueRuntime.test.ts` | 4 | 热会话追问、接受但未启动、离线/失败、手动归档发送门禁 |
 | `sources/sync/storage.sessionSorting.test.ts` | 2 | 共享列表排序回归 |

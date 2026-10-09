@@ -109,9 +109,18 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
             }
         };
         void load();
-        const timer = setInterval(() => void load(), 10_000);
+        // Native session state already arrives through sync. Fetch the legacy
+        // directory on entry/foreground or explicit actions, never on a timer.
         const subscription = AppState.addEventListener('change', state => { if (state === 'active') void load(); });
-        return () => { disposed = true; controller.abort(); clearInterval(timer); subscription.remove(); };
+        const documentTarget = Platform.OS === 'web' && typeof document !== 'undefined' ? document : undefined;
+        const onVisibilityChange = () => { if (!documentTarget?.hidden) void load(); };
+        documentTarget?.addEventListener('visibilitychange', onVisibilityChange);
+        return () => {
+            disposed = true;
+            controller.abort();
+            subscription.remove();
+            documentTarget?.removeEventListener('visibilitychange', onVisibilityChange);
+        };
     }, [token, server, cursor, revision, visible]);
 
     const changeGrant = async (grant: AppAuthorizationGrant, remove: boolean) => {
