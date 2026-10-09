@@ -959,8 +959,9 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('emits a failed terminal event when a turn times out', async () => {
+    it.each(['raw', 'legacy-complete', 'legacy-abort'])('interrupts a timed-out turn and ignores its late %s completion during the next start', async (protocol) => {
         const requests: MockRpcMessage[] = [];
+        let acknowledgeNextStart: (() => void) | undefined;
         let acknowledgeInterrupt: (() => void) | undefined;
         const proc = createMockProcess({
             pid: 2003,
@@ -987,6 +988,12 @@ describe('CodexAppServerClient sandbox integration', () => {
                 }
 
                 if (msg.method === 'turn/start' && msg.id != null) {
+                    if (requests.filter(request => request.method === 'turn/start').length === 2) {
+                        acknowledgeNextStart = () => pushJsonLine(stdout, { id: msg.id, result: {
+                            turn: { id: 'turn-next', items: [], status: 'inProgress', error: null },
+                        } });
+                        return;
+                    }
                     setTimeout(() => {
                         pushJsonLine(stdout, {
                             id: msg.id,
@@ -1032,13 +1039,32 @@ describe('CodexAppServerClient sandbox integration', () => {
             { threadId: 'thread-timeout', turnId: 'turn-timeout' },
         ]);
         // A new turn must wait for the old turn's interrupt acknowledgement.
-        const nextTurn = client.sendTurnAndWait('continue', { turnTimeoutMs: 25 });
+        let nextSettled = false;
+        const nextTurn = client.sendTurnAndWait('continue', { turnTimeoutMs: 1000 }).then(result => { nextSettled = true; return result; });
         await new Promise(resolve => setTimeout(resolve, 10));
         expect(requests.filter(msg => msg.method === 'turn/start')).toHaveLength(1);
         acknowledgeInterrupt!();
         await waitFor(() => requests.filter(msg => msg.method === 'turn/start').length === 2);
-        await nextTurn;
-        acknowledgeInterrupt!();
+        const eventCount = events.length;
+        if (protocol === 'raw') {
+            pushJsonLine(proc.stdout, { method: 'turn/completed', params: {
+                threadId: 'thread-timeout', turn: { id: 'turn-timeout', status: 'interrupted', error: null },
+            } });
+        } else {
+            pushJsonLine(proc.stdout, { method: 'codex/event', params: { msg: {
+                type: protocol === 'legacy-complete' ? 'task_complete' : 'turn_aborted', turn_id: 'turn-timeout',
+            } } });
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(events).toHaveLength(eventCount);
+        acknowledgeNextStart!();
+        await waitFor(() => events.some(event => event.type === 'task_started' && event.turn_id === 'turn-next'));
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(nextSettled).toBe(false);
+        pushJsonLine(proc.stdout, { method: 'turn/completed', params: {
+            threadId: 'thread-timeout', turn: { id: 'turn-next', status: 'completed', error: null },
+        } });
+        await expect(nextTurn).resolves.toEqual({ aborted: false });
         await client.disconnect();
     });
 
