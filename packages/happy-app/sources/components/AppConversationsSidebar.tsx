@@ -139,10 +139,9 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
             {groups.map(appId => {
                 const app = appInfo(appId);
                 const appSessions = nativeSessions.filter(session => session.application?.appId === appId);
-                // Completed application turns belong in history even while their
-                // processor remains online for safe followups. Never stop execution
-                // as a side effect of organizing this directory.
-                const inHistory = (session: typeof appSessions[number]) => session.archived || (session.state === 'completed' && !session.hasDraft);
+                // Use the same archive policy as history, row actions and storage,
+                // including an explicit restore of the current completed turn.
+                const inHistory = (session: typeof appSessions[number]) => session.archived;
                 const currentSessions = appSessions.filter(session => !inHistory(session));
                 const historySessions = appSessions.filter(inHistory);
                 const ids = new Set(grants.filter(grant => grant.appId === appId).map(grant => grant.id));

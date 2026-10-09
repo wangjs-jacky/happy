@@ -25,7 +25,8 @@ describe('application session directory', () => {
     it('automatically collects completed and archived rows into expandable history, and restores continued turns', async () => {
         const application = { appId: 'advisor', bindingId: 'binding' };
         mocks.rows = [
-            { type: 'active-sessions', sessions: [{ id: 'ordinary', name: 'advisor' }, { id: 'native', application, state: 'running' }, { id: 'completed', application, state: 'completed' }, { id: 'draft', application, state: 'completed', hasDraft: true }, { id: 'permission', application, state: 'permission_required' }] },
+            { type: 'active-sessions', sessions: [{ id: 'ordinary', name: 'advisor' }, { id: 'native', application, state: 'running' }, { id: 'draft', application, state: 'completed', hasDraft: true }, { id: 'permission', application, state: 'permission_required' }] },
+            { type: 'session', session: { id: 'completed', application, state: 'completed', archived: true } },
             { type: 'header', title: 'Yesterday' },
             { type: 'session', session: { id: 'archived', application, archived: true } },
         ];
@@ -37,7 +38,8 @@ describe('application session directory', () => {
         act(() => toggle().props.onPress());
         expect(renderer.root.findAllByType('CompactSessionRow').map((row: any) => row.props.session.id)).toEqual(['native', 'draft', 'permission', 'completed', 'archived']);
         act(() => toggle().props.onPress());
-        mocks.rows = [{ type: 'active-sessions', sessions: [{ id: 'completed', application, state: 'running' }] }];
+        // An explicitly restored completed turn stays current, even before a followup.
+        mocks.rows = [{ type: 'active-sessions', sessions: [{ id: 'completed', application, state: 'completed', archived: false }] }];
         await act(async () => { renderer.update(<AppConversationsSidebar />); });
         expect(renderer.root.findAllByType('CompactSessionRow').map((row: any) => row.props.session.id)).toEqual(['completed']);
 
