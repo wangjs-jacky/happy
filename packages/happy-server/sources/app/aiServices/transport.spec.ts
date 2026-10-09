@@ -21,6 +21,34 @@ import { initEncrypt } from '@/modules/encrypt';
 import { sealServiceEnvelope } from './grants';
 let ctx:Awaited<ReturnType<typeof createTestDatabase>>, app:Fastify, services:ReturnType<typeof createSharedAIServices>, token:string, owner:string,machine:string,seq=0;
 const native=(account='native-A',access='access-one')=>({ OPENAI_API_KEY:null,tokens:{ account_id:account,access_token:access,refresh_token:'refresh-fixture',id_token:'id-fixture' },last_refresh:'2026-10-05T00:00:00.000Z' });
+
+it('long polls phase changes and rejects authorization revoked while waiting', async () => {
+ const f=await setup(),resolving=services.store.resolveBinding(f.principal,'relationship-advisor',f.service.id,{});
+ await completeProbe(await nextProbe(),f.target);const binding=await resolving;
+ const hints=vi.spyOn(services,'notifyWork');
+ const accepted=await req(`/v1/apps/ai-services/bindings/${binding.id}/turns`,{requestId:'observed',ciphertext:'x'.repeat(80)},f.receipt.credential);
+ expect(accepted.statusCode).toBe(200);const turn=accepted.json().record;
+ expect(hints).toHaveBeenCalledWith(owner,machine);hints.mockRestore();
+ const job=(await req(`/v1/ai-service-worker/${machine}/claim`)).json().job;
+ const path=`/v1/apps/ai-services/bindings/${binding.id}/turns/${turn.id}`;
+ const read=(suffix='')=>app.inject({method:'GET',url:path+suffix,headers:{authorization:`Bearer ${f.receipt.credential}`}});
+ expect((await read()).json()).not.toHaveProperty('observationCursor');
+ const first=(await read('?observe=1')).json();expect(first.observationCursor).toMatch(/^[a-f0-9]{64}$/);
+ const original=services.turns.readBoundTurn.bind(services.turns);
+ let entered:()=>void=()=>{};
+ const spy=vi.spyOn(services.turns,'readBoundTurn').mockImplementation(async(...args)=>{const value=await original(...args);entered();return value;});
+ try {
+  let ready=new Promise<void>(resolve=>{entered=resolve;});
+  const changed=read(`?observe=1&after=${first.observationCursor}`).then(value=>value);
+  await ready;
+  expect((await req(`/v1/ai-service-worker/${machine}/turns/${turn.id}`,{lease:job.lease,phase:'generating'})).statusCode).toBe(200);
+  const next=(await changed).json();expect(next.record.phase).toBe('generating');expect(next.sequence).toBe(first.sequence);expect(next.observationCursor).not.toBe(first.observationCursor);
+  ready=new Promise<void>(resolve=>{entered=resolve;});
+  const revoked=read(`?observe=1&after=${next.observationCursor}`).then(value=>value);
+  await ready;await services.store.revokeAuthorization(owner,f.receipt.id);
+  const denied=await revoked;expect(denied.statusCode).toBe(409);expect(denied.json().error.code).toBe('authorization-revoked');
+ } finally {spy.mockRestore();}
+},30000);
 const req=(path:string,body:unknown={},bearer=token)=>app.inject({ method:'POST',url:path,payload:body as any,headers:{ authorization:`Bearer ${bearer}` } });
 beforeAll(async()=>{
  process.env.HANDY_MASTER_SECRET='test-shared-service-master'; await initEncrypt(); await auth.init();
@@ -57,7 +85,7 @@ it('returns execution capabilities only when an owner or scoped client opts into
  for(const ownerRequest of [true,false])for(const executionPresets of [false,true]){
   const body=ownerRequest?{...f.target,...(executionPresets?{executionPresets:true}:{})}:{...(executionPresets?{executionPresets:true}:{})};
   const reading=req(ownerRequest?'/v1/ai-services/capabilities':'/v1/apps/ai-services/capabilities',body,ownerRequest?token:f.receipt.credential);
-  await completeProbe(await nextProbe(),f.target,true);
+  if(ownerRequest && !executionPresets) await completeProbe(await nextProbe(),f.target,true);
   const response=await reading;expect(response.statusCode,response.body).toBe(200);
   const catalog=response.json().catalog;
   expect(catalog.execution).toEqual(executionPresets?{permissionModes:['chat-only','yolo'],serviceTiers:['default','fast']}:undefined);
@@ -114,7 +142,7 @@ it('upgrades an existing grant and its machine envelopes atomically while old bi
  const principal=await services.grants.authenticate(f.receipt.credential);
  expect(await services.store.readBinding(principal,'relationship-advisor',binding.id)).toEqual(binding);
  const starting=services.turns.startBoundTurn(principal,binding.id,'after-upgrade',{ciphertext:'x'.repeat(80)});
- await completeProbe(await nextProbe(),f.target);const record=await starting;
+ const record=await starting;
  const job=(await req(`/v1/ai-service-worker/${machine}/claim`)).json().job;
  expect(job.record.id).toBe(record.id);expect(job.scope).toEqual(scope);
  const sealed=Buffer.from(job.envelope,'base64');
@@ -139,7 +167,7 @@ it('authenticates actual callback transport, pins profile after default change, 
  const binding=await resolving;expect(binding.accountRef).toEqual(f.target.accountRef);
  const legacy=await codexAccountStore.createGrant(owner,machine);expect(legacy.profile.id).toBe(other.id);
  const starting=services.turns.startBoundTurn(f.principal,binding.id,'request-1',{ ciphertext:'x'.repeat(80) });
- const turnProbe=await nextProbe();await completeProbe(turnProbe,f.target);const record=await starting;
+ const record=await starting;
  const claim=(await req(`/v1/ai-service-worker/${machine}/claim`)).json();expect(claim.job.record.id).toBe(record.id);
  const grant=await req(`/v1/ai-service-worker/${machine}/credential`,{ kind:'turn',id:record.id,lease:claim.job.lease });expect(grant.statusCode,grant.body).toBe(200);expect(grant.json().profile.id).toBe(f.profile.id);
  // Discovery IDs cannot masquerade as turns or resolve an application prompt.
@@ -224,7 +252,7 @@ it('accepts native encrypted screenshots through real routes, retains legacy lim
  const f=await setup(),resolving=services.store.resolveBinding(f.principal,'relationship-advisor',f.service.id,{});
  await completeProbe(await nextProbe(),f.target);const binding=await resolving;
  const starting=services.turns.startBoundTurn(f.principal,binding.id,'image-request',{ciphertext:'i'.repeat(80)});
- await completeProbe(await nextProbe(),f.target);const turn=await starting;
+ const turn=await starting;
  const job=(await req(`/v1/ai-service-worker/${machine}/claim`)).json().job;
  const sessionId=`image-${binding.id}`;
  await ctx.database.session.create({data:{id:sessionId,accountId:owner,tag:`app-service:${binding.id}`,metadata:'encrypted'}});
@@ -259,7 +287,7 @@ it('registers only the owned native session of a live service turn and retains t
  const probeLaunch=(await req('/v1/codex-session-grants/redeem',{machineId:machine,grant:probeGrant.grant})).json();
  await completeProbe(probe,f.target);const binding=await resolving;
  const starting=services.turns.startBoundTurn(f.principal,binding.id,'native-launch-registration',{ciphertext:'x'.repeat(80)});
- const turnProbe=await nextProbe();await completeProbe(turnProbe,f.target);const record=await starting;
+ const record=await starting;
  const job=(await req(`/v1/ai-service-worker/${machine}/claim`)).json().job;
  const grant=(await req(`/v1/ai-service-worker/${machine}/credential`,{kind:'turn',id:record.id,lease:job.lease})).json();
  const launch=(await req('/v1/codex-session-grants/redeem',{machineId:machine,grant:grant.grant})).json();

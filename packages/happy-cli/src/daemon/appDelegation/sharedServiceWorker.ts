@@ -60,7 +60,16 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
  let authority: Authority | null=null;
  let claudeIdentity: { identityId:string; observedAt:number } | null=null;
  let identityCheckedAt=0;
+ let identityRefresh:Promise<void>|null=null;
  let policyData: { policy:AppPolicy; ref:BusinessPromptRef; prompt:string } | null=null;
+ let announcing:Promise<void>=Promise.resolve();
+ const announce=()=>{
+  const next=announcing.then(async()=>{
+   lifetime.throwIfAborted();
+   await request(`${path}/announce`,{protocol:'ai-services/1',nativeSessions:!!context.nativeSessionHooks,publicKey:Buffer.from(serviceMachineKey(machine).publicKey).toString('base64'),claudeIdentity});
+  });
+  announcing=next.catch(()=>{});return next;
+ };
  const nativeClaudeEnv: NodeJS.ProcessEnv={ HOME:homedir(),PATH:process.env.PATH,LANG:process.env.LANG,TMPDIR:process.env.TMPDIR };
  const acquire=async (target:ServiceTarget,workspace:BoundWorkspace,signal:AbortSignal):Promise<BoundCredentialLease> => {
   if (!authority) throw new Error('permission-denied');
@@ -89,6 +98,7 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
   let latest='',sequence=job.sequence??0,flushing:Promise<unknown>=Promise.resolve(),heartbeat:NodeJS.Timeout|undefined,textFlush:NodeJS.Timeout|undefined;
   let key:Uint8Array|undefined, phase:NativePhase|undefined;
   let messages:NativeConversationMessage[]|undefined, terminalObserved=false;
+  let textPending=false,firstTextQueued=false;
   const publish=(body:object)=>request(`${path}/turns/${job.record.id}`,{ lease:job.lease,...(phase ? {phase}:{}),...body });
   const encode=(includeHistory=true,forceTooLarge=false)=>encodeNativeServiceSnapshot({ protocol:'ai-services/1',grantId:job.grantId,appId:job.record.binding.appId,serviceId:job.record.binding.serviceId,bindingId:job.record.binding.id,requestId:job.record.requestId,turnId:job.record.id,direction:'output',sequence:++sequence,text:latest,...(includeHistory && messages ? {messages}: {historyComplete:false}) },key!,forceTooLarge);
   const publishTerminal=async(body:object)=>{
@@ -97,16 +107,21 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
    catch(error){if(!(error instanceof Error)||error.message!=='snapshot-too-large')throw error;output=encode(false,true);await publish({...body,output,sequence});}
   };
   const scheduleText=():void=>{
-   if(textFlush || terminalObserved || control.signal.aborted)return;
-   textFlush=setTimeout(()=>{
+   if(textPending || terminalObserved || control.signal.aborted)return;
+   textPending=true;
+   const flush=()=>{
     let publishedText:string|undefined;
     flushing=flushing.then(async()=>{
      if(control.signal.aborted)return;
      publishedText=latest;await publish({output:encode(false),sequence});
     }).catch(()=>control.abort()).finally(()=>{
-     textFlush=undefined;if(latest!==publishedText)scheduleText();
+     textPending=false;textFlush=undefined;if(latest!==publishedText)scheduleText();
     });
-   },250);
+   };
+   // First visible text should not wait for the batching window. All writes
+   // still share the same queue, including heartbeat and terminal snapshots.
+   if(!firstTextQueued && latest.length>0){firstTextQueued=true;flush();}
+   else textFlush=setTimeout(flush,50);
   };
   try {
    const decoded=decodeServiceJob(machine,job); key=decoded.key;
@@ -162,15 +177,24 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
    lifetime.throwIfAborted();
    // Both roots are recovered while holding the one machine lock, before any native observation.
    if (!await recoverAppChatCredentialJobs(context.recoveryRoot,machine.id,api)) throw new Error('resource-busy');
-   if (Date.now()-identityCheckedAt > 30000) {
+   if (!identityRefresh && Date.now()-identityCheckedAt > 30000) {
     identityCheckedAt=Date.now();claudeIdentity=null;
-    try {
-     const cwd=join(context.recoveryRoot,'identity');await mkdir(cwd,{ recursive:true,mode:0o700 });
-     const { stdout }=await promisify(execFile)(context.claudeBinary,['auth','status','--json'],{ cwd,env:restrictedClaudeEnv(nativeClaudeEnv),signal:lifetime,timeout:5000,maxBuffer:65536 });
-     claudeIdentity={ identityId:claudeIdentityId(JSON.parse(stdout)),observedAt:Date.now() };
-    } catch { /* Never return login JSON, email, tokens, or an invented identity. */ }
+    // Discovery metadata must not hold Codex claims behind a different engine's
+    // login command. Announce no Claude identity until a fresh check succeeds.
+    identityRefresh=(async()=>{
+     try {
+      const cwd=join(context.recoveryRoot,'identity');await mkdir(cwd,{ recursive:true,mode:0o700 });
+      lifetime.throwIfAborted();
+      const { stdout }=await promisify(execFile)(context.claudeBinary,['auth','status','--json'],{ cwd,env:restrictedClaudeEnv(nativeClaudeEnv),signal:lifetime,timeout:5000,maxBuffer:65536 });
+      lifetime.throwIfAborted();
+      claudeIdentity={ identityId:claudeIdentityId(JSON.parse(stdout)),observedAt:Date.now() };
+      // A long Codex turn must not prevent the newly observed Claude identity
+      // from becoming visible. Serialize announcements and read identity at send.
+      await announce();
+     } catch { /* Never publish login JSON, stale identity, email or tokens. */ }
+    })().finally(()=>{identityRefresh=null;});
    }
-   await request(`${path}/announce`,{ protocol:'ai-services/1',nativeSessions:!!context.nativeSessionHooks,publicKey:Buffer.from(serviceMachineKey(machine).publicKey).toString('base64'),claudeIdentity });
+   await announce();
    const { probe,job }=await request<{ probe:Probe|null;job:SharedServiceJob|null }>(`${path}/claim`,{});
    if (probe) {
     authority={ kind:'probe',id:probe.id,lease:probe.lease };

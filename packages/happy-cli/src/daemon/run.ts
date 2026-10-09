@@ -30,11 +30,10 @@ import { join } from 'path';
 import { projectPath } from '@/projectPath';
 import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTmuxSessionIdentifier } from '@/utils/tmux';
 import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
-import { detectCLIAvailability } from '@/utils/detectCLI';
+import { initialMachineMetadata } from './machineMetadata';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { isUnusedCodexSession } from './emptyCodexSession';
 import { stopDetachedCodexWorker } from './stopDetachedCodexWorker';
-import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
 import { refreshCodexAccountQuota } from './codexQuotaProbe';
@@ -147,21 +146,7 @@ export class DaemonSessionStartupIntegration {
   }
 }
 
-// Prepare initial metadata
-// Suffix host with `-dev` for the HAPPY_VARIANT=dev variant so the dev daemon
-// is visually distinct from the stable one in the machine list (they otherwise
-// share the same hostname and look identical).
-const hostSuffix = process.env.HAPPY_VARIANT === 'dev' ? '-dev' : '';
-export const initialMachineMetadata: MachineMetadata = {
-  host: os.hostname() + hostSuffix,
-  platform: os.platform(),
-  happyCliVersion: packageJson.version,
-  homeDir: os.homedir(),
-  happyHomeDir: configuration.happyHomeDir,
-  happyLibDir: projectPath(),
-  cliAvailability: detectCLIAvailability(),
-  resumeSupport: { ...detectResumeSupport(), rpcAvailable: true },
-};
+export { initialMachineMetadata } from './machineMetadata';
 
 export async function startDaemon(): Promise<void> {
   // We don't have cleanup function at the time of server construction
@@ -719,6 +704,7 @@ export async function startDaemon(): Promise<void> {
       }
       }, {
         sourceSessionId: options.parentSessionId, sourceThreadId: options.resumeCodexThreadId,
+        inheritConfiguration: !options.nativeApplicationPolicy,
         sourceProfileId: options.nativeApplicationPolicy?.binding.engine === 'codex' ? options.nativeApplicationPolicy.binding.accountRef.id : undefined,
         // Only a new session created from a native fork may use the selected
         // account. Resuming an existing session retains its original identity.
@@ -1046,6 +1032,7 @@ export async function startDaemon(): Promise<void> {
         }, {
           sourceSessionId: happySessionId,
           resumeExistingSession: true,
+          inheritConfiguration: !applicationPolicy,
           sourceThreadId: metadata.codexThreadId,
           sourceProfileId: metadata.codexAccountProfileId,
         });

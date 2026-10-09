@@ -33,7 +33,9 @@ export function AppConversationsSidebar({ visible = true, showTitle = true, onNa
             {!groups.length ? <View style={styles.notice}><Text style={styles.title}>{t('appConversations.empty')}</Text><Text style={styles.secondary}>{t('connectedApps.emptyHint')}</Text></View> : null}
             {groups.map(appId => {
                 const appSessions = nativeSessions.filter(session => session.application?.appId === appId);
-                const inHistory = (session: typeof appSessions[number]) => session.archived || (session.state === 'completed' && !session.hasDraft);
+                // Use the same archive policy as history, row actions and storage,
+                // including an explicit restore of the current completed turn.
+                const inHistory = (session: typeof appSessions[number]) => session.archived;
                 const currentSessions = appSessions.filter(session => !inHistory(session));
                 const historySessions = appSessions.filter(inHistory);
                 return <View key={appId} testID={`app-conversations-group-${appId}`}>

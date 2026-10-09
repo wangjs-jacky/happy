@@ -1,3 +1,4 @@
+import { createWorkerWake } from './workerWake';
 import type { NativeSessionHooks } from './nativeSessionRuntime';
 import { join, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -16,8 +17,11 @@ export type { TrustedApplicationLoader, TrustedBusinessPromptResolver } from './
 export type { BoundRuntimeContext, BoundCredentialLease, BoundWorkspace, BoundTurnInput, BoundTurnEvent, BoundServiceRuntime } from './executionBinding';
 
 /** Runs only ai-services/1 discovery, execution and native session history. */
-export function startAppChatWorker(token: string, machine: Machine, nativeSessionHooks?: NativeSessionHooks): () => void {
+export function startAppChatWorker(token: string, machine: Machine, nativeSessionHooks?: NativeSessionHooks, subscribeWake?: (wake: () => void) => (() => void)): () => void {
     const lifetime = new AbortController();
+    const wake = createWorkerWake(lifetime.signal);
+    const unsubscribeWake = subscribeWake?.(() => wake.notify());
+    lifetime.signal.addEventListener('abort', () => unsubscribeWake?.(), { once: true });
     const configuredBinary = process.env.HAPPY_CODEX_PATH?.trim();
     const claudeBinary = process.env.HAPPY_CLAUDE_PATH?.trim() || 'claude';
     const binary = configuredBinary && isAbsolute(configuredBinary) ? configuredBinary : 'codex';
@@ -66,13 +70,9 @@ export function startAppChatWorker(token: string, machine: Machine, nativeSessio
         }).finally(()=>{historyBusy=false;});},1000);
         try { while (!lifetime.signal.aborted) {
             try {
-                await shared.tick();
+                if (await shared.tick()) continue;
             } catch { /* Failed claim leaves no running turn; retry after bounded delay. */ }
-            if (!lifetime.signal.aborted) await new Promise<void>(resolve => {
-                const timer = setTimeout(done, 1000);
-                function done() { clearTimeout(timer); lifetime.signal.removeEventListener('abort', done); resolve(); }
-                lifetime.signal.addEventListener('abort', done, { once: true });
-            });
+            await wake.wait();
         } } finally { clearInterval(historyTimer); await release(); }
     })();
     return () => { lifetime.abort();  };
