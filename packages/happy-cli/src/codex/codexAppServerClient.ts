@@ -1721,6 +1721,10 @@ export class CodexAppServerClient {
         const error = `${label} timed out after ${timeoutMs}ms without progress`;
         logger.warn(`[CodexAppServer] ${error} — treating as failed abort`);
 
+        // Capture and interrupt the native turn before clearing its identity.
+        // sendTurnAndWait already waits for pendingInterrupt, so a follow-up
+        // cannot race the old turn's interrupt request.
+        void this.interruptTurn();
         this.resolvePendingTurn(true);
         this.clearTextStreams();
         this._turnId = null;

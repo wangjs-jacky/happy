@@ -960,9 +960,15 @@ describe('CodexAppServerClient sandbox integration', () => {
     });
 
     it('emits a failed terminal event when a turn times out', async () => {
+        const requests: MockRpcMessage[] = [];
+        let acknowledgeInterrupt: (() => void) | undefined;
         const proc = createMockProcess({
             pid: 2003,
             onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'turn/interrupt' && msg.id != null) {
+                    acknowledgeInterrupt = () => pushJsonLine(stdout, { id: msg.id, result: {} });
+                }
                 if (msg.method === 'thread/start' && msg.id != null) {
                     setTimeout(() => {
                         pushJsonLine(stdout, {
@@ -1022,6 +1028,17 @@ describe('CodexAppServerClient sandbox integration', () => {
             reason: 'timeout',
         }));
 
+        expect(requests.filter(msg => msg.method === 'turn/interrupt').map(msg => msg.params)).toEqual([
+            { threadId: 'thread-timeout', turnId: 'turn-timeout' },
+        ]);
+        // A new turn must wait for the old turn's interrupt acknowledgement.
+        const nextTurn = client.sendTurnAndWait('continue', { turnTimeoutMs: 25 });
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(requests.filter(msg => msg.method === 'turn/start')).toHaveLength(1);
+        acknowledgeInterrupt!();
+        await waitFor(() => requests.filter(msg => msg.method === 'turn/start').length === 2);
+        await nextTurn;
+        acknowledgeInterrupt!();
         await client.disconnect();
     });
 
