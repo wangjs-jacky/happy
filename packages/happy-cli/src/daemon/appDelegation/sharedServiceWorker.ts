@@ -106,7 +106,7 @@ export function createSharedServiceWorker(context: { machine: Machine; request: 
     }).catch(()=>control.abort()).finally(()=>{
      textFlush=undefined;if(latest!==publishedText)scheduleText();
     });
-   },250);
+   },50);
   };
   try {
    const decoded=decodeServiceJob(machine,job); key=decoded.key;
