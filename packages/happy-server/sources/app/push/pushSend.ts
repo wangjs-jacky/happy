@@ -1,11 +1,14 @@
 /**
  * Sends push notifications via Expo's HTTP Push API.
  * Direct HTTP POST — no expo-server-sdk dependency needed.
- * Batches up to 100 tokens per request (Expo's documented limit).
+ * Sends one token per request so tokens from different Expo projects cannot
+ * cause a mixed-project batch rejection.
  */
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-const BATCH_SIZE = 100;
+const MAX_CONCURRENT_REQUESTS = 6;
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface PushMessage {
     to: string;
@@ -24,39 +27,104 @@ export interface PushTicket {
     details?: { error?: string };
 }
 
-export async function sendPushNotifications(messages: PushMessage[]): Promise<PushTicket[]> {
-    if (messages.length === 0) {
-        return [];
+function safeErrorCode(value: unknown): string | undefined {
+    return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value) ? value : undefined;
+}
+
+function normalizeTicket(value: unknown): PushTicket {
+    if (!value || typeof value !== 'object') {
+        return { status: 'error', message: 'Malformed Expo response' };
     }
+    const ticket = value as { status?: unknown; id?: unknown; details?: { error?: unknown } };
+    if (ticket.status === 'ok' && typeof ticket.id === 'string') {
+        return { status: 'ok', id: ticket.id };
+    }
+    if (ticket.status === 'error') {
+        // Expo's ticket message can contain the complete device token. Only
+        // retain its validated error code, which pushDispatch uses for cleanup.
+        const errorCode = safeErrorCode(ticket.details?.error);
+        return {
+            status: 'error',
+            message: 'Expo ticket error',
+            ...(errorCode ? { details: { error: errorCode } } : {})
+        };
+    }
+    return { status: 'error', message: 'Malformed Expo response' };
+}
 
-    const tickets: PushTicket[] = [];
+async function requestWithTimeout(message: PushMessage, attempt: number): Promise<PushTicket | null> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let responseStatus: number | undefined;
+    try {
+        return await Promise.race([
+            (async () => {
+                const response = await fetch(EXPO_PUSH_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify([message]),
+                    // Expo's global fetch type uses a different AbortSignal declaration.
+                    signal: controller.signal as unknown as RequestInit['signal']
+                });
+                responseStatus = response.status;
+                if (!response.ok) {
+                    if ((response.status === 429 || response.status >= 500) && attempt + 1 < MAX_ATTEMPTS) {
+                        return null;
+                    }
+                    const errorBody = await response.json().catch(() => null) as { errors?: Array<{ code?: unknown }> } | null;
+                    const errorCode = safeErrorCode(errorBody?.errors?.[0]?.code);
+                    return {
+                        status: 'error' as const,
+                        message: `HTTP ${response.status}`,
+                        ...(errorCode ? { details: { error: errorCode } } : {})
+                    };
+                }
 
-    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
-        const batch = messages.slice(i, i + BATCH_SIZE);
-        try {
-            const response = await fetch(EXPO_PUSH_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(batch)
-            });
-
-            if (!response.ok) {
-                tickets.push(...batch.map(() => ({
-                    status: 'error' as const,
-                    message: `HTTP ${response.status}`
-                })));
-                continue;
-            }
-
-            const result = await response.json() as { data: PushTicket[] };
-            tickets.push(...result.data);
-        } catch {
-            tickets.push(...batch.map(() => ({
-                status: 'error' as const,
-                message: 'Network error'
-            })));
+                const result = await response.json() as { data?: unknown };
+                return normalizeTicket(Array.isArray(result?.data) ? result.data[0] : undefined);
+            })(),
+            new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => {
+                    controller.abort();
+                    reject(new Error('Expo request timed out'));
+                }, REQUEST_TIMEOUT_MS);
+            })
+        ]);
+    } catch (error) {
+        // A 4xx is already known once headers arrive. If its body stalls,
+        // return that terminal response instead of posting it again.
+        if (responseStatus !== undefined && responseStatus >= 400 && responseStatus < 500 && responseStatus !== 429) {
+            return { status: 'error', message: `HTTP ${responseStatus}` };
         }
+        throw error;
+    } finally {
+        if (timer) clearTimeout(timer);
     }
+}
 
+async function sendSingle(message: PushMessage): Promise<PushTicket> {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+            const ticket = await requestWithTimeout(message, attempt);
+            if (ticket) {
+                return ticket;
+            }
+        } catch {
+            if (attempt + 1 >= MAX_ATTEMPTS) {
+                return { status: 'error', message: 'Network error' };
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
+    }
+    return { status: 'error', message: 'Network error' };
+}
+
+export async function sendPushNotifications(messages: PushMessage[]): Promise<PushTicket[]> {
+    const tickets: PushTicket[] = [];
+    for (let i = 0; i < messages.length; i += MAX_CONCURRENT_REQUESTS) {
+        // Promise.all preserves input order, which pushDispatch needs to map
+        // DeviceNotRegistered errors back to the matching database token.
+        tickets.push(...await Promise.all(messages.slice(i, i + MAX_CONCURRENT_REQUESTS).map(sendSingle)));
+    }
     return tickets;
 }
