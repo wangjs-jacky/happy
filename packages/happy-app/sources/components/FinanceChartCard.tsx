@@ -3,7 +3,7 @@ import { Text, View, type LayoutChangeEvent, type ViewStyle } from 'react-native
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
-import Svg, { Circle, Line, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { FinanceChartPoint, SessionFinanceChart } from '@/utils/sessionFinanceCharts';
@@ -19,6 +19,7 @@ import {
     FINANCE_CHART_WIDTH,
     pickFinanceChartPointIndex,
 } from '@/utils/financeChartInteraction';
+import { FinanceChartAnnotations } from './FinanceChartAnnotations';
 import { ExternalHorizontalGestureContext } from './ExternalHorizontalGestureContext';
 
 function formatNumber(value: number | null, digits: number = 2): string {
@@ -195,6 +196,15 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                                 />
                             );
                         })}
+                        <FinanceChartAnnotations
+                            annotations={props.chart.annotations ?? []}
+                            layer="regions"
+                            count={props.chart.points.length}
+                            x={index => xForIndex(index, props.chart.points.length)}
+                            y={value => yForValue(value, range.min, range.max)}
+                            color={theme.colors.textLink}
+                            background={theme.colors.surface}
+                        />
                         {props.chart.points.map((point, index) => {
                             const x = xForIndex(index, props.chart.points.length);
                             const yOpen = yForValue(point.open, range.min, range.max);
@@ -220,6 +230,18 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                                 </React.Fragment>
                             );
                         })}
+                        <FinanceChartAnnotations
+                            annotations={props.chart.annotations ?? []}
+                            layer="marks"
+                            count={props.chart.points.length}
+                            x={index => xForIndex(index, props.chart.points.length)}
+                            y={value => yForValue(value, range.min, range.max)}
+                            color={theme.colors.textLink}
+                            background={theme.colors.surface}
+                        />
+                        {props.chart.numberedBars && props.chart.points.length <= 20 ? props.chart.points.map((point, index) => (
+                            <SvgText key={`number-${index}`} x={xForIndex(index, props.chart.points.length)} y={FINANCE_CHART_HEIGHT - 8} textAnchor="middle" fontSize={10} fill={theme.colors.textSecondary}>{index + 1}</SvgText>
+                        )) : null}
                         {selected ? (
                             <>
                                 <Line
@@ -245,6 +267,11 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                 </View>
             </GestureDetector>
 
+            {(props.chart.annotations ?? []).map((annotation, index) => annotation.label ? (
+                <Text key={`annotation-${index}`} style={styles.readoutValue}>
+                    {index + 1}. {annotation.label}
+                </Text>
+            ) : null)}
             {selected ? (
                 <View style={styles.readout}>
                     <View style={styles.readoutDate}>

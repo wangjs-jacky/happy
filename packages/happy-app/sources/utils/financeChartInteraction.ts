@@ -17,7 +17,11 @@ export function pickFinanceChartPointIndex(input: {
 }): number {
     if (input.pointCount <= 1 || input.layoutWidth <= 0) return 0;
 
-    const viewBoxX = input.locationX / input.layoutWidth * FINANCE_CHART_WIDTH;
+    // SVG's default xMidYMid meet keeps its aspect ratio inside the fixed-height
+    // frame. Wide cards have horizontal gutters; pointer coordinates include them.
+    const scale = Math.min(input.layoutWidth / FINANCE_CHART_WIDTH, 1);
+    const offsetX = (input.layoutWidth - FINANCE_CHART_WIDTH * scale) / 2;
+    const viewBoxX = (input.locationX - offsetX) / scale;
     const ratio = (viewBoxX - FINANCE_CHART_PADDING_LEFT) / FINANCE_CHART_PLOT_WIDTH;
     return Math.max(0, Math.min(input.pointCount - 1, Math.round(ratio * (input.pointCount - 1))));
 }
