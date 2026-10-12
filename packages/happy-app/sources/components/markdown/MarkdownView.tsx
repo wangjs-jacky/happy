@@ -339,6 +339,7 @@ function RenderQuestionOptions(props: {
     const [selected, setSelected] = React.useState<number | null>(null);
     const [hovered, setHovered] = React.useState<number | null>(null);
     const [customText, setCustomText] = React.useState('');
+    const [inputHeight, setInputHeight] = React.useState(32);
     const [dismissed, setDismissed] = React.useState(false);
     const [sending, setSending] = React.useState(false);
     const sendingRef = React.useRef(false);
@@ -378,7 +379,8 @@ function RenderQuestionOptions(props: {
                             key={index}
                             testID={`question-option-${index}`}
                             accessibilityRole="radio"
-                            accessibilityState={{ selected: selected === index, disabled: sending }}
+                            aria-checked={selected === index}
+                            accessibilityState={{ checked: selected === index, selected: selected === index, disabled: sending }}
                             accessibilityLabel={item}
                             disabled={sending}
                             onHoverIn={() => setHovered(index)}
@@ -389,7 +391,7 @@ function RenderQuestionOptions(props: {
                                 selected === index && style.optionItemSelected,
                                 (pressed || hovered === index) && style.optionItemPressed,
                             ]}
-                            onPress={() => { setSelected(index); setCustomText(''); }}
+                            onPress={() => { setSelected(index); setCustomText(''); setInputHeight(32); }}
                         >
                             <View style={[style.optionNumber, selected === index && style.optionNumberSelected]}><Text style={style.optionNumberText}>{index + 1}</Text></View>
                             <Text style={[style.optionText, { flex: 1 }, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{item}</Text>
@@ -411,20 +413,22 @@ function RenderQuestionOptions(props: {
                         <TextInput
                             testID="question-custom-input"
                             accessibilityLabel={t('agentInput.customOptionPlaceholder')}
-                            style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput]}
+                            style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput, { height: inputHeight }]}
                             value={customText}
                             editable={!sending}
-                            onChangeText={(value) => { setCustomText(value); if (value.trim()) setSelected(null); }}
+                            onChangeText={(value) => { setCustomText(value); if (value.trim()) setSelected(null); if (!value) setInputHeight(32); }}
+                            onContentSizeChange={(event) => setInputHeight(Math.max(32, Math.min(120, event.nativeEvent.contentSize.height)))}
                             placeholder={t('agentInput.customOptionPlaceholder')}
                             placeholderTextColor={theme.colors.textSecondary}
                             multiline
+                            numberOfLines={1}
                         />
                     </View>
                     <View style={style.questionActions}>
                         <Pressable testID="question-skip" accessibilityRole="button" disabled={sending} onPress={() => setDismissed(true)} style={({ pressed }) => [style.questionSkip, pressed && style.optionItemPressed]}>
                             <Text style={style.optionText}>{t('agentInput.questionSkip')}</Text>
                         </Pressable>
-                        <Pressable testID="question-send" accessibilityRole="button" accessibilityState={{ disabled: !answer || sending, busy: sending }} disabled={!answer || sending} onPress={() => void submit()} style={[style.questionSend, (!answer || sending) && style.optionCustomSendDisabled]}>
+                        <Pressable testID="question-send" accessibilityRole="button" aria-busy={sending} accessibilityState={{ disabled: !answer || sending, busy: sending }} disabled={!answer || sending} onPress={() => void submit()} style={[style.questionSend, (!answer || sending) && style.optionCustomSendDisabled]}>
                             <Text style={style.questionSendText}>{t('agentInput.questionSend')}</Text>
                         </Pressable>
                     </View>
@@ -1117,7 +1121,7 @@ const style = StyleSheet.create((theme) => ({
     },
     optionCustomRow: {
         flexDirection: 'row',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         gap: 8,
         flex: 1,
         minWidth: 180,
