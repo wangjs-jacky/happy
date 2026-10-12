@@ -340,6 +340,9 @@ function RenderQuestionOptions(props: {
     const [hovered, setHovered] = React.useState<number | null>(null);
     const [customText, setCustomText] = React.useState('');
     const [inputHeight, setInputHeight] = React.useState(32);
+    const [cardWidth, setCardWidth] = React.useState(0);
+    const [inputFocused, setInputFocused] = React.useState(false);
+    const compactFooter = Platform.OS !== 'web' || cardWidth <= 480;
     const [dismissed, setDismissed] = React.useState(false);
     const [sending, setSending] = React.useState(false);
     const sendingRef = React.useRef(false);
@@ -361,7 +364,7 @@ function RenderQuestionOptions(props: {
     };
     if (dismissed) return null;
     return (
-        <View testID="markdown-question-card" style={[style.optionsContainer, props.onOptionPress && style.questionCard, props.variant === 'foldedPrompt' && style.foldedOptionsContainer, props.first && style.first, props.last && style.last]}>
+        <View testID="markdown-question-card" onLayout={event => setCardWidth(event.nativeEvent.layout.width)} style={[style.optionsContainer, props.onOptionPress && style.questionCard, props.variant === 'foldedPrompt' && style.foldedOptionsContainer, props.first && style.first, props.last && style.last]}>
             {props.onOptionPress && <>
                 <View style={style.questionHeader}>
                     <Ionicons name="help-circle-outline" size={18} color={theme.colors.textSecondary} />
@@ -407,8 +410,8 @@ function RenderQuestionOptions(props: {
                 }
             })}
             {props.onOptionPress ? (
-                <View style={style.questionFooter}>
-                    <View style={style.optionCustomRow}>
+                <View style={[style.questionFooter, compactFooter && style.questionFooterCompact]}>
+                    <View testID="question-input-row" style={[style.optionCustomRow, compactFooter && style.optionCustomRowCompact, inputFocused && style.optionCustomRowFocused]}>
                         <Ionicons name="create-outline" size={18} color={theme.colors.textSecondary} />
                         <TextInput
                             testID="question-custom-input"
@@ -416,6 +419,8 @@ function RenderQuestionOptions(props: {
                             style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput, { height: inputHeight }]}
                             value={customText}
                             editable={!sending}
+                            onFocus={() => setInputFocused(true)}
+                            onBlur={() => setInputFocused(false)}
                             onChangeText={(value) => { setCustomText(value); if (value.trim()) setSelected(null); if (!value) setInputHeight(32); }}
                             onContentSizeChange={(event) => setInputHeight(Math.max(32, Math.min(120, event.nativeEvent.contentSize.height)))}
                             placeholder={t('agentInput.customOptionPlaceholder')}
@@ -424,7 +429,7 @@ function RenderQuestionOptions(props: {
                             numberOfLines={1}
                         />
                     </View>
-                    <View style={style.questionActions}>
+                    <View testID="question-actions" style={[style.questionActions, compactFooter && style.questionActionsCompact]}>
                         <Pressable testID="question-skip" accessibilityRole="button" disabled={sending} onPress={() => setDismissed(true)} style={({ pressed }) => [style.questionSkip, pressed && style.optionItemPressed]}>
                             <Text style={style.optionText}>{t('agentInput.questionSkip')}</Text>
                         </Pressable>
@@ -951,7 +956,9 @@ const style = StyleSheet.create((theme) => ({
     optionNumberSelected: { backgroundColor: theme.colors.surfaceSelected },
     optionNumberText: { ...Typography.default(), fontSize: 14, color: theme.colors.textSecondary },
     questionFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 8, marginTop: 8 },
+    questionFooterCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 12 },
     questionActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
+    questionActionsCompact: { alignSelf: 'flex-end' },
     questionSkip: { minHeight: 40, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 20, backgroundColor: theme.colors.surface, paddingHorizontal: 14, justifyContent: 'center' },
     questionSend: { minHeight: 40, borderRadius: 20, backgroundColor: theme.colors.text, paddingHorizontal: 16, justifyContent: 'center' },
     questionSendText: { ...Typography.default('semiBold'), fontSize: 14, color: theme.colors.surface },
@@ -1128,7 +1135,13 @@ const style = StyleSheet.create((theme) => ({
         minHeight: 40,
         paddingHorizontal: 8,
         paddingVertical: 4,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
     },
+    optionCustomRowCompact: { flex: 0, width: '100%', minWidth: 0 },
+    optionCustomRowFocused: { borderColor: theme.colors.textLink },
     optionCustomInput: {
         ...Typography.default(),
         flex: 1,
@@ -1136,6 +1149,12 @@ const style = StyleSheet.create((theme) => ({
         lineHeight: 20,
         maxHeight: 120,
         color: theme.colors.text,
+        minWidth: 0,
+        borderWidth: 0,
+        backgroundColor: 'transparent',
+        textAlignVertical: 'top',
+        paddingHorizontal: 0,
+        ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
         paddingTop: Platform.OS === 'ios' ? 6 : 4,
         paddingBottom: Platform.OS === 'ios' ? 6 : 4,
     },

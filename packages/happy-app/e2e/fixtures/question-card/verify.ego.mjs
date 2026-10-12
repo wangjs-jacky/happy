@@ -29,6 +29,9 @@ export async function verifyQuestionCard(runtime, config) {
             cardRect: card?.getBoundingClientRect().toJSON(),
             sendRect: send?.getBoundingClientRect().toJSON(),
             inputRect: input?.getBoundingClientRect().toJSON(),
+            inputRowRect: document.querySelector('[data-testid="question-input-row"]')?.getBoundingClientRect().toJSON(),
+            actionsRect: document.querySelector('[data-testid="question-actions"]')?.getBoundingClientRect().toJSON(),
+            outline: input ? getComputedStyle(input).outlineStyle : null,
             inputClipped: input ? input.scrollHeight > input.clientHeight + 2 && input.clientHeight < 100 : false,
         };
     });
@@ -94,6 +97,9 @@ export async function verifyQuestionCard(runtime, config) {
     assert.equal((await state()).disabled, false);
     assert.ok((await state()).cardRect.width <= 350);
     assert.equal((await state()).inputClipped, false);
+    assert.equal((await state()).outline, 'none');
+    assert.ok((await state()).actionsRect.top >= (await state()).inputRowRect.bottom + 10);
+    assert.ok((await state()).inputRowRect.width >= (await state()).cardRect.width - 26);
     assert.ok((await state()).sendRect.bottom <= 844);
     await capture('390px 深色：编号和长选项换行，输入与发送可达');
     await page.click('[data-testid="question-send"]');
@@ -110,6 +116,7 @@ export async function verifyQuestionCard(runtime, config) {
     assert.equal((await state()).overflow, false);
     assert.deepEqual((await state()).selected, ['question-option-2']);
     assert.ok((await state()).sendRect.bottom <= 844);
+    assert.ok((await state()).actionsRect.top >= (await state()).inputRowRect.bottom + 10);
     await capture('320px 浅色最终状态：长选项完整，选中与发送可见');
     console.log(JSON.stringify({ status: 'pass', cases: ['OPTION-SELECT-SEND', 'CUSTOM-FAIL-RETRY', 'DISMISS-WITHOUT-SEND', 'DARK-DESKTOP', 'DARK-390', 'LIGHT-320'], record: Boolean(config.record), artifacts, steps }));
     return steps;
