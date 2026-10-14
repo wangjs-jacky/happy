@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { publicSessionSnapshotSchema } from '@slopus/happy-wire';
@@ -59,6 +59,45 @@ describe('claudeCodeAdapter', () => {
         expect(converted.attachments.every((attachment) => attachment.bytes?.equals(png))).toBe(true);
         expect(converted.unresolvedAttachments).toEqual([]);
         expect(JSON.stringify(converted.snapshot)).not.toContain(png.toString('base64'));
+    });
+
+    it('converts Happy media notices into attachments without exposing local paths', async () => {
+        const directory = await createTemporaryDirectory('paws-share-claude-media-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'sessions');
+        const attachmentDirectory = join(directory, '.happy', 'attachments');
+        await mkdir(sessionDirectory);
+        await mkdir(attachmentDirectory, { recursive: true });
+        const transcript = join(sessionDirectory, 'session.jsonl');
+        const videoPath = join(attachmentDirectory, 'demo.mp4');
+        await writeFile(videoPath, Buffer.from('video'));
+        const notice = [
+            'Happy attached 1 user-uploaded local file to this turn:',
+            `- Video 1: ${videoPath} (video/mp4, 5B)`,
+            'Audio/video content is available at the exact paths above; use command-line tools such as ffmpeg or whisper when needed.',
+            'Do not scan ~/.happy/attachments or guess which file the user intended.',
+            '',
+            'Review this recording.',
+        ].join('\n');
+        await writeFile(transcript, `${JSON.stringify({
+            type: 'user', uuid: 'user-1', parentUuid: null, timestamp: '2026-09-01T00:00:00.000Z',
+            message: { content: [{ type: 'text', text: notice }] },
+        })}\n`);
+
+        const converted = await claudeCodeAdapter.convert({
+            provider: 'claude-code',
+            path: transcript,
+            attachmentRoots: [attachmentDirectory],
+        });
+        const serialized = JSON.stringify(converted.snapshot);
+
+        expect(converted.attachments).toEqual([
+            expect.objectContaining({ name: 'demo.mp4', kind: 'video', mimeType: 'video/mp4' }),
+        ]);
+        expect(converted.unresolvedAttachments).toEqual([]);
+        expect(serialized).toContain('Review this recording.');
+        expect(serialized).not.toContain(attachmentDirectory);
+        expect(serialized).not.toContain('Happy attached');
     });
 
     it('fails closed when a structured image source cannot be exported', async () => {

@@ -64,13 +64,25 @@ const cli = join(workspace, 'node_modules/.bin/paws-share');
 const version = await run(cli, ['--version'], { cwd: workspace });
 if (version.stdout.trim() !== manifest.version) throw new Error(`Unexpected packed CLI version: ${version.stdout.trim()}`);
 const help = await run(cli, ['--help'], { cwd: workspace });
-if (!help.stdout.includes('inspect') || !help.stdout.includes('install-skill')) throw new Error('Packed CLI help is incomplete');
+if (!help.stdout.includes('inspect') || !help.stdout.includes('export-html') || !help.stdout.includes('install-skill')) {
+    throw new Error('Packed CLI help is incomplete');
+}
 
 const inspection = await run(cli, [
     'inspect', '--source', 'codex', '--session', join(packageDirectory, 'test/fixtures/codex-session.jsonl'), '--json',
 ], { cwd: workspace });
 const inspectionJson = JSON.parse(inspection.stdout);
 if (inspectionJson.source !== 'codex' || inspectionJson.attachmentCount !== 1) throw new Error('Packed CLI fixture inspection failed');
+
+const localHtmlPath = join(workspace, 'fixture.html');
+await run(cli, [
+    'export-html', '--source', 'codex', '--session', join(packageDirectory, 'test/fixtures/codex-session.jsonl'),
+    '--output', localHtmlPath, '--json',
+], { cwd: workspace });
+const localHtml = await readFile(localHtmlPath, 'utf8');
+if (!localHtml.startsWith('<!doctype html>') || !localHtml.includes('data:image/svg+xml;base64,')) {
+    throw new Error('Packed CLI local HTML export failed');
+}
 
 const codexHome = join(workspace, 'codex-home');
 const claudeHome = join(workspace, 'claude-home');
@@ -96,5 +108,5 @@ process.stdout.write(`${JSON.stringify({
     tarball,
     sha256: checksum,
     files: listing.length,
-    checks: ['contents', 'clean-install', 'esm', 'cjs', 'cli', 'fixture', 'skill-install'],
+    checks: ['contents', 'clean-install', 'esm', 'cjs', 'cli', 'fixture', 'local-html', 'skill-install'],
 }, null, 2)}\n`);

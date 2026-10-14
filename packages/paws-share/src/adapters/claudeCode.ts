@@ -11,6 +11,7 @@ import {
 } from './shared';
 import type { ConvertedSnapshot, ResolvedAttachment, TranscriptAdapter, TranscriptCandidate } from './types';
 import type { JsonLine } from './shared';
+import { materializePawsLocalAttachmentNotice } from './pawsLocalAttachments';
 
 type ToolBlock = Extract<PublicSessionBlock, { type: 'tool' }>;
 
@@ -103,7 +104,21 @@ export const claudeCodeAdapter: TranscriptAdapter = {
             for (const [blockIndex, rawBlock] of content.entries()) {
                 const block = recordValue(rawBlock);
                 if (!block) continue;
-                const text = stringValue(block.text);
+                let text = stringValue(block.text);
+                if (block.type === 'text' && line.type === 'user' && text) {
+                    const localNotice = await materializePawsLocalAttachmentNotice({
+                        value: text,
+                        candidate,
+                        recordedCwd,
+                        keyPrefix: `${uuid ?? sequence}:${blockIndex}`,
+                    });
+                    if (localNotice.matched) {
+                        localNotice.attachments.forEach((attachment) => attachments.set(attachment.attachmentId, attachment));
+                        blocks.push(...localNotice.blocks);
+                        unresolvedAttachments.push(...localNotice.unresolvedAttachments);
+                        text = localNotice.visibleText || undefined;
+                    }
+                }
                 if (block.type === 'text' && text) {
                     blocks.push({ type: 'text', markdown: text });
                     if (line.type === 'user' && !firstUserText) firstUserText = text;
