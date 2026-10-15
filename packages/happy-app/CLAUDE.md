@@ -189,10 +189,10 @@ Before changing `sources/components/markdown/MermaidRenderer.tsx`, Panzoom optio
 message scrolling, or fullscreen diagram layout, read
 [`docs/mermaid-panzoom-integration.md`](../../docs/mermaid-panzoom-integration.md).
 
-The non-negotiable contract is: ordinary wheel/trackpad scrolling belongs to
-the page; only Ctrl/Command + wheel zooms the diagram; default-scale dragging
-must work; inline and fullscreen canvases use separate controllers; and Web
-plus Native/WebView behavior must be verified independently. Do not restore
+The inline diagram is a bounded, passive whole-image preview; clicking anywhere
+opens fullscreen. Inline gestures belong to the chat. Only the fullscreen canvas
+supports dragging, zoom buttons, and Ctrl/Command + wheel zoom. Web and
+Native/WebView behavior must be verified independently. Do not restore
 `contain: 'outside'` or register `zoomWithWheel` unconditionally.
 
 ### Custom Header Component

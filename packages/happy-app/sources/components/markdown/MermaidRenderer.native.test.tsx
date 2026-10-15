@@ -26,7 +26,7 @@ vi.mock('react-native-unistyles', () => {
             textSecondary: '#aeb8c2',
         },
     };
-    const runtime = { insets: { bottom: 12, left: 0, right: 0, top: 24 } };
+    const runtime = { insets: { bottom: 12, left: 0, right: 0, top: 24 }, screen: { height: 720 } };
     return {
         StyleSheet: {
             absoluteFillObject: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
@@ -64,7 +64,7 @@ describe('MermaidRenderer native interaction contract', () => {
         renderer = undefined;
     });
 
-    it('keeps diagram pan gestures inside an Android chat scroll view', async () => {
+    it('leaves inline gestures to the chat and enables interaction only in fullscreen', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />);
         });
@@ -72,8 +72,19 @@ describe('MermaidRenderer native interaction contract', () => {
         expect(renderer!.root.findByType('WebView').props).toMatchObject({
             nestedScrollEnabled: true,
             overScrollMode: 'never',
-            scrollEnabled: true,
+            scrollEnabled: false,
         });
+        const inlineWebView = renderer!.root.findByType('WebView');
+        expect(inlineWebView.parent.props.pointerEvents).toBe('none');
+        expect(inlineWebView.props.source.html).not.toContain('<script src="https://cdn.jsdelivr.net/npm/@panzoom');
+        expect(inlineWebView.props.source.html).toContain("svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')");
+        expect(inlineWebView.props.source.html).not.toContain("type: 'dimensions'");
+
+        act(() => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
+        const fullscreenWebView = renderer!.root.findAllByType('WebView')[1];
+        expect(fullscreenWebView.props.scrollEnabled).toBe(true);
+        expect(fullscreenWebView.parent.props.pointerEvents).toBe('auto');
+        expect(fullscreenWebView.props.source.html).toContain('body { padding: 0px');
     });
 
     it('uses an edge-to-edge safe-area-aware fullscreen surface', async () => {

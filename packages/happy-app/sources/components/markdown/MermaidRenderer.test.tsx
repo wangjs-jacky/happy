@@ -38,13 +38,16 @@ vi.mock('react-native-unistyles', () => {
     return {
         StyleSheet: {
             absoluteFillObject: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
-            create: (factory: any) => factory(theme, { insets: { bottom: 0, left: 0, right: 0, top: 0 } }),
+            create: (factory: any) => factory(theme, { insets: { bottom: 0, left: 0, right: 0, top: 0 }, screen: { height: 720 } }),
         },
         useUnistyles: () => ({ theme }),
     };
 });
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('./mermaidSvgImage', () => ({
+    createMermaidImageUri: (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+}));
 vi.mock('mermaid', () => ({
     default: {
         initialize: vi.fn(),
@@ -87,13 +90,13 @@ describe('MermaidRenderer', () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
                 createNodeMock: (element: { type: string }) => element.type === 'div'
-                    ? { querySelector: () => ({}) }
+                    ? { querySelector: () => ({ style: {}, setAttribute: vi.fn() }) }
                     : {},
             });
         });
 
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
-        act(() => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
+        await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
         expect(renderer!.root.findByType('Modal').props.visible).toBe(true);
         expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-surface' })).toBeDefined();
 
@@ -101,15 +104,31 @@ describe('MermaidRenderer', () => {
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
     });
 
-    it('renders the inline zoom controls with accessible labels', async () => {
+    it('shows a bounded passive image and only enables zoom controls after opening it', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
                 createNodeMock: (element: { type: string }) => element.type === 'div'
-                    ? { querySelector: () => ({}) }
+                    ? { querySelector: () => ({ style: {}, setAttribute: vi.fn() }) }
                     : {},
             });
         });
 
+        await act(async () => { await vi.dynamicImportSettled(); });
+        const image = renderer!.root.findByType('img');
+        expect(decodeURIComponent(image.props.src)).toContain('<svg viewBox="0 0 200 100">');
+        expect(image.props.style.objectFit).toBe('contain');
+        expect(image.props.draggable).toBe(false);
+        expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.accessibilityRole).toBe('button');
+        expect(renderer!.root.findAllByProps({ testID: 'mermaid-zoom-in' })).toHaveLength(0);
+        expect(mocks.panzoom).not.toHaveBeenCalled();
+        const canvas = renderer!.root.findAllByType('View').find((node: any) =>
+            Array.isArray(node.props.style) && node.props.style.some((style: any) => style?.height === 320));
+        expect(canvas!.props.style).toContainEqual({ height: 320, maxHeight: 324, minHeight: 0 });
+
+        await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
+        await act(async () => { await vi.dynamicImportSettled(); });
+        await act(async () => { await vi.dynamicImportSettled(); });
+        expect(mocks.panzoom).toHaveBeenCalledOnce();
         expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-in' }).props.accessibilityLabel)
             .toBe('keyboardShortcuts.zoomIn');
         expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-out' }).props.accessibilityLabel)
@@ -127,6 +146,7 @@ describe('MermaidRenderer', () => {
             });
         });
 
+        await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
         const button = renderer!.root.findAllByType('Pressable')
             .find((node: { props: { testID?: string } }) => node.props.testID === 'mermaid-zoom-in')!;
         act(() => button.props.onHoverIn());

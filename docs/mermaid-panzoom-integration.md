@@ -35,15 +35,18 @@ Web 与 Native 是两条渲染链，不能因为最终都显示 SVG 就假设配
 
 ### PC Web
 
-- 鼠标或触控板按住画布后，默认缩放比例也必须能够拖动画布。
+- 内联以完整 SVG 图片展示，等比缩放、不裁切；画布最多 320px 高且不超过窗口高度的 45%，点击整张图进入全屏。
+- 内联不初始化 Panzoom、不提供缩放工具栏，鼠标与触屏滚动归聊天页。
+- 全屏中鼠标或触控板按住画布后，默认缩放比例也必须能够拖动画布。
 - 普通鼠标滚轮、触控板双指滚动属于页面，不能缩放图表，也不能被图表阻止。
 - `Ctrl/Command + wheel` 才交给 Panzoom 缩放；工具栏的放大、缩小、重置始终可用。
-- 打开全屏会创建独立画布实例；关闭后内联画布仍可继续使用。
+- 打开全屏会创建独立画布实例；关闭后返回同一张静态预览，支持 Escape 和关闭按钮。
 - 全屏内容必须落在可视区域内，表面不能保留内联卡片的圆角或边框。
 
 ### Native/WebView
 
-- WebView 必须允许内部滚动并参与父级嵌套滚动：`scrollEnabled` 与 `nestedScrollEnabled` 保持开启。
+- 内联 WebView 只展示完整静态 SVG，固定限高，`pointerEvents="none"`、`scrollEnabled=false`，由外层 Pressable 打开全屏，让父聊天页处理触摸滚动。
+- 仅全屏 WebView 开启 `scrollEnabled` 与 `nestedScrollEnabled`，并加载 Panzoom。
 - 全屏 HTML 不保留内联模式的 16px body padding。
 - Modal 同时处理状态栏、导航栏和安全区；全屏表面无圆角、无边框。
 - 缩放、拖拽和重置由 WebView 内的 Panzoom 完成，React Native 工具栏只发送命令。
@@ -52,7 +55,9 @@ Web 与 Native 是两条渲染链，不能因为最终都显示 SVG 就假设配
 
 ### 3.1 分开 viewport、scene 和 SVG
 
-Web DOM 层级保持为：
+内联 SVG 先按 HTML 解析、移除 HTML 解析器产生的 xmlns 属性，再用 XMLSerializer 序列化为 SVG 图片 URI。Mermaid 的 foreignObject 中可能包含未自闭合的 `<br>`，直接把原始输出塞入图片会造成 XML 解析失败；不能只用无文字的 mock 验收。
+
+全屏 Web DOM 层级保持为：
 
 ```text
 viewport（裁剪、手势边界、wheel 监听）
@@ -112,9 +117,9 @@ Mermaid render 是异步的，Panzoom 必须等 SVG 已插入 DOM 后再初始�
 
 否则常见结果是旧控制器继续消费事件、工具栏命令打到已销毁实例，或者主题切换后存在两层 transform。
 
-### 3.4 内联与全屏使用独立实例
+### 3.4 静态预览与全屏分离
 
-内联画布和 Modal 中的全屏画布各自拥有 ref。不要把同一 DOM/WebView 节点搬入 Modal，也不要让两个工具栏共享一个 Panzoom ref。
+内联预览不拥有 Panzoom。Modal 中创建独立全屏画布，不把同一 DOM/WebView 节点搬入 Modal；关闭销毁全屏控制器，保留预览与聊天位置。
 
 全屏状态需要同时传入：
 
@@ -163,11 +168,11 @@ Native HTML 不能直接插入用户 Mermaid 源码或主题 JSON。必须通过
 | 层级 | 必测项 |
 | --- | --- |
 | Web unit | 无 `contain: 'outside'`；普通 wheel 不调用 zoom；Ctrl/Command wheel 调用 zoom；销毁时移除 listener 并 destroy |
-| Native unit | `scrollEnabled`、`nestedScrollEnabled`；全屏 body padding=0；Modal translucent；safe-area padding；全屏无边框圆角 |
+| Native unit | 内联禁止命中和滚动、全屏开启 `scrollEnabled`/`nestedScrollEnabled`；全屏 body padding=0；Modal translucent；safe-area padding；全屏无边框圆角 |
 | Model unit | 主题 token 映射；`reset/zoomIn/zoomOut` 命令；inline-script 转义 |
-| PC E2E | 默认比例拖拽；reset；按钮缩放；普通 wheel 页面可滚且 transform 不变；修饰键 wheel transform 改变；缩放后拖拽；全屏几何和关闭恢复 |
-| 手工触控板 | 双指滚动只滚页面；按下拖动图表；浏览器缩放手势不与页面滚动双触发 |
-| Native 真机 | 内联嵌套滚动；单指拖动；双指缩放；全屏安全区；返回键关闭；弱网/断网错误态 |
+| PC E2E | 长图/横图图片解码、限高与整图可见；内联普通 wheel 页面可滚；整图点击/键盘进入全屏；全屏拖拽/reset/按钮及修饰键缩放；全屏几何与关闭恢复 |
+| 手工触控板 | 内联双指滚动只滚页面；全屏按下拖动图表；浏览器缩放手势不与页面滚动双触发 |
+| Native 真机 | 内联滚动归聊天、点击打开；全屏单指拖动/双指缩放/安全区/返回键关闭；弱网/断网错误态 |
 
 推荐命令：
 
@@ -189,11 +194,11 @@ pnpm --filter happy-app exec playwright test e2e/mermaid-diagram-interactions.sp
 - [ ] 没有把普通 wheel 重新交给 Panzoom。
 - [ ] 默认比例拖拽仍有效，没有恢复会夹住位移的 containment。
 - [ ] listener、Panzoom 实例和异步 render 都有对称清理。
-- [ ] 内联与全屏没有共享画布 ref。
+- [ ] 内联保持静态完整预览，只有全屏初始化控制器。
 - [ ] Web 和 Native 的尺寸、主题、命令与错误态都同步评估。
 - [ ] Native inline script 仍通过安全序列化。
 - [ ] 依赖版本变更同时核对 npm lock 与 WebView 固定版本。
-- [ ] PC 可见交互变更按 PR 规则提供逐 Case 前后证据。
+- [ ] PC 可见交互变更按根 CLAUDE.md 记录截图需求，仅在用户要求时提供前后证据。
 - [ ] 合并后分别核对 Web production workflow 和 OTA compatibility/publish 结果；依赖或 lockfile 变化可能让 OTA 安全分类器跳过发布，即使 Web 已成功上线。
 
 ## 9. 设计原则
