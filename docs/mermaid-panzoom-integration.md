@@ -35,8 +35,9 @@ Web 与 Native 是两条渲染链，不能因为最终都显示 SVG 就假设配
 
 ### PC Web
 
-- 内联以完整 SVG 图片展示，等比缩放、不裁切；画布最多 320px 高且不超过窗口高度的 45%，点击整张图进入全屏。
+- 内联 SVG 图片按消息宽度等比排版，从顶部开始展示；预览最多为窗口高度的 70%，长图底部裁切，不按高度缩成完整缩略图。短图按实际图片高度收缩，点击整张预览打开完整大图。
 - 内联不初始化 Panzoom、不提供缩放工具栏，鼠标与触屏滚动归聊天页。
+- 放大徽标占用独立顶部留白（内容顶部46px、左右/底部16px），不能覆盖自然高度横图的末尾节点。
 - 全屏中鼠标或触控板按住画布后，默认缩放比例也必须能够拖动画布。
 - 普通鼠标滚轮、触控板双指滚动属于页面，不能缩放图表，也不能被图表阻止。
 - `Ctrl/Command + wheel` 才交给 Panzoom 缩放；工具栏的放大、缩小、重置始终可用。
@@ -47,7 +48,7 @@ Web 与 Native 是两条渲染链，不能因为最终都显示 SVG 就假设配
 
 ### Native/WebView
 
-- 内联 WebView 只展示完整静态 SVG，固定限高，`pointerEvents="none"`、`scrollEnabled=false`，由外层 Pressable 打开全屏，让父聊天页处理触摸滚动。
+- 内联 WebView 按宽度展示顶部静态 SVG，高度上限同样为屏高的 70%；SVG/scene 使用自然高度、不按视口高度缩图。ResizeObserver 仅在图片自然高度变化时通过消息桥接调整短图容器，无轮询。`pointerEvents="none"`、`scrollEnabled=false`，由外层 Pressable 打开全屏，让父聊天页处理触摸滚动。
 - 仅全屏 WebView 开启 `scrollEnabled` 与 `nestedScrollEnabled`，并加载 Panzoom。
 - 全屏 HTML 不保留内联模式的 16px body padding。
 - Modal 同时处理状态栏、导航栏和安全区；外层为操作区和底部缩放条预留空间，圆角画布不遮住控制按钮。
@@ -175,7 +176,7 @@ Native HTML 不能直接插入用户 Mermaid 源码或主题 JSON。必须通过
 | Web unit | 无 `contain: 'outside'`；普通 wheel 不调用 zoom；Ctrl/Command wheel 调用 zoom；销毁时移除 listener 并 destroy |
 | Native unit | 内联禁止命中和滚动、全屏开启 `scrollEnabled`/`nestedScrollEnabled`；全屏 body padding=0；Modal translucent；safe-area padding；比例与下载消息桥接 |
 | Model unit | 主题 token 映射；`reset/zoomIn/zoomOut` 命令；inline-script 转义 |
-| PC E2E | 长图/横图图片解码、限高与整图可见；内联普通 wheel 页面可滚；整图点击/键盘进入全屏；全屏拖拽/reset/按钮及修饰键缩放；全屏几何与关闭恢复 |
+| PC E2E | 长图/横图图片解码、宽度适配与顶部对齐；长图70vh限高裁切、不按高度缩小，横图无多余空白；内联普通 wheel 页面可滚；整图点击/键盘进入全屏；全屏拖拽/reset/按钮及修饰键缩放；全屏几何与关闭恢复 |
 | 手工触控板 | 内联双指滚动只滚页面；全屏按下拖动图表；浏览器缩放手势不与页面滚动双触发 |
 | Native 真机 | 内联滚动归聊天、点击打开；全屏单指拖动/双指缩放/安全区/返回键关闭；弱网/断网错误态 |
 
@@ -199,7 +200,7 @@ pnpm --filter happy-app exec playwright test e2e/mermaid-diagram-interactions.sp
 - [ ] 没有把普通 wheel 重新交给 Panzoom。
 - [ ] 默认比例拖拽仍有效，没有恢复会夹住位移的 containment。
 - [ ] listener、Panzoom 实例和异步 render 都有对称清理。
-- [ ] 内联保持静态完整预览，只有全屏初始化控制器。
+- [ ] 内联保持静态宽度适配、顶部对齐、长图裁切，只有全屏初始化控制器。
 - [ ] Web 和 Native 的尺寸、主题、命令与错误态都同步评估。
 - [ ] Native inline script 仍通过安全序列化。
 - [ ] 依赖版本变更同时核对 npm lock 与 WebView 固定版本。

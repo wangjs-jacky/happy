@@ -118,7 +118,7 @@ describe('MermaidRenderer', () => {
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
     });
 
-    it('shows a bounded passive image and only enables zoom controls after opening it', async () => {
+    it('previews at full width without height-fitting and only enables zoom controls after opening it', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
                 createNodeMock,
@@ -128,14 +128,16 @@ describe('MermaidRenderer', () => {
         await act(async () => { await vi.dynamicImportSettled(); });
         const image = renderer!.root.findByType('img');
         expect(decodeURIComponent(image.props.src)).toContain('<svg viewBox="0 0 200 100">');
-        expect(image.props.style.objectFit).toBe('contain');
+        expect(image.props.style.height).toBe('auto');
+        expect(image.props.style.width).toBe('100%');
+        expect(image.props.style.flexShrink).toBe(0);
         expect(image.props.draggable).toBe(false);
         expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.accessibilityRole).toBe('button');
         expect(renderer!.root.findAllByProps({ testID: 'mermaid-zoom-in' })).toHaveLength(0);
         expect(mocks.panzoom).not.toHaveBeenCalled();
-        const canvas = renderer!.root.findAllByType('View').find((node: any) =>
-            Array.isArray(node.props.style) && node.props.style.some((style: any) => style?.height === 320));
-        expect(canvas!.props.style).toContainEqual({ height: 320, maxHeight: 324, minHeight: 0 });
+        const canvas = image.parent!;
+        expect(Object.assign({}, ...canvas.props.style)).toMatchObject({ maxHeight: 504, minHeight: 0, overflow: 'hidden' });
+        expect(Object.assign({}, ...canvas.props.style).height).toBeUndefined();
 
         await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
         await act(async () => { await vi.dynamicImportSettled(); });

@@ -84,13 +84,42 @@ describe('MermaidRenderer native interaction contract', () => {
         expect(inlineWebView.parent.props.pointerEvents).toBe('none');
         expect(inlineWebView.props.source.html).not.toContain('<script src="https://cdn.jsdelivr.net/npm/@panzoom');
         expect(inlineWebView.props.source.html).toContain("svg.setAttribute('preserveAspectRatio', 'xMidYMid meet')");
-        expect(inlineWebView.props.source.html).not.toContain("type: 'dimensions'");
 
         act(() => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
         const fullscreenWebView = renderer!.root.findAllByType('WebView')[1];
         expect(fullscreenWebView.props.scrollEnabled).toBe(true);
         expect(fullscreenWebView.parent.props.pointerEvents).toBe('auto');
         expect(fullscreenWebView.props.source.html).toContain('body { padding: 0px');
+    });
+
+    it('keeps a top-aligned width-based native preview and sizes short diagrams to their content', async () => {
+        await act(async () => {
+            renderer = TestRenderer.create(<MermaidRenderer content="flowchart TD\nA --> B" />);
+        });
+        const webView = renderer!.root.findByType('WebView');
+        const dom = new JSDOM(webView.props.source.html, { runScripts: 'outside-only' });
+        const browser = dom.window;
+        const messages: Array<{ type: string; height?: number }> = [];
+        browser.ReactNativeWebView = { postMessage: (value: string) => messages.push(JSON.parse(value)) };
+        browser.mermaid = { initialize() {}, async render() {
+            return { svg: '<svg viewBox="0 0 400 2000" style="max-width:400px"><g /></svg>' };
+        } };
+        browser.SVGElement.prototype.getBoundingClientRect = () => ({ height: 1600 });
+        try {
+            browser.eval(browser.document.querySelector('script:not([src])').textContent);
+            await vi.waitFor(() => expect(messages).toContainEqual({ type: 'previewHeight', height: 1662 }));
+            expect(browser.getComputedStyle(browser.document.body).paddingTop).toBe('46px');
+            const svg = browser.document.querySelector('svg');
+            expect(browser.getComputedStyle(svg).height).toBe('auto');
+            expect(browser.getComputedStyle(svg).maxHeight).toBe('none');
+            expect(browser.getComputedStyle(svg).maxWidth).toBe('none');
+            expect(browser.getComputedStyle(browser.document.querySelector('#viewport')).alignItems).toBe('flex-start');
+            expect(Object.assign({}, ...webView.parent.props.style)).toMatchObject({ height: 504, maxHeight: 504, overflow: 'hidden' });
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'previewHeight', height: 180 }) } }));
+            expect(Object.assign({}, ...webView.parent.props.style).height).toBe(180);
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'previewHeight', height: -1 }) } }));
+            expect(Object.assign({}, ...webView.parent.props.style).height).toBe(180);
+        } finally { browser.close(); }
     });
 
     it('keeps lightbox controls within safe areas and reflects the WebView scale and download', async () => {

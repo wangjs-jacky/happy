@@ -189,8 +189,10 @@ Before changing `sources/components/markdown/MermaidRenderer.tsx`, Panzoom optio
 message scrolling, or fullscreen diagram layout, read
 [`docs/mermaid-panzoom-integration.md`](../../docs/mermaid-panzoom-integration.md).
 
-The inline diagram is a bounded, passive whole-image preview; clicking anywhere
-opens fullscreen. Inline gestures belong to the chat. Only the fullscreen canvas
+The inline diagram is a bounded, passive width-fit image, top-aligned and clipped
+at 70% of the window height, never height-fitted into a tiny whole-image thumbnail.
+Short images use their natural scaled height. Clicking anywhere opens the complete
+diagram in fullscreen. Inline gestures belong to the chat. Only the fullscreen canvas
 supports dragging, zoom buttons, and Ctrl/Command + wheel zoom. Web and
 Native/WebView behavior must be verified independently. Do not restore
 `contain: 'outside'` or register `zoomWithWheel` unconditionally.

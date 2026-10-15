@@ -26,6 +26,7 @@ export async function verifyMermaidPreview(runtime, config) {
         const path = join(directory, `frame-${String(frames.length).padStart(2, '0')}.jpg`);
         await writeFile(path, Buffer.from(shot.data, 'base64'));
         frames.push({ label, path });
+        await config.onVerifiedFrame?.(label, expected);
     };
     const assertZoomLabel = async () => {
         await settle();
@@ -56,17 +57,37 @@ export async function verifyMermaidPreview(runtime, config) {
     await page.cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await page.goto(expected);
     await imageReady();
-    const preview = await page.evaluate(() => ({
-        height: document.querySelector('[data-testid="mermaid-inline-surface"]').getBoundingClientRect().height,
-        nextBottom: document.querySelector('#following-message').getBoundingClientRect().bottom,
-        inlineSvg: document.querySelectorAll('[data-testid="mermaid-inline-surface"] svg').length,
-        controls: document.querySelectorAll('[data-testid="mermaid-zoom-in"]').length,
-    }));
-    assert.ok(preview.height <= 322);
+    const readPreview = () => page.evaluate(() => {
+        const surface = document.querySelector('[data-testid="mermaid-inline-surface"]');
+        const img = surface.querySelector('img');
+        return {
+            box: surface.getBoundingClientRect().toJSON(),
+            image: img.getBoundingClientRect().toJSON(),
+            paddingHeight: parseFloat(getComputedStyle(img).paddingTop) + parseFloat(getComputedStyle(img).paddingBottom),
+            imageContentTop: img.getBoundingClientRect().top + parseFloat(getComputedStyle(img).paddingTop),
+            badgeBottom: surface.querySelector('[data-testid="mermaid-preview-badge"]').getBoundingClientRect().bottom,
+            ratio: img.naturalHeight / img.naturalWidth,
+            viewportHeight: innerHeight,
+            nextBottom: document.querySelector('#following-message').getBoundingClientRect().bottom,
+            inlineSvg: surface.querySelectorAll('svg').length,
+            controls: document.querySelectorAll('[data-testid="mermaid-zoom-in"]').length,
+        };
+    });
+    const assertWidthFirstLongPreview = preview => {
+        assert.ok(preview.box.height <= Math.round(preview.viewportHeight * 0.7) + 2);
+        assert.ok(preview.box.height >= preview.viewportHeight * 0.65);
+        assert.ok(Math.abs(preview.image.width - preview.box.width) <= 2);
+        assert.ok(Math.abs(preview.image.top - preview.box.top) <= 2);
+        assert.ok(Math.abs((preview.image.height - preview.paddingHeight) / (preview.image.width - 32) - preview.ratio) < 0.02);
+        assert.ok(preview.badgeBottom <= preview.imageContentTop);
+        assert.ok(preview.image.bottom > preview.box.bottom + 100);
+    };
+    const preview = await readPreview();
+    assertWidthFirstLongPreview(preview);
     assert.ok(preview.nextBottom < 900);
     assert.equal(preview.inlineSvg, 0);
     assert.equal(preview.controls, 0);
-    await frame('长流程图完整预览，后续消息同屏');
+    await frame('长流程图按宽度从顶部预览，超出高度裁切');
     await page.mouse.move(700, 260);
     await page.mouse.wheel(0, 160);
     await page.waitForFunction(() => scrollY > 0);
@@ -146,26 +167,30 @@ export async function verifyMermaidPreview(runtime, config) {
     await waitTransform('none');
     await page.click('[data-testid="mermaid-fullscreen-close"]');
     await page.waitForFunction(() => !document.querySelector('[data-testid="mermaid-fullscreen-surface"]'));
-    await frame('关闭返回预览，聊天位置保留');
+    await frame('关闭返回清晰预览，聊天位置保留');
 
     expected = 'http://127.0.0.1:49828/?theme=light&shape=wide';
     await page.goto(expected);
     await imageReady();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    const widePreview = await readPreview();
+    assert.ok(widePreview.box.height < 200);
+    assert.ok(Math.abs(widePreview.image.bottom - widePreview.box.bottom) <= 2);
+    assert.ok(widePreview.badgeBottom <= widePreview.imageContentTop);
     await frame('浅色横向流程图完整预览');
     await page.cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     expected = 'http://127.0.0.1:49828/?theme=light';
     await page.goto(expected);
     await imageReady();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    assert.ok(await page.evaluate(() => document.querySelector('[data-testid="mermaid-inline-surface"]').getBoundingClientRect().height <= 322));
+    assertWidthFirstLongPreview(await readPreview());
     await page.click('[data-testid="mermaid-fullscreen-open"]');
     await waitTransform('none');
     await frame('窄屏全屏适配');
     await page.click('[data-testid="mermaid-fullscreen-close"]');
     await page.waitForFunction(() => !document.querySelector('[data-testid="mermaid-fullscreen-surface"]'));
-    await frame('窄屏关闭返回，整图与后文均可读');
-    const result = { status: 'pass', cases: ['BOUNDED-WHOLE-IMAGE', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHTBOX-CHROME-PERCENT-DOWNLOAD', 'LIGHT-WIDE', 'LIGHT-390'], directory, frames, downloadPath };
+    await frame('窄屏关闭返回，预览不再按高度缩小');
+    const result = { status: 'pass', cases: ['WIDTH-FIRST-CLIPPED-PREVIEW', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHTBOX-CHROME-PERCENT-DOWNLOAD', 'LIGHT-WIDE', 'LIGHT-390'], directory, frames, downloadPath };
     console.log(JSON.stringify(result));
     return result;
 }
