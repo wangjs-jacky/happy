@@ -45,7 +45,11 @@ test.describe('Mermaid 图片预览与全屏查看', () => {
         const surfaceBox = (await fullscreen.boundingBox())!;
         const svgBox = (await svg.boundingBox())!;
         expect(surfaceBox.width).toBeGreaterThan(1200);
-        expect(surfaceBox.height).toBeGreaterThan(650);
+        expect(surfaceBox.height).toBeGreaterThan(500);
+        const zoomToolbar = (await page.getByTestId('mermaid-zoom-toolbar').boundingBox())!;
+        expect(zoomToolbar.y).toBeGreaterThanOrEqual(surfaceBox.y + surfaceBox.height);
+        await expect(page.getByTestId('mermaid-zoom-percent')).toHaveText(/\d+%/);
+        await expect(page.getByTestId('mermaid-download')).toBeEnabled();
         expect(svgBox.x).toBeGreaterThanOrEqual(surfaceBox.x - 1);
         expect(svgBox.y).toBeGreaterThanOrEqual(surfaceBox.y - 1);
         expect(svgBox.x + svgBox.width).toBeLessThanOrEqual(surfaceBox.x + surfaceBox.width + 1);

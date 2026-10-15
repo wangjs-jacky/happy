@@ -8,6 +8,11 @@ export function createMermaidImageUri(svg: string): string {
     for (const node of [element, ...element.querySelectorAll('[xmlns]')]) {
         node.removeAttribute('xmlns');
     }
+    const dimensions = element.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+    if (dimensions?.length === 4 && dimensions.every(Number.isFinite) && dimensions[2] > 0 && dimensions[3] > 0) {
+        element.setAttribute('width', String(dimensions[2]));
+        element.setAttribute('height', String(dimensions[3]));
+    }
     const serialized = new XMLSerializer().serializeToString(element);
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
 }

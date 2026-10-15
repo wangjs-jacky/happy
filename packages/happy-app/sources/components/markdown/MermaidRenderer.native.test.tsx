@@ -3,6 +3,8 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer is only used by this component harness.
 import TestRenderer from 'react-test-renderer';
+// @ts-expect-error jsdom provides the test runtime without optional declaration files.
+import { JSDOM } from 'jsdom';
 
 vi.mock('react-native', () => ({
     Modal: 'Modal',
@@ -24,6 +26,7 @@ vi.mock('react-native-unistyles', () => {
             surfacePressed: '#303a45',
             text: '#f4f7fa',
             textSecondary: '#aeb8c2',
+            modal: { backdrop: 'rgba(0,0,0,0.62)' },
         },
     };
     const runtime = { insets: { bottom: 12, left: 0, right: 0, top: 24 }, screen: { height: 720 } };
@@ -49,8 +52,11 @@ vi.mock('@/constants/Typography', () => ({
     },
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
+vi.mock('@/utils/imageDownload', () => ({ downloadImage: vi.fn().mockResolvedValue('paws-diagram.svg') }));
 
 import { MermaidRenderer } from './MermaidRenderer';
+import { downloadImage } from '@/utils/imageDownload';
 
 describe('MermaidRenderer native interaction contract', () => {
     let renderer: TestRenderer.ReactTestRenderer | undefined;
@@ -87,7 +93,7 @@ describe('MermaidRenderer native interaction contract', () => {
         expect(fullscreenWebView.props.source.html).toContain('body { padding: 0px');
     });
 
-    it('uses an edge-to-edge safe-area-aware fullscreen surface', async () => {
+    it('keeps lightbox controls within safe areas and reflects the WebView scale and download', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />);
         });
@@ -101,15 +107,20 @@ describe('MermaidRenderer native interaction contract', () => {
             statusBarTranslucent: true,
         });
         expect(surface.props.style).toContainEqual({
-            borderRadius: 0,
+            borderRadius: 20,
             borderWidth: 0,
             flex: 1,
             width: '100%',
         });
-        expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-backdrop' }).props.style).toMatchObject({
-            paddingBottom: 12,
-            paddingTop: 24,
+        expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-layout' }).props.style).toMatchObject({
+            paddingBottom: 92,
+            paddingTop: 88,
         });
+        const webView = renderer!.root.findAllByType('WebView')[1];
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'scale', scale: 0.57 }) } }));
+        expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-percent' }).props.children).toBe('57%');
+        await act(async () => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'download', uri: 'data:image/svg+xml;base64,PHN2Zy8+' }) } }));
+        expect(downloadImage).toHaveBeenCalledWith({ filename: 'paws-diagram.svg', uri: 'data:image/svg+xml;base64,PHN2Zy8+' });
     });
 
     it('uses the chat Maple faces in the diagram error fallback', async () => {
@@ -129,5 +140,41 @@ describe('MermaidRenderer native interaction contract', () => {
             fontWeight: 'normal',
         });
         expect(Object.assign({}, ...code.props.style.filter(Boolean)).fontFamily).toBe('MapleMonoNL-Regular');
+    });
+
+    it('runs the WebView bootstrap with an HTML panzoom target and exports complete valid SVG', async () => {
+        await act(async () => {
+            renderer = TestRenderer.create(<MermaidRenderer content="flowchart TD\nA --> B" />);
+        });
+        act(() => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
+        const html = renderer!.root.findAllByType('WebView')[1].props.source.html;
+        const dom = new JSDOM(html, { runScripts: 'outside-only' });
+        const browser = dom.window;
+        const calls: Array<{ tag: string; origin?: string }> = [];
+        const messages: Array<{ type: string; uri?: string }> = [];
+        browser.TextEncoder = TextEncoder;
+        browser.ReactNativeWebView = { postMessage: (value: string) => messages.push(JSON.parse(value)) };
+        browser.mermaid = { initialize() {}, async render() {
+            return { svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 2000"><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"><p>澄清目标<br>交付成果</p></div></foreignObject></svg>' };
+        } };
+        browser.Panzoom = (target: HTMLElement, options: { origin?: string }) => {
+            calls.push({ tag: target.tagName, origin: options.origin });
+            target.style.transform = 'scale(2) translate(30px, 40px)';
+            return { reset() {}, zoomIn() {}, zoomOut() {}, zoomWithWheel() {}, setOptions() {} };
+        };
+        try {
+            browser.eval(browser.document.querySelector('script:not([src])').textContent);
+            await vi.waitFor(() => expect(browser.__pawsMermaid).toBeDefined());
+            expect(calls).toEqual([{ tag: 'DIV', origin: undefined }]);
+            browser.__pawsMermaid.download();
+            const exported = messages.find(message => message.type === 'download')!.uri!;
+            const svgText = Buffer.from(exported.split(',')[1], 'base64').toString('utf8');
+            const document = new browser.DOMParser().parseFromString(svgText, 'image/svg+xml');
+            expect(document.querySelector('parsererror')).toBeNull();
+            expect(document.documentElement.getAttribute('width')).toBe('400');
+            expect(document.documentElement.getAttribute('height')).toBe('2000');
+            expect(document.documentElement.style.transform).toBe('');
+            expect(document.querySelector('p').textContent).toBe('澄清目标交付成果');
+        } finally { browser.close(); }
     });
 });

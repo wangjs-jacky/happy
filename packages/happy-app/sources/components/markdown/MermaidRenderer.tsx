@@ -5,10 +5,14 @@ import { Modal, Platform, Pressable, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { DesktopShortcutTooltip } from '@/components/DesktopShortcutTooltip';
+import { useHappyAction } from '@/hooks/useHappyAction';
+import { downloadImage } from '@/utils/imageDownload';
 import { t } from '@/text';
 import {
     createMermaidThemeConfig,
     executeDiagramCommand,
+    getDiagramFitScale,
     serializeForInlineScript,
     type DiagramCommand,
     type MermaidThemeConfig,
@@ -18,12 +22,14 @@ import { createMermaidImageUri } from './mermaidSvgImage';
 
 type DiagramCanvasHandle = {
     execute: (command: DiagramCommand) => void;
+    download: () => void;
 };
 
 type DiagramCanvasProps = {
     config: MermaidThemeConfig;
     content: string;
     fullscreen?: boolean;
+    onScaleChange?: (scale: number) => void;
     typography: MarkdownTypographyMode;
 };
 
@@ -35,11 +41,19 @@ type PanzoomFactory = (
 export function initializeWebDiagramPanzoom(
     host: HTMLElement,
     createPanzoom: PanzoomFactory,
+    options: { startScale?: number; onScaleChange?: (scale: number) => void } = {},
 ): { dispose: () => void; panzoom: PanzoomObject } {
+    const startScale = options.startScale ?? 1;
+    const scaleHandler = (event: Event) => {
+        const scale = (event as CustomEvent<{ scale: number }>).detail?.scale;
+        if (Number.isFinite(scale) && scale > 0) options.onScaleChange?.(scale);
+    };
+    host.addEventListener('panzoomchange', scaleHandler);
     const panzoom = createPanzoom(host, {
         canvas: true,
         maxScale: 5,
-        minScale: 0.5,
+        minScale: Math.min(0.1, startScale / 2),
+        startScale,
         step: 0.25,
     });
     const wheelTarget = host.parentElement;
@@ -53,6 +67,7 @@ export function initializeWebDiagramPanzoom(
     return {
         panzoom,
         dispose: () => {
+            host.removeEventListener('panzoomchange', scaleHandler);
             wheelTarget?.removeEventListener('wheel', wheelHandler);
             panzoom.destroy();
         },
@@ -84,6 +99,10 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
         () => svgContent && !props.fullscreen ? createMermaidImageUri(svgContent) : null,
         [props.fullscreen, svgContent],
     );
+    const [, download] = useHappyAction(async () => {
+        if (!svgContent) return;
+        await downloadImage({ uri: createMermaidImageUri(svgContent), filename: 'paws-diagram.svg' });
+    }, { fallbackErrorMessage: t('imageViewer.downloadFailedMessage') });
 
     React.useImperativeHandle(ref, () => ({
         execute: (command) => {
@@ -91,7 +110,8 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
             if (!panzoom) return;
             executeDiagramCommand(panzoom, command);
         },
-    }), []);
+        download: () => { download(); },
+    }), [download]);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -126,7 +146,7 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
         if (!host || !svg) return;
 
         svg.style.display = 'block';
-        svg.style.height = props.fullscreen ? '100%' : 'auto';
+        svg.style.height = '100%';
         svg.style.maxHeight = '100%';
         svg.style.maxWidth = '100%';
         svg.style.width = '100%';
@@ -134,22 +154,47 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
 
         let disposed = false;
         let disposePanzoom: (() => void) | null = null;
+        let resizeObserver: ResizeObserver | null = null;
+        const width = svg.viewBox?.baseVal.width || host.clientWidth || 1;
+        const height = svg.viewBox?.baseVal.height || host.clientHeight || 1;
+        host.style.width = `${width}px`;
+        host.style.height = `${height}px`;
+        const fitScale = () => getDiagramFitScale(width, height,
+            Math.max(1, (host.parentElement?.clientWidth ?? width) - 32),
+            Math.max(1, (host.parentElement?.clientHeight ?? height) - 32));
 
         // Interaction contract and regression matrix:
         // docs/mermaid-panzoom-integration.md
         void import('@panzoom/panzoom').then((module) => {
             if (disposed) return;
-            const { dispose, panzoom } = initializeWebDiagramPanzoom(host, module.default);
+            const { dispose, panzoom } = initializeWebDiagramPanzoom(host, module.default, {
+                startScale: fitScale(),
+                onScaleChange: props.onScaleChange,
+            });
             panzoomRef.current = panzoom;
             disposePanzoom = dispose;
+            props.onScaleChange?.(fitScale());
+            if (typeof ResizeObserver !== 'undefined' && host.parentElement) {
+                let previousScale = fitScale();
+                resizeObserver = new ResizeObserver(() => {
+                    if (disposed) return;
+                    const nextScale = fitScale();
+                    if (nextScale === previousScale) return;
+                    previousScale = nextScale;
+                    panzoom.setOptions({ startScale: nextScale, minScale: Math.min(0.1, nextScale / 2) });
+                    panzoom.reset({ animate: false });
+                });
+                resizeObserver.observe(host.parentElement);
+            }
         });
 
         return () => {
             disposed = true;
+            resizeObserver?.disconnect();
             disposePanzoom?.();
             panzoomRef.current = null;
         };
-    }, [props.fullscreen, svgContent]);
+    }, [props.fullscreen, props.onScaleChange, svgContent]);
 
     if (hasError) return <DiagramError content={props.content} typography={props.typography} />;
 
@@ -187,6 +232,7 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
                             style={{
                                 alignItems: 'center',
                                 display: 'flex',
+                                flexShrink: 0,
                                 height: '100%',
                                 justifyContent: 'center',
                                 width: '100%',
@@ -209,7 +255,7 @@ WebDiagramCanvas.displayName = 'WebDiagramCanvas';
 function buildNativeDocument(content: string, config: MermaidThemeConfig, fullscreen: boolean): string {
     const serializedContent = serializeForInlineScript(content);
     const serializedConfig = serializeForInlineScript(config);
-    const background = config.themeVariables.background;
+    const background = fullscreen ? config.themeVariables.secondaryColor : config.themeVariables.background;
     const errorColor = config.themeVariables.primaryTextColor;
 
     return `<!DOCTYPE html>
@@ -222,29 +268,37 @@ function buildNativeDocument(content: string, config: MermaidThemeConfig, fullsc
     <style>
         html, body { height: 100%; margin: 0; overflow: hidden; background: ${background}; }
         body { padding: ${fullscreen ? 0 : 16}px; box-sizing: border-box; }
-        #viewport { align-items: center; display: flex; height: 100%; justify-content: center; overflow: hidden; touch-action: ${fullscreen ? 'none' : 'auto'}; width: 100%; }
+        #viewport { align-items: center; box-sizing: border-box; display: flex; height: 100%; justify-content: center; overflow: hidden; touch-action: ${fullscreen ? 'none' : 'auto'}; width: 100%; }
         #viewport svg { height: 100%; max-height: 100%; max-width: 100%; width: 100%; }
+        #scene { align-items: center; display: flex; flex-shrink: 0; height: 100%; justify-content: center; width: 100%; }
         #error { color: ${errorColor}; font-family: monospace; white-space: pre-wrap; }
     </style>
 </head>
 <body>
-    <div id="viewport"></div>
+    <div id="viewport"><div id="scene"></div></div>
     <script>
         (async function() {
             const content = ${serializedContent};
             const config = ${serializedConfig};
             const viewport = document.getElementById('viewport');
+            const scene = document.getElementById('scene');
             const post = function(payload) {
                 if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(payload));
             };
             try {
                 mermaid.initialize(config);
                 const result = await mermaid.render('mermaid-diagram', content);
-                viewport.innerHTML = result.svg;
-                const svg = viewport.querySelector('svg');
+                scene.innerHTML = result.svg;
+                const svg = scene.querySelector('svg');
                 svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
                 if (!${fullscreen}) return;
-                const controller = Panzoom(svg, { canvas: true, maxScale: 5, minScale: 0.5, step: 0.25 });
+                const box = svg.viewBox.baseVal;
+                scene.style.width = box.width + 'px';
+                scene.style.height = box.height + 'px';
+                const fitScale = function() { return Math.min(1, Math.max(1, viewport.clientWidth - 32) / box.width, Math.max(1, viewport.clientHeight - 32) / box.height); };
+                const controller = Panzoom(scene, { canvas: true, maxScale: 5, minScale: Math.min(0.1, fitScale() / 2), startScale: fitScale(), step: 0.25 });
+                scene.addEventListener('panzoomchange', function(event) { post({ type: 'scale', scale: event.detail.scale }); });
+                post({ type: 'scale', scale: fitScale() });
                 viewport.addEventListener('wheel', function(event) {
                     if (!event.ctrlKey && !event.metaKey) return;
                     controller.zoomWithWheel(event);
@@ -252,8 +306,30 @@ function buildNativeDocument(content: string, config: MermaidThemeConfig, fullsc
                 window.__pawsMermaid = {
                     reset: function() { controller.reset({ animate: true }); },
                     zoomIn: function() { controller.zoomIn({ animate: true }); },
-                    zoomOut: function() { controller.zoomOut({ animate: true }); }
+                    zoomOut: function() { controller.zoomOut({ animate: true }); },
+                    download: function() {
+                        const snapshot = svg.cloneNode(true);
+                        snapshot.style.transform = '';
+                        snapshot.style.transformOrigin = '';
+                        snapshot.removeAttribute('xmlns');
+                        snapshot.querySelectorAll('[xmlns]').forEach(function(node) { node.removeAttribute('xmlns'); });
+                        snapshot.setAttribute('width', String(box.width));
+                        snapshot.setAttribute('height', String(box.height));
+                        const bytes = new TextEncoder().encode(new XMLSerializer().serializeToString(snapshot));
+                        const encoded = btoa(Array.from(bytes, function(byte) { return String.fromCharCode(byte); }).join(''));
+                        post({ type: 'download', uri: 'data:image/svg+xml;base64,' + encoded });
+                    }
                 };
+                if (typeof ResizeObserver !== 'undefined') {
+                    let previousScale = fitScale();
+                    new ResizeObserver(function() {
+                        const nextScale = fitScale();
+                        if (previousScale === nextScale) return;
+                        previousScale = nextScale;
+                        controller.setOptions({ startScale: nextScale, minScale: Math.min(0.1, nextScale / 2) });
+                        controller.reset({ animate: false });
+                    }).observe(viewport);
+                }
             } catch (error) {
                 const errorNode = document.createElement('div');
                 errorNode.id = 'error';
@@ -270,15 +346,20 @@ function buildNativeDocument(content: string, config: MermaidThemeConfig, fullsc
 const NativeDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProps>((props, ref) => {
     const webViewRef = React.useRef<WebView>(null);
     const [hasError, setHasError] = React.useState(false);
+    const [, saveImage] = useHappyAction(async (uri: string) => {
+        await downloadImage({ uri, filename: 'paws-diagram.svg' });
+    }, { fallbackErrorMessage: t('imageViewer.downloadFailedMessage') });
     const html = React.useMemo(
         () => buildNativeDocument(props.content, props.config, props.fullscreen === true),
         [props.config, props.content, props.fullscreen],
     );
+    const source = React.useMemo(() => ({ html }), [html]);
 
     React.useImperativeHandle(ref, () => ({
         execute: (command) => {
             webViewRef.current?.injectJavaScript(`window.__pawsMermaid?.${command}(); true;`);
         },
+        download: () => { webViewRef.current?.injectJavaScript('window.__pawsMermaid?.download(); true;'); },
     }), []);
 
     if (hasError) return <DiagramError content={props.content} typography={props.typography} />;
@@ -290,7 +371,7 @@ const NativeDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasP
         >
             <WebView
                 ref={webViewRef}
-                source={{ html }}
+                source={source}
                 style={styles.webView}
                 nestedScrollEnabled
                 overScrollMode="never"
@@ -302,6 +383,10 @@ const NativeDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasP
                         const data = JSON.parse(event.nativeEvent.data);
                         if (data.type === 'error') {
                             setHasError(true);
+                        } else if (data.type === 'scale' && Number.isFinite(data.scale) && data.scale > 0) {
+                            props.onScaleChange?.(data.scale);
+                        } else if (data.type === 'download' && typeof data.uri === 'string' && data.uri.startsWith('data:image/svg+xml;base64,')) {
+                            saveImage(data.uri);
                         }
                     } catch {
                         // Ignore messages that are not part of the diagram protocol.
@@ -317,62 +402,81 @@ NativeDiagramCanvas.displayName = 'NativeDiagramCanvas';
 const DiagramCanvas = Platform.OS === 'web' ? WebDiagramCanvas : NativeDiagramCanvas;
 
 function DiagramToolbar(props: {
-    closeFullscreen?: () => void;
     execute: (command: DiagramCommand) => void;
+    scale: number | null;
 }) {
     return (
-        <View style={styles.toolbar}>
-            <DiagramButton
-                accessibilityLabel={t('keyboardShortcuts.zoomIn')}
-                icon="zoom-in"
-                onPress={() => props.execute('zoomIn')}
-                testID="mermaid-zoom-in"
-            />
+        <View style={styles.toolbar} testID="mermaid-zoom-toolbar">
             <DiagramButton
                 accessibilityLabel={t('keyboardShortcuts.zoomOut')}
-                icon="zoom-out"
+                disabled={props.scale === null}
+                icon="minus"
                 onPress={() => props.execute('zoomOut')}
+                tooltipPlacement="above"
                 testID="mermaid-zoom-out"
             />
             <DiagramButton
                 accessibilityLabel={t('keyboardShortcuts.resetZoom')}
-                icon="refresh-cw"
+                disabled={props.scale === null}
+                label={props.scale === null ? '—' : `${Math.round(props.scale * 100)}%`}
                 onPress={() => props.execute('reset')}
+                tooltipPlacement="above"
                 testID="mermaid-zoom-reset"
             />
-            {props.closeFullscreen ? (
-                <DiagramButton
-                    accessibilityLabel={t('markdown.mermaidCloseFullscreen')}
-                    icon="x"
-                    onPress={props.closeFullscreen}
-                    testID="mermaid-fullscreen-close"
-                />
-            ) : null}
+            <DiagramButton
+                accessibilityLabel={t('keyboardShortcuts.zoomIn')}
+                disabled={props.scale === null}
+                icon="plus"
+                onPress={() => props.execute('zoomIn')}
+                tooltipPlacement="above"
+                testID="mermaid-zoom-in"
+            />
         </View>
     );
 }
 
 function DiagramButton(props: {
     accessibilityLabel: string;
-    icon: React.ComponentProps<typeof Feather>['name'];
+    disabled?: boolean;
+    icon?: React.ComponentProps<typeof Feather>['name'];
+    label?: string;
     onPress: () => void;
     testID: string;
+    tooltipPlacement?: 'above' | 'below';
 }) {
     const { theme } = useUnistyles();
     const [hovered, setHovered] = React.useState(false);
+    const [focused, setFocused] = React.useState(false);
     return (
-        <Pressable
-            accessibilityLabel={props.accessibilityLabel}
-            accessibilityRole="button"
-            hitSlop={6}
-            onHoverIn={() => setHovered(true)}
-            onHoverOut={() => setHovered(false)}
-            onPress={props.onPress}
-            style={({ pressed }) => [styles.toolbarButton, (hovered || pressed) && styles.toolbarButtonPressed]}
-            testID={props.testID}
-        >
-            <Feather color={theme.colors.textSecondary} name={props.icon} size={16} />
-        </Pressable>
+        <View>
+            <Pressable
+                accessibilityLabel={props.accessibilityLabel}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: props.disabled === true }}
+                disabled={props.disabled}
+                hitSlop={6}
+                onHoverIn={() => setHovered(true)}
+                onHoverOut={() => setHovered(false)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                onPress={props.onPress}
+                style={({ pressed }) => [styles.toolbarButton, props.label && styles.zoomLabelButton,
+                    (hovered || focused || pressed) && styles.toolbarButtonPressed, props.disabled && styles.toolbarButtonDisabled]}
+                testID={props.testID}
+            >
+                {props.label ? (
+                    <Text style={styles.zoomLabel} testID="mermaid-zoom-percent">{props.label}</Text>
+                ) : props.icon ? <Feather color={theme.colors.text} name={props.icon} size={20} /> : null}
+            </Pressable>
+            <DesktopShortcutTooltip
+                align="center"
+                compact
+                label={props.accessibilityLabel}
+                placement={props.tooltipPlacement ?? 'below'}
+                testID={`${props.testID}-tooltip`}
+                visible={Platform.OS === 'web' && (hovered || focused)}
+            />
+        </View>
     );
 }
 
@@ -386,6 +490,7 @@ function DiagramSurface(props: {
     onOpenFullscreen?: () => void;
 }) {
     const { theme } = useUnistyles();
+    const [scale, setScale] = React.useState<number | null>(null);
     const execute = React.useCallback((command: DiagramCommand) => {
         props.canvasRef.current?.execute(command);
     }, [props.canvasRef]);
@@ -414,21 +519,33 @@ function DiagramSurface(props: {
     }
 
     return (
-        <View
-            style={[styles.surface, props.fullscreen && styles.surfaceFullscreen]}
-            testID={props.fullscreen ? 'mermaid-fullscreen-surface' : 'mermaid-inline-surface'}
-        >
-            <DiagramToolbar
-                closeFullscreen={props.onCloseFullscreen}
-                execute={execute}
-            />
-            <DiagramCanvas
-                ref={props.canvasRef}
-                config={props.config}
-                content={props.content}
-                fullscreen={props.fullscreen}
-                typography={props.typography}
-            />
+        <View style={styles.fullscreenLayout} testID="mermaid-fullscreen-layout">
+            <View style={[styles.surface, styles.surfaceFullscreen]} testID="mermaid-fullscreen-surface">
+                <DiagramCanvas
+                    ref={props.canvasRef}
+                    config={props.config}
+                    content={props.content}
+                    fullscreen
+                    onScaleChange={setScale}
+                    typography={props.typography}
+                />
+            </View>
+            <View style={styles.topActions} testID="mermaid-lightbox-actions">
+                <DiagramButton
+                    accessibilityLabel={t('imageViewer.download')}
+                    disabled={scale === null}
+                    icon="download"
+                    onPress={() => props.canvasRef.current?.download()}
+                    testID="mermaid-download"
+                />
+                <DiagramButton
+                    accessibilityLabel={t('markdown.mermaidCloseFullscreen')}
+                    icon="x"
+                    onPress={() => props.onCloseFullscreen?.()}
+                    testID="mermaid-fullscreen-close"
+                />
+            </View>
+            <DiagramToolbar execute={execute} scale={scale} />
         </View>
     );
 }
@@ -490,42 +607,66 @@ const styles = StyleSheet.create((theme, runtime) => ({
         width: '100%',
     },
     surfaceFullscreen: {
-        borderRadius: 0,
+        borderRadius: 20,
         borderWidth: 0,
         flex: 1,
         width: '100%',
     },
     fullscreenBackdrop: {
-        alignItems: 'center',
-        backgroundColor: theme.colors.surface,
+        backgroundColor: theme.colors.modal.backdrop,
         flex: 1,
-        paddingBottom: runtime.insets.bottom,
-        paddingTop: runtime.insets.top,
+    },
+    fullscreenLayout: {
+        alignItems: 'center',
+        flex: 1,
+        paddingBottom: runtime.insets.bottom + 80,
+        paddingTop: runtime.insets.top + 64,
+        paddingHorizontal: runtime.screen.width >= 768 ? 28 : 12,
+        width: '100%',
+    },
+    topActions: {
+        position: 'absolute',
+        top: runtime.insets.top + 10,
+        right: 12,
+        flexDirection: 'row',
+        gap: 8,
+        zIndex: 2,
     },
     toolbar: {
         alignItems: 'center',
-        alignSelf: 'flex-end',
-        backgroundColor: theme.colors.surfaceHigh,
-        borderBottomColor: theme.colors.divider,
-        borderBottomLeftRadius: 10,
-        borderLeftColor: theme.colors.divider,
-        borderLeftWidth: StyleSheet.hairlineWidth,
-        borderBottomWidth: StyleSheet.hairlineWidth,
+        alignSelf: 'center',
+        backgroundColor: theme.colors.surface,
+        borderColor: theme.colors.divider,
+        borderRadius: 32,
+        borderWidth: StyleSheet.hairlineWidth,
+        position: 'absolute',
+        bottom: runtime.insets.bottom + 16,
         flexDirection: 'row',
-        gap: 2,
+        gap: 4,
         padding: 4,
         zIndex: 1,
     },
     toolbarButton: {
         alignItems: 'center',
-        backgroundColor: theme.colors.surface,
-        borderRadius: 6,
-        height: 30,
+        backgroundColor: theme.colors.surfaceHigh,
+        ...(Platform.OS === 'web' ? { outlineColor: theme.colors.textSecondary } : {}),
+        borderRadius: 22,
+        height: 44,
         justifyContent: 'center',
-        width: 30,
+        width: 44,
     },
     toolbarButtonPressed: {
         backgroundColor: theme.colors.surfacePressed,
+    },
+    toolbarButtonDisabled: { opacity: 0.4 },
+    zoomLabelButton: {
+        backgroundColor: theme.colors.surface,
+        width: 68,
+    },
+    zoomLabel: {
+        ...Typography.default(),
+        color: theme.colors.text,
+        fontSize: 14,
     },
     canvas: {
         backgroundColor: theme.colors.surfaceHighest,
@@ -534,6 +675,7 @@ const styles = StyleSheet.create((theme, runtime) => ({
         width: '100%',
     },
     canvasFullscreen: {
+        backgroundColor: theme.colors.surface,
         flex: 1,
         minHeight: 0,
     },

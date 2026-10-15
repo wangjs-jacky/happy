@@ -36,10 +36,13 @@ await verifyMermaidPreview(
 | PAGE-SCROLL | 鼠标位于缩略图上时普通滚轮滚动页面 |
 | KEYBOARD-OPEN-ESCAPE | Enter 打开、Escape 关闭，等待 Modal 完成退出后焦点返回触发器，滚动位置保持 |
 | FULLSCREEN-FIT-ZOOM-PAN-RESET | 初始图形位于视口内，普通滚轮不缩放，修饰键滚轮、按钮、拖拽和重置正常，关闭按钮可用 |
+| LIGHTBOX-CHROME-PERCENT-DOWNLOAD | 深色遮罩、圆角画布、独立右上角操作区及底部居中缩放条；百分比与真实比例一致，下载完整原始SVG |
 | LIGHT-WIDE | 浅色横图完整解码，无横向页面溢出 |
 | LIGHT-390 | 390px 窄屏无横向溢出，可打开全屏及关闭返回 |
 
-普通模式和逐状态演示模式均通过。组件与序列化单测12项通过，App typecheck通过。
+用户补充参考图后，大图已更新为独立查看器。组件与序列化单测18项通过，App typecheck通过。
+新增实际比例适配、百分比同步及原图下载的浏览器验证，暗色普通与浅色逐状态演示模式均通过七组Case。
+WebView bootstrap在jsdom中实际执行，覆盖HTML场景作为Panzoom target、完整SVG导出；不能把该测试描述为Native真机验证。
 SVG 转图片时特别覆盖中文、`<br>`、`&nbsp;` 和 XHTML namespace，避免只通过空 SVG mock。
 
 边界：这是实际 Web 组件的隔离验收，不是完整会话/生产站回归。

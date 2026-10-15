@@ -34,6 +34,12 @@ export type MermaidThemeConfig = {
 
 export type DiagramCommand = 'reset' | 'zoomIn' | 'zoomOut';
 
+/** Fit the natural SVG dimensions into a viewport without enlarging a small diagram. */
+export function getDiagramFitScale(width: number, height: number, viewportWidth: number, viewportHeight: number): number {
+    if (![width, height, viewportWidth, viewportHeight].every(value => Number.isFinite(value) && value > 0)) return 1;
+    return Math.min(1, viewportWidth / width, viewportHeight / height);
+}
+
 export type DiagramCommandTarget = Record<DiagramCommand, (options?: { animate?: boolean }) => unknown>;
 
 export function executeDiagramCommand(target: DiagramCommandTarget, command: DiagramCommand): void {

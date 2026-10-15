@@ -33,6 +33,7 @@ vi.mock('react-native-unistyles', () => {
             surfacePressed: '#303a45',
             text: '#f4f7fa',
             textSecondary: '#aeb8c2',
+            modal: { backdrop: 'rgba(0,0,0,0.62)' },
         },
     };
     return {
@@ -45,6 +46,8 @@ vi.mock('react-native-unistyles', () => {
 });
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
+vi.mock('@/utils/imageDownload', () => ({ downloadImage: vi.fn().mockResolvedValue('paws-diagram.svg') }));
 vi.mock('./mermaidSvgImage', () => ({
     createMermaidImageUri: (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
 }));
@@ -65,6 +68,17 @@ vi.mock('@panzoom/panzoom', () => ({
 }));
 
 import { initializeWebDiagramPanzoom, MermaidRenderer } from './MermaidRenderer';
+import { downloadImage } from '@/utils/imageDownload';
+
+function createNodeMock(element: { type: string }) {
+    if (element.type !== 'div') return {};
+    return {
+        style: {}, clientWidth: 200, clientHeight: 100,
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+        parentElement: { clientWidth: 1000, clientHeight: 600, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+        querySelector: () => ({ style: {}, setAttribute: vi.fn(), viewBox: { baseVal: { width: 200, height: 100 } } }),
+    };
+}
 
 describe('MermaidRenderer', () => {
     const originalConsoleError = console.error;
@@ -89,9 +103,7 @@ describe('MermaidRenderer', () => {
     it('opens and closes a full-screen diagram surface', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
-                createNodeMock: (element: { type: string }) => element.type === 'div'
-                    ? { querySelector: () => ({ style: {}, setAttribute: vi.fn() }) }
-                    : {},
+                createNodeMock,
             });
         });
 
@@ -99,6 +111,8 @@ describe('MermaidRenderer', () => {
         await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
         expect(renderer!.root.findByType('Modal').props.visible).toBe(true);
         expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-surface' })).toBeDefined();
+        expect(renderer!.root.findByProps({ testID: 'mermaid-download' }).props.accessibilityLabel).toBe('imageViewer.download');
+        expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-percent' })).toBeDefined();
 
         act(() => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-close' }).props.onPress());
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
@@ -107,9 +121,7 @@ describe('MermaidRenderer', () => {
     it('shows a bounded passive image and only enables zoom controls after opening it', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
-                createNodeMock: (element: { type: string }) => element.type === 'div'
-                    ? { querySelector: () => ({ style: {}, setAttribute: vi.fn() }) }
-                    : {},
+                createNodeMock,
             });
         });
 
@@ -129,6 +141,12 @@ describe('MermaidRenderer', () => {
         await act(async () => { await vi.dynamicImportSettled(); });
         await act(async () => { await vi.dynamicImportSettled(); });
         expect(mocks.panzoom).toHaveBeenCalledOnce();
+        expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-percent' }).props.children).toBe('100%');
+        await act(async () => renderer!.root.findByProps({ testID: 'mermaid-download' }).props.onPress());
+        expect(downloadImage).toHaveBeenCalledWith({
+            filename: 'paws-diagram.svg',
+            uri: expect.stringContaining('data:image/svg+xml;'),
+        });
         expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-in' }).props.accessibilityLabel)
             .toBe('keyboardShortcuts.zoomIn');
         expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-out' }).props.accessibilityLabel)
@@ -164,6 +182,7 @@ describe('MermaidRenderer', () => {
         };
         const scene = {
             parentElement: viewport,
+            addEventListener: vi.fn(), removeEventListener: vi.fn(),
         };
         const createPanzoom = vi.fn(() => ({
             destroy: mocks.destroy,
@@ -180,7 +199,8 @@ describe('MermaidRenderer', () => {
             {
                 canvas: true,
                 maxScale: 5,
-                minScale: 0.5,
+                minScale: 0.1,
+                startScale: 1,
                 step: 0.25,
             },
         );

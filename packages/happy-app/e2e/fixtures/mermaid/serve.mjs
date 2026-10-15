@@ -22,6 +22,7 @@ for (const before of process.argv.includes('--before') ? [false, true] : [false]
         plugins: [{ name: 'native-boundaries', setup(builder) {
             const modules = {
                 'react-native-webview': 'export const WebView=()=>null;',
+                '@/modal': 'export const Modal={alert(){window.dispatchEvent(new Event("fixture-download-error"));}};',
                 '@expo/vector-icons': `import React from 'react'; import glyphs from ${JSON.stringify(resolve(icons, 'glyphmaps/Feather.json'))}; export const Feather=({name,size,color})=>React.createElement('span',{'aria-hidden':true,style:{fontFamily:'Feather',fontSize:size,color,lineHeight:1}},String.fromCodePoint(glyphs[name]));`,
                 '@/text': `import {zhHans} from ${JSON.stringify(resolve(app, 'sources/text/translations/zh-Hans.ts'))}; export const t=(key)=>key.split('.').reduce((value,part)=>value[part],zhHans);`,
             };

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,7 +7,7 @@ export async function verifyMermaidPreview(runtime, config) {
     const { taskSpace, cdp, pageInfo, currentTab, listTaskSpaces, useOrCreateTaskSpace } = runtime;
     const task = await taskSpace(config.taskSpaceId);
     const page = task.page('p1');
-    let expected = 'http://127.0.0.1:49828/?theme=dark';
+    let expected = `http://127.0.0.1:49828/?theme=${config.theme === 'light' ? 'light' : 'dark'}`;
     const verifyTarget = async () => {
         assert.equal(task.ownership, 'agent');
         assert.equal((await task.tabs()).find(tab => tab.label === 'p1')?.targetId, config.targetId);
@@ -26,6 +26,22 @@ export async function verifyMermaidPreview(runtime, config) {
         const path = join(directory, `frame-${String(frames.length).padStart(2, '0')}.jpg`);
         await writeFile(path, Buffer.from(shot.data, 'base64'));
         frames.push({ label, path });
+    };
+    const assertZoomLabel = async () => {
+        await settle();
+        await page.waitForFunction(() => {
+            const svg = document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg');
+            return document.querySelector('[data-testid="mermaid-zoom-percent"]').textContent
+                === `${Math.round(new DOMMatrix(getComputedStyle(svg.parentElement).transform).a * 100)}%`;
+        });
+        const state = await page.evaluate(() => {
+            const svg = document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg');
+            return {
+                label: document.querySelector('[data-testid="mermaid-zoom-percent"]').textContent,
+                actual: Math.round(new DOMMatrix(getComputedStyle(svg.parentElement).transform).a * 100),
+            };
+        });
+        assert.equal(state.label, `${state.actual}%`);
     };
     const imageReady = () => page.waitForFunction(() => {
         const img = document.querySelector('[data-testid="mermaid-inline-surface"] img');
@@ -70,6 +86,18 @@ export async function verifyMermaidPreview(runtime, config) {
     assert.ok(fitted.box.top >= 0 && fitted.box.bottom <= 901);
     assert.ok(fitted.box.left >= 0 && fitted.box.right <= 1441);
     const initial = await transform();
+    await assertZoomLabel();
+    const lightbox = await page.evaluate(() => {
+        const paper = document.querySelector('[data-testid="mermaid-fullscreen-surface"]');
+        const toolbar = document.querySelector('[data-testid="mermaid-zoom-toolbar"]').getBoundingClientRect();
+        const actions = document.querySelector('[data-testid="mermaid-lightbox-actions"]').getBoundingClientRect();
+        const box = paper.getBoundingClientRect();
+        return { paper: box.toJSON(), toolbar: toolbar.toJSON(), actions: actions.toJSON(), radius: parseFloat(getComputedStyle(paper).borderRadius) };
+    });
+    assert.ok(lightbox.radius > 0);
+    assert.ok(lightbox.actions.bottom <= lightbox.paper.top);
+    assert.ok(lightbox.toolbar.top >= lightbox.paper.bottom);
+    assert.ok(Math.abs((lightbox.toolbar.left + lightbox.toolbar.right - lightbox.paper.left - lightbox.paper.right) / 2) < 2);
     await frame('键盘打开全屏，整图适配视口');
     await page.mouse.move(700, 400);
     await page.mouse.wheel(0, -120);
@@ -78,6 +106,7 @@ export async function verifyMermaidPreview(runtime, config) {
     await page.mouse.wheel(0, -120);
     await page.keyboard.up('Control');
     await waitTransform(initial);
+    await assertZoomLabel();
     await page.click('[data-testid="mermaid-zoom-reset"]');
     await page.waitForFunction(value => getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform === value, initial);
     await page.mouse.move(720, 450);
@@ -90,11 +119,23 @@ export async function verifyMermaidPreview(runtime, config) {
     await page.click('[data-testid="mermaid-zoom-in"]');
     await page.waitForFunction(previous => new DOMMatrix(getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform).a > previous, beforeZoomIn);
     await settle();
+    await assertZoomLabel();
     const beforeZoomOut = await scale();
     await frame('全屏放大拖拽阅读中文节点');
     await page.click('[data-testid="mermaid-zoom-out"]');
     await page.waitForFunction(previous => new DOMMatrix(getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform).a < previous, beforeZoomOut);
     await settle();
+    await assertZoomLabel();
+    const exportDirectory = await mkdtemp(join(tmpdir(), 'paws-mermaid-download-'));
+    const downloadPromise = page.waitForEvent('download', { timeout: 10_000 });
+    await page.click('[data-testid="mermaid-download"]');
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), 'paws-diagram.svg');
+    const downloadPath = join(exportDirectory, 'paws-diagram.svg');
+    await download.saveAs(downloadPath);
+    const exported = await readFile(downloadPath, 'utf8');
+    assert.ok(exported.includes('澄清目标') && exported.includes('交付成果'));
+    assert.ok(exported.includes('viewBox=') && !exported.includes('transform: scale('));
     await page.click('[data-testid="mermaid-zoom-reset"]');
     await page.waitForFunction(value => getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform === value, initial);
     await page.keyboard.press('Escape');
@@ -124,7 +165,7 @@ export async function verifyMermaidPreview(runtime, config) {
     await page.click('[data-testid="mermaid-fullscreen-close"]');
     await page.waitForFunction(() => !document.querySelector('[data-testid="mermaid-fullscreen-surface"]'));
     await frame('窄屏关闭返回，整图与后文均可读');
-    const result = { status: 'pass', cases: ['BOUNDED-WHOLE-IMAGE', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHT-WIDE', 'LIGHT-390'], directory, frames };
+    const result = { status: 'pass', cases: ['BOUNDED-WHOLE-IMAGE', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHTBOX-CHROME-PERCENT-DOWNLOAD', 'LIGHT-WIDE', 'LIGHT-390'], directory, frames, downloadPath };
     console.log(JSON.stringify(result));
     return result;
 }

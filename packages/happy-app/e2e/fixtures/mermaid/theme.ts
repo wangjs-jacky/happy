@@ -5,7 +5,7 @@ export const theme = new URLSearchParams(location.search).get('theme') === 'ligh
 export const StyleSheet = {
     hairlineWidth: 1,
     create: (factory: any) => factory(theme, {
-        screen: { height: innerHeight },
+        screen: { width: innerWidth, height: innerHeight },
         insets: { bottom: 0, left: 0, right: 0, top: 0 },
     }),
 };
