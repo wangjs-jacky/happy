@@ -15,7 +15,7 @@ async function sceneTransform(svg: Locator): Promise<string> {
 test.describe('Mermaid 图片预览与全屏查看', () => {
     test.use({ locale: 'zh-CN' });
 
-    test('[MERMAID-PREVIEW] 按宽度预览不按高度缩图，点击后才能缩放与拖拽', async ({ page }) => {
+    test('[MERMAID-PREVIEW] 桌面按正文比例紧凑预览，点击后才能缩放与拖拽', async ({ page }) => {
         test.setTimeout(180_000);
         await page.setViewportSize({ width: 1280, height: 720 });
         await page.emulateMedia({ colorScheme: 'light' });
@@ -31,7 +31,7 @@ test.describe('Mermaid 图片预览与全屏查看', () => {
         await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true);
         const previewBox = (await preview.boundingBox())!;
         const imageBox = (await image.boundingBox())!;
-        expect(previewBox.height).toBeLessThanOrEqual(506);
+        expect(previewBox.height).toBeLessThanOrEqual(434);
         expect(imageBox.width).toBeCloseTo(previewBox.width - 2, 0);
         expect(imageBox.y).toBeCloseTo(previewBox.y + 1, 0);
         const dimensions = await image.evaluate((element: HTMLImageElement) => ({
@@ -39,6 +39,8 @@ test.describe('Mermaid 图片预览与全屏查看', () => {
             paddingHeight: parseFloat(getComputedStyle(element).paddingTop) + parseFloat(getComputedStyle(element).paddingBottom),
             contentTop: element.getBoundingClientRect().top + parseFloat(getComputedStyle(element).paddingTop),
         }));
+        expect(Math.abs(imageBox.width - 32 - dimensions.width)).toBeLessThan(1);
+        expect(previewBox.width).toBeLessThanOrEqual(dimensions.width + 35);
         expect((imageBox.height - dimensions.paddingHeight) / (imageBox.width - 32)).toBeCloseTo(dimensions.height / dimensions.width, 1);
         const badge = (await page.getByTestId('mermaid-preview-badge').boundingBox())!;
         expect(badge.y + badge.height).toBeLessThanOrEqual(dimensions.contentTop);

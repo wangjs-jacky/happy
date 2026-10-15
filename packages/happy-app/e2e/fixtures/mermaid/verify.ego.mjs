@@ -45,8 +45,10 @@ export async function verifyMermaidPreview(runtime, config) {
         assert.equal(state.label, `${state.actual}%`);
     };
     const imageReady = () => page.waitForFunction(() => {
-        const img = document.querySelector('[data-testid="mermaid-inline-surface"] img');
-        return img?.complete && img.naturalWidth > 0;
+        const surface = document.querySelector('[data-testid="mermaid-inline-surface"]');
+        const img = surface?.querySelector('img');
+        return img?.complete && img.naturalWidth > 0
+            && (innerWidth < 768 || surface.getBoundingClientRect().width <= img.naturalWidth + 35);
     });
     const transform = () => page.evaluate(() => getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform);
     const scale = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector('[data-testid="mermaid-fullscreen-surface"] svg').parentElement).transform).a);
@@ -60,6 +62,15 @@ export async function verifyMermaidPreview(runtime, config) {
     const readPreview = () => page.evaluate(() => {
         const surface = document.querySelector('[data-testid="mermaid-inline-surface"]');
         const img = surface.querySelector('img');
+        const probe = document.createElement('div');
+        Object.assign(probe.style, { position: 'absolute', left: '-10000px', top: '0', visibility: 'hidden', pointerEvents: 'none' });
+        probe.innerHTML = decodeURIComponent(img.src.slice(img.src.indexOf(',') + 1));
+        document.body.append(probe);
+        const svg = probe.querySelector('svg');
+        const label = svg.querySelector('.nodeLabel');
+        const nodeFont = parseFloat(getComputedStyle(label).fontSize);
+        const naturalWidth = svg.viewBox.baseVal.width;
+        probe.remove();
         return {
             box: surface.getBoundingClientRect().toJSON(),
             image: img.getBoundingClientRect().toJSON(),
@@ -67,6 +78,9 @@ export async function verifyMermaidPreview(runtime, config) {
             imageContentTop: img.getBoundingClientRect().top + parseFloat(getComputedStyle(img).paddingTop),
             badgeBottom: surface.querySelector('[data-testid="mermaid-preview-badge"]').getBoundingClientRect().bottom,
             ratio: img.naturalHeight / img.naturalWidth,
+            naturalWidth,
+            renderedNodeFont: nodeFont * (img.getBoundingClientRect().width - 32) / naturalWidth,
+            bodyFont: parseFloat(getComputedStyle(document.querySelector('#body-reference')).fontSize),
             viewportHeight: innerHeight,
             nextBottom: document.querySelector('#following-message').getBoundingClientRect().bottom,
             inlineSvg: surface.querySelectorAll('svg').length,
@@ -82,13 +96,23 @@ export async function verifyMermaidPreview(runtime, config) {
         assert.ok(preview.badgeBottom <= preview.imageContentTop);
         assert.ok(preview.image.bottom > preview.box.bottom + 100);
     };
+    const assertDesktopReadingScale = preview => {
+        assert.ok(preview.box.height <= Math.min(480, Math.round(preview.viewportHeight * 0.6)) + 2);
+        assert.ok(Math.abs(preview.image.width - 32 - preview.naturalWidth) < 1);
+        assert.ok(Math.abs(preview.renderedNodeFont - preview.bodyFont) < 0.5);
+        assert.ok(preview.box.width <= preview.naturalWidth + 35);
+        assert.ok(Math.abs(preview.image.top - preview.box.top) <= 2);
+        assert.ok(preview.badgeBottom <= preview.imageContentTop);
+    };
     const preview = await readPreview();
-    assertWidthFirstLongPreview(preview);
+    assertDesktopReadingScale(preview);
+    assert.ok(preview.box.width < 600);
+    assert.ok(preview.image.bottom > preview.box.bottom + 100);
     assert.ok(preview.nextBottom < 900);
     assert.equal(preview.inlineSvg, 0);
     assert.equal(preview.controls, 0);
-    await frame('长流程图按宽度从顶部预览，超出高度裁切');
-    await page.mouse.move(700, 260);
+    await frame('桌面流程图文字与正文等大，图框随内容收紧');
+    await page.mouse.move(preview.box.left + preview.box.width / 2, preview.box.top + preview.box.height / 2);
     await page.mouse.wheel(0, 160);
     await page.waitForFunction(() => scrollY > 0);
     await page.mouse.wheel(0, -800);
@@ -174,10 +198,12 @@ export async function verifyMermaidPreview(runtime, config) {
     await imageReady();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     const widePreview = await readPreview();
+    assertDesktopReadingScale(widePreview);
     assert.ok(widePreview.box.height < 200);
     assert.ok(Math.abs(widePreview.image.bottom - widePreview.box.bottom) <= 2);
+    assert.ok(widePreview.image.right > widePreview.box.right + 100);
     assert.ok(widePreview.badgeBottom <= widePreview.imageContentTop);
-    await frame('浅色横向流程图完整预览');
+    await frame('横图仍保持正文阅读尺寸，超宽内容点击查看');
     await page.cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     expected = 'http://127.0.0.1:49828/?theme=light';
     await page.goto(expected);
@@ -190,7 +216,7 @@ export async function verifyMermaidPreview(runtime, config) {
     await page.click('[data-testid="mermaid-fullscreen-close"]');
     await page.waitForFunction(() => !document.querySelector('[data-testid="mermaid-fullscreen-surface"]'));
     await frame('窄屏关闭返回，预览不再按高度缩小');
-    const result = { status: 'pass', cases: ['WIDTH-FIRST-CLIPPED-PREVIEW', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHTBOX-CHROME-PERCENT-DOWNLOAD', 'LIGHT-WIDE', 'LIGHT-390'], directory, frames, downloadPath };
+    const result = { status: 'pass', cases: ['DESKTOP-BODY-SIZE-PREVIEW', 'PAGE-SCROLL', 'KEYBOARD-OPEN-ESCAPE', 'FULLSCREEN-FIT-ZOOM-PAN-RESET', 'LIGHTBOX-CHROME-PERCENT-DOWNLOAD', 'LIGHT-WIDE', 'LIGHT-390'], previewMetrics: { desktop: preview, wide: widePreview }, directory, frames, downloadPath };
     console.log(JSON.stringify(result));
     return result;
 }

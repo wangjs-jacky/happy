@@ -12,6 +12,7 @@ vi.mock('react-native', () => ({
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
+    useWindowDimensions: () => ({ width: 390, height: 720 }),
 }));
 vi.mock('react-native-webview', () => ({ WebView: 'WebView' }));
 vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather' }));

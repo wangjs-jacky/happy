@@ -24,7 +24,7 @@ document.body.style.color = theme.colors.text;
 createRoot(document.getElementById('root')!).render(
     <main style={{ maxWidth: 1060, margin: '0 auto', padding: 24 }}>
         <h3>流程图阅读验收 · 真实组件 / 合成内容</h3>
-        <p>按宽度从顶部阅读，长图超出部分点击打开查看。</p>
+        <p id="body-reference" style={{ fontSize: 16, lineHeight: '24px' }}>正文对照：桌面流程图的文字应与这段正文大小相近，点击图片查看完整流程。</p>
         <MermaidRenderer content={params.get('shape') === 'wide' ? wideDiagram : longDiagram} />
         <p id="following-message">这里是流程图之后的消息，长图不会把它推到几个屏幕之后。</p>
         <div style={{ height: 1000 }} aria-hidden="true" />

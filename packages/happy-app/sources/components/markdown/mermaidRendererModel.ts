@@ -17,6 +17,7 @@ export type MermaidThemeConfig = {
     themeVariables: {
         background: string;
         darkMode: boolean;
+        fontSize: string;
         primaryBorderColor: string;
         primaryColor: string;
         primaryTextColor: string;
@@ -54,6 +55,8 @@ export function createMermaidThemeConfig(theme: MermaidThemeSource): MermaidThem
         themeVariables: {
             background: colors.surfaceHighest,
             darkMode: theme.dark,
+            // Match the 16px Markdown body; desktop previews keep the SVG's natural scale.
+            fontSize: '16px',
             primaryBorderColor: colors.divider,
             primaryColor: colors.surfaceHigh,
             primaryTextColor: colors.text,

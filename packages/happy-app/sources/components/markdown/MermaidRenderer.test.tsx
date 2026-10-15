@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     zoomIn: vi.fn(),
     zoomOut: vi.fn(),
     zoomWithWheel: vi.fn(),
+    windowWidth: 1440,
 }));
 
 vi.mock('react-native', () => ({
@@ -19,6 +20,7 @@ vi.mock('react-native', () => ({
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
+    useWindowDimensions: () => ({ width: mocks.windowWidth, height: 720 }),
 }));
 vi.mock('react-native-webview', () => ({ WebView: 'WebView' }));
 vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather' }));
@@ -87,6 +89,7 @@ describe('MermaidRenderer', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.windowWidth = 1440;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -118,7 +121,7 @@ describe('MermaidRenderer', () => {
         expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
     });
 
-    it('previews at full width without height-fitting and only enables zoom controls after opening it', async () => {
+    it('keeps desktop preview text at natural size and fits the frame to the diagram', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
                 createNodeMock,
@@ -129,14 +132,17 @@ describe('MermaidRenderer', () => {
         const image = renderer!.root.findByType('img');
         expect(decodeURIComponent(image.props.src)).toContain('<svg viewBox="0 0 200 100">');
         expect(image.props.style.height).toBe('auto');
-        expect(image.props.style.width).toBe('100%');
+        expect(image.props.style.width).toBe('auto');
         expect(image.props.style.flexShrink).toBe(0);
+        act(() => image.props.onLoad({ currentTarget: { naturalWidth: 200 } }));
+        const trigger = renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' });
+        expect(Object.assign({}, ...trigger.props.style)).toMatchObject({ width: 234, maxWidth: '100%', alignSelf: 'flex-start' });
         expect(image.props.draggable).toBe(false);
         expect(renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.accessibilityRole).toBe('button');
         expect(renderer!.root.findAllByProps({ testID: 'mermaid-zoom-in' })).toHaveLength(0);
         expect(mocks.panzoom).not.toHaveBeenCalled();
         const canvas = image.parent!;
-        expect(Object.assign({}, ...canvas.props.style)).toMatchObject({ maxHeight: 504, minHeight: 0, overflow: 'hidden' });
+        expect(Object.assign({}, ...canvas.props.style)).toMatchObject({ maxHeight: 432, minHeight: 0, overflow: 'hidden' });
         expect(Object.assign({}, ...canvas.props.style).height).toBeUndefined();
 
         await act(async () => renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.onPress());
@@ -155,6 +161,20 @@ describe('MermaidRenderer', () => {
             .toBe('keyboardShortcuts.zoomOut');
         expect(renderer!.root.findByProps({ testID: 'mermaid-zoom-reset' }).props.accessibilityLabel)
             .toBe('keyboardShortcuts.resetZoom');
+    });
+
+    it('preserves the approved width-fit mobile preview when resizing from desktop', async () => {
+        await act(async () => {
+            renderer = TestRenderer.create(<MermaidRenderer content="flowchart TD\nA --> B" />, { createNodeMock });
+        });
+        await act(async () => { await vi.dynamicImportSettled(); });
+        const image = renderer!.root.findByType('img');
+        act(() => image.props.onLoad({ currentTarget: { naturalWidth: 200 } }));
+        mocks.windowWidth = 390;
+        await act(async () => renderer!.update(<MermaidRenderer content="flowchart TD\nA --> B" typography="chatMono" />));
+        expect(renderer!.root.findByType('img').props.style.width).toBe('100%');
+        expect(Object.assign({}, ...renderer!.root.findByType('img').parent!.props.style).maxHeight).toBe(504);
+        expect(Object.assign({}, ...renderer!.root.findByProps({ testID: 'mermaid-fullscreen-open' }).props.style).width).toBe('100%');
     });
 
     it('uses the themed pressed surface while a toolbar button is hovered', async () => {

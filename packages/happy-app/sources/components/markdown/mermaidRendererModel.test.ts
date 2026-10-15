@@ -52,6 +52,7 @@ describe('createMermaidThemeConfig', () => {
             themeVariables: {
                 background: '#eef1f4',
                 darkMode: false,
+                fontSize: '16px',
                 primaryBorderColor: '#d7dce3',
                 primaryColor: '#f4f6f8',
                 primaryTextColor: '#17202a',
