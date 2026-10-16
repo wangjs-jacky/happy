@@ -49,6 +49,15 @@ State mobile playback as confirmed only after the reviewer can open the same fil
 - Mobile playback: not requested
 - Known gaps: none
 
+## Feature traceability
+
+- Feature ID / 档案标题：
+- 讨论、设计、代码导读、测试与发布记录更新状态：
+- Ego E2E：通过 / 失败 / 未执行 / 不适用（注明证据或原因）
+- 未解决问题、尚未部署的平台/设备：
+
+<!-- 私有 Obsidian/JSONL 路径和原始日志不放公开 PR；保留 Feature ID 供本机索引定位。 -->
+
 ## Validation
 
 <!-- Tests, typecheck, E2E, independent review, and known gaps. -->
