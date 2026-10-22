@@ -12,6 +12,42 @@ export type FinanceChartPoint = {
     volume: number | null;
 };
 
+export type FinanceChartAnchor = { index: number; price: number };
+export type FinanceChartAnnotation =
+    | { type: 'point'; at: FinanceChartAnchor; label: string }
+    | { type: 'line'; from: FinanceChartAnchor; to: FinanceChartAnchor; label: string; dashed: boolean }
+    | { type: 'region'; from: number; to: number; label: string };
+
+// Invalid overlays are discarded independently; they must never break a market card.
+function parseAnnotations(value: unknown, points: FinanceChartPoint[]): FinanceChartAnnotation[] {
+    if (!Array.isArray(value)) return [];
+    const index = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < points.length;
+    const anchor = (v: unknown): FinanceChartAnchor | null => {
+        const a = asRecord(v);
+        if (!a || !index(a.index)) return null;
+        const price = asNumber(a.price);
+        const bar = points[a.index];
+        return price !== null && price >= bar.low && price <= bar.high ? { index: a.index, price } : null;
+    };
+    return value.slice(0, 40).flatMap((v): FinanceChartAnnotation[] => {
+        const a = asRecord(v);
+        if (!a) return [];
+        const label = (asString(a.label) ?? '').slice(0, 200);
+        if (a.type === 'point') {
+            const at = anchor(a.at);
+            return at ? [{ type: 'point', at, label }] : [];
+        }
+        if (a.type === 'line') {
+            const from = anchor(a.from), to = anchor(a.to);
+            return from && to ? [{ type: 'line', from, to, label, dashed: a.dashed !== false }] : [];
+        }
+        if (a.type === 'region' && index(a.from) && index(a.to) && a.from <= a.to) {
+            return [{ type: 'region', from: a.from, to: a.to, label }];
+        }
+        return [];
+    });
+}
+
 export type SessionFinanceChart = {
     id: string;
     messageId: string;
@@ -30,6 +66,8 @@ export type SessionFinanceChart = {
         changePercent: number | null;
     };
     points: FinanceChartPoint[];
+    annotations?: FinanceChartAnnotation[];
+    numberedBars?: boolean;
     raw: string;
 };
 
@@ -119,6 +157,9 @@ export function parseFinanceChartSection(
             changePercent: asNullableNumber(latest?.changePercent),
         },
         points,
+        // Filtering malformed bars changes indexes, so suppress overlays in that case.
+        annotations: points.length === (root?.points as unknown[]).length ? parseAnnotations(root?.annotations, points) : [],
+        numberedBars: root?.numberedBars === true,
         raw: section.trim(),
     };
 }
