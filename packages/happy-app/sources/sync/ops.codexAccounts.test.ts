@@ -7,6 +7,7 @@ vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC }, getHappyClientId: () 
 vi.mock('./serverConfig', () => ({ getServerUrl: () => 'https://test' }));
 vi.mock('./sync', () => ({ sync: { ensureSessionHydrated } }));
 vi.mock('@/auth/tokenStorage', () => ({ TokenStorage: { getCredentials } }));
+import { RpcNotSentError } from './rpcErrors';
 import { codexListRewindPoints, forkAndSpawn, machineResumeSession, machineSpawnNewSession } from './ops';
 
 let grants: string[];
@@ -34,6 +35,14 @@ describe('transparent Codex grants', () => {
         machineRPC.mockResolvedValueOnce({ type: 'error', errorMessage: 'directory unavailable' });
         const rejected = await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex' });
         expect(rejected).toEqual({ type: 'error', errorMessage: 'directory unavailable' });
+    });
+
+    it('reports a connection failure before RPC dispatch as known unsent', async () => {
+        machineRPC.mockRejectedValueOnce(new RpcNotSentError());
+        const result = await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex' });
+        expect(result).toMatchObject({ type: 'error', errorMessage: 'Socket not connected' });
+        expect(result).not.toHaveProperty('outcomeUnknown');
+        expect(machineRPC.mock.calls[0][3]).toMatchObject({ waitForConnectionMs: 10_000 });
     });
 
     it('obtains fresh grants for new, retry and native-resume spawns without an account selector', async () => {
