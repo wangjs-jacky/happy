@@ -28,7 +28,7 @@ import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
 import { imageViewer } from '@/sync/imageViewer';
 import { Modal } from '@/modal';
-import { storage, useIsDataReady, useLocalSetting, useLocalSettingMutable, useMachine, useSessionMessages, useSessionUsage, useSetting, useSettingUpdater } from '@/sync/storage';
+import { storage, useIsDataReady, useLocalSetting, useLocalSettingMutable, useMachine, useSessionMessages, useSessionUsage, useSocketStatus, useSetting, useSettingUpdater } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
 import {
@@ -1582,6 +1582,7 @@ function SessionViewLoaded({
 
     const isSyncingResults = useSessionResultSyncing(session.id, true);
     const sessionStatus = useSessionStatus(session, isSyncingResults);
+    const socketStatus = useSocketStatus().status;
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
@@ -1931,7 +1932,7 @@ function SessionViewLoaded({
             <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
                 <MessageStagingQueueView
                     messages={stagedSnapshot.messages.filter(m => m.sessionId === sessionId)}
-                    session={{ connected: !isDisconnected, state: sessionStatus.state,
+                    session={{ connected: !isDisconnected && socketStatus === 'connected', state: sessionStatus.state,
                         supportsSteer: session.metadata?.capabilities?.codexSteer === true,
                         turnId: session.agentState?.turnStatus?.turnId }}
                     onSteer={id => { void messageStagingQueue.steer(id); }}
