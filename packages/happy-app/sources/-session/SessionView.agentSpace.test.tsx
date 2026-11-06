@@ -23,6 +23,9 @@ vi.mock('@/components/ReadingWidthRail', () => ({ ReadingWidthRail: 'ReadingWidt
 
 const mocks = vi.hoisted(() => ({
     closePanel: vi.fn(),
+    zenMode: false,
+    nativeBack: null as (() => boolean) | null,
+    toggleLayoutRightSidebar: vi.fn(),
     pendingCloseCallback: null as (() => void) | null,
     isDataReady: false,
     sessionAvailable: true,
@@ -112,7 +115,20 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
+// Goal Board owns its RPC/account lifecycle in dedicated hook tests. Keep
+// this SessionView test focused on route ownership and surface composition.
+vi.mock('@/hooks/useGoalBoard', () => ({ useGoalBoard: () => ({
+    snapshot: null, catalog: [], loading: false, error: null, offline: true,
+    openingTaskId: null, activeTaskId: undefined, parentSessionId: undefined,
+    selectFeature: vi.fn(), refresh: vi.fn(), openTask: vi.fn(), getTaskSessionId: () => null,
+}) }));
+vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => vi.fn() }));
+
+vi.mock('@/components/goalBoard/GoalBoardPanel', () => ({ GoalBoardPanel: (props: any) => React.createElement('GoalBoardPanel', props) }));
+vi.mock('@/components/GoalArtifactViewer', () => ({ GoalArtifactViewer: (props: any) => React.createElement('GoalArtifactViewer', props) }));
+
 vi.mock('react-native', () => ({
+    BackHandler: { addEventListener: (_event: string, listener: () => boolean) => { mocks.nativeBack = listener; return { remove: () => { mocks.nativeBack = null; } }; } },
     AccessibilityInfo: {
         isReduceMotionEnabled: vi.fn(() => new Promise<boolean>(() => {})),
         addEventListener: vi.fn(() => ({ remove: vi.fn() })),
@@ -345,7 +361,7 @@ vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({
         endPanelResize: vi.fn(),
         resizePanelBy: vi.fn(),
         toggleLeftSidebar: vi.fn(),
-        toggleRightSidebar: vi.fn(),
+        toggleRightSidebar: mocks.toggleLayoutRightSidebar,
     }),
 }));
 vi.mock('@/hooks/useAgentSpace', () => ({
@@ -366,6 +382,7 @@ vi.mock('@/sync/storage', () => ({
     useIsDataReady: () => mocks.isDataReady,
     useLocalSetting: (key: string) => {
         if (key === 'acknowledgedCliVersions') return {};
+        if (key === 'zenMode') return mocks.zenMode;
         if (key === 'desktopRightPanelCollapsed') return mocks.desktopRightPanelCollapsed;
         if (key === 'desktopSkinId') return mocks.desktopSkinId;
         if (key === 'desktopReadingWidth') return mocks.desktopReadingWidth;
@@ -475,6 +492,9 @@ describe('SessionView Agent-space boundary', () => {
         vi.clearAllMocks();
         mocks.pendingCloseCallback = null;
         mocks.isDataReady = false;
+        mocks.zenMode = false;
+        mocks.nativeBack = null;
+        (mocks.session.metadata as any).goalBoard = undefined;
         mocks.sessionAvailable = true;
         mocks.fileDiffsSidebarEnabled = false;
         mocks.runningOnMac = false;
@@ -1407,6 +1427,48 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findAllByType('FilesSidebar')).toHaveLength(1);
 
         act(() => renderer.unmount());
+    });
+
+    it('closes an original artifact with native Back before leaving the task conversation', async () => {
+        mocks.isDataReady = true;
+        (mocks.session.metadata as any).goalBoard = { featurePath: '/goal/feature' };
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        await act(async () => renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress());
+        await act(async () => renderer.root.findByType('GoalBoardPanel').props.onOpenArtifact({ id: 'task' }, { id: 'file' }));
+        expect(renderer.root.findByProps({ testID: 'goal-board-artifact-overlay' })).toBeTruthy();
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(false);
+        expect(mocks.nativeBack).not.toBeNull();
+        act(() => { expect(mocks.nativeBack!()).toBe(true); });
+        expect(renderer.root.findAllByProps({ testID: 'goal-board-artifact-overlay' })).toHaveLength(0);
+        expect(mocks.routerBack).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
+    });
+
+    it('reveals the task board using the existing zen-mode exit action', async () => {
+        mocks.isDataReady = true;
+        mocks.windowWidth = 1400;
+        mocks.isTablet = true;
+        mocks.platformOS = 'web';
+        mocks.zenMode = true;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        await act(async () => { renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress(); });
+        expect(mocks.toggleLayoutRightSidebar).toHaveBeenCalledTimes(1);
+        await act(async () => renderer.unmount());
+    });
+
+    it('opens tasks in the compact drawer and switches back to capabilities', async () => {
+        mocks.isDataReady = true;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        await act(async () => { renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress(); });
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
+        expect(renderer.root.findByType('RightSwipePanelHost').props.panelAccessibilityLabel).toBe('goalBoard.title');
+        await act(async () => renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' }).props.onPress());
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
+        expect(renderer.root.findByType('RightSwipePanelHost').props.panelAccessibilityLabel).toBe('rightPanelCapabilityHub.title');
+        await act(async () => renderer.unmount());
     });
 
     it('collapses and restores the desktop capability panel independently', () => {
