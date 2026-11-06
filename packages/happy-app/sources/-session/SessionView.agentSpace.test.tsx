@@ -125,6 +125,7 @@ vi.mock('@/hooks/useGoalBoard', () => ({ useGoalBoard: () => ({
 vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => vi.fn() }));
 
 vi.mock('@/components/goalBoard/GoalBoardPanel', () => ({ GoalBoardPanel: (props: any) => React.createElement('GoalBoardPanel', props) }));
+vi.mock('@/components/GoalArtifactWindow', () => ({ GoalArtifactWindow: (props: any) => React.createElement('GoalArtifactWindow', props) }));
 vi.mock('@/components/GoalArtifactViewer', () => ({ GoalArtifactViewer: (props: any) => React.createElement('GoalArtifactViewer', props) }));
 
 vi.mock('react-native', () => ({
@@ -1429,18 +1430,23 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
-    it('closes an original artifact with native Back before leaving the task conversation', async () => {
+    it('opens artifacts in a separate reader and keeps the task drawer mounted underneath', async () => {
         mocks.isDataReady = true;
         (mocks.session.metadata as any).goalBoard = { featurePath: '/goal/feature' };
         let renderer: any;
         await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
         await act(async () => renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress());
-        await act(async () => renderer.root.findByType('GoalBoardPanel').props.onOpenArtifact({ id: 'task' }, { id: 'file' }));
-        expect(renderer.root.findByProps({ testID: 'goal-board-artifact-overlay' })).toBeTruthy();
-        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(false);
-        expect(mocks.nativeBack).not.toBeNull();
-        act(() => { expect(mocks.nativeBack!()).toBe(true); });
+        const board = renderer.root.findByType('GoalBoardPanel');
+        await act(async () => board.props.onOpenArtifact({ id: 'task' }, { id: 'file' }));
+        const reader = renderer.root.findByType('GoalArtifactWindow');
+        expect(reader.props).toMatchObject({ sessionId: 'session-1', featurePath: '/goal/feature', task: { id: 'task' }, artifact: { id: 'file' } });
         expect(renderer.root.findAllByProps({ testID: 'goal-board-artifact-overlay' })).toHaveLength(0);
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
+        expect(renderer.root.findByType('GoalBoardPanel')).toBe(board);
+        act(() => reader.props.onClose());
+        expect(renderer.root.findAllByType('GoalArtifactWindow')).toHaveLength(0);
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
+        expect(renderer.root.findByType('GoalBoardPanel')).toBe(board);
         expect(mocks.routerBack).not.toHaveBeenCalled();
         await act(async () => renderer.unmount());
     });

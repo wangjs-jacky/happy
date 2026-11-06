@@ -9,9 +9,12 @@ import { FileView } from '@/components/tools/views/FileView';
 import { goalArtifactIdentity, openGoalArtifact, type GoalArtifactResponse } from '@/sync/goalBoardArtifacts';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
+import type { ImageViewerSource } from '@/sync/imageViewer';
 
 export type GoalArtifactViewerProps = {
     sessionId: string; featurePath: string; task: GoalTask; artifact: GoalArtifact; onClose: () => void;
+    closeButtonRef?: React.RefObject<View | null>;
+    onOpenImage?: (source: ImageViewerSource) => void;
 };
 type LoadState = { identity: string; response?: GoalArtifactResponse; error?: string };
 // Bound syntax-token/DOM work while keeping every original character selectable.
@@ -19,7 +22,7 @@ const MAX_HIGHLIGHT_CHARACTERS = 64 * 1024;
 const languages: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', py: 'python', sh: 'bash', json: 'json', yaml: 'yaml', yml: 'yaml', css: 'css', html: 'html', rs: 'rust', go: 'go', sql: 'sql', md: 'markdown', markdown: 'markdown' };
 
 /** Mount only from the user's explicit artifact-open action. No body reads belong to board rendering. */
-export const GoalArtifactViewer = React.memo(function GoalArtifactViewer({ sessionId, featurePath, task, artifact, onClose }: GoalArtifactViewerProps) {
+export const GoalArtifactViewer = React.memo(function GoalArtifactViewer({ sessionId, featurePath, task, artifact, onClose, closeButtonRef, onOpenImage }: GoalArtifactViewerProps) {
     const { theme } = useUnistyles();
     const request = { sessionId, featurePath, taskId: task.id, artifact };
     const identity = goalArtifactIdentity(request);
@@ -63,7 +66,7 @@ export const GoalArtifactViewer = React.memo(function GoalArtifactViewer({ sessi
                         <Text style={{ color: theme.colors.text }}>{sourceMode ? t('goalBoard.artifactPreview') : t('goalBoard.artifactSource')}</Text>
                     </Pressable>
                 )}
-                <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [button, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface }]}>
+                <Pressable ref={closeButtonRef} testID="goal-artifact-close" accessibilityRole="button" onPress={onClose} style={({ pressed }) => [button, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface }]}>
                     <Text style={{ color: theme.colors.text }}>{t('goalBoard.artifactClose')}</Text>
                 </Pressable>
             </View>
@@ -81,7 +84,7 @@ export const GoalArtifactViewer = React.memo(function GoalArtifactViewer({ sessi
                     ) : (
                         <SimpleSyntaxHighlighter code={response.content} language={response.content.length <= MAX_HIGHLIGHT_CHARACTERS ? languages[extension] ?? null : null} selectable />
                     ) : (
-                        <FileView key={identity} sessionId={sessionId} metadata={null} messages={[]} tool={{
+                        <FileView key={identity} sessionId={sessionId} metadata={null} messages={[]} onOpenImage={onOpenImage} tool={{
                             name: 'file', state: 'completed', input: response.attachment,
                             createdAt: 0, startedAt: null, completedAt: null, description: null,
                         }} />

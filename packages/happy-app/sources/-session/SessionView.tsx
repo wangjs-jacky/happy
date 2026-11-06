@@ -81,7 +81,7 @@ import { SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/se
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -534,7 +534,7 @@ export const SessionView = React.memo((props: { id: string }) => (
 ));
 
 const GoalBoardPanel = React.lazy(() => import('@/components/goalBoard/GoalBoardPanel').then(module => ({ default: module.GoalBoardPanel })));
-const GoalArtifactViewer = React.lazy(() => import('@/components/GoalArtifactViewer').then(module => ({ default: module.GoalArtifactViewer })));
+const GoalArtifactWindow = React.lazy(() => import('@/components/GoalArtifactWindow').then(module => ({ default: module.GoalArtifactWindow })));
 
 const SessionViewContent = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -749,27 +749,21 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         const featurePath = session?.metadata?.goalBoard?.featurePath;
         if (!featurePath) return;
         setGoalArtifact({ featurePath, task, artifact });
-        if (!desktopRightPanelAvailable) setRightDrawerOpen(false);
-    }, [session?.metadata?.goalBoard?.featurePath, desktopRightPanelAvailable]);
+    }, [session?.metadata?.goalBoard?.featurePath]);
     const openGoalTask = React.useCallback(async (task: GoalTask, newSession: boolean) => {
         const childId = await goalBoard.openTask(task, newSession);
         navigateToTaskSession(childId);
     }, [goalBoard.openTask, navigateToTaskSession]);
     React.useEffect(() => {
-        if (!isFocused || Platform.OS !== 'web' || (!goalBoardOpen && !goalArtifact)) return;
+        if (!isFocused || Platform.OS !== 'web' || !goalBoardOpen || goalArtifact) return;
         const onEscape = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.defaultPrevented) return;
             event.preventDefault();
-            if (goalArtifact) setGoalArtifact(null); else closeGoalBoard();
+            closeGoalBoard();
         };
         window.addEventListener('keydown', onEscape);
         return () => window.removeEventListener('keydown', onEscape);
     }, [isFocused, goalBoardOpen, goalArtifact, closeGoalBoard]);
-    React.useEffect(() => {
-        if (!isFocused || Platform.OS === 'web' || !goalArtifact) return;
-        const listener = BackHandler.addEventListener('hardwareBackPress', () => { setGoalArtifact(null); return true; });
-        return () => listener.remove();
-    }, [isFocused, goalArtifact]);
     const goalBoardContent = <React.Suspense fallback={<ActivityIndicator size="small" color={theme.colors.textSecondary} />}>
         <GoalBoardPanel snapshot={goalBoard.snapshot} catalog={goalBoard.catalog} loading={goalBoard.loading}
             error={goalBoard.error} offline={goalBoard.offline} activeTaskId={goalBoard.activeTaskId}
@@ -1281,12 +1275,12 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {goalArtifact && <View testID="goal-board-artifact-overlay" style={{ position: 'absolute', top: safeArea.top + headerHeight, left: 0, right: 0, bottom: 0, zIndex: 1100, backgroundColor: theme.colors.surface }}>
+            {goalArtifact && (
                 <React.Suspense fallback={<ActivityIndicator size="small" color={theme.colors.textSecondary} />}>
-                    <GoalArtifactViewer sessionId={sessionId} featurePath={goalArtifact.featurePath}
+                    <GoalArtifactWindow sessionId={sessionId} featurePath={goalArtifact.featurePath}
                         task={latestGoalTask ?? goalArtifact.task} artifact={latestGoalArtifact ?? goalArtifact.artifact} onClose={() => setGoalArtifact(null)} />
                 </React.Suspense>
-            </View>}
+            )}
 
             {/* Read-only session-info dropdown, anchored under the header chip.
                 A sibling of the (padded) content view — not a child — so its
