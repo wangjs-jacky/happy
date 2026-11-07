@@ -1,6 +1,6 @@
-import { open, realpath, readdir, writeFile } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, sep } from 'node:path';
-import { createHash } from 'node:crypto';
+import { open, realpath, readdir, stat, unlink, rename } from 'node:fs/promises';
+import { resolve, relative, isAbsolute, sep, dirname, join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 const failure = (error: unknown) => ({ success: false as const, error: error instanceof Error ? error.message : String(error) });
@@ -57,8 +57,28 @@ export function createWorkspaceFileHandlers(workingDirectory: string) {
                 const previous = locks.get(path) ?? Promise.resolve();
                 const operation = previous.catch(() => {}).then(async () => {
                     if (hash(await readBytes(path, 2 * 1024 * 1024)) !== data.expectedHash) throw new Error('File hash mismatch; reload before saving');
-                    await writeFile(path, bytes);
-                    return { success: true as const, hash: hash(bytes) };
+                    const info = await stat(path);
+                    const temporary = join(dirname(path), `.paws-save-${randomUUID()}.tmp`);
+                    let staged: Awaited<ReturnType<typeof open>> | undefined;
+                    let created = false;
+                    try {
+                        staged = await open(temporary, 'wx', 0o600);
+                        created = true;
+                        await staged.writeFile(bytes);
+                        await staged.chmod(info.mode & 0o777);
+                        await staged.sync();
+                        await staged.close();
+                        staged = undefined;
+                        // Preparing the replacement can take time. Never overwrite a
+                        // newer file merely because it matched before the temp write.
+                        if (await scoped(data.path) !== path || hash(await readBytes(path, 2 * 1024 * 1024)) !== data.expectedHash) throw new Error('File hash mismatch; reload before saving');
+                        await rename(temporary, path);
+                        created = false;
+                        return { success: true as const, hash: hash(bytes) };
+                    } finally {
+                        await staged?.close().catch(() => {});
+                        if (created) await unlink(temporary).catch(() => {});
+                    }
                 });
                 locks.set(path, operation);
                 try { return await operation; } finally { if (locks.get(path) === operation) locks.delete(path); }

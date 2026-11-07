@@ -32,7 +32,8 @@ async function main() {
     await fs.mkdir(path.join(project, 'docs'), { recursive: true }); await fs.mkdir(path.join(project, 'demo/css'), { recursive: true });
     await fs.writeFile(path.join(project, 'docs/产品方案.md'), '# 作品协作方案\n\n这是从执行机器读取的真实 Markdown。\n\n## 当前目标\n边聊、边看、边改。\n\nFILE_WORKSPACE_END\n');
     await fs.writeFile(path.join(project, 'docs/实施计划.md'), '# 实施计划\n\n1. 接真实文件\n2. 接历史版本\n');
-    await fs.writeFile(path.join(project, 'demo/index.html'), '<!doctype html><html lang="zh"><meta charset="utf-8"><title>真实文件预览</title><link rel="stylesheet" href="css/style.css"><body><h1>作品空间</h1><p id="status">运行中</p><button onclick="this.textContent=this.textContent===\'暂停\'?\'继续\':\'暂停\';document.getElementById(\'status\').textContent=this.textContent===\'继续\'?\'已暂停\':\'运行中\'">暂停</button></body></html>');
+    await fs.writeFile(path.join(project, 'demo/index.html'), '<!doctype html><html lang="zh"><meta charset="utf-8"><title>真实文件预览</title><link rel="stylesheet" href="css/style.css"><body><h1>作品空间</h1><p id="status">运行中</p><p id="dependency-version">Script v1</p><script src="app.js"></script><button onclick="this.textContent=this.textContent===\'暂停\'?\'继续\':\'暂停\';document.getElementById(\'status\').textContent=this.textContent===\'继续\'?\'已暂停\':\'运行中\'">暂停</button></body></html>');
+    await fs.writeFile(path.join(project, 'demo/app.js'), "document.getElementById('dependency-version').textContent='Script v1';");
     await fs.writeFile(path.join(project, 'demo/css/style.css'), 'body {font: 18px system-ui; padding:48px; color:#234; background:#f5f5f0;} button {padding:12px 28px; border-radius:10px;}');
     await fs.writeFile(path.join(project, '.hidden.md'), '# Hidden'); await fs.writeFile(path.join(directory, 'private.txt'), 'PRIVATE_FIXTURE');
     await fs.symlink(path.join(directory, 'private.txt'), path.join(project, 'escape.txt'));
@@ -68,6 +69,12 @@ async function main() {
             if (url.pathname === '/metrics') return response.end(JSON.stringify(metrics));
             if (request.method === 'POST' && url.pathname === '/rpc') return response.end(JSON.stringify(await rpc(body.sessionId ?? sessionIds[0], body.method, body.input)));
             if (request.method === 'POST' && url.pathname === '/mutate') { const file = path.join(project, 'docs/产品方案.md'); await fs.writeFile(file, body.content); if (body.complete) await clients.get(sessionIds[0]).updateAgentState(state => ({ ...state, turnStatus: { status: 'completed', turnId: randomUUID(), updatedAt: Date.now() } })); return response.end('{"changed":true}'); }
+            if (request.method === 'POST' && url.pathname === '/mutate-dependency') {
+                assert(['css', 'js'].includes(body.kind) && typeof body.content === 'string' && body.content.length < 100000);
+                await fs.writeFile(path.join(project, body.kind === 'css' ? 'demo/css/style.css' : 'demo/app.js'), body.content);
+                if (body.complete) await clients.get(sessionIds[0]).updateAgentState(state => ({ ...state, turnStatus: { status: 'completed', turnId: randomUUID(), updatedAt: Date.now() } }));
+                return response.end(JSON.stringify({ changed: body.kind, terminalEvent: !!body.complete }));
+            }
             if (request.method === 'POST' && url.pathname === '/offline') { const client = clients.get(sessionIds[0]); client.sendSessionDeath(); await client.close(); clients.delete(sessionIds[0]); return response.end('{"offline":true}'); }
             response.writeHead(404); response.end('{}');
         } catch (error) { response.writeHead(500); response.end(JSON.stringify({ error: String(error) })); }

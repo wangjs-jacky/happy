@@ -571,3 +571,19 @@ export function saveFileWorkspaceDrafts(scope: string, drafts: WorkspaceDrafts) 
     mmkv.set('file-workspace-drafts:' + scope, encoded);
     return true;
 }
+
+
+/** Pending composer context belongs to the same private scope as workspace drafts. */
+export function loadFileWorkspaceReference(scope: string): { path: string; hash: string; quote?: string } | null {
+    try {
+        const value = JSON.parse(mmkv.getString('file-workspace-reference:' + scope) ?? 'null');
+        if (!value || typeof value.path !== 'string' || value.path.length > 8192 || !value.path
+            || typeof value.hash !== 'string' || !/^[a-f0-9]{64}$/i.test(value.hash)
+            || (value.quote !== undefined && (typeof value.quote !== 'string' || value.quote.length > 4000))) return null;
+        return { path: value.path, hash: value.hash, ...(value.quote === undefined ? {} : { quote: value.quote }) };
+    } catch { return null; }
+}
+export function saveFileWorkspaceReference(scope: string, reference: { path: string; hash: string; quote?: string } | null) {
+    const key = 'file-workspace-reference:' + scope;
+    if (reference) mmkv.set(key, JSON.stringify(reference)); else mmkv.delete(key);
+}

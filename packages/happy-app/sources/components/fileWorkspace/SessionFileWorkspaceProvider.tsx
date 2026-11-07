@@ -4,7 +4,7 @@ import { useDesktopWorkspaceLayout } from '@/hooks/useDesktopWorkspaceLayout';
 import { useSession, useSocketStatus } from '@/sync/storage';
 import { accountRuntimeCurrent, getRuntimeAccountSelection } from '@/auth/accountRuntime';
 import { getServerUrl } from '@/sync/serverConfig';
-import { loadFileWorkspaceUI, saveFileWorkspaceUI, loadFileWorkspaceDrafts, saveFileWorkspaceDrafts } from '@/sync/persistence';
+import { loadFileWorkspaceUI, saveFileWorkspaceUI, loadFileWorkspaceDrafts, saveFileWorkspaceDrafts, loadFileWorkspaceReference, saveFileWorkspaceReference } from '@/sync/persistence';
 import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
 import { Modal } from '@/modal';
 import { t } from '@/text';
@@ -29,7 +29,12 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
     }), [sessionId, root]);
     const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
     const [draftCacheError, setDraftCacheError] = React.useState(false);
-    const [reference, setReference] = React.useState<FileReference | null>(null);
+    const [referenceCacheError, setReferenceCacheError] = React.useState(false);
+    const [reference, setReference] = React.useState<FileReference | null>(() => {
+        const saved = loadFileWorkspaceReference(scope);
+        const resolved = saved && resolveSessionFilePath(saved.path, root);
+        return saved && resolved?.withinSessionRoot ? { ...saved, path: resolved.absolutePath } : null;
+    });
     const [chatWidth, setChatWidth] = React.useState(initial.width);
     const [maximized, setMaximized] = React.useState(false);
     const restored = React.useRef(false);
@@ -55,6 +60,10 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
         if (restoring || !restored.current || !accountRuntimeCurrent()) return;
         try { setDraftCacheError(!saveFileWorkspaceDrafts(scope, controller.exportDrafts())); } catch { setDraftCacheError(true); }
     }, [scope, restoring, snapshot, controller]);
+    React.useEffect(() => {
+        if (!enabled || !accountRuntimeCurrent()) return;
+        try { saveFileWorkspaceReference(scope, reference); setReferenceCacheError(false); } catch { setReferenceCacheError(true); }
+    }, [enabled, scope, reference]);
     const previousSocket = React.useRef(socketStatus);
     React.useEffect(() => {
         const reconnected = socketStatus === 'connected' && previousSocket.current !== 'connected';
@@ -83,5 +92,5 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
         setMaximized(false);
         try { await controller.open(resolved.absolutePath); } catch (error) { Modal.alert(t('fileWorkspace.title'), error instanceof Error && error.message === 'FILE_WORKSPACE_TAB_LIMIT' ? t('fileWorkspace.tooManyTabs') : String(error)); }
     }, [controller, enabled, root, sessionId]);
-    return <FileWorkspaceContext.Provider value={{ draftCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    return <FileWorkspaceContext.Provider value={{ draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

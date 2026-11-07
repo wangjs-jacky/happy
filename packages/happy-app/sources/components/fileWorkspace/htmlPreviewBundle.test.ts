@@ -21,7 +21,7 @@ describe('isolated HTML bundle', () => {
         expect(result.html).toContain('blob:test-1');
         expect(result.html).toContain('connect-src');
         expect(result.html).toContain('onclick=');
-        result.dispose(); expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+        result.dispose(); expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
     });
     it('rejects remote and escaping dependencies and revokes partial work on error', async () => {
         const read = vi.fn(async () => encode('x'));
@@ -35,4 +35,15 @@ describe('isolated HTML bundle', () => {
         expect(result.html).not.toContain('<iframe'); expect(result.html).not.toContain('<base'); expect(result.html).not.toContain('http-equiv="refresh"');
         expect(result.html).toContain("form-action 'none'"); expect(result.html).toContain("connect-src 'none'");
     });
+});
+
+it('embeds locally read classic script bytes without an opaque-frame blob request or a script closing escape', async () => {
+    const source = 'document.body.dataset.version="v2"; const text="</script><p id=unexpected>escape</p>";';
+    const result = await buildHtmlFilePreview('<html><head><script defer src="app.js"></script></head><body><p id="version">v1</p></body></html>', '/work/index.html', '/work', async () => encode(source));
+    const doc = new DOMParser().parseFromString(result.html, 'text/html');
+    expect(doc.querySelector('script[src]')).toBeNull();
+    expect(doc.querySelector('#unexpected')).toBeNull();
+    expect(doc.querySelector('script')?.textContent).toContain('dataset.version');
+    expect(doc.querySelector('script')?.textContent).toContain('DOMContentLoaded');
+    result.dispose();
 });

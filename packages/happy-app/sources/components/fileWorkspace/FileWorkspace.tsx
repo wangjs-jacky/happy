@@ -76,7 +76,7 @@ export function FileWorkspace({ sessionId }: { sessionId: string }) {
         {document?.error && <Text accessibilityRole="alert" style={{ padding: 12, color: theme.colors.textDestructive }}>{document.error}</Text>}
         {document?.phase === 'error' && cachedDraft && <ScrollView contentContainerStyle={{ padding: 16 }}><Text style={{ color: theme.colors.textSecondary }}>{t('fileWorkspace.cachedDraft')}</Text><Text selectable style={{ color: theme.colors.text }}>{cachedDraft.draft}</Text></ScrollView>}
         {!document || document.phase === 'loading' ? <ActivityIndicator style={{ padding: 30 }} color={theme.colors.textSecondary} /> : document.phase === 'ready' ? <>
-            {preview && /\.(html?|svg)$/i.test(path) ? <HtmlFilePreview key={path} sessionId={sessionId} path={path} content={document.draft} root={workspace.root} /> :
+            {preview && /\.(html?|svg)$/i.test(path) ? <HtmlFilePreview key={path} sessionId={sessionId} path={path} content={document.draft} root={workspace.root} revision={document.revision} /> :
                 <ScrollView ref={scrollView} onScroll={event => { scroll.current[path] = event.nativeEvent.contentOffset.y; }} scrollEventThrottle={100} style={{ flex: 1 }} contentContainerStyle={{ padding: preview ? 24 : 12 }}>
                     <View ref={contentRef} {...({ onMouseUp: () => {
                         const selected = globalThis.window?.getSelection();

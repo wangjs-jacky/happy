@@ -1,7 +1,7 @@
 import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
 
 export type FileDocument = {
-    path: string; phase: 'loading' | 'ready' | 'error'; content: string; draft: string;
+    path: string; revision: number; phase: 'loading' | 'ready' | 'error'; content: string; draft: string;
     hash: string | null; draftBaseHash: string | null; saving: boolean; conflict: boolean; error: string | null;
 };
 export type FileWorkspaceSnapshot = {
@@ -46,7 +46,7 @@ export class FileWorkspaceController {
         this.commit({ ...this.snapshot, open: true, active: path,
             tabs: exists ? this.snapshot.tabs : [...this.snapshot.tabs, path],
             documents: exists ? this.snapshot.documents : { ...this.snapshot.documents, [path]: {
-                path, phase: 'loading', content: '', draft: '', hash: null, draftBaseHash: null, saving: false, conflict: false, error: null,
+                path, revision: 0, phase: 'loading', content: '', draft: '', hash: null, draftBaseHash: null, saving: false, conflict: false, error: null,
             } },
         });
         if (!exists) await this.refresh(path);
@@ -90,11 +90,11 @@ export class FileWorkspaceController {
             const entry = this.snapshot.documents[path];
             const discardCurrentDraft = discardDraft && revision === (this.revisions.get(path) ?? 0);
             if (!discardCurrentDraft && documentDirty(entry)) {
-                this.update(path, { conflict: value.hash !== (entry.draftBaseHash ?? entry.hash), error: null });
+                this.update(path, { revision: entry.revision + 1, conflict: value.hash !== (entry.draftBaseHash ?? entry.hash), error: null });
             } else {
                 const saved = discardCurrentDraft ? undefined : this.restoredDrafts.get(path);
                 this.restoredDrafts.delete(path);
-                this.update(path, { phase: 'ready', content: value.content, draft: saved?.draft ?? value.content, hash: value.hash, draftBaseHash: saved?.hash ?? value.hash, conflict: !!saved && saved.hash !== value.hash, error: null });
+                this.update(path, { revision: entry.revision + 1, phase: 'ready', content: value.content, draft: saved?.draft ?? value.content, hash: value.hash, draftBaseHash: saved?.hash ?? value.hash, conflict: !!saved && saved.hash !== value.hash, error: null });
             }
         } catch (error) {
             if (!this.current() || this.requests.get(path) !== token) return;

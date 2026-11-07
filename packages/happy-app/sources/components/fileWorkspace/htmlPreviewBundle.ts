@@ -43,7 +43,20 @@ export async function buildHtmlFilePreview(content: string, path: string, root: 
             link.replaceWith(style);
         }
         for (const node of Array.from(doc.querySelectorAll<HTMLElement>('[style]'))) node.setAttribute('style', await stylesheet(node.getAttribute('style') ?? '', path, true));
-        for (const node of Array.from(doc.querySelectorAll<HTMLElement>('[src]'))) node.setAttribute('src', await resource(node.getAttribute('src') ?? '', path));
+        for (const node of Array.from(doc.querySelectorAll<HTMLElement>('[src]'))) {
+            if (node.tagName === 'SCRIPT') {
+                const target = resolvePreviewPath(node.getAttribute('src') ?? '', path, root);
+                const source = new TextDecoder('utf-8', { fatal: true }).decode(await load(target.path));
+                // A sandbox without same-origin access must not depend on being
+                // able to request its parent's Blob script URL. Embed bytes read
+                // by the scoped RPC; execution remains behind Run interaction.
+                const code = node.hasAttribute('defer')
+                    ? `document.addEventListener("DOMContentLoaded",function(){const script=document.createElement("script");script.textContent=${JSON.stringify(source)};document.body.appendChild(script)},{once:true});`
+                    : source;
+                node.removeAttribute('src');
+                node.textContent = code.replace(/<\/script/gi, '<\\/script');
+            } else node.setAttribute('src', await resource(node.getAttribute('src') ?? '', path));
+        }
         doc.querySelectorAll('a[href]').forEach(node => { if (!node.getAttribute('href')?.startsWith('#')) node.removeAttribute('href'); });
         const policy = doc.createElement('meta'); policy.httpEquiv = 'Content-Security-Policy';
         policy.content = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline' blob:; img-src blob: data:; font-src blob:; media-src blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";

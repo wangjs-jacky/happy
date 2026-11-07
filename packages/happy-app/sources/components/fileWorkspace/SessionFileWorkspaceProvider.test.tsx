@@ -5,7 +5,7 @@ import TestRenderer from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     socket: 'connecting', session: { metadata: { path: '/work', machineId: 'machine' }, agentState: { turnStatus: { status: 'completed', turnId: 'initial', updatedAt: 1 } } },
-    reads: vi.fn(), writes: vi.fn(), persisted: {} as Record<string, unknown>, current: true,
+    reads: vi.fn(), writes: vi.fn(), persisted: {} as Record<string, unknown>, references: {} as Record<string, { path: string; hash: string; quote?: string } | null>, current: true,
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({ useDesktopWorkspaceLayout: () => ({ rightPanelAvailable: true }) }));
@@ -14,6 +14,8 @@ vi.mock('@/auth/accountRuntime', () => ({ accountRuntimeCurrent: () => mocks.cur
 vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'https://fixture.test' }));
 vi.mock('@/sync/persistence', () => ({
     loadFileWorkspaceUI: () => ({ tabs: ['/work/方案.md'], active: '/work/方案.md', open: true, width: 430 }), saveFileWorkspaceUI: vi.fn(),
+    loadFileWorkspaceReference: (scope: string) => mocks.references[scope] ?? null,
+    saveFileWorkspaceReference: (scope: string, value: any) => { mocks.references[scope] = structuredClone(value); },
     loadFileWorkspaceDrafts: () => mocks.persisted,
     saveFileWorkspaceDrafts: (_scope: string, value: any) => { mocks.persisted = structuredClone(value); return true; },
 }));
@@ -29,7 +31,7 @@ function node() { return <SessionFileWorkspaceProvider sessionId="session"><Prob
 beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.socket = 'connecting'; mocks.current = true; mocks.session.metadata.path = '/work'; mocks.session.agentState.turnStatus = { status: 'completed', turnId: 'initial', updatedAt: 1 };
-    mocks.persisted = {}; mocks.reads.mockReset().mockResolvedValue({ content: '# Base', hash: 'base' }); mocks.writes.mockReset().mockResolvedValue({ hash: 'saved' });
+    mocks.persisted = {}; mocks.references = {}; mocks.reads.mockReset().mockResolvedValue({ content: '# Base', hash: 'base' }); mocks.writes.mockReset().mockResolvedValue({ hash: 'saved' });
 });
 describe('workspace owner in real session lifecycle', () => {
     it('waits for connection before restoring tabs and keeps dirty content across a full remount', async () => {
@@ -71,4 +73,31 @@ describe('workspace owner in real session lifecycle', () => {
         expect(value.snapshot.tabs).toEqual(['/work/方案.md']);
         await act(async () => { renderer.unmount(); await tick(); });
     });
+});
+
+it('restores pending file context after reload, keeps the original baseline, and clears it on removal', async () => {
+    mocks.socket = 'connected'; let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    const reference = { path: '/work/方案.md', hash: 'base', quote: 'Original selection' };
+    await act(async () => { value.setReference(reference); await tick(); });
+    await act(async () => { renderer.unmount(); await tick(); });
+    mocks.reads.mockResolvedValue({ content: '# New on disk', hash: 'new' });
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    expect(value.reference).toEqual(reference);
+    expect(value.snapshot.documents['/work/方案.md'].hash).toBe('new');
+    await act(async () => { value.setReference(null); await tick(); });
+    await act(async () => { renderer.unmount(); await tick(); });
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    expect(value.reference).toBeNull();
+    await act(async () => { renderer.unmount(); await tick(); });
+});
+it('does not restore a pending reference from a different cwd', async () => {
+    mocks.socket = 'connected'; let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    await act(async () => { value.setReference({ path: '/work/方案.md', hash: 'base' }); await tick(); });
+    await act(async () => { renderer.unmount(); await tick(); });
+    mocks.session.metadata.path = '/another';
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    expect(value.reference).toBeNull();
+    await act(async () => { renderer.unmount(); await tick(); });
 });
