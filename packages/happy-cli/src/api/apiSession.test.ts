@@ -1515,7 +1515,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
             await client?.close();
             await rm(home, { recursive: true, force: true });
         }
-    });
+    }, 30_000); // Multi-MiB encryption/decryption can exceed the default 5s on shared CI runners.
 
     it('registers Goal Board RPCs and disposes its lifecycle-owned handlers on close', async () => {
         const client = new ApiSessionClient('fake-token', session);
