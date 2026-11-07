@@ -98,11 +98,24 @@ describe('Goal Board real filesystem', () => {
         const request = (name: string) => f.call('goalBoardArtifact', { featurePath: f.feature, taskId: task.id, artifactId: task.artifacts.find((a: any) => a.name === name).id });
         expect(await request('PDF')).toMatchObject({ success: true, kind: 'attachment', attachment: { kind: 'file', encrypted: true } });
         expect(await request('Audio')).toMatchObject({ success: true, kind: 'attachment', attachment: { kind: 'audio' } });
-        await truncate(join(f.taskDir, '中文 文稿.md'), 2 * 1024 * 1024 + 1);
+        await truncate(join(f.taskDir, '中文 文稿.md'), 16 * 1024 * 1024 + 1);
         expect(await request('中文 文稿')).toMatchObject({ success: false });
         await truncate(join(f.taskDir, 'report.pdf'), 50 * 1024 * 1024 + 1);
         expect(await request('PDF')).toMatchObject({ success: false });
         expect(f.uploads).toHaveLength(2);
+    });
+    it.each([1920569, 4704647])('sends a %i-byte document through attachments without a large Socket.IO response', async (size) => {
+        const f = await fixture();
+        const original = '<!doctype html><h1>原文</h1>' + 'x'.repeat(size);
+        await f.put(join(f.taskDir, 'report.html'), original);
+        await f.put(join(f.taskDir, 'index.md'), '---\nstatus: done\n---\n# Task\n## 当前产物\n[Report](report.html)');
+        const { snapshot } = await f.call('goalBoardRead', { featurePath: f.feature });
+        const task = snapshot.tasks[0];
+        const response = await f.call('goalBoardArtifact', { featurePath: f.feature, taskId: task.id, artifactId: task.artifacts[0].id });
+        expect(response).toMatchObject({ success: true, kind: 'attachment' });
+        expect(Buffer.byteLength(JSON.stringify(response))).toBeLessThan(16 * 1024);
+        expect(f.uploads).toHaveLength(1);
+        expect(f.uploads[0].kind).toBe('text');
     });
     it('publishes real watcher changes once, blocks stale features and disposes watchers', async () => {
         const f = await fixture();
