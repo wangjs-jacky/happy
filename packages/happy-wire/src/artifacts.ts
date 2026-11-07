@@ -26,7 +26,7 @@ export type ArtifactResult<T> = { ok: true; value: T } | { ok: false; error: { c
 const base = ArtifactRefSchema.extend({ operationId: id, expectedRevision: hash });
 export const ArtifactRequests = {
   artifactCapabilities: z.object({}),
-  artifactCatalog: z.object({ workspaceId: id.optional() }),
+  artifactCatalog: z.object({ workspaceId: id.optional(), root: path.optional() }),
   // The root is explicitly authorized by the existing machine/session channel.
   artifactRegister: z.object({ root: path, entryPath: path, managedPaths: z.array(path).min(1).max(128), operationId: id, name: z.string().max(512).optional() }),
   artifactRead: ArtifactRefSchema.extend({ versionId: id.optional() }),

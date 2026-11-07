@@ -49,3 +49,14 @@ it('denies managed scope for shared or attached native execution and prevents a 
   expect(await prepareCodexArtifactScope({ connection: 'unixSocket', attached: false }, () => store.assertUnmanagedRunner(other))).toBe(false);
   await expect(store.register({ root: other, entryPath: 'a.md', managedPaths: ['a.md'], operationId: 'racing' })).rejects.toMatchObject({ code: 'WRITER_ACTIVE' });
 });
+
+it('rejects a stale artifact revision even when only a dependency changed', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'paws-version-reference-')); dirs.push(dir); const root=join(dir,'project'); await mkdir(root); await writeFile(join(root,'a.html'),'<link href="style.css">'); await writeFile(join(root,'style.css'),'old');
+  const store=new ArtifactStore({storage:join(dir,'store'),accountScope:'a'.repeat(64),inventory:async()=>[]});
+  const a=await store.register({root,entryPath:'a.html',managedPaths:['a.html','style.css'],operationId:'register'}); const current=await store.read({workspaceId:a.workspaceId,artifactId:a.id});
+  const entry=current.manifest.files.find(f=>f.path==='a.html')!;
+  await writeFile(join(root,'style.css'),'changed'); let ran=false;
+  const prompt='Edit heading\n\n[Workspace file context]\n'+JSON.stringify({path:'a.html',hash:entry.sha256,artifact:{workspaceId:a.workspaceId,artifactId:a.id,expectedRevision:current.workingRevision}})+'\nRe-read';
+  await expect(runArtifactTurn(store,{directory:root,sessionId:'s',prompt},async()=>{ran=true;return {aborted:false};})).rejects.toMatchObject({code:'CONFLICT'});
+  expect(ran).toBe(false);
+});

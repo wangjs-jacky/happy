@@ -45,6 +45,7 @@ export type Option = {
 
 export type MarkdownViewVariant = 'default' | 'foldedPrompt';
 
+const MarkdownImagesContext = React.createContext<Record<string, string | null> | undefined>(undefined);
 const MarkdownFileLinksContext = React.createContext(false);
 const MarkdownTypographyContext = React.createContext<MarkdownTypographyMode>('default');
 
@@ -63,8 +64,9 @@ export const MarkdownView = React.memo((props: {
     typography?: MarkdownTypographyMode;
     variant?: MarkdownViewVariant;
     readOnly?: boolean;
+    imageUrls?: Record<string, string | null>;
 }) => {
-    const blocks = React.useMemo(() => props.readOnly ? parseReadOnlyMarkdown(props.markdown) : parseMarkdown(props.markdown), [props.markdown, props.readOnly]);
+    const blocks = React.useMemo(() => props.readOnly ? parseReadOnlyMarkdown(props.markdown, {allowImages: !!props.imageUrls}) : parseMarkdown(props.markdown), [props.markdown, props.readOnly, props.imageUrls]);
     const variant = props.variant ?? 'default';
     
     // Backwards compatibility: The original version just returned the view, wrapping the list of blocks.
@@ -95,7 +97,7 @@ export const MarkdownView = React.memo((props: {
     }, [props.markdown, router]);
     const renderContent = () => {
         return (
-            <MarkdownFileLinksContext.Provider value={!!workspace?.enabled && !!props.sessionId && !props.readOnly}><MarkdownTypographyContext.Provider value={props.typography ?? 'default'}>
+            <MarkdownImagesContext.Provider value={props.imageUrls}><MarkdownFileLinksContext.Provider value={!!workspace?.enabled && !!props.sessionId && !props.readOnly}><MarkdownTypographyContext.Provider value={props.typography ?? 'default'}>
                 <View style={{ width: '100%' }}>
                     {blocks.map((block, index) => {
                     const nextBlock = blocks[index + 1];
@@ -136,7 +138,7 @@ export const MarkdownView = React.memo((props: {
                     }
                     })}
                 </View>
-            </MarkdownTypographyContext.Provider></MarkdownFileLinksContext.Provider>
+            </MarkdownTypographyContext.Provider></MarkdownFileLinksContext.Provider></MarkdownImagesContext.Provider>
         );
     }
 
@@ -265,19 +267,22 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
 }
 
 function RenderImageBlock(props: { url: string, alt: string, first: boolean, last: boolean }) {
+    const urls = React.useContext(MarkdownImagesContext);
+    const imageUrl = urls ? urls[props.url] : props.url;
     const accessibleLabel = props.alt || 'Markdown image';
     const typography = useMarkdownTypography();
 
+    if (!imageUrl) return <Text accessibilityRole="alert">{props.alt + ' — ' + t('fileWorkspace.previewFailed')}</Text>;
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
             {/* Tap to open the fullscreen zoomable viewer. */}
             <Pressable
-                onPress={() => imageViewer.open({ uri: props.url })}
+                onPress={() => imageViewer.open({ uri: imageUrl })}
                 accessibilityRole="button"
                 accessibilityLabel={accessibleLabel}
             >
                 <Image
-                    source={{ uri: props.url }}
+                    source={{ uri: imageUrl }}
                     style={style.image}
                     accessibilityLabel={accessibleLabel}
                     resizeMode="contain"

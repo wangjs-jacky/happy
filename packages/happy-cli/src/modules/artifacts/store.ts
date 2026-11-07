@@ -40,7 +40,7 @@ export class ArtifactStore {
       const db = await this.load();
       if (options?.settleTerminals !== false) await this.settleTerminals(db);
       return body(db);
-    }, options);
+    }, { waitTimeoutMs: 5000, ...options });
   }
   private workspace(db: Database, workspaceId: string) {
     const ws = db.workspaces.find(w => w.id === workspaceId && w.accountScope === this.options.accountScope);
@@ -421,7 +421,7 @@ export class ArtifactStore {
     return this.locked(async db => {
       const directory = await realpath(data.directory);
       if (data.reference) {
-        const target = resolve(directory, data.reference.path);
+        const target = await realpath(resolve(directory, data.reference.path));
         if (!inside(directory, target)) throw new ArtifactError('PATH_OUT_OF_BOUNDS', 'Referenced file is outside the declared write scope');
         const path = normalized(relative(directory, target).split('\\').join('/'));
         const actualHash = digest(await boundedRead(await ownedPath(directory, path), ARTIFACT_LIMITS.entryBytes));
@@ -610,7 +610,7 @@ export class ArtifactStore {
           } else await this.commit(db, ws, this.record(ws, op.artifactId), id, op);
         } catch { /* Keep durable intent and last complete history available for explicit recovery. */ }
       }
-    });
+    }, { waitTimeoutMs: undefined });
   }
 
 }

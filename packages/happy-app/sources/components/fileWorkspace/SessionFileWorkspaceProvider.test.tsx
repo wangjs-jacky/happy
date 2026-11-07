@@ -9,16 +9,18 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({ useDesktopWorkspaceLayout: () => ({ rightPanelAvailable: true }) }));
-vi.mock('@/sync/storage', () => ({ useSession: () => mocks.session, useSocketStatus: () => ({ status: mocks.socket }) }));
+vi.mock('@/sync/storage', () => ({ useMachine: () => null, useSession: () => mocks.session, useSocketStatus: () => ({ status: mocks.socket }) }));
 vi.mock('@/auth/accountRuntime', () => ({ accountRuntimeCurrent: () => mocks.current, getRuntimeAccountSelection: () => ({ key: 'account' }) }));
 vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'https://fixture.test' }));
 vi.mock('@/sync/persistence', () => ({
+    loadWorkspaceVersionOperations: () => ({}), saveWorkspaceVersionOperations: vi.fn(),
     loadFileWorkspaceUI: () => ({ tabs: ['/work/方案.md'], active: '/work/方案.md', open: true, width: 430 }), saveFileWorkspaceUI: vi.fn(),
     loadFileWorkspaceReference: (scope: string) => mocks.references[scope] ?? null,
     saveFileWorkspaceReference: (scope: string, value: any) => { mocks.references[scope] = structuredClone(value); },
     loadFileWorkspaceDrafts: () => mocks.persisted,
     saveFileWorkspaceDrafts: (_scope: string, value: any) => { mocks.persisted = structuredClone(value); return true; },
 }));
+vi.mock('@/sync/artifactWorkspace', () => ({ artifactRequest: async () => [], artifactInvalidations: () => [] }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('./fileIO', () => ({ readWorkspaceText: (...args: any[]) => mocks.reads(...args), writeWorkspaceText: (...args: any[]) => mocks.writes(...args) }));

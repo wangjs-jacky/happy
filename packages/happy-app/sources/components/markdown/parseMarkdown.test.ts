@@ -98,3 +98,8 @@ it('keeps external history inert while retaining ordinary formatting', async () 
     expect(JSON.stringify(blocks)).toContain('tracking.example');
     expect(JSON.stringify(blocks)).toContain('External update');
 });
+it('keeps image blocks only when a caller provides a frozen image resolver',async()=>{
+ const {parseReadOnlyMarkdown}=await import('./parseMarkdown');
+ expect(parseReadOnlyMarkdown('![local](diagram.svg)',{allowImages:true})).toEqual([{type:'image',url:'diagram.svg',alt:'local'}]);
+ expect(parseReadOnlyMarkdown('![remote](https://example.com/image.png)').some(b=>b.type==='image')).toBe(false);
+});

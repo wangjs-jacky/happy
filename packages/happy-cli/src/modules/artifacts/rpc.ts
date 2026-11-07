@@ -24,7 +24,10 @@ export function registerArtifactHandlers(manager: Pick<RpcHandlerManager, 'regis
         }
         let value: unknown;
         switch (method) {
-          case 'artifactCatalog': value = (await store.catalog(data.workspaceId)).filter(ws => !allowed || inside(allowed, ws.root)); break;
+          case 'artifactCatalog': {
+            const root = data.root ? await realpath(data.root) : undefined;
+            value = (await store.catalog(data.workspaceId)).filter(ws => (!allowed || inside(allowed, ws.root)) && (!root || ws.root === root)); break;
+          }
           case 'artifactRegister': value = await store.register(data); break;
           case 'artifactRead': value = await store.read(data); break;
           case 'artifactResourceRead': value = await store.resource(data); break;

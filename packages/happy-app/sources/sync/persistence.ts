@@ -574,16 +574,30 @@ export function saveFileWorkspaceDrafts(scope: string, drafts: WorkspaceDrafts) 
 
 
 /** Pending composer context belongs to the same private scope as workspace drafts. */
-export function loadFileWorkspaceReference(scope: string): { path: string; hash: string; quote?: string } | null {
+export function loadFileWorkspaceReference(scope: string): import('@/components/fileWorkspace/context').FileReference | null {
     try {
         const value = JSON.parse(mmkv.getString('file-workspace-reference:' + scope) ?? 'null');
         if (!value || typeof value.path !== 'string' || value.path.length > 8192 || !value.path
             || typeof value.hash !== 'string' || !/^[a-f0-9]{64}$/i.test(value.hash)
             || (value.quote !== undefined && (typeof value.quote !== 'string' || value.quote.length > 4000))) return null;
-        return { path: value.path, hash: value.hash, ...(value.quote === undefined ? {} : { quote: value.quote }) };
+        const a = value.artifact;
+        const artifact = a && /^[a-zA-Z0-9_-]{1,128}$/.test(a.workspaceId) && /^[a-zA-Z0-9_-]{1,128}$/.test(a.artifactId) && /^[a-f0-9]{64}$/.test(a.expectedRevision) ? {workspaceId:a.workspaceId,artifactId:a.artifactId,expectedRevision:a.expectedRevision,...(typeof a.versionId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(a.versionId) ? {versionId:a.versionId} : {})} : undefined;
+        return { path: value.path, hash: value.hash, ...(value.quote === undefined ? {} : { quote: value.quote }), ...(artifact ? {artifact} : {}) };
     } catch { return null; }
 }
-export function saveFileWorkspaceReference(scope: string, reference: { path: string; hash: string; quote?: string } | null) {
+export function saveFileWorkspaceReference(scope: string, reference: import('@/components/fileWorkspace/context').FileReference | null) {
     const key = 'file-workspace-reference:' + scope;
     if (reference) mmkv.set(key, JSON.stringify(reference)); else mmkv.delete(key);
+}
+
+/** Uncertain operations survive refresh in the same private account/session scope. */
+export function loadWorkspaceVersionOperations(scope: string): Record<string, import('@/components/fileWorkspace/versionController').PendingVersionOperation> {
+    try {
+        const value = JSON.parse(mmkv.getString('file-workspace-operations:' + scope) ?? '{}');
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+        return Object.fromEntries(Object.entries(value).slice(0,20).filter(([path, v]: [string, any]) => path.length <= 8192 && v && /^[a-zA-Z0-9_-]{1,128}$/.test(v.operationId) && typeof v.workspaceId === 'string' && ['restore','save','register'].includes(v.kind))) as any;
+    } catch { return {}; }
+}
+export function saveWorkspaceVersionOperations(scope: string, value: Record<string, import('@/components/fileWorkspace/versionController').PendingVersionOperation>) {
+    mmkv.set('file-workspace-operations:' + scope, JSON.stringify(value));
 }

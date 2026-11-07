@@ -16,7 +16,7 @@ process.env.HAPPY_E2E_DISABLE_WATCHMAN = '1'; process.env.S3_HOST = '';
 process.env.NO_PROXY = [process.env.NO_PROXY, 'localhost', '127.0.0.1', '::1'].filter(Boolean).join(',');
 const originalLog = console.log;
 console.log = (...args) => originalLog(...args.map(value => typeof value === 'string' && value.includes('Auth URL:') ? 'Auth URL: saved privately' : value));
-let environment, controller, accountSocket, serverUrl, headers, encryption, key, runtime;
+let environment, controller, accountSocket, serverUrl, headers, encryption, key, runtime, machineSocket, artifactStore, runArtifactTurn, machineId;
 const clients = new Map(); const metrics = { rpc: [], model: [] }; const jobs = new Set();
 async function main() {
     environment = await createEnvironment({ noSwitch: true }); setEnvironmentTemplate(environment, 'authenticated-empty');
@@ -43,12 +43,31 @@ async function main() {
     const require = createRequire(path.join(root, 'packages/happy-cli/package.json')); const { io } = require('socket.io-client');
     accountSocket = io(serverUrl, { path: '/v1/updates', transports: ['websocket'], reconnection: false, auth: { token: auth.token, clientType: 'user-scoped' } }); await once(accountSocket, 'connect');
     const encode = value => encryption.encodeBase64(encryption.encryptLegacy(value, key));
+    machineId = randomUUID();
+    const created = await fetch(serverUrl+'/v1/machines',{method:'POST',headers,body:JSON.stringify({id:machineId,metadata:encode({host:'file-workspace-fixture.local',platform:process.platform,displayName:'History fixture',happyCliVersion:'task4-branch',happyHomeDir:path.join(directory,'cli/home'),homeDir:directory}),daemonState:encode({artifactChanges:[]}),dataEncryptionKey:null})});
+    assert(created.ok); const machine=(await created.json()).machine; let daemonVersion=machine.daemonStateVersion;
+    const {RpcHandlerManager}=await import('../../../../happy-cli/src/api/rpc/RpcHandlerManager.ts');
+    const {registerArtifactHandlers}=await import('../../../../happy-cli/src/modules/artifacts/rpc.ts');
+    const {registerWorkspaceFileHandlers}=await import('../../../../happy-cli/src/modules/common/workspaceFiles.ts');
+    const {ArtifactStore}=await import('../../../../happy-cli/src/modules/artifacts/store.ts');
+    ({runArtifactTurn}=await import('../../../../happy-cli/src/modules/artifacts/turn.ts'));
+    const manager=new RpcHandlerManager({scopePrefix:machineId,encryptionKey:key,encryptionVariant:'legacy'});
+    machineSocket=io(serverUrl,{path:'/v1/updates',transports:['websocket'],reconnection:false,auth:{token:auth.token,clientType:'machine-scoped',machineId}});
+    machineSocket.on('rpc-request',async(data,cb)=>cb(await manager.handleRequest(data)));
+    await once(machineSocket,'connect');
+    const changed=new Map(); const publish=async event=>{changed.set(event.workspaceId+':'+event.artifactId,event);const events=Array.from(changed.values());const answer=await machineSocket.timeout(10000).emitWithAck('machine-update-state',{machineId,daemonState:encode({artifactChanges:events.slice(-64)}),expectedVersion:daemonVersion});if(answer.result==='success')daemonVersion=answer.version;};
+    artifactStore=new ArtifactStore({storage:path.join(directory,'history-store'),accountScope:createHash('sha256').update(key).digest('hex'),inventory:async()=>[],onChanged:publish});
+    registerArtifactHandlers(manager,async()=>artifactStore,project);
+    manager.onSocketConnect(machineSocket); await once(machineSocket,'rpc-registered',e=>e.method===machineId+':artifactRestore');
+    machineSocket.emit('machine-alive',{machineId,time:Date.now()});machineSocket.io.engine.on('packet',p=>{if(p.type==='ping')machineSocket.emit('machine-alive',{machineId,time:Date.now()});});
     async function createSession(name) {
-        const metadata = { path: project, host: 'file-workspace-fixture.local', homeDir: directory, name, flavor: 'codex', lifecycleState: 'running', startedBy: 'terminal' };
+        const metadata = { path: project, host: 'file-workspace-fixture.local', homeDir: directory, name, machineId, flavor: 'codex', lifecycleState: 'running', startedBy: 'terminal' };
         const agentState = { turnStatus: { status: 'completed', turnId: 'initial', updatedAt: Date.now() } };
         const response = await fetch(serverUrl + '/v1/sessions', { method: 'POST', headers, body: JSON.stringify({ tag: randomUUID(), metadata: encode(metadata), agentState: encode(agentState), dataEncryptionKey: null }) });
         assert(response.ok); const session = (await response.json()).session;
         const client = new ApiSessionClient(auth.token, { id: session.id, seq: session.seq, encryptionKey: key, encryptionVariant: 'legacy', metadata, metadataVersion: session.metadataVersion, agentState, agentStateVersion: session.agentStateVersion });
+        registerArtifactHandlers(client.rpcHandlerManager,async()=>artifactStore,project);
+        registerWorkspaceFileHandlers(client.rpcHandlerManager,project,async()=>artifactStore);
         const handle = client.rpcHandlerManager.handleRequest.bind(client.rpcHandlerManager);
         client.rpcHandlerManager.handleRequest = async request => { const begin = performance.now(); try { return await handle(request); } finally { metrics.rpc.push({ sessionId: session.id, method: request.method.split(':').at(-1), ms: performance.now() - begin }); } };
         clients.set(session.id, client); await once(client.socket, 'rpc-registered', event => event.method === `${session.id}:workspaceReadFile`);
@@ -59,13 +78,14 @@ async function main() {
         return session.id;
     }
     const sessionIds = [await createSession('作品空间 · 真实文件验收'), await createSession('作品空间 · 会话隔离')];
-    runtime = { environment, pid: process.pid, serverUrl, webUrl: `http://localhost:${config.expoPort}`, sessionIds, project, authUrlFile: path.join(output, 'auth-url.txt'), boundaries: { app: 'real full App', fileRPC: 'real encrypted ApiSessionClient workspace handlers', files: 'synthetic on disk', model: 'real codex exec via test adapter when a user message is submitted; no daemon replacement', production: false } };
+    runtime = { environment, pid: process.pid, serverUrl, webUrl: `http://localhost:${config.expoPort}`, sessionIds, machineId, project, authUrlFile: path.join(output, 'auth-url.txt'), boundaries: { app: 'real full App', fileRPC: 'real encrypted ApiSessionClient workspace handlers', files: 'synthetic on disk', model: 'real codex exec via test adapter when a user message is submitted; no daemon replacement', production: false } };
     await fs.writeFile(runtime.authUrlFile, config.authenticatedWebUrl, { mode: 0o600 });
     controller = createServer(async (request, response) => {
         response.setHeader('Content-Type', 'application/json');
         try {
             const url = new URL(request.url, 'http://127.0.0.1'); let body = {}; if (request.method === 'POST') { let raw = ''; for await (const chunk of request) raw += chunk; assert(raw.length < 4 * 1024 * 1024); body = raw ? JSON.parse(raw) : {}; }
             if (url.pathname === '/runtime') return response.end(JSON.stringify(runtime));
+            if(request.method==='POST' && url.pathname==='/artifact-rpc') return response.end(JSON.stringify(await rpc(machineId,body.method,body.input)));
             if (url.pathname === '/metrics') return response.end(JSON.stringify(metrics));
             if (request.method === 'POST' && url.pathname === '/rpc') return response.end(JSON.stringify(await rpc(body.sessionId ?? sessionIds[0], body.method, body.input)));
             if (request.method === 'POST' && url.pathname === '/mutate') { const file = path.join(project, 'docs/产品方案.md'); await fs.writeFile(file, body.content); if (body.complete) await clients.get(sessionIds[0]).updateAgentState(state => ({ ...state, turnStatus: { status: 'completed', turnId: randomUUID(), updatedAt: Date.now() } })); return response.end('{"changed":true}'); }
@@ -75,7 +95,7 @@ async function main() {
                 if (body.complete) await clients.get(sessionIds[0]).updateAgentState(state => ({ ...state, turnStatus: { status: 'completed', turnId: randomUUID(), updatedAt: Date.now() } }));
                 return response.end(JSON.stringify({ changed: body.kind, terminalEvent: !!body.complete }));
             }
-            if (request.method === 'POST' && url.pathname === '/offline') { const client = clients.get(sessionIds[0]); client.sendSessionDeath(); await client.close(); clients.delete(sessionIds[0]); return response.end('{"offline":true}'); }
+            if (request.method === 'POST' && url.pathname === '/offline') { machineSocket?.disconnect(); const client = clients.get(sessionIds[0]); client.sendSessionDeath(); await client.close(); clients.delete(sessionIds[0]); return response.end('{"offline":true}'); }
             response.writeHead(404); response.end('{}');
         } catch (error) { response.writeHead(500); response.end(JSON.stringify({ error: String(error) })); }
     });
@@ -95,16 +115,23 @@ async function runModel(client, message, project) {
     const record = { sessionId: client.sessionId, started: Date.now(), referenced: text.includes('[Workspace file context]') }; metrics.model.push(record);
     const logPath = path.join(output, `model-${turn}.log`); const resultPath = path.join(output, `model-${turn}.txt`);
     const log = await fs.open(logPath, 'w', 0o600);
-    const child = spawn(process.env.PAWS_WORKSPACE_CODEX_BIN || 'codex', ['exec', '--model', 'gpt-6.1-sol', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', project, '-o', resultPath, '-'], { cwd: project, env: process.env, stdio: ['pipe', log.fd, log.fd] }); jobs.add(child);
-    child.stdin.end('This is an authorized synthetic file-edit acceptance test. Work only inside this fixture project. Do not read external files or change tools/config.\n\n' + text);
-    const code = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); }); jobs.delete(child); await log.close();
+    let code;
+    try {
+        await runArtifactTurn(artifactStore,{directory:project,sessionId:client.sessionId,prompt:text,runId:turn},async()=>{
+            const child = spawn(process.env.PAWS_WORKSPACE_CODEX_BIN || 'codex', ['exec', '--model', 'gpt-6.1-sol', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', project, '-o', resultPath, '-'], { cwd: project, env: process.env, stdio: ['pipe', log.fd, log.fd] }); jobs.add(child);
+            await artifactStore.trackWriterProcess(turn,child.pid);
+            child.stdin.end('This is an authorized synthetic file-edit acceptance test. Work only inside this fixture project. Do not read external files or change tools/config.\n\n' + text);
+            code = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); }); jobs.delete(child); return {aborted:code!==0};
+        });
+    } catch(error) {code=1; record.error=String(error);}
+    await log.close();
     record.finished = Date.now(); record.exitCode = code;
     if (code === 0) { const result = await fs.readFile(resultPath, 'utf8'); client.sendAgentMessage('codex', { type: 'message', message: result }); client.sendAgentMessage('codex', { type: 'task_complete', id: turn }); }
     else client.sendAgentMessage('codex', { type: 'turn_aborted', id: turn, status: 'failed' });
     client.keepAlive(false, 'remote');
 }
 function once(emitter, event, predicate = () => true) { return new Promise((resolve, reject) => { const timer = setTimeout(() => { emitter.off(event, listener); reject(new Error(`Timeout ${event}`)); }, 30000); const listener = value => { if (!predicate(value)) return; clearTimeout(timer); emitter.off(event, listener); resolve(value); }; emitter.on(event, listener); }); }
-async function rpc(sessionId, method, input = {}) { assert(['workspaceReadFile', 'workspaceWriteFile', 'workspaceListDirectory'].includes(method)); const params = encryption.encodeBase64(encryption.encryptLegacy(input, key)); const response = await accountSocket.timeout(30000).emitWithAck('rpc-call', { method: `${sessionId}:${method}`, params }); assert(response.ok, response.error); return encryption.decryptLegacy(new Uint8Array(Buffer.from(response.result, 'base64')), key); }
+async function rpc(sessionId, method, input = {}) { assert(['workspaceReadFile', 'workspaceWriteFile', 'workspaceListDirectory'].includes(method) || method.startsWith('artifact')); const params = encryption.encodeBase64(encryption.encryptLegacy(input, key)); const response = await accountSocket.timeout(30000).emitWithAck('rpc-call', { method: `${sessionId}:${method}`, params }); assert(response.ok, response.error); return encryption.decryptLegacy(new Uint8Array(Buffer.from(response.result, 'base64')), key); }
 let closing = false;
-async function cleanup(code = 0) { if (closing) return; closing = true; for (const child of jobs) child.kill('SIGTERM'); for (const client of clients.values()) { client.sendSessionDeath(); await client.close(); } accountSocket?.disconnect(); controller?.close(); if (environment) { stopEnvironment(environment); removeEnvironment(environment); } process.exit(code); }
+async function cleanup(code = 0) { if (closing) return; closing = true; for (const child of jobs) child.kill('SIGTERM'); for (const client of clients.values()) { client.sendSessionDeath(); await client.close(); } accountSocket?.disconnect(); machineSocket?.disconnect(); controller?.close(); if (environment) { stopEnvironment(environment); removeEnvironment(environment); } process.exit(code); }
 process.on('SIGINT', () => { void cleanup(); }); process.on('SIGTERM', () => { void cleanup(); }); main().catch(error => { console.error(error); void cleanup(1); });
