@@ -1,3 +1,4 @@
+import { registerWorkspaceFileHandlers } from './workspaceFiles';
 import { logger } from '@/ui/logger';
 import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
@@ -184,6 +185,8 @@ export function registerCommonHandlers(
     rpcHandlerManager: RpcHandlerManager,
     workingDirectory: string,
 ) {
+    registerWorkspaceFileHandlers(rpcHandlerManager, workingDirectory);
+
     // Shell command handler - executes commands in the default shell
     rpcHandlerManager.registerHandler<BashRequest, BashResponse>('bash', async (data) => {
         logger.debug('Shell command request:', data.command);

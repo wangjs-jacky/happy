@@ -541,3 +541,33 @@ export function clearPersistence() {
     mmkv.clearAll();
     clearPublicSessionShareQueueStorage();
 }
+
+export type FileWorkspaceUI = { tabs: string[]; active: string | null; open: boolean; width: number };
+export function loadFileWorkspaceUI(scope: string): FileWorkspaceUI {
+    try {
+        const raw = JSON.parse(mmkv.getString(`file-workspace-v1:${scope}`) ?? '{}');
+        const tabs = Array.isArray(raw.tabs) ? raw.tabs.filter((path: unknown): path is string => typeof path === 'string' && path.length < 8192).slice(0, 20) : [];
+        return { tabs, active: typeof raw.active === 'string' && tabs.includes(raw.active) ? raw.active : tabs[0] ?? null, open: raw.open === true, width: typeof raw.width === 'number' ? Math.max(310, Math.min(800, raw.width)) : 430 };
+    } catch { return { tabs: [], active: null, open: false, width: 430 }; }
+}
+export function saveFileWorkspaceUI(scope: string, ui: FileWorkspaceUI) {
+    // Persist navigation only; file contents remain on the session machine.
+    mmkv.set(`file-workspace-v1:${scope}`, JSON.stringify(ui));
+}
+
+
+export type WorkspaceDrafts = Record<string, { draft: string; hash: string }>;
+export function loadFileWorkspaceDrafts(scope: string): WorkspaceDrafts {
+    try {
+        const value = JSON.parse(mmkv.getString('file-workspace-drafts:' + scope) ?? '{}');
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+        const entries = Object.entries(value).slice(0, 20).filter(([path, entry]: [string, any]) => path.length <= 4096 && entry && typeof entry.draft === 'string' && typeof entry.hash === 'string');
+        return JSON.stringify(entries).length <= 4 * 1024 * 1024 ? Object.fromEntries(entries) as WorkspaceDrafts : {};
+    } catch { return {}; }
+}
+export function saveFileWorkspaceDrafts(scope: string, drafts: WorkspaceDrafts) {
+    const encoded = JSON.stringify(drafts);
+    if (encoded.length > 4 * 1024 * 1024) return false;
+    mmkv.set('file-workspace-drafts:' + scope, encoded);
+    return true;
+}

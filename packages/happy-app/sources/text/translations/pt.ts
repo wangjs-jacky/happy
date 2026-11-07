@@ -15,6 +15,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * Must match the exact structure of the English translations
  */
 export const pt: TranslationStructure = {
+    fileWorkspace: { ...en.fileWorkspace },
+
     goalBoard: {
         title: "Quadro de tarefas",
         back: "Voltar às tarefas",

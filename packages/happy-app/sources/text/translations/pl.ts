@@ -26,6 +26,8 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  * Must match the exact structure of the English translations
  */
 export const pl: TranslationStructure = {
+    fileWorkspace: { ...en.fileWorkspace },
+
     goalBoard: {
         title: "Tablica zadań",
         back: "Powrót do zadań",

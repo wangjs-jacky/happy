@@ -18,6 +18,8 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const ja: TranslationStructure = {
+    fileWorkspace: { ...en.fileWorkspace },
+
     goalBoard: {
         title: "タスクボード",
         back: "タスク一覧に戻る",
