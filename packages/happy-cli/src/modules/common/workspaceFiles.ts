@@ -1,12 +1,13 @@
 import { open, realpath, readdir, stat, unlink, rename } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, sep, dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { ArtifactError } from '../artifacts/files';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
-const failure = (error: unknown) => ({ success: false as const, error: error instanceof Error ? error.message : String(error) });
+const failure = (error: unknown) => ({ success: false as const, error: error instanceof Error ? error.message : String(error), ...(error instanceof ArtifactError ? { code: error.code, operationId: error.operationId } : {}) });
 
 /** Dedicated methods make older CLIs fail closed rather than silently ignore a scope flag. */
-export function createWorkspaceFileHandlers(workingDirectory: string) {
+export function createWorkspaceFileHandlers(workingDirectory: string, getArtifactStore?: () => Promise<import('../artifacts/store').ArtifactStore>) {
     const locks = new Map<string, Promise<unknown>>();
     const scoped = async (path: string) => {
         if (typeof path !== 'string' || !path || path.includes('\0')) throw new Error('Invalid workspace path');
@@ -54,6 +55,7 @@ export function createWorkspaceFileHandlers(workingDirectory: string) {
                 const bytes = Buffer.from(data.content, 'base64');
                 if (bytes.length > 2 * 1024 * 1024) throw new Error('Workspace file too large');
                 const path = await scoped(data.path);
+                const perform = async () => {
                 const previous = locks.get(path) ?? Promise.resolve();
                 const operation = previous.catch(() => {}).then(async () => {
                     if (hash(await readBytes(path, 2 * 1024 * 1024)) !== data.expectedHash) throw new Error('File hash mismatch; reload before saving');
@@ -82,12 +84,14 @@ export function createWorkspaceFileHandlers(workingDirectory: string) {
                 });
                 locks.set(path, operation);
                 try { return await operation; } finally { if (locks.get(path) === operation) locks.delete(path); }
+                };
+                return getArtifactStore ? await (await getArtifactStore()).workspaceWrite(workingDirectory, data, perform) : await perform();
             } catch (error) { return failure(error); }
         },
     };
 }
-export function registerWorkspaceFileHandlers(manager: RpcHandlerManager, directory: string) {
-    const handlers = createWorkspaceFileHandlers(directory);
+export function registerWorkspaceFileHandlers(manager: RpcHandlerManager, directory: string, getArtifactStore?: () => Promise<import('../artifacts/store').ArtifactStore>) {
+    const handlers = createWorkspaceFileHandlers(directory, getArtifactStore);
     manager.registerHandler('workspaceReadFile', handlers.read);
     manager.registerHandler('workspaceListDirectory', handlers.list);
     manager.registerHandler('workspaceWriteFile', handlers.write);

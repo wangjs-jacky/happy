@@ -1,3 +1,4 @@
+import { ArtifactError } from '../artifacts/files';
 import { registerWorkspaceFileHandlers } from './workspaceFiles';
 import { logger } from '@/ui/logger';
 import { exec, ExecOptions } from 'child_process';
@@ -184,8 +185,9 @@ export type SpawnSessionResult =
 export function registerCommonHandlers(
     rpcHandlerManager: RpcHandlerManager,
     workingDirectory: string,
+    getArtifactStore?: () => Promise<import('../artifacts/store').ArtifactStore>,
 ) {
-    registerWorkspaceFileHandlers(rpcHandlerManager, workingDirectory);
+    registerWorkspaceFileHandlers(rpcHandlerManager, workingDirectory, getArtifactStore);
 
     // Shell command handler - executes commands in the default shell
     rpcHandlerManager.registerHandler<BashRequest, BashResponse>('bash', async (data) => {
@@ -303,6 +305,7 @@ export function registerCommonHandlers(
             return { success: false, error: validation.error };
         }
 
+        const perform = async () => {
         try {
             // If expectedHash is provided (not null), verify existing file
             if (data.expectedHash !== null && data.expectedHash !== undefined) {
@@ -357,6 +360,9 @@ export function registerCommonHandlers(
             logger.debug('Failed to write file:', error);
             return { success: false, error: error instanceof Error ? error.message : 'Failed to write file' };
         }
+        };
+        try { return getArtifactStore ? await (await getArtifactStore()).workspaceWrite(workingDirectory, data, perform) : await perform(); }
+        catch (error) { return { success: false, error: error instanceof ArtifactError ? error.message : 'Managed save failed', ...(error instanceof ArtifactError ? { code: error.code, operationId: error.operationId } : {}) }; }
     });
 
     // List directory handler

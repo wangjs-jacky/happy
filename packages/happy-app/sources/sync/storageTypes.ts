@@ -46,6 +46,7 @@ export const MetadataSchema = z.object({
         regenerateTitle: z.boolean().optional(),
         codexCredentialRecovery: z.boolean().optional(),
         codexSteer: z.boolean().optional(),
+        artifactLeases: z.literal(1).optional(),
     }).optional(),
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
