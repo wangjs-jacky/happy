@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve, relative } from 'node:path';
 import { lstat, mkdir, readFile, realpath, unlink } from 'node:fs/promises';
 import { ArtifactRequests, ARTIFACT_LIMITS, type Artifact, type ArtifactChanged, type ArtifactManifest, type ArtifactMutationResult, type ArtifactReadRef, type ArtifactReadResult, type ArtifactRef, type ArtifactVersion } from '@slopus/happy-wire';
-import { ArtifactError, atomicFile, boundedRead, digest, inside, intersects, normalized, ownedPath, ownerAlive, processOwner, syncDirectory, withMachineLock, type ProcessOwner } from './files';
+import { ArtifactError, atomicFile, atomicCreateFile, boundedRead, canonicalWriteTarget, digest, inside, intersects, normalized, ownedPath, ownerAlive, processOwner, syncDirectory, withMachineLock, type ProcessOwner, type MachineLockOptions } from './files';
 
 type StoredVersion = { version: ArtifactVersion; manifest: ArtifactManifest };
 type Record = { artifact: Artifact; versions: StoredVersion[]; reads: { id: string; expires: number; manifest: ArtifactManifest }[] };
 type Operation = { signature: string; artifactId: string; status: 'pending' | 'committed' | 'failed'; result?: ArtifactMutationResult; before: ArtifactManifest; after: ArtifactManifest; nextArtifact: Artifact; version: ArtifactVersion; resolution?: { id: string; action: string }; };
+type TerminalReceipt = { runId: string; owner: ProcessOwner; status: 'completed' | 'failed' | 'cancelled' };
 type Lease = { writerOwners?: ProcessOwner[]; runId: string; owner: ProcessOwner; sessionId: string; prompt: string };
 type CaptureFailure = { resolution?: { id: string; action: 'resume' | 'rollback' }; id: string; runId: string; prompt: string; snapshots: { artifactId: string; snapshot?: ArtifactManifest; base: StoredVersion }[] };
 type Workspace = { captureFailure?: CaptureFailure; captureHistory?: { [id: string]: CaptureFailure & { resolutionId: string; action: string } };  id: string; root: string; accountScope: string; records: Record[]; operations: { [id: string]: Operation }; registrations: { [id: string]: { signature: string; artifactId: string } }; lease?: Lease; runs: { [id: string]: 'completed' | 'failed' | 'cancelled' }; sequence: number; changes?: ArtifactChanged[]; changed?: ArtifactChanged };
@@ -34,7 +35,13 @@ export class ArtifactStore {
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { schema: 1, workspaces: [], writers: [] }; throw new ArtifactError('UNAVAILABLE', 'Version index is unavailable'); }
   }
   private persist(db: Database) { return atomicFile(this.index(), JSON.stringify(db)); }
-  private locked<T>(body: (db: Database) => Promise<T>): Promise<T> { return withMachineLock(this.options.storage, async () => body(await this.load())); }
+  private locked<T>(body: (db: Database) => Promise<T>, options?: MachineLockOptions & { settleTerminals?: boolean }): Promise<T> {
+    return withMachineLock(this.options.storage, async () => {
+      const db = await this.load();
+      if (options?.settleTerminals !== false) await this.settleTerminals(db);
+      return body(db);
+    }, options);
+  }
   private workspace(db: Database, workspaceId: string) {
     const ws = db.workspaces.find(w => w.id === workspaceId && w.accountScope === this.options.accountScope);
     if (!ws) throw new ArtifactError('NOT_FOUND', 'Workspace is not registered for this account');
@@ -116,7 +123,7 @@ export class ArtifactStore {
   private async publish(ws: Workspace) { if (ws.changed) { try { await this.options.onChanged?.(ws.changed); } catch { /* invalidation is advisory; durable RPC remains authoritative */ } } }
 
   async invalidations() { return (await this.load()).workspaces.filter(w => w.accountScope === this.options.accountScope).flatMap(w => w.changes ?? (w.changed ? [w.changed] : [])); }
-  async catalog(workspaceId?: string) { return this.locked(async db => db.workspaces.filter(w => w.accountScope === this.options.accountScope && (!workspaceId || w.id === workspaceId)).map(w => ({ workspaceId: w.id, root: w.root, artifacts: w.records.map(r => r.artifact), changed: w.changed }))); }
+  async catalog(workspaceId?: string) { return this.locked(async db => db.workspaces.filter(w => w.accountScope === this.options.accountScope && (!workspaceId || w.id === workspaceId)).map(w => ({ workspaceId: w.id, root: w.root, artifacts: w.records.map(r => r.artifact), changed: w.changed })), { settleTerminals: false }); }
   async register(input: Register): Promise<Artifact> {
     const data = ArtifactRequests.artifactRegister.parse(input);
     return this.locked(async db => {
@@ -173,7 +180,7 @@ export class ArtifactStore {
       // Verify the entire selected set; never fill historical gaps from working files.
       for (const file of selected.manifest.files) await this.object(ws.accountScope, file);
       return { artifact: record.artifact, manifest: selected.manifest, readRef, workingRevision: selected.manifest.digest, workingState, pendingOperationId: data.versionId ? undefined : (ws.captureFailure?.id ?? this.pending(ws)?.[0]), entryContent: decodeText(await this.object(ws.accountScope, entry)) };
-    });
+    }, { settleTerminals: !data.versionId });
   }
   async resource(input: ArtifactRef & { readRef: ArtifactReadRef; path: string; offset: number; length: number }) {
     const data = ArtifactRequests.artifactResourceRead.parse(input);
@@ -185,7 +192,7 @@ export class ArtifactStore {
       if (!file) throw new ArtifactError('NOT_FOUND', 'Resource or frozen read has expired or is not registered');
       const bytes = await this.object(ws.accountScope, file);
       return { content: bytes.subarray(data.offset, data.offset + data.length).toString('base64'), totalSize: bytes.length, sha256: file.sha256, offset: data.offset };
-    });
+    }, { settleTerminals: false });
   }
   async versions(input: ArtifactRef & { cursor?: string }) {
     const data = ArtifactRequests.artifactVersions.parse(input);
@@ -196,7 +203,7 @@ export class ArtifactStore {
       if (data.cursor && offset === 0) throw new ArtifactError('NOT_FOUND', 'Invalid history cursor');
       const page = reversed.slice(offset, offset + ARTIFACT_LIMITS.page);
       return { versions: page.map(v => v.version), currentVersionId: record.artifact.currentVersionId, nextCursor: reversed.length > offset + page.length ? page.at(-1)!.version.id : undefined };
-    });
+    }, { settleTerminals: false });
   }
   private async checkpoint(db: Database, ws: Workspace, record: Record, before: ArtifactManifest) {
     if (!same(before, this.current(record).manifest)) { this.append(record, this.version(record, before, 'external')); this.changed(ws, record, before.digest); await this.persist(db); }
@@ -321,6 +328,11 @@ export class ArtifactStore {
           return { status: 'pending' as const, kind: 'terminal-capture', ...observed, actions: observed.states.every(s => s.known) ? ['resume', 'rollback'] : ['resume'] };
         }
         if (ws.captureHistory?.[operationId]) return { status: 'committed' as const, observedRevision: digest(operationId), states: [], actions: [] };
+        const writer = db.writers.find(w => w.runId === operationId && w.accountScope === this.options.accountScope && intersects(ws.root, w.directory));
+        if (writer) {
+          const pendingOperationId = ws.captureFailure?.runId === operationId ? ws.captureFailure.id : undefined;
+          return { kind: 'terminal', status: pendingOperationId || !writer.status ? 'pending' as const : writer.status === 'completed' ? 'committed' as const : 'failed' as const, pendingOperationId, observedRevision: digest(JSON.stringify({ runId: operationId, status: writer.status })), states: [], actions: [] };
+        }
         throw new ArtifactError('NOT_FOUND', 'Operation not found');
       }
       const observed = await this.observed(ws, op);
@@ -371,17 +383,17 @@ export class ArtifactStore {
     });
   }
   /** Existing Task 2 saves and legacy file writes share registration, journal and writer exclusion. */
-  async workspaceWrite<T>(directory: string, input: { path: string; content: string; expectedHash?: string | null; operationId?: string }, fallback: () => Promise<T>): Promise<T | { success: true; hash: string; operationId: string; versionId: string }> {
+  async workspaceWrite<T>(directory: string, input: { path: string; content: string; expectedHash?: string | null; operationId?: string }, fallback: (target: string) => Promise<T>): Promise<T | { success: true; hash: string; operationId: string; versionId: string }> {
     return this.locked(async db => {
       const cwd = await realpath(directory), lexical = resolve(cwd, input.path);
-      let target: string; try { target = await realpath(lexical); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; target = lexical; }
+      const target = await canonicalWriteTarget(lexical);
       const ws = db.workspaces.find(w => inside(w.root, target));
-      if (!ws) return fallback(); // still inside the machine lock: registration cannot race this write
+      if (!ws) return fallback(target); // still inside the machine lock: registration cannot race this write
       if (ws.accountScope !== this.options.accountScope) throw new ArtifactError('PERMISSION_DENIED', 'Another account owns the managed workspace');
       await this.noWriter(ws);
       const path = relative(ws.root, target).split('\\').join('/');
       const record = ws.records.find(r => r.artifact.managedPaths.includes(path));
-      if (!record) return fallback();
+      if (!record) return fallback(target);
       if (!inside(cwd, target)) throw new ArtifactError('PATH_OUT_OF_BOUNDS', 'File is outside this session directory');
       const before = await this.stable(ws, record.artifact), file = before.files.find(f => f.path === path);
       if (!input.expectedHash || file?.sha256 !== input.expectedHash) throw new ArtifactError('CONFLICT', 'File hash mismatch; refresh before saving');
@@ -405,7 +417,7 @@ export class ArtifactStore {
     });
   }
   async beginTurn(data: { directory: string; sessionId: string; runId: string; prompt: string; writerPids?: number[]; reference?: { path: string; hash: string }; expected?: ArtifactRef & { expectedRevision: string } }) {
-    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(data.runId) || data.prompt.length > 65536) throw new ArtifactError('LIMIT_EXCEEDED', 'Invalid run identity or prompt size');
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(data.runId)) throw new ArtifactError('LIMIT_EXCEEDED', 'Invalid run identity');
     return this.locked(async db => {
       const directory = await realpath(data.directory);
       if (data.reference) {
@@ -417,8 +429,9 @@ export class ArtifactStore {
       }
       const existing = db.writers.find(w => w.runId === data.runId && w.accountScope === this.options.accountScope);
       if (existing) throw new ArtifactError('CONFLICT', 'Run ID has already been accepted');
-      for (const writer of db.writers) if (!writer.status && intersects(directory, writer.directory) && await this.leaseAlive(writer)) throw new ArtifactError('WRITER_ACTIVE', 'Another managed turn overlaps this scope');
       const affected = db.workspaces.filter(ws => intersects(ws.root, directory));
+      if (affected.length && data.prompt.length > 65536) throw new ArtifactError('LIMIT_EXCEEDED', 'Managed version prompt exceeds supported size');
+      for (const writer of db.writers) if (!writer.status && affected.some(ws => intersects(ws.root, writer.directory)) && await this.leaseAlive(writer)) throw new ArtifactError('WRITER_ACTIVE', 'Another managed turn overlaps this scope');
       for (const ws of affected) {
         if (ws.accountScope !== this.options.accountScope) throw new ArtifactError('PERMISSION_DENIED', 'A different account owns the managed scope');
         await this.noWriter(ws);
@@ -433,7 +446,7 @@ export class ArtifactStore {
       const lease: Writer = { directory, writerOwners, owner: await processOwner(), accountScope: this.options.accountScope, sessionId: data.sessionId, runId: data.runId, prompt: affected.length ? data.prompt : '' };
       for (const ws of affected) ws.lease = lease;
       db.writers.push(lease); await this.persist(db);
-    });
+    }, { waitTimeoutMs: 5000 });
   }
   async trackWriterProcess(runId: string, pid: number) {
     return this.locked(async db => {
@@ -445,47 +458,80 @@ export class ArtifactStore {
       (writer.writerOwners ??= []).push(native);
       for (const ws of db.workspaces) if (ws.lease?.runId === runId && ws.accountScope === this.options.accountScope) ws.lease.writerOwners = writer.writerOwners;
       await this.persist(db);
-    });
+    }, { waitTimeoutMs: 5000 });
   }
 
-  async finishTurn(runId: string, status: 'completed' | 'failed' | 'cancelled') {
-    return this.locked(async db => {
-      const writer = db.writers.find(w => w.runId === runId && w.accountScope === this.options.accountScope);
-      if (!writer) throw new ArtifactError('NOT_FOUND', 'Run was not registered');
-      if (writer.status) return; // durable terminal deduplication, including restart
-      const owner = await processOwner();
-      if (writer.owner.pid !== owner.pid || writer.owner.birth !== owner.birth) throw new ArtifactError('PERMISSION_DENIED', 'Only the original writer can finish its run');
-      const affected = db.workspaces.filter(ws => ws.lease?.runId === runId && ws.accountScope === this.options.accountScope);
-      for (const ws of affected) {
-        if (status === 'completed') {
-          let snapshots: { record: Record; after: ArtifactManifest }[];
-          try { snapshots = await Promise.all(ws.records.map(async record => ({ record, after: await this.stable(ws, record.artifact) }))); }
-          catch {
-            const failure: CaptureFailure = { id: `capture-${runId.length > 80 ? digest(runId) : runId}`, runId, prompt: writer.prompt, snapshots: [] };
-            for (const record of ws.records) {
-              let snapshot: ArtifactManifest | undefined;
-              try { snapshot = await this.capture(ws, record.artifact, false, false); } catch {}
-              failure.snapshots.push({ artifactId: record.artifact.id, base: this.current(record), snapshot });
-            }
-            ws.captureFailure = failure;
-            for (const affectedWorkspace of affected) { delete affectedWorkspace.lease; affectedWorkspace.runs[runId] = 'failed'; }
-            writer.status = 'failed'; writer.prompt = '';
-            await this.persist(db);
-            throw new ArtifactError('COMMIT_PENDING', 'The turn ended but its snapshot could not be completed; inspect the capture operation', failure.id);
-          }
-          for (const { record, after } of snapshots) if (!same(after, this.current(record).manifest)) {
-            this.append(record, this.version(record, after, 'ai', { prompt: writer.prompt, runId }));
-            this.changed(ws, record, after.digest);
-          }
-        }
-        // Failed/cancelled runs preserve their preimage. Modified bytes remain dirty.
-        delete ws.lease; ws.runs[runId] = status;
+  private terminalPath(runId: string) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(runId)) throw new ArtifactError('NOT_FOUND', 'Invalid run identity');
+    return join(this.options.storage, this.options.accountScope, 'terminals', runId + '.json');
+  }
+  private async terminalReceipt(writer: Writer): Promise<TerminalReceipt | undefined> {
+    try {
+      const value = JSON.parse((await boundedRead(this.terminalPath(writer.runId), 4096)).toString('utf8')) as TerminalReceipt;
+      if (value.runId !== writer.runId || value.owner?.pid !== writer.owner.pid || value.owner.birth !== writer.owner.birth || !['completed', 'failed', 'cancelled'].includes(value.status)) throw new ArtifactError('UNAVAILABLE', 'Terminal receipt ownership is invalid');
+      return value;
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+  }
+  private async settleTerminals(db: Database) {
+    for (const writer of db.writers.filter(w => w.accountScope === this.options.accountScope && !w.status)) {
+      const receipt = await this.terminalReceipt(writer);
+      if (!receipt) continue;
+      try { await this.completeTurnLocked(db, writer, receipt.status); }
+      catch (error) {
+        // A durable capture-recovery marker is a readable outcome, not a live writer.
+        if (!(error instanceof ArtifactError) || error.code !== 'COMMIT_PENDING') throw error;
       }
-      writer.status = status; writer.prompt = ''; await this.persist(db);
-      for (const ws of affected) await this.publish(ws);
-    });
+    }
   }
-
+  async finishTurn(runId: string, status: 'completed' | 'failed' | 'cancelled') {
+    // Handoff is independent of the catalog lock. Losing a release event or timing
+    // out cannot lose the real terminal state; the next explicit request drains it.
+    const snapshot = await this.load(), writer = snapshot.writers.find(w => w.runId === runId && w.accountScope === this.options.accountScope);
+    if (!writer) throw new ArtifactError('NOT_FOUND', 'Run was not registered');
+    const owner = await processOwner();
+    if (writer.owner.pid !== owner.pid || writer.owner.birth !== owner.birth) throw new ArtifactError('PERMISSION_DENIED', 'Only the original writer can finish its run');
+    if (!writer.status) await atomicCreateFile(this.terminalPath(runId), JSON.stringify({ runId, owner, status } satisfies TerminalReceipt));
+    try {
+      await this.locked(async db => {
+        const failure = db.workspaces.find(ws => ws.accountScope === this.options.accountScope && ws.captureFailure?.runId === runId)?.captureFailure;
+        if (failure) throw new ArtifactError('COMMIT_PENDING', 'The turn ended but capture requires recovery', failure.id);
+      }, { waitTimeoutMs: 5000 });
+    } catch (error) {
+      if (error instanceof ArtifactError && error.code === 'COMMIT_PENDING') throw error;
+      throw new ArtifactError('COMMIT_PENDING', 'Terminal result is durable; inspect its operation when the active request is available', runId);
+    }
+  }
+  private async completeTurnLocked(db: Database, writer: Writer, status: TerminalReceipt['status']) {
+    const runId = writer.runId;
+    const affected = db.workspaces.filter(ws => ws.lease?.runId === runId && ws.accountScope === this.options.accountScope);
+    for (const ws of affected) {
+      if (status === 'completed') {
+        let snapshots: { record: Record; after: ArtifactManifest }[];
+        try { snapshots = await Promise.all(ws.records.map(async record => ({ record, after: await this.stable(ws, record.artifact) }))); }
+        catch {
+          const failure: CaptureFailure = { id: `capture-${runId.length > 80 ? digest(runId) : runId}`, runId, prompt: writer.prompt, snapshots: [] };
+          for (const record of ws.records) {
+            let snapshot: ArtifactManifest | undefined;
+            try { snapshot = await this.capture(ws, record.artifact, false, false); } catch {}
+            failure.snapshots.push({ artifactId: record.artifact.id, base: this.current(record), snapshot });
+          }
+          ws.captureFailure = failure;
+          for (const affectedWorkspace of affected) { delete affectedWorkspace.lease; affectedWorkspace.runs[runId] = 'failed'; }
+          writer.status = 'failed'; writer.prompt = '';
+          await this.persist(db);
+          throw new ArtifactError('COMMIT_PENDING', 'The turn ended but its snapshot could not be completed; inspect the capture operation', failure.id);
+        }
+        for (const { record, after } of snapshots) if (!same(after, this.current(record).manifest)) {
+          this.append(record, this.version(record, after, 'ai', { prompt: writer.prompt, runId }));
+          this.changed(ws, record, after.digest);
+        }
+      }
+      // Failed/cancelled runs preserve their preimage. Modified bytes remain dirty.
+      delete ws.lease; ws.runs[runId] = status;
+    }
+    writer.status = status; writer.prompt = ''; await this.persist(db);
+    for (const ws of affected) await this.publish(ws);
+  }
   private async captureObserved(ws: Workspace, failure: CaptureFailure) {
     const states: { path: string; hash: string | null; known: boolean }[] = [];
     for (const item of failure.snapshots) {
@@ -502,25 +548,40 @@ export class ArtifactStore {
   }
   private async resolveCapture(db: Database, ws: Workspace, failure: CaptureFailure, data: import('zod').infer<typeof ArtifactRequests.artifactResolveOperation>) {
     await this.noWriter(ws, true);
-    if (failure.resolution && (failure.resolution.id !== data.resolutionId || failure.resolution.action !== data.action)) throw new ArtifactError('CONFLICT', 'A capture recovery is already in progress');
+    const previous = failure.resolution;
+    if (previous?.id === data.resolutionId && previous.action !== data.action) throw new ArtifactError('CONFLICT', 'Resolution ID was reused');
+    const hasRollbackJournal = Object.keys(ws.operations).some(id => id.startsWith(failure.id + '-'));
+    // Capture retry never replaces working bytes. A failed retry (including an
+    // older pinned resume) may be replaced; an actual rollback journal must finish.
+    if (previous && (previous.id !== data.resolutionId || previous.action !== data.action) && previous.action === 'rollback' && hasRollbackJournal) throw new ArtifactError('CONFLICT', 'A capture rollback is already in progress');
     const observed = await this.captureObserved(ws, failure);
     if (observed.observedRevision !== data.expectedObservedRevision) throw new ArtifactError('CONFLICT', 'Capture recovery baseline changed');
-    failure.resolution = { id: data.resolutionId, action: data.action }; await this.persist(db);
+    const matchesObserved = (record: Record, snapshot: ArtifactManifest) => record.artifact.managedPaths.every(path => (snapshot.files.find(f => f.path === path)?.sha256 ?? null) === observed.states.find(state => state.path === path)?.hash);
     if (data.action === 'resume') {
-      // Retrying capture does not overwrite bytes. Preserve user-confirmed actual contents as external.
       const snapshots = await Promise.all(ws.records.map(async record => ({ record, after: await this.stable(ws, record.artifact) })));
+      if (snapshots.some(({ record, after }) => !matchesObserved(record, after))) throw new ArtifactError('CONFLICT', 'Files changed before capture retry');
+      failure.resolution = { id: data.resolutionId, action: data.action }; await this.persist(db);
       for (const { record, after } of snapshots) if (!same(after, this.current(record).manifest)) {
         this.append(record, this.version(record, after, 'external', { prompt: failure.prompt, runId: failure.runId }));
         this.changed(ws, record, after.digest, failure.id);
       }
     } else {
-      if (observed.states.some(s => !s.known)) throw new ArtifactError('CONFLICT', 'Unrecorded external changes prevent capture rollback');
+      if (observed.states.some(state => !state.known)) throw new ArtifactError('CONFLICT', 'Unrecorded external changes prevent capture rollback');
+      // Freeze the user-confirmed preimages BEFORE persisting the choice. Never
+      // redefine a later external write as a legitimate journal preimage.
+      const plans = [];
       for (const item of failure.snapshots) {
         const record = this.record(ws, item.artifactId), id = `${failure.id}-${record.artifact.id}`;
+        const before = await this.capture(ws, record.artifact, false, false);
+        if (!matchesObserved(record, before)) throw new ArtifactError('CONFLICT', 'Files changed before capture rollback');
+        plans.push({ item, record, id, before });
+      }
+      failure.resolution = { id: data.resolutionId, action: data.action }; await this.persist(db);
+      for (const { item, record, id, before } of plans) {
         let op = ws.operations[id];
         if (op?.status === 'committed') continue;
         if (!op) {
-          const before = await this.capture(ws, record.artifact, false, false), after = item.base.manifest;
+          const after = item.base.manifest;
           op = { signature: digest(id), artifactId: record.artifact.id, status: 'pending', before, after, nextArtifact: { ...record.artifact }, version: this.version(record, after, 'restore', { restoreFromVersionId: item.base.version.id }).version };
           ws.operations[id] = op; await this.persist(db);
         }

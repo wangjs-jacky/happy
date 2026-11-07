@@ -7,7 +7,11 @@ try {
     await store.beginTurn({ directory: options.root, sessionId: 'child', runId: 'child-run', prompt: 'child write', writerPids: options.writerPids });
     if (options.trackPid) await store.trackWriterProcess('child-run', options.trackPid);
     process.stdout.write('LEASED\n');
-    process.stdin.once('data', async () => { await store.finishTurn('child-run', 'completed'); process.exit(0); });
+    process.stdin.once('data', async () => {
+      try { await store.finishTurn('child-run', 'completed'); }
+      catch (error) { if (!options.allowPending || (error as { code?: string }).code !== 'COMMIT_PENDING') throw error; }
+      process.exit(0);
+    });
     process.stdin.resume();
   } else {
     const value = options.action === 'restore' ? await store.restore(options.request) : await store.save(options.request);

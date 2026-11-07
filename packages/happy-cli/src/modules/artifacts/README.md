@@ -55,3 +55,20 @@ An interrupted lock-reclaim guard fails closed for operator verification.
 state invalidations; no business polling is added. Consumers refresh on a new event
 and perform one read on reconnect/re-entry. Events can coalesce or be lost: RPC is
 always authoritative. Task 4 supplies the history panel and version-preview UI.
+
+Terminal results are handed off through owner-bound, immutable private receipts
+before waiting for the machine lock. Waiting follows filesystem events with one
+bounded timeout, without status polling. After a timeout, `artifactOperation` can
+query the run ID; the next current read, mutation, operation query or startup
+settles the receipt. A capture failure links to its own `pendingOperationId`.
+Selected history, resource reads and history/catalog lists do not drain receipts.
+Unmanaged turns retain concurrent execution and ordinary prompt sizes; their live
+markers only prevent a new registration from racing an existing turn.
+
+Capture recovery freezes the confirmed rollback preimages before recording a
+resolution. Later external bytes are rejected rather than adopted into the
+journal. A failed capture retry that has not started a rollback journal can be
+replaced with a new resolution ID, including records from the earlier protocol-1
+implementation. Missing legacy write targets are resolved through existing parent
+directories before workspace ownership checks, and fallback uses that resolved
+path so an alias cannot redirect the write after routing.

@@ -305,12 +305,12 @@ export function registerCommonHandlers(
             return { success: false, error: validation.error };
         }
 
-        const perform = async () => {
+        const perform = async (target = validation.resolvedPath!) => {
         try {
             // If expectedHash is provided (not null), verify existing file
             if (data.expectedHash !== null && data.expectedHash !== undefined) {
                 try {
-                    const existingBuffer = await readFile(validation.resolvedPath!);
+                    const existingBuffer = await readFile(target);
                     const existingHash = createHash('sha256').update(existingBuffer).digest('hex');
 
                     if (existingHash !== data.expectedHash) {
@@ -333,7 +333,7 @@ export function registerCommonHandlers(
             } else {
                 // expectedHash is null - expecting new file
                 try {
-                    await stat(validation.resolvedPath!);
+                    await stat(target);
                     // File exists but we expected it to be new
                     return {
                         success: false,
@@ -350,7 +350,7 @@ export function registerCommonHandlers(
 
             // Write the file
             const buffer = Buffer.from(data.content, 'base64');
-            await writeFile(validation.resolvedPath!, buffer);
+            await writeFile(target, buffer);
 
             // Calculate and return hash of written file
             const hash = createHash('sha256').update(buffer).digest('hex');

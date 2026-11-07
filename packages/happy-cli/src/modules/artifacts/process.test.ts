@@ -1,3 +1,4 @@
+import { withMachineLock } from './files';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -53,3 +54,20 @@ it('keeps a live native child excluded after its supervising worker exits', asyn
   native.kill('SIGKILL'); await once(native, 'exit');
   await t.store.restore({ ...t.ref, operationId: 'native-ended', expectedRevision: (await t.store.read(t.ref)).workingRevision, versionId: t.a.currentVersionId });
 });
+
+
+it('recovers a durable terminal after its real worker times out on the lock and exits', async () => {
+  const t = await setup(), worker = child({ storage: t.storage, root: t.root, action: 'lease', allowPending: true });
+  expect(String((await once(worker.stdout!, 'data'))[0])).toContain('LEASED');
+  await writeFile(join(t.root, 'a.md'), 'worker completed');
+  const exited = once(worker, 'exit');
+  await withMachineLock(t.storage, async () => {
+    worker.stdin!.write('finish');
+    expect((await exited)[0]).toBe(0);
+  });
+  expect((await t.store.versions(t.ref)).versions).toHaveLength(1);
+  await t.store.recover();
+  expect(await t.store.operation(t.a.workspaceId, 'child-run')).toMatchObject({ status: 'committed' });
+  expect((await t.store.versions(t.ref)).versions.map(v => v.source)).toEqual(['ai', 'baseline']);
+  expect(await t.store.read(t.ref)).toMatchObject({ entryContent: 'worker completed', workingState: 'clean' });
+}, 20000);
