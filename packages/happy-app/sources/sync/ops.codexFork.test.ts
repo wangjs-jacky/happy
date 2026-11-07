@@ -53,7 +53,7 @@ describe('codex fork ops', () => {
                 permissionMode: 'yolo',
                 effort: 'xhigh',
             },
-            { timeoutMs: 140_000 },
+            { timeoutMs: 140_000, waitForConnectionMs: 10_000 },
         );
     });
 
@@ -82,7 +82,7 @@ describe('codex fork ops', () => {
                     HAPPY_DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
                 },
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
     });
 
@@ -103,7 +103,7 @@ describe('codex fork ops', () => {
             expect.objectContaining({
                 traceId: '00000000-0000-4000-8000-000000000001',
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
     });
 
@@ -196,7 +196,7 @@ describe('codex fork ops', () => {
                 resumeCodexThreadId: 'thread-forked',
                 parentSessionId: 'happy-source',
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
         expect(ensureSessionHydrated).toHaveBeenCalledWith('happy-forked');
         expect(refreshSessions).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe('codex fork ops', () => {
                 resumeCodexThreadId: 'thread-moved',
                 parentSessionId: 'happy-source',
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
     });
 
@@ -349,7 +349,7 @@ describe('codex fork ops', () => {
                 resumeClaudeSessionId: 'claude-moved',
                 parentSessionId: 'happy-source',
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
         expect(ensureSessionHydrated).toHaveBeenCalledWith('happy-moved');
         expect(refreshSessions).not.toHaveBeenCalled();
@@ -394,7 +394,7 @@ describe('codex fork ops', () => {
                 resumeCodexThreadId: 'thread-cut',
                 forkedFromMessageId: 'message-2',
             }),
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
     });
 
@@ -421,7 +421,7 @@ describe('codex fork ops', () => {
                 permissionMode: 'yolo',
                 effort: 'xhigh',
             },
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         );
     });
 });

@@ -114,6 +114,7 @@ vi.mock('@/sync/storage', () => ({
         isAtLatest: mocks.messagesAtLatest,
         latestVerifiedOwnerEpoch: mocks.latestVerifiedOwnerEpoch,
     }),
+    useSocketStatus: () => ({ status: 'connected' }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useSettingUpdater: () => vi.fn(),
