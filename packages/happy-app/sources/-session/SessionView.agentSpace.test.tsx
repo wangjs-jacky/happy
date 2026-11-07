@@ -173,6 +173,7 @@ vi.mock('react-native-unistyles', () => {
             surfacePressed: '#333333',
             text: '#ffffff',
             textSecondary: '#aaaaaa',
+            textLink: '#9cc8ef',
             button: {
                 primary: {
                     background: '#7c5cbf',
@@ -1449,6 +1450,15 @@ describe('SessionView Agent-space boundary', () => {
         const header = renderer.root.findByType('ChatHeaderView');
         const action = header.findAllByType('Pressable').find((node: any) => node.props.testID === 'goal-board-return-parent');
         expect(action.props.accessibilityLabel).toBe('goalBoard.returnToParent');
+        const rest = Object.assign({}, ...action.props.style({ pressed: false }).filter(Boolean));
+        expect(rest.backgroundColor).toBe('transparent');
+        expect(rest.borderColor).toBe('transparent');
+        const pressed = Object.assign({}, ...action.props.style({ pressed: true }).filter(Boolean));
+        expect(pressed.backgroundColor).toBe('#333333');
+        act(() => action.props.onFocus());
+        const focused = Object.assign({}, ...action.props.style({ pressed: false }).filter(Boolean));
+        expect(focused.borderColor).toBe('#9cc8ef');
+        act(() => action.props.onBlur());
         expect(action.findAllByType('Text').some((node: any) => node.props.children === 'goalBoard.returnToParent')).toBe(tablet && width >= 1180);
         act(() => action.props.onPress());
         expect(mocks.navigateToTaskSession).toHaveBeenCalledExactlyOnceWith('parent-1');
@@ -1467,6 +1477,8 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findAllByProps({ testID: 'goal-board-parent-banner' })).toHaveLength(0);
         const action = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === 'goal-board-return-parent');
         expect(action).toBeTruthy();
+        const rest = Object.assign({}, ...action.props.style({ pressed: false }).filter(Boolean));
+        expect(rest.backgroundColor).toBe('#171717');
         act(() => action.props.onPress());
         expect(mocks.navigateToTaskSession).toHaveBeenCalledExactlyOnceWith('parent-1');
         await act(async () => renderer.unmount());

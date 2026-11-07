@@ -1133,7 +1133,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         ? <DesktopReadingWidthControl /> : null;
     const goalParentAction = showChip && goalBoard.parentSessionId ? (
         <GoalBoardButton testID="goal-board-return-parent" label={t('goalBoard.returnToParent')}
-            variant="chip" onPress={() => navigateToTaskSession(goalBoard.parentSessionId!)}>
+            variant={showSessionHeader ? "toolbar" : "chip"} onPress={() => navigateToTaskSession(goalBoard.parentSessionId!)}>
             <Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} />
             {isTablet && !compactSessionHeader && <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 12 }}>{t('goalBoard.returnToParent')}</Text>}
         </GoalBoardButton>
