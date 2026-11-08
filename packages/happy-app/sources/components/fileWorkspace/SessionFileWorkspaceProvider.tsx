@@ -10,8 +10,9 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { artifactRequest, artifactInvalidations } from '@/sync/artifactWorkspace';
 import { loadWorkspaceVersionOperations, saveWorkspaceVersionOperations } from '@/sync/persistence';
-import { VersionController } from './versionController';
+import { VersionController, type RestoreSelection } from './versionController';
 import { FileWorkspaceController } from './controller';
+import { EventRefreshQueue } from './eventRefreshQueue';
 import { readWorkspaceText, writeWorkspaceText } from './fileIO';
 import { FileWorkspaceContext, type FileReference } from './context';
 
@@ -43,6 +44,10 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
         write: (path, content, hash) => versions.state(path).artifact ? versions.save(path, content, hash) : writeWorkspaceText(sessionId, path, content, hash), isCurrent: accountRuntimeCurrent,
     }), [sessionId, root, versions, machineId]);
     const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+    const eventRefresh = React.useMemo(() => new EventRefreshQueue(async path => {
+        await controller.refresh(path);
+        if (versions.state(path).artifact) await versions.load(path, false, false);
+    }), [controller, versions]);
     const [draftCacheError, setDraftCacheError] = React.useState(false);
     const [referenceCacheError, setReferenceCacheError] = React.useState(false);
     const [reference, setReference] = React.useState<FileReference | null>(() => {
@@ -66,8 +71,8 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
     const lifetime = React.useRef<object | null>(null);
     React.useEffect(() => {
         const token = {}; lifetime.current = token;
-        return () => { queueMicrotask(() => { if (lifetime.current === token) {controller.dispose(); versions.dispose();} }); };
-    }, [controller, versions]);
+        return () => { queueMicrotask(() => { if (lifetime.current === token) {eventRefresh.dispose(); controller.dispose(); versions.dispose();} }); };
+    }, [controller, versions, eventRefresh]);
     React.useEffect(() => {
         if (restored.current && !restoring && accountRuntimeCurrent()) saveFileWorkspaceUI(scope, { tabs: snapshot.tabs, active: snapshot.active, open: snapshot.open, width: chatWidth });
     }, [scope, restoring, snapshot.tabs, snapshot.active, snapshot.open, chatWidth]);
@@ -83,16 +88,16 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
     React.useEffect(() => {
         const reconnected = socketStatus === 'connected' && previousSocket.current !== 'connected';
         previousSocket.current = socketStatus;
-        if (reconnected && restored.current && !restoring) for (const file of Object.values(controller.getSnapshot().documents)) void controller.refresh(file.path);
-    }, [controller, socketStatus]);
+        if (reconnected && restored.current && !restoring) eventRefresh.enqueue(controller.getSnapshot().tabs);
+    }, [controller, socketStatus, eventRefresh]);
     const turn = session?.agentState?.turnStatus;
     const terminal = ['completed', 'cancelled', 'failed'].includes(turn?.status ?? '') ? `${turn?.turnId}:${turn?.updatedAt}` : null;
     const previousTurn = React.useRef(terminal);
     React.useEffect(() => {
         if (!terminal || previousTurn.current === terminal) return;
         previousTurn.current = terminal;
-        for (const path of controller.getSnapshot().tabs) void controller.refresh(path);
-    }, [controller, sessionId, terminal]);
+        eventRefresh.enqueue(controller.getSnapshot().tabs);
+    }, [controller, sessionId, terminal, eventRefresh]);
     const changes = artifactInvalidations(machine?.daemonState);
     const changeSignature = JSON.stringify(changes);
     const seenChanges = React.useRef<Record<string, string>>({});
@@ -104,15 +109,15 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
             seenChanges.current[key] = revision;
             for (const path of controller.getSnapshot().tabs) {
                 const a = versions.state(path).artifact;
-                if (a?.workspaceId === change.workspaceId && a.id === change.artifactId && !versions.state(path).busy) { void controller.refresh(path); void versions.load(path); }
+                if (a?.workspaceId === change.workspaceId && a.id === change.artifactId && !versions.state(path).busy) eventRefresh.enqueue([path]);
             }
         }
-    }, [changeSignature, controller, versions]);
-    const restoreVersion = React.useCallback(async (path: string, action?: 'inspect' | 'resume' | 'rollback') => {
+    }, [changeSignature, controller, versions, eventRefresh]);
+    const restoreVersion = React.useCallback(async (path: string, action?: 'inspect' | 'resume' | 'rollback' | 'retry', selection?: RestoreSelection) => {
         const doc = controller.getSnapshot().documents[path];
         if (!doc || doc.saving || (!action && doc.draft !== doc.content)) return false;
         setReference(value => value?.path === path ? null : value);
-        const success = action === 'inspect' ? await versions.inspect(path) : action ? await versions.resolve(path, action) : await versions.restore(path);
+        const success = action === 'inspect' ? await versions.inspect(path) : action === 'retry' ? await versions.retryOperation(path) : action ? await versions.resolve(path, action) : await versions.restore(path, selection);
         if (success) {
             await controller.refresh(path);
             const current = versions.state(path).current;

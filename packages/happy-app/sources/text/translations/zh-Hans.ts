@@ -18,6 +18,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     fileWorkspace: {
+        retryOperation: "重试原操作",
+        operationRetryConfirm: "未找到操作回执。是否使用相同的 ID 和原版本基准重试原操作？如果文件在该请求后发生了变化，将提示冲突。",
+        operationNotFound: "未找到操作回执。你可以确认重试原请求，系统不会自动发送。",
+
+        retryRegistration: "重试登记",
+        registrationRetryConfirm: "状态核查未找到已登记的作品。是否使用原操作 ID 和完全相同的文件清单重试？如果之前的请求已完成，将复用其结果。",
+        registrationNotFound: "未找到登记记录。你可以确认使用原操作 ID 和文件清单重试。",
+
         historyWorkingChanges: "文件有尚未留版的外部修改。恢复前会先将这些修改保存为一个版本。",
         history: "历史版本",
         closeHistory: "关闭历史面板",

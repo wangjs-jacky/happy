@@ -1,3 +1,4 @@
+import { ARTIFACT_PROTOCOL } from '@slopus/happy-wire';
 import { prepareCodexArtifactScope } from '@/modules/artifacts/turn';
 import { nativeLaunchPolicy, nativeCodexMode } from '@/daemon/appDelegation/nativeLaunchPolicy';
 import { immediateCodexCommandEnvelopes } from './codexImmediateCommand';
@@ -445,7 +446,7 @@ export async function runCodex(opts: {
         ...hydratedMetadata,
         ...(applicationPolicy ? { application: { appId: applicationPolicy.binding.appId, bindingId: applicationPolicy.binding.id } } : {}),
         ...codexAccountSessionMetadata(),
-        capabilities: { ...hydratedMetadata.capabilities, artifactLeases: artifactLeaseSupported ? 1 as const : undefined, codexSteer: true, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
+        capabilities: { ...hydratedMetadata.capabilities, artifactLeases: artifactLeaseSupported ? ARTIFACT_PROTOCOL : undefined, codexSteer: true, codexCredentialRecovery: Boolean(process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && process.env.CODEX_HOME
             && basename(process.env.CODEX_HOME).startsWith('happy-codex-home-')) },
         codexPawsOriginToken,
         ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle

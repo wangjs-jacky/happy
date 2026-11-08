@@ -57,6 +57,19 @@ it('rolls back a multi-file partial commit without deleting unrelated files or h
   expect(await readFile(join(root, 'unowned'), 'utf8')).toBe('keep');
   expect((await make().versions(ref)).versions).toHaveLength(1);
 });
+it('continues a partially applied capture rollback after restart with the original resolution identity', async () => {
+  const { s, ref } = await setup();
+  await s.beginTurn({directory:root,sessionId:'session',runId:'capture-retry',prompt:'edit'});
+  await writeFile(join(root,'a.md'),Buffer.from([0xff])); await writeFile(join(root,'b.css'),'changed-css');
+  await expect(s.finishTurn('capture-retry','completed')).rejects.toMatchObject({code:'COMMIT_PENDING'});
+  const id='capture-capture-retry';let operation=await s.operation(ref.workspaceId,id);
+  faults.failTarget=join(root,'b.css');
+  await expect(s.resolveOperation({workspaceId:ref.workspaceId,operationId:id,resolutionId:'same-resolution',action:'rollback',expectedObservedRevision:operation.observedRevision})).rejects.toThrow();
+  faults.failTarget=''; const reopened=make();await reopened.recover();operation=await reopened.operation(ref.workspaceId,id);
+  await expect(reopened.resolveOperation({workspaceId:ref.workspaceId,operationId:id,resolutionId:'different-resolution',action:'rollback',expectedObservedRevision:operation.observedRevision})).rejects.toMatchObject({code:'CONFLICT'});
+  await reopened.resolveOperation({workspaceId:ref.workspaceId,operationId:id,resolutionId:'same-resolution',action:'rollback',expectedObservedRevision:operation.observedRevision});
+  expect(await readFile(join(root,'a.md'),'utf8')).toBe('old');expect(await readFile(join(root,'b.css'),'utf8')).toBe('old-css');expect((await reopened.read(ref)).workingState).toBe('clean');
+});
 it('refuses resume and rollback over a third, unrecorded image, including startup recovery', async () => {
   const { s, ref, request } = await setup(); faults.failTarget = join(root, 'b.css');
   await expect(s.save(request)).rejects.toMatchObject({ code: 'PARTIAL_COMMIT' }); faults.failTarget = '';

@@ -8,6 +8,7 @@ import { configuration } from '@/configuration';
 import { readArtifactWorkerInventory } from '@/daemon/controlClient';
 import { getMountedVolumePaths } from '@/modules/common/browseHomeDirectory';
 import type { ArtifactChanged } from '@slopus/happy-wire';
+import { logger } from '@/ui/logger';
 
 export function artifactAccountScope(identity: Uint8Array, serverUrl: string, machineId: string) {
   return digest(JSON.stringify(['artifact-account-v1', new URL(serverUrl).origin, machineId, digest(Buffer.from(identity))]));
@@ -40,25 +41,31 @@ export async function authorizeArtifactRoot(root: string) {
 export function watchArtifactChanges(getStore: () => Promise<ArtifactStore>, onChanges: (events: ArtifactChanged[]) => void | Promise<void>) {
   let disposed = false;
   let watcher: ReturnType<typeof watch> | undefined;
-  let reading = false, invalidated = false;
+  let reading = false, invalidated = true, generation = 0;
   const seen = new Map<string, number>();
   const refresh = async () => {
-    if (disposed) return;
-    if (reading) { invalidated = true; return; }
-    reading = true;
+    if (disposed || reading || !invalidated) return;
+    reading = true; invalidated = false; const observed = generation;
     try {
       const changes = await (await getStore()).invalidations();
       const events = changes.filter(event => (seen.get(event.workspaceId + ":" + event.artifactId) ?? -1) < event.sequence);
-      for (const event of events) seen.set(event.workspaceId + ":" + event.artifactId, event.sequence);
       if (!disposed && events.length) await onChanges(events.slice(-64));
-    } catch { /* A lock contention can coalesce events; RPC and reconnect single reads repair it. */ }
-    finally { reading = false; if (invalidated) { invalidated = false; void refresh(); } }
+      for (const event of events) seen.set(event.workspaceId + ":" + event.artifactId, event.sequence);
+      if (events.length) logger.debug('[ARTIFACTS] Published invalidations', {count:events.length});
+    } catch { invalidated = true; /* The writer-release event will wake this read, never a timer. */ }
+    finally { reading = false; if (invalidated && generation !== observed) void refresh(); }
   };
   // The directory is established by getStore. Start only once, on connection.
   void getStore().then(() => {
     if (disposed) return;
-    watcher = watch(join(configuration.happyHomeDir, 'artifact-workspaces'), { persistent: false }, (_event, filename) => { if (filename === 'catalog.json') void refresh(); });
-    watcher.on('error', () => {}); void refresh();
-  }).catch(() => {});
+    watcher = watch(join(configuration.happyHomeDir, 'artifact-workspaces'), { persistent: false }, () => {
+      generation++; invalidated = true;
+      // A hardlink release can be reported under its owner name on macOS.
+      // Reads do not write here, so directory wakeups cannot feed themselves.
+      if (invalidated) void refresh();
+    });
+    watcher.on('error', error => { logger.debug('[ARTIFACTS] Invalidation watcher failed', {code:(error as NodeJS.ErrnoException).code}); });
+    logger.debug('[ARTIFACTS] Invalidation watcher ready'); void refresh();
+  }).catch(error => { logger.debug('[ARTIFACTS] Invalidation startup failed', {code:error?.code}); });
   return { dispose() { disposed = true; watcher?.close(); } };
 }

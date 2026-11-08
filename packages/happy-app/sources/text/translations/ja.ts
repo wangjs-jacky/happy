@@ -19,6 +19,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const ja: TranslationStructure = {
     fileWorkspace: { ...en.fileWorkspace,
+        retryOperation: "元の操作を再試行",
+        operationRetryConfirm: "操作記録が見つかりませんでした。同じ ID と元の基準バージョンで、元の操作を再試行しますか？そのリクエスト後にファイルが変更されていれば、競合になります。",
+        operationNotFound: "操作記録が見つかりませんでした。元のリクエストの再試行を確認できます。自動では送信されません。",
+
+        retryRegistration: "登録を再試行",
+        registrationRetryConfirm: "状態を確認しましたが、登録済みの成果物は見つかりませんでした。元の操作 ID と同じファイル一覧で再試行しますか？前のリクエストが完了している場合は、その結果を再利用します。",
+        registrationNotFound: "登録が見つかりませんでした。元の操作 ID とファイル一覧で再試行することを確認できます。",
+
         historyWorkingChanges: "バージョン履歴の外でファイルが変更されています。復元する前に、これらの変更をバージョンとして保存します。",
         history: "バージョン履歴",
         closeHistory: "履歴を閉じる",

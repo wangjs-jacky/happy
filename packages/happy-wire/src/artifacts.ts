@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+// v2 attests canonical catalog filtering and whole-revision chat context.
+export const ARTIFACT_PROTOCOL = 2 as const;
 export const ARTIFACT_LIMITS = { files: 128, entryBytes: 2 * 1024 * 1024, resourceBytes: 10 * 1024 * 1024, versionBytes: 32 * 1024 * 1024, page: 30, chunk: 256 * 1024 } as const;
 const id = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/).refine(value => !['__proto__', 'constructor', 'prototype'].includes(value));
 const path = z.string().min(1).max(8192);
@@ -45,7 +47,7 @@ export const ArtifactMutationResultSchema = z.object({ version: ArtifactVersionS
 export const ArtifactReadResultSchema = z.object({ artifact: ArtifactSchema, manifest: ArtifactManifestSchema, entryContent: z.string().max(ARTIFACT_LIMITS.entryBytes), readRef: ArtifactReadRefSchema, workingRevision: hash, workingState: z.enum(['clean', 'dirty', 'writing', 'recovery-required']), pendingOperationId: id.optional() });
 const operation = z.object({ pendingOperationId: id.optional(), kind: z.enum(['transaction', 'terminal-capture', 'terminal']).optional(), status: z.enum(['pending', 'committed', 'failed']), result: ArtifactMutationResultSchema.optional(), observedRevision: hash, states: z.array(z.object({ path, hash: hash.nullable(), known: z.boolean() })).max(256), actions: z.array(z.enum(['resume', 'rollback'])).max(2) });
 export const ArtifactResponses = {
-  artifactCapabilities: z.object({ protocol: z.literal(1), formats: z.array(z.enum(['html', 'markdown'])).max(2), snapshot: z.boolean(), restore: z.boolean(), automaticAgents: z.array(z.string().max(64)).max(16), limits: z.object({ files: z.number(), entryBytes: z.number(), resourceBytes: z.number(), versionBytes: z.number(), page: z.number(), chunk: z.number() }) }),
+  artifactCapabilities: z.object({ protocol: z.literal(ARTIFACT_PROTOCOL), formats: z.array(z.enum(['html', 'markdown'])).max(2), snapshot: z.boolean(), restore: z.boolean(), automaticAgents: z.array(z.string().max(64)).max(16), limits: z.object({ files: z.number(), entryBytes: z.number(), resourceBytes: z.number(), versionBytes: z.number(), page: z.number(), chunk: z.number() }) }),
   artifactCatalog: z.array(z.object({ workspaceId: id, root: path, artifacts: z.array(ArtifactSchema), changed: ArtifactChangedSchema.optional() })),
   artifactRegister: ArtifactSchema,
   artifactRead: ArtifactReadResultSchema,

@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises';
-import { ArtifactRequests, ARTIFACT_LIMITS } from '@slopus/happy-wire';
+import { ArtifactRequests, ARTIFACT_LIMITS, ARTIFACT_PROTOCOL } from '@slopus/happy-wire';
 import { ArtifactError, inside } from './files';
 import type { ArtifactStore } from './store';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
@@ -12,7 +12,7 @@ export function registerArtifactHandlers(manager: Pick<RpcHandlerManager, 'regis
         if (!parsed.success) throw new ArtifactError('LIMIT_EXCEEDED', 'Invalid or oversized artifact request');
         const data = parsed.data as any;
         const store = await getStore();
-        if (method === 'artifactCapabilities') return { ok: true, value: { protocol: 1, formats: ['html', 'markdown'], snapshot: true, restore: true, automaticAgents: ['codex'], limits: ARTIFACT_LIMITS } };
+        if (method === 'artifactCapabilities') return { ok: true, value: { protocol: ARTIFACT_PROTOCOL, formats: ['html', 'markdown'], snapshot: true, restore: true, automaticAgents: ['codex'], limits: ARTIFACT_LIMITS } };
         const allowed = directory ? await realpath(directory) : undefined;
         if (method === 'artifactRegister') {
           const root = await realpath(data.root);

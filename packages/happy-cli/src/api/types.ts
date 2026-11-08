@@ -1,4 +1,4 @@
-import { ArtifactChangedSchema } from '@slopus/happy-wire';
+import { ArtifactChangedSchema, ARTIFACT_PROTOCOL } from '@slopus/happy-wire';
 import { z } from 'zod'
 import type { GoalBoardBinding, GoalBoardSnapshot, Update, UpdateMachineBody, SessionStreamEnvelope } from '@slopus/happy-wire';
 import { UsageSchema } from '@/claude/types'
@@ -390,7 +390,7 @@ export type Metadata = {
   capabilities?: {
     regenerateTitle?: boolean
     codexCredentialRecovery?: boolean
-    artifactLeases?: 1
+    artifactLeases?: 1 | typeof ARTIFACT_PROTOCOL
     codexSteer?: boolean
   },
   machineId?: string,

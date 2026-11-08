@@ -22,3 +22,7 @@ it('extracts bounded invalidations without carrying file contents', () => {
   expect(artifactInvalidations({ artifactChanges: [{ ...event, content: 'must not be used' }] })).toEqual([event]);
   expect(artifactInvalidations({ artifactChanges: Array(65).fill(event) })).toEqual([]);
 });
+it('classifies local validation and explicit server denials as definite, without dispatching invalid input',async()=>{
+ await expect(artifactRequest('machine','artifactRegister',{root:'/p',entryPath:'a.md',managedPaths:Array(129).fill('a.md'),operationId:'x'})).rejects.toMatchObject({detail:{code:'LIMIT_EXCEEDED'},uncertain:false});expect(state.calls).toBe(0);
+ state.response={ok:false,error:{code:'UNAVAILABLE',message:'Upgrade old worker'}};await expect(artifactRequest('machine','artifactRestore',{workspaceId:'w',artifactId:'a',operationId:'r',expectedRevision:'a'.repeat(64),versionId:'v'})).rejects.toMatchObject({uncertain:false});
+});

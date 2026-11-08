@@ -16,15 +16,14 @@ export function VersionHistoryPanel({path,sessionId,onClose}:{path:string;sessio
  const panel=React.useRef<any>(null);
  React.useEffect(()=>{void versions.load(path);panel.current?.focus?.();},[versions,path]);
  const doc=w.snapshot.documents[path];const dirty=doc && documentDirty(doc);
- const message = s.pending ? t('fileWorkspace.historyPending') : s.error === 'CONFLICT' ? t('fileWorkspace.historyConflict') : s.error === 'WRITER_ACTIVE' || s.current?.workingState==='writing' ? t('fileWorkspace.historyWriting') : s.error === 'INCOMPLETE_VERSION' ? t('fileWorkspace.historyIncomplete') : s.error === 'UNAVAILABLE' ? t('fileWorkspace.historyUnavailable') : s.error ? t('fileWorkspace.historyFailed') : null;
+ const message = s.pending?.request && s.pending.canRetry ? t('fileWorkspace.operationNotFound') : s.pending?.kind==='register' && s.pending.canRetry ? t('fileWorkspace.registrationNotFound') : s.pending ? t('fileWorkspace.historyPending') : s.error === 'CONFLICT' ? t('fileWorkspace.historyConflict') : s.error === 'WRITER_ACTIVE' || s.current?.workingState==='writing' ? t('fileWorkspace.historyWriting') : s.error === 'INCOMPLETE_VERSION' ? t('fileWorkspace.historyIncomplete') : s.error === 'UNAVAILABLE' ? t('fileWorkspace.historyUnavailable') : s.error ? t('fileWorkspace.historyFailed') : null;
  const restore=async()=>{
   if(!previewReady || !versions.canRestore(path) || dirty || doc?.saving)return;
-  const selected=s.selectedId;
+  const selection=versions.prepareRestore(path);if(!selection)return;
   if(!await Modal.confirm(t('fileWorkspace.restoreVersion'),t('fileWorkspace.restoreConfirm')))return;
-  if(versions.state(path).selectedId!==selected || !versions.canRestore(path))return;
-  await w.restoreVersion(path);
+  await w.restoreVersion(path,undefined,selection);
  };
- return <View ref={panel} testID="workspace-history-panel" {...({tabIndex:-1,role:'dialog','aria-modal':true,'aria-label':t('fileWorkspace.history'),onKeyDown:(e:any)=>{if(e.key==='Tab'){const nodes=Array.from(panel.current?.querySelectorAll?.('button:not([disabled]),[role=button]:not([aria-disabled=true]),input,textarea') ?? []) as HTMLElement[];const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey && globalThis.document?.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey && globalThis.document?.activeElement===last){e.preventDefault();first?.focus();}}if(e.key==='Escape'){e.stopPropagation();onClose();}}} as any)} style={{position:'absolute',top:0,bottom:0,left:0,right:0,backgroundColor:theme.colors.surface,zIndex:2}}>
+ return <View ref={panel} testID="workspace-history-panel" {...({tabIndex:-1,role:'dialog','aria-modal':true,'aria-label':t('fileWorkspace.history'),onKeyDown:(e:any)=>{if(e.key==='Tab'){const nodes=Array.from(panel.current?.querySelectorAll?.('button:not([disabled]),[role=button]:not([aria-disabled=true]),input,textarea') ?? []) as HTMLElement[];const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey && globalThis.document?.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey && globalThis.document?.activeElement===last){e.preventDefault();first?.focus();}}if(e.key==='Escape'){e.stopPropagation();onClose();}}} as any)} style={{position:'absolute',top:w.maximized?52:0,bottom:0,left:0,right:0,backgroundColor:theme.colors.surface,zIndex:2}}>
   <View style={{flexDirection:'row',alignItems:'center',padding:10,gap:6,borderBottomWidth:1,borderColor:theme.colors.divider}}>
    <Text style={{flex:1,fontSize:14,color:theme.colors.text}}>{t('fileWorkspace.history')}</Text>
    <Button label={t('fileWorkspace.refresh')} icon="refresh-outline" disabled={s.busy || s.loading} onPress={()=>{void versions.load(path);}}/>
@@ -32,13 +31,15 @@ export function VersionHistoryPanel({path,sessionId,onClose}:{path:string;sessio
   </View>
   {message && <View style={{padding:10,gap:6,backgroundColor:theme.colors.surfaceSelected}}><Text accessibilityRole="alert" style={{fontSize:12,color:theme.colors.textDestructive}}>{message}</Text>
    {s.pending && <><Text selectable style={{fontSize:11,color:theme.colors.textSecondary}}>{t('fileWorkspace.operationId')}: {s.pending.operationId}</Text><Button label={t('fileWorkspace.inspectOperation')} disabled={s.busy} onPress={()=>{void w.restoreVersion(path,'inspect');}}/>
+    {s.pending.kind==='register' && s.pending.canRetry && <Button label={t('fileWorkspace.retryRegistration')} disabled={s.busy} testID="workspace-history-retry-register" onPress={()=>{void Modal.confirm(t('fileWorkspace.retryRegistration'),t('fileWorkspace.registrationRetryConfirm')).then(ok=>{if(ok)void versions.retryRegistration(path).then(done=>{if(done)void w.controller.refresh(path);});});}}/>}
+    {s.pending.request && s.pending.canRetry && <Button label={t('fileWorkspace.retryOperation')} disabled={s.busy} testID="workspace-history-retry-operation" onPress={()=>{void Modal.confirm(t('fileWorkspace.retryOperation'),t('fileWorkspace.operationRetryConfirm')).then(ok=>{if(ok)void w.restoreVersion(path,'retry');});}}/>}
     {s.operation?.actions.map(action=><Button key={action} label={t(action==='resume'?'fileWorkspace.resumeOperation':'fileWorkspace.rollbackOperation')} disabled={s.busy} onPress={()=>{void Modal.confirm(t(action==='resume'?'fileWorkspace.resumeOperation':'fileWorkspace.rollbackOperation'),t('fileWorkspace.resolveConfirm')).then(ok=>{if(ok)void w.restoreVersion(path,action);});}}/>)}</>}
   </View>}
   {s.current?.workingState==='dirty' && <Text style={{padding:10,fontSize:12,color:theme.colors.textSecondary}}>{t('fileWorkspace.historyWorkingChanges')}</Text>}
   {!s.artifact ? <ScrollView contentContainerStyle={{padding:20,gap:14}}>
    <Text style={{color:theme.colors.text}}>{t('fileWorkspace.enableHistory')}</Text>
    <Text style={{fontSize:13,color:theme.colors.textSecondary}}>{t('fileWorkspace.registrationHint')}</Text>
-   <TextInput testID="workspace-history-paths" accessibilityLabel={t('fileWorkspace.registrationPaths')} multiline value={paths} onChangeText={setPaths} editable={!s.busy && !s.pending} style={{minHeight:130,borderWidth:1,borderColor:theme.colors.divider,color:theme.colors.text,backgroundColor:theme.colors.surface,padding:12,borderRadius:8}}/>
+   <TextInput testID="workspace-history-paths" accessibilityLabel={t('fileWorkspace.registrationPaths')} multiline value={s.pending?.kind==='register' && s.pending.managedPaths ? s.pending.managedPaths.join('\n') : paths} onChangeText={setPaths} editable={!s.busy && !s.pending} style={{minHeight:130,borderWidth:1,borderColor:theme.colors.divider,color:theme.colors.text,backgroundColor:theme.colors.surface,padding:12,borderRadius:8}}/>
    <Button label={t('fileWorkspace.confirmRegistration')} testID="workspace-history-register" disabled={s.loading || s.busy || !!s.pending || !!dirty || !!doc?.saving} onPress={()=>{void versions.register(path,[...new Set(paths.split('\n').map(p=>p.trim()).filter(Boolean))]).then(ok=>{if(ok)void w.controller.refresh(path);});}}/>
    {dirty && <Text style={{fontSize:12,color:theme.colors.textSecondary}}>{t('fileWorkspace.draftKept')}</Text>}
   </ScrollView> : <View style={{flex:1,minHeight:0,flexDirection:'row'}}>

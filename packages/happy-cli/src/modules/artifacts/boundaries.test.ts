@@ -45,3 +45,9 @@ it('enforces byte limits without truncation and preserves owner-only index permi
   expect(await readFile(join(root, 'a.md'), 'utf8')).toBe('# baseline');
   expect((await stat(join(storage, 'catalog.json'))).mode & 0o777).toBe(0o600);
 });
+it('requires revision-aware v2 workers while retaining readable historical data',async()=>{
+ let protocol=2;const store=new ArtifactStore({storage,accountScope:'a'.repeat(64),inventory:async()=>[{pid:process.pid,directory:root,protocol}]});
+ const a=await store.register({root,entryPath:'a.md',managedPaths:['a.md'],operationId:'new'}), ref={workspaceId:a.workspaceId,artifactId:a.id};const current=await store.read(ref);protocol=1;
+ expect((await store.read({...ref,versionId:a.currentVersionId})).entryContent).toBe('# baseline');
+ await expect(store.save({...ref,operationId:'old-worker',expectedRevision:current.workingRevision,entryContent:'unsafe'})).rejects.toMatchObject({code:'UNAVAILABLE'});expect(await readFile(join(root,'a.md'),'utf8')).toBe('# baseline');
+});

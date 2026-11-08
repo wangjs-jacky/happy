@@ -16,6 +16,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const it: TranslationStructure = {
     fileWorkspace: { ...en.fileWorkspace,
+        retryOperation: "Riprova l’operazione originale",
+        operationRetryConfirm: "Non è stata trovata alcuna registrazione dell’operazione. Riprovare l’operazione originale con lo stesso ID e la versione di riferimento originale? Se i file sono cambiati dopo quella richiesta, si verificherà un conflitto.",
+        operationNotFound: "Non è stata trovata alcuna registrazione dell’operazione. Puoi confermare un nuovo tentativo della richiesta originale; non verrà inviata automaticamente.",
+
+        retryRegistration: "Riprova la registrazione",
+        registrationRetryConfirm: "La verifica dello stato non ha trovato alcun elaborato registrato. Riprovare con l’ID operazione originale e gli stessi identici file? Se la richiesta precedente è già stata completata, verrà riutilizzato il suo risultato.",
+        registrationNotFound: "Registrazione non trovata. Puoi confermare un nuovo tentativo con l’ID operazione e l’elenco dei file originali.",
+
         historyWorkingChanges: "I file sono stati modificati al di fuori della cronologia. Prima del ripristino, queste modifiche saranno salvate come una versione.",
         history: "Cronologia versioni",
         closeHistory: "Chiudi cronologia",

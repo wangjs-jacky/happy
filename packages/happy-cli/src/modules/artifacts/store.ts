@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve, relative } from 'node:path';
 import { lstat, mkdir, readFile, realpath, unlink } from 'node:fs/promises';
-import { ArtifactRequests, ARTIFACT_LIMITS, type Artifact, type ArtifactChanged, type ArtifactManifest, type ArtifactMutationResult, type ArtifactReadRef, type ArtifactReadResult, type ArtifactRef, type ArtifactVersion } from '@slopus/happy-wire';
+import { ArtifactRequests, ARTIFACT_LIMITS, ARTIFACT_PROTOCOL, type Artifact, type ArtifactChanged, type ArtifactManifest, type ArtifactMutationResult, type ArtifactReadRef, type ArtifactReadResult, type ArtifactRef, type ArtifactVersion } from '@slopus/happy-wire';
 import { ArtifactError, atomicFile, atomicCreateFile, boundedRead, canonicalWriteTarget, digest, inside, intersects, normalized, ownedPath, ownerAlive, processOwner, syncDirectory, withMachineLock, type ProcessOwner, type MachineLockOptions } from './files';
 
 type StoredVersion = { version: ArtifactVersion; manifest: ArtifactManifest };
@@ -97,7 +97,7 @@ export class ArtifactStore {
       // Include idle legacy workers: a future input could otherwise bypass leases.
       if (!worker.directory) throw new ArtifactError('UNAVAILABLE', 'Worker write scope is unknown');
       let cwd: string; try { cwd = await realpath(worker.directory); } catch { throw new ArtifactError('UNAVAILABLE', 'Worker write scope cannot be verified'); }
-      if (intersects(root, cwd) && worker.protocol !== 1) throw new ArtifactError('UNAVAILABLE', 'An overlapping worker does not support managed version leases');
+      if (intersects(root, cwd) && worker.protocol !== ARTIFACT_PROTOCOL) throw new ArtifactError('UNAVAILABLE', 'An overlapping worker does not support managed version leases');
     }
   }
   private async leaseAlive(lease: Lease) {
@@ -122,7 +122,17 @@ export class ArtifactStore {
   }
   private async publish(ws: Workspace) { if (ws.changed) { try { await this.options.onChanged?.(ws.changed); } catch { /* invalidation is advisory; durable RPC remains authoritative */ } } }
 
-  async invalidations() { return (await this.load()).workspaces.filter(w => w.accountScope === this.options.accountScope).flatMap(w => w.changes ?? (w.changed ? [w.changed] : [])); }
+  async invalidations() {
+    // A catalog replacement can precede the end of a multi-artifact transaction.
+    // Read-only checks do not create lock events or settle terminal receipts.
+    const unlocked = async () => {
+      try { await lstat(join(this.options.storage, 'machine.lock')); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+      throw new ArtifactError('WRITER_ACTIVE', 'Artifact invalidation awaits the writer release');
+    };
+    await unlocked(); const db = await this.load(); await unlocked();
+    return db.workspaces.filter(w => w.accountScope === this.options.accountScope).flatMap(w => w.changes ?? (w.changed ? [w.changed] : []));
+  }
   async catalog(workspaceId?: string) { return this.locked(async db => db.workspaces.filter(w => w.accountScope === this.options.accountScope && (!workspaceId || w.id === workspaceId)).map(w => ({ workspaceId: w.id, root: w.root, artifacts: w.records.map(r => r.artifact), changed: w.changed })), { settleTerminals: false }); }
   async register(input: Register): Promise<Artifact> {
     const data = ArtifactRequests.artifactRegister.parse(input);

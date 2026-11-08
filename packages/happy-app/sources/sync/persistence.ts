@@ -1,3 +1,4 @@
+import { ArtifactRequests } from '@slopus/happy-wire';
 import { MMKV } from 'react-native-mmkv';
 import { accountStorageId } from '@/auth/accountRuntime';
 import { clearComposeDraft } from './composeDraft';
@@ -595,7 +596,19 @@ export function loadWorkspaceVersionOperations(scope: string): Record<string, im
     try {
         const value = JSON.parse(mmkv.getString('file-workspace-operations:' + scope) ?? '{}');
         if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-        return Object.fromEntries(Object.entries(value).slice(0,20).filter(([path, v]: [string, any]) => path.length <= 8192 && v && /^[a-zA-Z0-9_-]{1,128}$/.test(v.operationId) && typeof v.workspaceId === 'string' && ['restore','save','register'].includes(v.kind))) as any;
+        return Object.fromEntries(Object.entries(value).slice(0,20).filter(([path, v]: [string, any]) => {
+            if (path.length > 8192 || !v || typeof v.operationId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.operationId) || typeof v.workspaceId !== 'string' || !['restore','save','register'].includes(v.kind)) return false;
+            if (v.managedPaths !== undefined && (!Array.isArray(v.managedPaths) || v.managedPaths.length > 128 || !v.managedPaths.every((p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 8192))) return false;
+            if (v.resolution !== undefined && (!v.resolution || typeof v.resolution.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(v.resolution.id) || !['resume','rollback'].includes(v.resolution.action))) return false;
+            if (v.request !== undefined) {
+                const method: unknown = v.request?.method;
+                if (method !== 'artifactSave' && method !== 'artifactRestore') return false;
+                const request = ArtifactRequests[method].safeParse(v.request.input);
+                if (!request.success || request.data.operationId !== v.operationId || request.data.workspaceId !== v.workspaceId) return false;
+                v.request = { method, input: request.data };
+            }
+            return true;
+        })) as any;
     } catch { return {}; }
 }
 export function saveWorkspaceVersionOperations(scope: string, value: Record<string, import('@/components/fileWorkspace/versionController').PendingVersionOperation>) {

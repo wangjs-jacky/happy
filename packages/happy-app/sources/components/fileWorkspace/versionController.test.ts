@@ -5,6 +5,7 @@ const read = (id = 'v3', text = id) => ({ artifact, entryContent: text, manifest
 function setup(extra: Record<string, any> = {}) {
  const rpc = vi.fn(async (method: string, data: any) => {
   if (extra[method]) return extra[method](data);
+  if (method === 'artifactCapabilities') return {protocol:2};
   if (method === 'artifactCatalog') return [{ root: '/project', workspaceId: 'w', artifacts: [artifact] }];
   if (method === 'artifactRead') return read(data.versionId);
   if (method === 'artifactVersions') return { versions: [1,2,3].map(n => ({ id: 'v'+n, sequence:n })), currentVersionId:'v3' };
@@ -23,7 +24,7 @@ describe('history state isolation', () => {
  });
  it('restores only loaded noncurrent selection, retains operation id without duplicate submit', async () => {
   const done=deferred(); const {c,rpc}=setup({artifactRestore:()=>done.promise}); await c.current('/project/doc.md'); await c.select('/project/doc.md','v1');
-  const a=c.restore('/project/doc.md'); await c.restore('/project/doc.md'); expect(rpc.mock.calls.filter(([m])=>m==='artifactRestore')).toHaveLength(1);
+  const a=c.restore('/project/doc.md'); await c.restore('/project/doc.md'); await vi.waitFor(()=>expect(rpc.mock.calls.filter(([m])=>m==='artifactRestore')).toHaveLength(1));
   done.resolve({version:{id:'v4'},workingRevision:'c'.repeat(64)}); expect(await a).toBe(true); expect(c.state('/project/doc.md').pending).toBeNull();
  });
  it('keeps uncertain restore inspectable and never silently retries', async () => {
@@ -72,3 +73,49 @@ it('does not erase a newly observed recovery after a successful restore',async()
 
 it('does not dispatch a delayed restore after its workspace owner was disposed',async()=>{const {c,rpc}=setup();await c.current('/project/doc.md');await c.select('/project/doc.md','v1');c.dispose();expect(c.canRestore('/project/doc.md')).toBe(false);expect(await c.restore('/project/doc.md')).toBe(false);expect(rpc.mock.calls.some(([m])=>m==='artifactRestore')).toBe(false);});
 it('allows restoring the marked current snapshot when working files have external unsnapshotted changes',async()=>{const {c}=setup({artifactRead:(d:any)=>({...read(d.versionId),workingState:d.versionId?'clean':'dirty'})});await c.current('/project/doc.md');await c.select('/project/doc.md','v3');expect(c.canRestore('/project/doc.md')).toBe(true);});
+it('retries an unaccepted registration only after a fresh check and explicit action, with identical operation and paths',async()=>{
+ let online=false;const calls:any[]=[];const rpc=vi.fn(async(method:string,input:any)=>{
+  if(method==='artifactCapabilities')return {protocol:2};
+  if(method==='artifactCatalog')return [];
+  if(method==='artifactRegister'){calls.push(input);if(!online)throw Object.assign(new Error('offline'),{detail:{code:'UNAVAILABLE'}});return artifact;}
+  if(method==='artifactRead')return read();if(method==='artifactVersions')return {versions:[],currentVersionId:'v3'};
+ });
+ const c=new VersionController('/project',rpc as any);await c.register('/project/doc.md',['doc.md','image.png']);expect(c.state('/project/doc.md').pending?.operationId).toBeTruthy();online=true;
+ await c.inspect('/project/doc.md');expect(calls).toHaveLength(1);expect(await c.retryRegistration('/project/doc.md')).toBe(true);
+ expect(calls).toHaveLength(2);expect(calls[1]).toEqual(calls[0]);expect(c.state('/project/doc.md').pending).toBeNull();
+});
+it('pins the full revision while a restore confirmation is open',async()=>{
+ let revision='b'.repeat(64);const {c,rpc}=setup({artifactRead:(d:any)=>({...read(d.versionId),workingRevision:revision})});await c.current('/project/doc.md');await c.select('/project/doc.md','v1');const confirmed=c.prepareRestore('/project/doc.md');
+ revision='c'.repeat(64);await c.current('/project/doc.md');expect(await c.restore('/project/doc.md',confirmed!)).toBe(false);expect(c.state('/project/doc.md').error).toBe('CONFLICT');expect(rpc.mock.calls.some(([m])=>m==='artifactRestore')).toBe(false);
+});
+it('refuses a legacy catalog that ignores root filtering instead of binding the first workspace',async()=>{
+ const a={...artifact,id:'a-A',workspaceId:'w-A',entryPath:'index.html'};const b={...artifact,id:'a-B',workspaceId:'w-B',entryPath:'index.html'};
+ const rpc=vi.fn(async(method:string)=>method==='artifactCapabilities'?{protocol:1}:method==='artifactCatalog'?[{root:'/A',workspaceId:'w-A',artifacts:[a]},{root:'/B',workspaceId:'w-B',artifacts:[b]}]:{...read(),artifact:a});
+ const c=new VersionController('/B',rpc as any);await expect(c.current('/B/index.html')).rejects.toThrow();expect(c.state('/B/index.html').artifact).toBeNull();expect(rpc.mock.calls.some(([m])=>m==='artifactRead'||m==='artifactSave')).toBe(false);
+});
+it('does not pin an operation after a definite server refusal before acceptance',async()=>{
+ const {c}=setup({artifactRestore:()=>{throw Object.assign(new Error('upgrade worker'),{detail:{code:'UNAVAILABLE'},uncertain:false})}});await c.current('/project/doc.md');await c.select('/project/doc.md','v1');await c.restore('/project/doc.md');expect(c.state('/project/doc.md').pending).toBeNull();
+});
+it('refuses a daemon protocol downgrade after a history panel was already loaded, without pinning an undispatched mutation',async()=>{
+ let protocol=2;const {c,rpc}=setup({artifactCapabilities:()=>({protocol})});await c.current('/project/doc.md');await c.select('/project/doc.md','v1');protocol=1;
+ expect(await c.restore('/project/doc.md')).toBe(false);expect(rpc.mock.calls.some(([method])=>method==='artifactRestore')).toBe(false);expect(c.state('/project/doc.md').pending).toBeNull();
+});
+it('does not persist an undispatched mutation if its owner is disposed during the capability preflight',async()=>{
+ const capability=deferred();let checking=false,saved:any={};const {rpc}=setup({artifactCapabilities:()=>checking?capability.promise:{protocol:2}});
+ const c=new VersionController('/project',rpc as any,()=>true,{},p=>{saved=JSON.parse(JSON.stringify(p));});await c.current('/project/doc.md');await c.select('/project/doc.md','v1');checking=true;
+ const restoring=c.restore('/project/doc.md');c.dispose();capability.resolve({protocol:2});expect(await restoring).toBe(false);
+ expect(saved).toEqual({});expect(rpc.mock.calls.some(([method])=>method==='artifactRestore')).toBe(false);
+});
+it('allows an explicit same-ID retry after a transport-unknown restore is confirmed absent',async()=>{
+ let online=false;const requests:any[]=[];const {c}=setup({artifactRestore:(input:any)=>{requests.push(input);if(!online)throw new Error('transport');return {version:{id:'v4'},workingRevision:'c'.repeat(64)};},artifactOperation:()=>{throw Object.assign(new Error('not found'),{detail:{code:'NOT_FOUND'},uncertain:false});}});
+ await c.current('/project/doc.md');await c.select('/project/doc.md','v1');await c.restore('/project/doc.md');online=true;await c.inspect('/project/doc.md');expect(requests).toHaveLength(1);expect(await c.retryOperation('/project/doc.md')).toBe(true);expect(requests[1]).toEqual(requests[0]);expect(c.state('/project/doc.md').pending).toBeNull();
+});
+it('retains a partial recovery resolution across refresh and remount, using the newly confirmed observation',async()=>{
+ let saved:any={},revision='b'.repeat(64);const resolutions:any[]=[];
+ const {rpc}=setup({artifactRead:()=>({...read(),workingState:'recovery-required',pendingOperationId:'capture-C'}),artifactOperation:()=>({status:'pending',actions:['rollback'],observedRevision:revision,states:[]}),artifactResolveOperation:(input:any)=>{resolutions.push(input);if(resolutions.length===1)throw Object.assign(new Error('partial rollback'),{detail:{code:'INTERNAL'}});return {status:'committed'};}});
+ let c=new VersionController('/project',rpc as any,()=>true,{},p=>{saved=JSON.parse(JSON.stringify(p));});
+ await c.load('/project/doc.md');await c.inspect('/project/doc.md');await c.resolve('/project/doc.md','rollback');c.dispose();
+ c=new VersionController('/project',rpc as any,()=>true,saved);revision='c'.repeat(64);
+ await c.load('/project/doc.md');await c.inspect('/project/doc.md');await c.resolve('/project/doc.md','rollback');
+ expect(resolutions).toHaveLength(2);expect(resolutions[1].resolutionId).toBe(resolutions[0].resolutionId);expect(resolutions[1].expectedObservedRevision).toBe(revision);
+});

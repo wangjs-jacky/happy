@@ -27,6 +27,14 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  */
 export const pl: TranslationStructure = {
     fileWorkspace: { ...en.fileWorkspace,
+        retryOperation: "Ponów pierwotną operację",
+        operationRetryConfirm: "Nie znaleziono zapisu operacji. Ponowić pierwotną operację z tym samym ID i pierwotną wersją bazową? Jeśli pliki zmieniły się od czasu tamtego żądania, wystąpi konflikt.",
+        operationNotFound: "Nie znaleziono zapisu operacji. Możesz potwierdzić ponowienie pierwotnego żądania. Nie zostanie ono wysłane automatycznie.",
+
+        retryRegistration: "Ponów rejestrację",
+        registrationRetryConfirm: "Sprawdzenie stanu nie wykazało zarejestrowanego materiału. Ponowić rejestrację z pierwotnym ID operacji i dokładnie tym samym zestawem plików? Jeśli wcześniejsze żądanie zostało wykonane, zostanie użyty jego wynik.",
+        registrationNotFound: "Nie znaleziono rejestracji. Możesz potwierdzić ponowną próbę z pierwotnym ID operacji i listą plików.",
+
         historyWorkingChanges: "Pliki zmieniły się poza historią wersji. Przed przywróceniem te zmiany zostaną zapisane jako wersja.",
         history: "Historia wersji",
         closeHistory: "Zamknij historię",

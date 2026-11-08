@@ -16,6 +16,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const en = {
     fileWorkspace: {
+        retryOperation: "Retry original operation",
+        operationRetryConfirm: "No receipt was found. Retry the original operation with the same ID and original version baseline? Files changed since that request will cause a conflict.",
+        operationNotFound: "No operation receipt was found. You can confirm a retry of the original request; it will not be sent automatically.",
+
+        retryRegistration: "Retry registration",
+        registrationRetryConfirm: "The status check found no registered artifact. Retry with the original operation ID and exactly the same files? If the earlier request completed, its result will be reused.",
+        registrationNotFound: "No registration was found. You can confirm a retry using the original operation ID and file list.",
+
         historyWorkingChanges: "Files changed outside version history. Restoring will first keep those changes as a version.",
         history: "Version history",
         closeHistory: "Close history",

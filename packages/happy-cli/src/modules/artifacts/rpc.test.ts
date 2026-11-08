@@ -16,7 +16,7 @@ it('serves durable versions over both encrypted variants, with bounded requests 
     const manager = new RpcHandlerManager({ scopePrefix: 'test', encryptionKey: key, encryptionVariant: variant, logger: () => {} });
     registerArtifactHandlers(manager, async () => store, root);
     const call = async (method: string, input: unknown): Promise<any> => decrypt(key, variant, decodeBase64(await manager.handleRequest({ method: `test:${method}`, params: encodeBase64(encrypt(key, variant, input)) })));
-    expect(await call('artifactCapabilities', {})).toMatchObject({ ok: true, value: { protocol: 1, formats: ['html', 'markdown'] } });
+    expect(await call('artifactCapabilities', {})).toMatchObject({ ok: true, value: { protocol: 2, formats: ['html', 'markdown'] } });
     const reg = await call('artifactRegister', { root, entryPath: 'a.md', managedPaths: ['a.md'], operationId: 'register' }); expect(reg.ok).toBe(true);
     const alias=join(dir,'alias'); await symlink(root,alias);
     expect((await call('artifactCatalog',{root:alias+'/'})).value[0].artifacts[0].id).toBe(reg.value.id);

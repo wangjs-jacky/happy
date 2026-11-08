@@ -7,6 +7,14 @@ const item = (spans: { styles: string[]; text: string; url: string | null }[]) =
 });
 
 describe('parseMarkdown', () => {
+    it('unwraps angle-delimited link destinations with spaces and parentheses', () => {
+        expect(parseMarkdown('[报告](</Volumes/Work Disk/docs/report (final).md:12>)')).toEqual([
+            { type: 'text', content: [{ styles: [], text: '报告', url: '/Volumes/Work Disk/docs/report (final).md:12' }] },
+        ]);
+        expect(parseMarkdown('[external](<https://example.com/docs>)')).toEqual([
+            { type: 'text', content: [{ styles: [], text: 'external', url: 'https://example.com/docs' }] },
+        ]);
+    });
     it('parses unordered lists across common markdown bullet markers and preserves clickable links', () => {
         const blocks = parseMarkdown([
             '* first item',

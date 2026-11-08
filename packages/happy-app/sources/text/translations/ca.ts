@@ -16,6 +16,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const ca: TranslationStructure = {
     fileWorkspace: { ...en.fileWorkspace,
+        retryOperation: "Torna a intentar l’operació original",
+        operationRetryConfirm: "No s’ha trobat cap registre de l’operació. Vols tornar a intentar l’operació original amb el mateix ID i la versió de referència original? Si els fitxers han canviat des d’aquella sol·licitud, es produirà un conflicte.",
+        operationNotFound: "No s’ha trobat cap registre de l’operació. Pots confirmar un altre intent de la sol·licitud original; no s’enviarà automàticament.",
+
+        retryRegistration: "Torna a intentar el registre",
+        registrationRetryConfirm: "La comprovació d’estat no ha trobat cap treball registrat. Vols tornar-ho a intentar amb l’ID d’operació original i exactament els mateixos fitxers? Si la sol·licitud anterior ja s’ha completat, se’n reutilitzarà el resultat.",
+        registrationNotFound: "No s’ha trobat el registre. Pots confirmar un altre intent amb l’ID d’operació i la llista de fitxers originals.",
+
         historyWorkingChanges: "Els fitxers han canviat fora de l’historial de versions. Abans de restaurar, aquests canvis es desaran com una versió.",
         history: "Historial de versions",
         closeHistory: "Tanca l’historial",

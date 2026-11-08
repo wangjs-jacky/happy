@@ -22,12 +22,24 @@ export function FileWorkspace({ sessionId }: { sessionId: string }) {
     const { theme } = useUnistyles();
     const [modes, setModes] = React.useState<Record<string, boolean>>({});
     const [historyPath, setHistoryPath] = React.useState<string | null>(null);
+    const [workspaceWidth, setWorkspaceWidth] = React.useState(0);
+    const historyExpanded = React.useRef(false);
     const [quote, setQuote] = React.useState('');
     const contentRef = React.useRef<any>(null);
     const scroll = React.useRef<Record<string, number>>({});
     const scrollView = React.useRef<ScrollView>(null);
     const path = workspace?.snapshot.active;
     const document = path ? workspace?.snapshot.documents[path] : null;
+    const closeHistory = React.useCallback(() => {
+        setHistoryPath(null);
+        if (historyExpanded.current) { historyExpanded.current = false; workspace?.setMaximized(false); }
+    }, [workspace?.setMaximized]);
+    React.useEffect(() => {
+        if (historyPath && historyPath !== path) { closeHistory(); return; }
+        if (historyPath && workspaceWidth > 0 && workspaceWidth < 600 && workspace && !workspace.maximized) {
+            historyExpanded.current = true; workspace.setMaximized(true);
+        }
+    }, [historyPath, path, workspaceWidth, workspace?.maximized, workspace?.setMaximized, closeHistory]);
     React.useEffect(() => { setQuote(''); const selected=globalThis.window?.getSelection(); if(selected?.anchorNode && contentRef.current?.contains?.(selected.anchorNode)) selected.removeAllRanges(); if (path) scrollView.current?.scrollTo({ y: scroll.current[path] ?? 0, animated: false }); }, [path, document?.hash]);
     if (!workspace?.enabled || !workspace.snapshot.open || !path) return null;
     const { controller, snapshot } = workspace;
@@ -55,17 +67,17 @@ export function FileWorkspace({ sessionId }: { sessionId: string }) {
         const url = URL.createObjectURL(new Blob([document.phase === 'ready' ? document.draft : cachedDraft?.draft ?? ''], { type: 'text/plain;charset=utf-8' }));
         const anchor = globalThis.document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.click(); URL.revokeObjectURL(url);
     };
-    return <View testID="file-workspace" style={{ flex: 1, minWidth: 0, borderLeftWidth: 1, borderColor: theme.colors.divider, backgroundColor: skin === 'default' ? theme.colors.surface : 'transparent' }} {...({ onKeyDown: (event: any) => { if (historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
+    return <View testID="file-workspace" onLayout={event => setWorkspaceWidth(Math.round(event.nativeEvent.layout.width))} style={{ flex: 1, minWidth: 0, paddingTop: workspace.maximized ? 52 : 0, borderLeftWidth: 1, borderColor: theme.colors.divider, backgroundColor: skin === 'default' ? theme.colors.surface : 'transparent' }} {...({ onKeyDown: (event: any) => { if (historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
         <View style={{flex:1,minHeight:0}} {...(historyPath === path ? {"aria-hidden":true,inert:true} : {}) as any}>
         {skin !== 'default' && <DesktopSkinCanvas reading photo={false} skin={skin} />}
         <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
-            <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 6 }}>
+            <ScrollView horizontal style={{ flex: 1, minWidth: 0 }} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 6 }}>
                 {snapshot.tabs.map(file => <View key={file} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 7, backgroundColor: file === path ? theme.colors.surfaceSelected : 'transparent' }}>
                     <Button label={(file.split('/').pop() ?? file) + (documentDirty(snapshot.documents[file]) ? ' •' : '')} onPress={() => { void controller.open(file); }} selected={file === path} />
                     <Button label={`${t('fileWorkspace.closeTab')}: ${file}`} icon="close-outline" compact disabled={snapshot.documents[file]?.saving} onPress={() => close(file)} />
                 </View>)}
             </ScrollView>
-            {/\.(md|markdown|html?)$/i.test(path) && <Button label={t('fileWorkspace.history')} icon="time-outline" testID="workspace-history-open" onPress={() => setHistoryPath(path)} />}
+            {/\.(md|markdown|html?)$/i.test(path) && <Button label={t('fileWorkspace.history')} icon="time-outline" compact={workspaceWidth > 0 && workspaceWidth < 400} testID="workspace-history-open" onPress={() => setHistoryPath(path)} />}
             <Button label={workspace.maximized ? t('fileWorkspace.restore') : t('fileWorkspace.maximize')} icon={workspace.maximized ? 'contract-outline' : 'expand-outline'} compact onPress={() => workspace.setMaximized(!workspace.maximized)} />
             <Button label={t('fileWorkspace.close')} icon="close-outline" compact onPress={() => controller.setOpen(false)} />
         </View>
@@ -98,7 +110,7 @@ export function FileWorkspace({ sessionId }: { sessionId: string }) {
             <Text style={{ fontSize: 11, padding: 7, color: theme.colors.textSecondary }}>{dirty ? t('fileWorkspace.dirty') : t('fileWorkspace.saved')}</Text>
         </> : null}
         </View>
-        {historyPath === path && <VersionHistoryPanel key={path} path={path} sessionId={sessionId} onClose={() => {setHistoryPath(null); queueMicrotask(() => globalThis.document?.querySelector<HTMLElement>('[data-testid="workspace-history-open"]')?.focus());}}/>}
+        {historyPath === path && <VersionHistoryPanel key={path} path={path} sessionId={sessionId} onClose={() => {closeHistory(); queueMicrotask(() => globalThis.document?.querySelector<HTMLElement>('[data-testid="workspace-history-open"]')?.focus());}}/>}
     </View>;
 }
 

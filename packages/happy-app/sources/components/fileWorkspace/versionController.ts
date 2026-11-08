@@ -1,9 +1,11 @@
 import type { Artifact, ArtifactReadResult, ArtifactVersion, ArtifactRequests, ArtifactResponses } from '@slopus/happy-wire';
-import { ARTIFACT_LIMITS } from '@slopus/happy-wire';
+import { ARTIFACT_LIMITS, ARTIFACT_PROTOCOL } from '@slopus/happy-wire';
 import type { z } from 'zod';
 export type VersionRPC = <K extends keyof typeof ArtifactRequests>(method: K, input: z.infer<(typeof ArtifactRequests)[K]>) => Promise<z.infer<(typeof ArtifactResponses)[K]>>;
 type Operation = z.infer<typeof ArtifactResponses.artifactOperation>;
-export type PendingVersionOperation = { operationId: string; workspaceId: string; kind: 'restore' | 'save' | 'register' };
+export type RestoreSelection = {workspaceId:string;artifactId:string;versionId:string;expectedRevision:string};
+type FrozenMutation = {method:'artifactSave';input:z.infer<typeof ArtifactRequests.artifactSave>} | {method:'artifactRestore';input:z.infer<typeof ArtifactRequests.artifactRestore>};
+export type PendingVersionOperation = { resolution?: {id:string;action:'resume'|'rollback'}; request?: FrozenMutation; managedPaths?: string[]; canRetry?: boolean; operationId: string; workspaceId: string; kind: 'restore' | 'save' | 'register' };
 export type VersionState = {
  artifact: Artifact | null; current: ArtifactReadResult | null; versions: ArtifactVersion[]; cursor?: string;
  selectedId: string | null; preview: ArtifactReadResult | null; loading: boolean; selecting: boolean;
@@ -11,6 +13,7 @@ export type VersionState = {
 };
 const empty = (): VersionState => ({artifact:null,current:null,versions:[],selectedId:null,preview:null,loading:false,selecting:false,busy:false,error:null,pending:null,operation:null});
 const errorCode = (e: any) => e?.detail?.code ?? 'UNAVAILABLE';
+const uncertainError = (e:any) => !!e?.detail?.operationId || ['INTERNAL','COMMIT_PENDING','PARTIAL_COMMIT'].includes(errorCode(e)) || (errorCode(e)==='UNAVAILABLE' && e?.uncertain!==false);
 const ref = (artifact: Artifact) => ({workspaceId:artifact.workspaceId,artifactId:artifact.id});
 export class VersionController {
  private snapshot: Record<string,VersionState> = {};
@@ -33,8 +36,14 @@ export class VersionController {
   this.snapshot={...this.snapshot,[path]:{...this.state(path),...change}}; this.listeners.forEach(fn=>fn());
   try {this.persist?.(Object.fromEntries(Object.entries(this.snapshot).filter(([,s])=>s.pending).map(([p,s])=>[p,s.pending!])));} catch {this.snapshot={...this.snapshot,[path]:{...this.state(path),error:'LOCAL_STORAGE'}};}
  }
+ private async ensureCompatible() {
+  const caps=await this.rpc('artifactCapabilities',{});
+  if(caps.protocol!==ARTIFACT_PROTOCOL)throw Object.assign(new Error('Unsupported artifact protocol'),{detail:{code:'UNAVAILABLE'}});
+ }
  async discover(path:string) {
+  await this.ensureCompatible();
   const catalog=await this.rpc('artifactCatalog',{root:this.root});
+  if(catalog.length>1)throw Object.assign(new Error('Unfiltered artifact catalog'),{detail:{code:'UNAVAILABLE'}});
   const artifact=catalog[0]?.artifacts.find(a=>this.root+'/'+a.entryPath===path) ?? null;
   this.patch(path,{artifact}); return artifact;
  }
@@ -47,32 +56,48 @@ export class VersionController {
   if(!a) return null;
   const current=await this.rpc('artifactRead',ref(a));
   if(this.reads.get(path)!==token)return this.currentRequests.get(path)!;
-  this.patch(path,{current,artifact:current.artifact,...(current.pendingOperationId ? {pending:{operationId:current.pendingOperationId,workspaceId:current.artifact.workspaceId,kind:'restore' as const}} : {})});
+  const pending=this.state(path).pending;
+  this.patch(path,{current,artifact:current.artifact,...(current.pendingOperationId ? {pending:pending?.operationId===current.pendingOperationId && pending.workspaceId===current.artifact.workspaceId ? pending : {operationId:current.pendingOperationId,workspaceId:current.artifact.workspaceId,kind:'restore' as const}} : {})});
   return current;
  }
- async load(path:string,more=false) {
+ async load(path:string,more=false,refreshCurrent=true) {
   if(!this.active() || this.state(path).loading) return false;
   this.patch(path,{loading:true,error:null});
   try {
    const a=this.state(path).artifact ?? await this.discover(path); if(!a) return false;
-   await this.current(path);
+   if(refreshCurrent)await this.current(path);
    const result=await this.rpc('artifactVersions',{...ref(a),...(more && this.state(path).cursor?{cursor:this.state(path).cursor}:{})});
    this.patch(path,{versions:more?[...this.state(path).versions,...result.versions.filter(v=>!this.state(path).versions.some(x=>x.id===v.id))]:result.versions,cursor:result.nextCursor}); return true;
   } catch(e) {this.patch(path,{error:errorCode(e),current:null});return false;} finally {this.patch(path,{loading:false});}
  }
  async register(path:string,managedPaths:string[]) {
   if(!this.active() || this.state(path).busy || this.state(path).pending) return false;
-  const operationId=crypto.randomUUID(); this.patch(path,{busy:true,error:null});
+  try {await this.ensureCompatible();}catch(e){this.patch(path,{error:errorCode(e)});return false;}
+  return this.registerWithOperation(path,[...managedPaths],crypto.randomUUID());
+ }
+ private async registerWithOperation(path:string,managedPaths:string[],operationId:string) {
+  if(!this.active()) return false;
+  this.patch(path,{busy:true,error:null});
   try {
    const artifact=await this.rpc('artifactRegister',{root:this.root,entryPath:path.slice(this.root.length+1),managedPaths,operationId});
-   this.patch(path,{artifact}); await this.load(path); return true;
+   this.patch(path,{artifact,pending:null}); await this.load(path); return true;
   } catch(e) {
    // Registration may have committed before its reply was lost. Discover once, never resend.
-   if(errorCode(e)==='UNAVAILABLE') {try {if(await this.discover(path)) {await this.load(path); return true;}} catch { /* show unknown outcome */ }
-    this.patch(path,{pending:{operationId,workspaceId:'',kind:'register'}});
+   if(uncertainError(e)) {try {if(await this.discover(path)) {await this.load(path); return true;}} catch { /* show unknown outcome */ }
+    this.patch(path,{pending:{operationId,workspaceId:'',kind:'register',managedPaths:[...managedPaths],canRetry:false}});
    }
-   this.patch(path,{error:errorCode(e)}); return false;
+   this.patch(path,{error:errorCode(e),...(!uncertainError(e)?{pending:null}:{})}); return false;
   } finally {this.patch(path,{busy:false});}
+ }
+ /** Only an explicit UI action may replay this idempotent, frozen registration. */
+ async retryRegistration(path:string) {
+  const pending=this.state(path).pending;
+  if(!this.active() || this.state(path).busy || pending?.kind!=='register' || !pending.canRetry || !pending.managedPaths?.length)return false;
+  this.patch(path,{busy:true,error:null});
+  try {
+   if(await this.discover(path)){this.patch(path,{pending:null});await this.load(path);return true;}
+   return await this.registerWithOperation(path,pending.managedPaths,pending.operationId);
+  }catch(e){this.patch(path,{error:errorCode(e),pending:{...pending,canRetry:false}});return false;}finally{this.patch(path,{busy:false});}
  }
  async select(path:string,versionId:string) {
   if(!this.active() || this.state(path).busy || this.state(path).pending) return;
@@ -83,15 +108,22 @@ export class VersionController {
   finally {if(this.selections.get(path)===token)this.patch(path,{selecting:false});}
  }
  canRestore(path:string) {const s=this.state(path);return this.active() && !!(s.current && s.preview && s.selectedId && s.preview.readRef.kind==='version' && s.preview.readRef.versionId===s.selectedId && (s.selectedId!==s.current.artifact.currentVersionId || s.current.workingState==='dirty') && !s.selecting && !s.loading && !s.busy && !s.pending && !['writing','recovery-required'].includes(s.current.workingState));}
- async restore(path:string) {
-  if(!this.canRestore(path))return false;
-  const s=this.state(path), operationId=crypto.randomUUID();
-  return this.mutate(path,{operationId,workspaceId:s.artifact!.workspaceId,kind:'restore'},()=>this.rpc('artifactRestore',{...ref(s.artifact!),operationId,expectedRevision:s.current!.workingRevision,versionId:s.selectedId!}));
+ prepareRestore(path:string):RestoreSelection|null {
+  if(!this.canRestore(path))return null;const s=this.state(path);return {...ref(s.artifact!),versionId:s.selectedId!,expectedRevision:s.current!.workingRevision};
+ }
+ async restore(path:string,selection=this.prepareRestore(path)) {
+  if(!this.canRestore(path) || !selection)return false;
+  const s=this.state(path);
+  if(s.artifact!.workspaceId!==selection.workspaceId || s.artifact!.id!==selection.artifactId || s.selectedId!==selection.versionId || s.current!.workingRevision!==selection.expectedRevision){this.patch(path,{error:'CONFLICT'});return false;}
+  const operationId=crypto.randomUUID();
+  const input={...ref(s.artifact!),operationId,expectedRevision:selection.expectedRevision,versionId:selection.versionId};
+  return this.mutate(path,{operationId,workspaceId:s.artifact!.workspaceId,kind:'restore',request:{method:'artifactRestore',input}},()=>this.rpc('artifactRestore',input));
  }
  async save(path:string,content:string,hash:string) {
   const s=this.state(path); if(!this.active() || !s.artifact || !s.current || s.busy || s.pending)throw new Error('VERSION_BUSY');
   if(s.current.manifest.files.find(f=>f.path===s.current!.manifest.entryPath)?.sha256!==hash)throw new Error('VERSION_CONFLICT');
-  const operationId=crypto.randomUUID(); const ok=await this.mutate(path,{operationId,workspaceId:s.artifact.workspaceId,kind:'save'},()=>this.rpc('artifactSave',{...ref(s.artifact!),operationId,expectedRevision:s.current!.workingRevision,entryContent:content}));
+  const operationId=crypto.randomUUID();const input={...ref(s.artifact!),operationId,expectedRevision:s.current!.workingRevision,entryContent:content};
+  const ok=await this.mutate(path,{operationId,workspaceId:s.artifact.workspaceId,kind:'save',request:{method:'artifactSave',input}},()=>this.rpc('artifactSave',input));
   if(!ok)throw new Error('VERSION_'+(this.state(path).error??'PENDING'));
   const loaded=this.state(path).current; if(!loaded)throw new Error('VERSION_REFRESH_FAILED');
   const bytes=new TextEncoder().encode(content);
@@ -99,10 +131,11 @@ export class VersionController {
   return {hash:Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('')};
  }
  private async mutate(path:string,pending:PendingVersionOperation,run:()=>Promise<unknown>) {
-  this.patch(path,{busy:true,pending,operation:null,error:null});
-  try {await run();this.patch(path,{current:null,selectedId:null,preview:null});}
+  this.patch(path,{busy:true,operation:null,error:null});
+  let dispatched=false;
+  try {await this.ensureCompatible();if(!this.active())return false;this.patch(path,{pending});dispatched=true;await run();this.patch(path,{current:null,selectedId:null,preview:null});}
   catch(e:any) {
-   const code=errorCode(e); const uncertain=['UNAVAILABLE','INTERNAL','COMMIT_PENDING','PARTIAL_COMMIT'].includes(code);
+   const code=errorCode(e); const uncertain=dispatched && uncertainError(e);
    this.patch(path,{error:code,...(!uncertain?{pending:null}:{pending:{...pending,operationId:e?.detail?.operationId??pending.operationId}})});return false;
   } finally {this.patch(path,{busy:false});}
   // A successful mutation and a failed refresh are distinct. Keep success so the file layer reloads.
@@ -112,23 +145,41 @@ export class VersionController {
   const s=this.state(path);if(!this.active() || !s.pending || s.busy)return false;
   this.patch(path,{busy:true,error:null});
   try {
-   if(s.pending.kind==='register') {if(await this.discover(path)) {this.patch(path,{pending:null});await this.load(path);return true;} this.patch(path,{error:'UNAVAILABLE'});return false;}
+   if(s.pending.kind==='register') {if(await this.discover(path)) {this.patch(path,{pending:null});await this.load(path);return true;} this.patch(path,{pending:{...s.pending,canRetry:!!s.pending.managedPaths?.length},error:'REGISTRATION_NOT_FOUND'});return false;}
    let operation=await this.rpc('artifactOperation',{workspaceId:s.pending.workspaceId,operationId:s.pending.operationId});
    if(operation.pendingOperationId) {
-    const linked={...s.pending,operationId:operation.pendingOperationId};this.patch(path,{pending:linked});
+    const linked={...s.pending,resolution:undefined,operationId:operation.pendingOperationId};this.patch(path,{pending:linked});
     operation=await this.rpc('artifactOperation',{workspaceId:linked.workspaceId,operationId:linked.operationId});
    }
    this.patch(path,{operation});
    if(operation.status==='committed'){this.patch(path,{current:null,selectedId:null,preview:null});const loaded=await this.load(path);if(loaded && !this.state(path).current?.pendingOperationId)this.patch(path,{pending:null});return loaded && !this.state(path).current?.pendingOperationId;}
    if(operation.status==='failed' && !operation.actions.length && !operation.pendingOperationId)this.patch(path,{pending:null,error:'INTERNAL'});
    return false;
+  }catch(e){this.patch(path,{error:errorCode(e),...(errorCode(e)==='NOT_FOUND' && this.state(path).pending?.request?.input.operationId===this.state(path).pending?.operationId ? {pending:{...this.state(path).pending!,canRetry:true}}:{})});return false;}finally{this.patch(path,{busy:false});}
+ }
+ async retryOperation(path:string) {
+  const pending=this.state(path).pending;
+  if(!this.active() || this.state(path).busy || !pending?.canRetry || !pending.request || pending.request.input.operationId!==pending.operationId)return false;
+  this.patch(path,{busy:true,error:null});
+  try {
+   const a=await this.discover(path);
+   if(!a || a.id!==pending.request.input.artifactId || a.workspaceId!==pending.request.input.workspaceId)throw Object.assign(new Error('Artifact changed'),{detail:{code:'CONFLICT'},uncertain:false});
+   try {await this.rpc('artifactOperation',{workspaceId:pending.workspaceId,operationId:pending.operationId});}
+   catch(e) {
+    if(errorCode(e)!=='NOT_FOUND')throw e;
+    if(!this.active())return false;
+    const request=pending.request;return await this.mutate(path,{...pending,canRetry:false},()=>this.rpc(request.method,request.input));
+   }
   }catch(e){this.patch(path,{error:errorCode(e)});return false;}finally{this.patch(path,{busy:false});}
+  return this.inspect(path);
  }
  async resolve(path:string,action:'resume'|'rollback') {
   const s=this.state(path);if(!this.active() || s.busy || !s.pending || !s.operation?.actions.includes(action))return false;
-  this.patch(path,{busy:true,error:null});
+  const resolution=s.pending.resolution?.action===action ? s.pending.resolution : {id:crypto.randomUUID(),action};
+  this.patch(path,{busy:true,error:null,pending:{...s.pending,resolution}});
   try {
-   await this.rpc('artifactResolveOperation',{workspaceId:s.pending.workspaceId,operationId:s.pending.operationId,resolutionId:crypto.randomUUID(),action,expectedObservedRevision:s.operation.observedRevision});
+   await this.ensureCompatible();if(!this.active())return false;
+   await this.rpc('artifactResolveOperation',{workspaceId:s.pending.workspaceId,operationId:s.pending.operationId,resolutionId:resolution.id,action,expectedObservedRevision:s.operation.observedRevision});
    // Inspect on this explicit action only. Never infer a full commit from a resolution reply.
   }catch(e){this.patch(path,{error:errorCode(e)});return false;}finally{this.patch(path,{busy:false});}
   if(action==='rollback'){const loaded=await this.load(path);if(loaded && !this.state(path).current?.pendingOperationId)this.patch(path,{pending:null,operation:null,selectedId:null,preview:null,error:null});return loaded && !this.state(path).current?.pendingOperationId;}
