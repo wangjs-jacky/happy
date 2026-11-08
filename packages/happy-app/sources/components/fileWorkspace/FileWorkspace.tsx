@@ -12,7 +12,7 @@ import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { ArtifactPreview } from './ArtifactPreview';
 import { HtmlFilePreview } from './HtmlFilePreview';
 import { WorkspaceButton as Button } from './WorkspaceButton';
-import { documentBodyStyle, documentScrollStyle } from './documentPresentation';
+import { documentBodyStyle, documentScrollStyle, workspaceChatMinWidth, workspaceResizeWidth } from './documentPresentation';
 
 const language = (path: string) => ({ md: 'markdown', mdx: 'markdown', html: 'html', htm: 'html', js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', css: 'css', json: 'json', yml: 'yaml', yaml: 'yaml', py: 'python', sh: 'bash', svg: 'xml' }[path.split('.').pop()?.toLowerCase() ?? ''] ?? null);
 export function FileWorkspace({ sessionId }: { sessionId: string }) {
@@ -111,18 +111,19 @@ export function FileWorkspace({ sessionId }: { sessionId: string }) {
     </View>;
 }
 
-export function FileWorkspaceResizeHandle() {
+export function FileWorkspaceResizeHandle({ width, maximumWidth }: { width: number; maximumWidth: number }) {
     const workspace = useFileWorkspace();
     const { theme } = useUnistyles();
     const start = React.useRef<{ x: number; width: number; pointerId: number } | null>(null);
     if (!workspace || Platform.OS !== 'web') return null;
-    const resize = (value: number) => workspace.setChatWidth(Math.max(310, Math.min(800, value)));
+    const resize = (value: number) => workspace.setChatWidth(Math.max(workspaceChatMinWidth, Math.min(maximumWidth, value)));
     return React.createElement('div', {
         role: 'separator', tabIndex: 0, 'aria-label': t('fileWorkspace.resize'), 'aria-orientation': 'vertical',
-        'aria-valuemin': 310, 'aria-valuemax': 800, 'aria-valuenow': workspace.chatWidth,
+        'aria-valuemin': workspaceChatMinWidth, 'aria-valuemax': maximumWidth, 'aria-valuenow': width,
         onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
             event.preventDefault();
-            start.current = { x: event.clientX, width: workspace.chatWidth, pointerId: event.pointerId };
+            const renderedWidth = event.currentTarget.previousElementSibling?.getBoundingClientRect().width ?? width;
+            start.current = { x: event.clientX, width: renderedWidth, pointerId: event.pointerId };
             event.currentTarget.setPointerCapture(event.pointerId);
         },
         onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
@@ -133,8 +134,11 @@ export function FileWorkspaceResizeHandle() {
         onPointerCancel: () => { start.current = null; },
         onLostPointerCapture: () => { start.current = null; },
         onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-            if (['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); resize(workspace.chatWidth + (event.key === 'ArrowLeft' ? -16 : 16)); }
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                event.preventDefault();
+                resize(event.key === 'Home' ? workspaceChatMinWidth : event.key === 'End' ? maximumWidth : width + (event.key === 'ArrowLeft' ? -16 : 16));
+            }
         },
-        style: { flexShrink: 0, width: 6, background: theme.colors.divider, cursor: 'col-resize', touchAction: 'none' },
+        style: { flexShrink: 0, width: workspaceResizeWidth, background: theme.colors.divider, cursor: 'col-resize', touchAction: 'none' },
     });
 }

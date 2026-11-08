@@ -1,7 +1,7 @@
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
 import { SessionFileWorkspaceProvider } from '@/components/fileWorkspace/SessionFileWorkspaceProvider';
 import { FileWorkspace, FileWorkspaceResizeHandle } from '@/components/fileWorkspace/FileWorkspace';
-import { getWorkspaceChatWidth } from '@/components/fileWorkspace/documentPresentation';
+import { getWorkspaceChatWidth, getWorkspaceChatMaximumWidth, workspaceChatMinWidth } from '@/components/fileWorkspace/documentPresentation';
 import { useFileWorkspace } from '@/components/fileWorkspace/context';
 import { buildFileContextMessage } from '@/components/fileWorkspace/fileContext';
 import { FileReferencePill } from '@/components/fileWorkspace/FileReferencePill';
@@ -1406,6 +1406,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     ];
 
     const workspaceChatWidth = getWorkspaceChatWidth(fileWorkspace?.chatWidth ?? 430, workspaceRowWidth, showDesktopRightPanel ? rightPanelWidth : 0);
+    const workspaceChatMaximumWidth = getWorkspaceChatMaximumWidth(workspaceRowWidth, showDesktopRightPanel ? rightPanelWidth : 0);
 
     // Desktop layout: chat + one independently collapsible capability panel.
     // File browsing is a tab in that panel, so enabling it never removes quick
@@ -1422,7 +1423,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 }}
                 style={[
                     workspaceStyles.desktopMain,
-                    fileWorkspace?.enabled && fileWorkspace.snapshot.open && { flexGrow: 0, flexShrink: 0, flexBasis: workspaceChatWidth, width: workspaceChatWidth, minWidth: 310, maxWidth: '50%' },
+                    fileWorkspace?.enabled && fileWorkspace.snapshot.open && { flexGrow: 0, flexShrink: 0, flexBasis: workspaceChatWidth, width: workspaceChatWidth, minWidth: workspaceChatMinWidth },
                     fileWorkspace?.enabled && fileWorkspace.snapshot.open && fileWorkspace.maximized && { display: 'none' },
                     dreamskin && { backgroundColor: 'transparent' },
                     // Web-only: isolate the chat subtree's layout from the
@@ -1470,7 +1471,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 </View>
             </View>
             {fileWorkspace?.enabled && fileWorkspace.snapshot.open && <>
-                {!fileWorkspace.maximized && <FileWorkspaceResizeHandle />}
+                {!fileWorkspace.maximized && <FileWorkspaceResizeHandle width={desktopMainWidth || workspaceChatWidth} maximumWidth={workspaceChatMaximumWidth} />}
                 <FileWorkspace sessionId={sessionId} />
             </>}
             <Animated.View
