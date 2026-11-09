@@ -195,7 +195,7 @@ export function useSessionQuickActions(
         sessionManagement.togglePinned(session.id);
     }, [session.id, sessionManagement]);
 
-    const [resumingSession, performResume] = useHappyAction(async () => {
+    const resumeOriginalSession = React.useCallback(async () => {
         if (!resumeAvailability.canResume) {
             throw new HappyError(resumeAvailability.message, false);
         }
@@ -238,7 +238,9 @@ export function useSessionQuickActions(
             case 'error':
                 throw new HappyError(result.errorMessage, false);
         }
-    });
+    }, [machineId, navigateToSession, resumeAvailability, session]);
+
+    const [resumingSession, performResume] = useHappyAction(resumeOriginalSession);
 
     const canContinue = !sessionStatus.isConnected || sessionStatus.state === 'failed' || Boolean(session.metadata?.continuedBySessionId);
     const [continuingSession, continueSession] = useHappyAction(async () => {
@@ -287,6 +289,13 @@ export function useSessionQuickActions(
     const [restoringSession, performRestore] = useHappyAction(async () => {
         await sessionRestoreMetadata(session);
         await sync.refreshSessions();
+        // Archiving stops the worker. Restoring list membership alone leaves
+        // a disconnected chat whose messages have no execution recipient.
+        // Warm application sessions and unavailable machines keep the existing
+        // metadata-only restore; the inactive hint exposes their next action.
+        if (resumeAvailability.canResume) {
+            await resumeOriginalSession();
+        }
         hapticsSuccess();
     });
 
