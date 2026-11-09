@@ -9,6 +9,7 @@ import { useSessionQuickActions } from './useSessionQuickActions';
 const mocks = vi.hoisted(() => ({
     connected: false,
     online: true,
+    latestSession: undefined as Session | undefined,
     restore: vi.fn(),
     resume: vi.fn(),
     refresh: vi.fn(),
@@ -28,6 +29,8 @@ vi.mock('@/sync/storage', () => ({
     useMachine: () => ({ id: 'machine-1', metadata: {} }),
     useSetting: () => false,
     storage: { getState: () => ({ settings: {},
+        sessions: { 'original-session': mocks.latestSession },
+        machines: { 'machine-1': { id: 'machine-1', metadata: {} } },
         updateSessionPermissionMode: mocks.updatePermission,
         updateSessionModelMode: mocks.updateModel,
         updateSessionEffortLevel: mocks.updateEffort,
@@ -59,6 +62,7 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 const session = {
     id: 'original-session', metadataVersion: 4,
+    presence: 1,
     metadata: { machineId: 'machine-1', path: '/project', flavor: 'codex',
         codexThreadId: 'original-thread', lifecycleState: 'archived' },
     permissionMode: 'yolo', modelMode: 'gpt-6.1-sol', effortLevel: 'xhigh',
@@ -79,6 +83,7 @@ describe('restoring archived sessions', () => {
         vi.clearAllMocks();
         mocks.connected = false;
         mocks.online = true;
+        mocks.latestSession = session;
         mocks.restore.mockResolvedValue({ version: 5 });
         mocks.resume.mockResolvedValue({ type: 'success', sessionId: session.id });
         mocks.refresh.mockResolvedValue(undefined);
@@ -143,6 +148,24 @@ describe('restoring archived sessions', () => {
         await restore();
         expect(mocks.resume).not.toHaveBeenCalled();
         expect(mocks.success).not.toHaveBeenCalled();
+        expect(mocks.alert).toHaveBeenCalled();
+    });
+
+    it('preserves a worker that reconnected while the restore was refreshing', async () => {
+        mocks.refresh.mockImplementationOnce(async () => {
+            mocks.latestSession = { ...session, presence: 'online', thinking: true };
+        });
+        mount();
+        await restore();
+        expect(mocks.resume).not.toHaveBeenCalled();
+        expect(mocks.success).toHaveBeenCalledOnce();
+    });
+
+    it('does not resume if the machine went offline during the metadata restore', async () => {
+        mocks.refresh.mockImplementationOnce(async () => { mocks.online = false; });
+        mount();
+        await restore();
+        expect(mocks.resume).not.toHaveBeenCalled();
         expect(mocks.alert).toHaveBeenCalled();
     });
 });
