@@ -32,7 +32,7 @@ const toggleTree = vi.fn();
 function Harness() {
     const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
     const value = { enabled: true, root: '/work', snapshot, controller, maximized, setMaximized: vi.fn(),
-        versions: { state: () => ({ current: null }) }, setReference: vi.fn() } as any;
+        versions: { currentForHash: () => null }, setReference: vi.fn() } as any;
     return <FileWorkspaceContext.Provider value={value}><FileWorkspace sessionId="s" fileTreeExpanded={expanded} onToggleFileTree={toggleTree} /></FileWorkspaceContext.Provider>;
 }
 beforeEach(async () => {

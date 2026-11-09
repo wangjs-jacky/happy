@@ -26,6 +26,8 @@ export const zhHant: TranslationStructure = {
         hideFileTree: "收起檔案樹",
         showFileTree: "展開檔案樹",
 
+        fileNotFound: ({ path }: { path: string }) => `找不到檔案：${path}。相對連結會從目前工作階段的工作目錄查找，請核對檔案的完整路徑，或從正確的專案開啟。`,
+        readTimeout: '讀取檔案逾時。請檢查工作階段所在機器的連線，再點擊重新整理重試。',
         retryOperation: "重試原操作",
         operationRetryConfirm: "未找到操作回執。是否使用相同的 ID 和原版本基準重試原操作？如果檔案在該請求後發生變更，將提示衝突。",
         operationNotFound: "未找到操作回執。你可以確認重試原請求，系統不會自動傳送。",

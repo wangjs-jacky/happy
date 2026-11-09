@@ -24,6 +24,8 @@ export const en = {
         hideFileTree: "Hide file tree",
         showFileTree: "Show file tree",
 
+        fileNotFound: ({ path }: { path: string }) => `File not found: ${path}. Relative links are resolved from the session working directory. Ask for the file's full path or open it from the correct project.`,
+        readTimeout: 'Reading the file took too long. Check the session machine connection, then reload the file.',
         retryOperation: "Retry original operation",
         operationRetryConfirm: "No receipt was found. Retry the original operation with the same ID and original version baseline? Files changed since that request will cause a conflict.",
         operationNotFound: "No operation receipt was found. You can confirm a retry of the original request; it will not be sent automatically.",
