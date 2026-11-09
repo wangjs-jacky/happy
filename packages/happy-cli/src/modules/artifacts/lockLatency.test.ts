@@ -1,10 +1,25 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 
-const state = vi.hoisted(() => ({ watcherStarted: undefined as undefined | (() => void), onClose: undefined as undefined | (() => void) }));
+const state = vi.hoisted(() => ({
+  watcherStarted: undefined as undefined | (() => void),
+  onClose: undefined as undefined | (() => void),
+  unlinkFailure: '',
+  closeDelay: 0,
+}));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    unlink: async (path: Parameters<typeof actual.unlink>[0]) => {
+      if (path === state.unlinkFailure) throw Object.assign(new Error('Cannot release lock'), { code: 'EACCES' });
+      return actual.unlink(path);
+    },
+  };
+});
 vi.mock('node:fs', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {
@@ -14,7 +29,7 @@ vi.mock('node:fs', async importOriginal => {
       const close = watcher.close.bind(watcher);
       watcher.close = () => {
         state.onClose?.();
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
+        if (state.closeDelay) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.closeDelay);
         close();
       };
       state.watcherStarted?.();
@@ -23,12 +38,19 @@ vi.mock('node:fs', async importOriginal => {
   };
 });
 
-import { withMachineLock } from './files';
+import { processOwner, withMachineLock } from './files';
 
 let directory = '';
-afterEach(async () => { state.watcherStarted = undefined; state.onClose = undefined; if (directory) await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => {
+  state.watcherStarted = undefined;
+  state.onClose = undefined;
+  state.unlinkFailure = '';
+  state.closeDelay = 0;
+  if (directory) await rm(directory, { recursive: true, force: true });
+});
 
 it('releases the machine lock before a slow watcher cleanup', async () => {
+  state.closeDelay = 700;
   directory = await mkdtemp(join(tmpdir(), 'paws-slow-watch-'));
   let release!: () => void;
   let started!: () => void;
@@ -52,4 +74,23 @@ it('releases the machine lock before a slow watcher cleanup', async () => {
     release();
     await Promise.allSettled([holder, waiter]);
   }
+});
+
+it('closes the watcher and removes its candidate when lock release fails', async () => {
+  directory = await mkdtemp(join(tmpdir(), 'paws-failed-unlock-'));
+  const lock = join(directory, 'machine.lock');
+  await writeFile(lock, JSON.stringify(await processOwner()));
+  let closed = 0;
+  let executed = false;
+  state.watcherStarted = () => { unlinkSync(lock); };
+  state.onClose = () => { closed++; };
+  state.unlinkFailure = lock;
+
+  await expect(withMachineLock(directory, async () => {
+    executed = true;
+  }, { waitTimeoutMs: 5000 })).rejects.toMatchObject({ code: 'EACCES' });
+
+  expect(executed).toBe(true);
+  expect(closed).toBe(1);
+  expect(await readdir(directory)).toEqual(['machine.lock']);
 });

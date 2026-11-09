@@ -147,8 +147,11 @@ export async function withMachineLock<T>(storage: string, body: () => Promise<T>
     return await body();
   } finally {
     if (deadline) clearTimeout(deadline);
-    if (acquired) await unlink(lock);
-    watcher?.close();
-    await unlink(candidate).catch(() => {});
+    try {
+      if (acquired) await unlink(lock);
+    } finally {
+      try { watcher?.close(); }
+      finally { await unlink(candidate).catch(() => {}); }
+    }
   }
 }
