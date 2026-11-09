@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => {
     const rpcEmitWithAck = vi.fn();
     const socket = {
         connected: false,
+        active: true,
+        connect: vi.fn(),
         disconnect: vi.fn(),
         emit: vi.fn(),
         emitWithAck: vi.fn(),
@@ -73,6 +75,7 @@ describe('ApiSocket RPC', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.socket.connected = false;
+        mocks.socket.active = true;
         mocks.socket.timeout.mockReturnValue({ emitWithAck: mocks.rpcEmitWithAck });
     });
 
@@ -85,6 +88,51 @@ describe('ApiSocket RPC', () => {
 
         expect(sessionEncryption.encryptRaw).not.toHaveBeenCalled();
         expect(mocks.socket.timeout).not.toHaveBeenCalled();
+        expect(mocks.rpcEmitWithAck).not.toHaveBeenCalled();
+    });
+
+    it('waits for a reconnect before sending a startup RPC exactly once', async () => {
+        const { encryption, machineEncryption } = createEncryption();
+        mocks.rpcEmitWithAck.mockResolvedValue({ ok: true, result: 'encrypted-result' });
+        const api = createApiSocket(encryption);
+        const request = api.machineRPC('machine-1', 'spawn-happy-session', {}, { waitForConnectionMs: 1_000 });
+        let result: unknown;
+        void request.then(value => { result = value; }, error => { result = error; });
+        await Promise.resolve();
+        expect(result).toBeUndefined();
+        expect(machineEncryption.encryptRaw).not.toHaveBeenCalled();
+        mocks.socket.connected = true;
+        mocks.handlers.get('connect')?.();
+        await expect(request).resolves.toEqual({ restarted: true });
+        expect(mocks.rpcEmitWithAck).toHaveBeenCalledTimes(1);
+    });
+
+    it('expires a startup connection wait without sending or leaving a delayed send behind', async () => {
+        vi.useFakeTimers();
+        try {
+            const { encryption } = createEncryption();
+            const api = createApiSocket(encryption);
+            const request = api.machineRPC('machine-1', 'spawn-happy-session', {}, { waitForConnectionMs: 1_000 });
+            const rejected = expect(request).rejects.toMatchObject({ name: 'RpcNotSentError' });
+            await vi.advanceTimersByTimeAsync(1_000);
+            await rejected;
+            mocks.socket.connected = true;
+            mocks.handlers.get('connect')?.();
+            await Promise.resolve();
+            expect(mocks.rpcEmitWithAck).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it('cancels a pending connection wait on explicit disconnect', async () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        const request = api.machineRPC('machine-1', 'spawn-happy-session', {}, { waitForConnectionMs: 1_000 });
+        const rejected = expect(request).rejects.toMatchObject({ name: 'RpcNotSentError' });
+        api.disconnect();
+        mocks.socket.connected = true;
+        mocks.handlers.get('connect')?.();
+        await rejected;
         expect(mocks.rpcEmitWithAck).not.toHaveBeenCalled();
     });
 
@@ -258,7 +306,41 @@ describe('ApiSocket connection events', () => {
         vi.clearAllMocks();
         mocks.handlers.clear();
         mocks.socket.connected = false;
+        mocks.socket.active = true;
         mocks.socket.recovered = false;
+    });
+
+    it('restarts an inactive connection on a user reconnect action', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        mocks.socket.active = false;
+        api.connect();
+        expect(mocks.socket.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start parallel attempts while Socket.IO is already reconnecting', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        api.connect();
+        api.connect();
+        expect(mocks.socket.connect).not.toHaveBeenCalled();
+    });
+
+    it('resumes an inactive socket when the app returns to the foreground', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        mocks.socket.active = false;
+        api.sendAppState('active');
+        expect(mocks.socket.connect).toHaveBeenCalledTimes(1);
+        expect(mocks.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('publishes current app focus after the initial handshake completes', () => {
+        const { encryption } = createEncryption();
+        createApiSocket(encryption);
+        mocks.socket.connected = true;
+        mocks.handlers.get('connect')?.();
+        expect(mocks.socket.emit).toHaveBeenCalledWith('app-state', { state: 'active' });
     });
 
     it('does not report the first connection as a reconnect', () => {

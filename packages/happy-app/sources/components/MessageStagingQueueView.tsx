@@ -15,7 +15,7 @@ export function MessageStagingQueueView(props: {
     const { theme } = useUnistyles();
     if (!props.messages.length) return null;
     const busy = props.session.state === 'running' || props.session.state === 'permission_required';
-    const unavailableHint = busy && !props.session.supportsSteer ? t('messageQueue.steerUnavailable') : t('messageQueue.steerHint');
+    const unavailableHint = !props.session.connected ? t('messageQueue.waitingForConnection') : busy && !props.session.supportsSteer ? t('messageQueue.steerUnavailable') : t('messageQueue.steerHint');
     const sendNowLabel = busy ? t('messageQueue.steerDuringTurn') : t('messageQueue.steer');
     const sending = props.messages.some(m => m.status === 'sending');
     return <View style={styles.container} testID="message-staging-queue">
@@ -43,8 +43,8 @@ export function MessageStagingQueueView(props: {
                 </>}
             </View>)}
         </ScrollView>
-        {busy && !props.session.supportsSteer && <Text style={styles.hint}>{t('messageQueue.steerUnavailable')}</Text>}
-        <Text style={styles.hint}>{t('messageQueue.hint')}</Text>
+        {props.session.connected && busy && !props.session.supportsSteer && <Text style={styles.hint}>{t('messageQueue.steerUnavailable')}</Text>}
+        <Text style={styles.hint}>{t(props.session.connected ? 'messageQueue.hint' : 'messageQueue.waitingForConnection')}</Text>
     </View>;
 }
 

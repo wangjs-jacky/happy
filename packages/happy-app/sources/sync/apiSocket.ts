@@ -5,6 +5,7 @@ import { TokenStorage } from '@/auth/tokenStorage';
 import { assertAccountRuntime, accountRuntimeCurrent } from '@/auth/accountRuntime';
 import { Encryption } from './encryption/encryption';
 import { storage } from './storage';
+import { RpcNotSentError } from './rpcErrors';
 
 export function getHappyClientId(): string {
     let platform: string = Platform.OS; // 'ios' | 'android' | 'web'
@@ -54,6 +55,8 @@ export const DEFAULT_RPC_ACK_TIMEOUT_MS = 60_000;
 
 export interface RpcCallOptions {
     timeoutMs?: number;
+    /** Event-driven readiness wait before dispatch; never retries an emitted RPC. */
+    waitForConnectionMs?: number;
     overallTimeoutMs?: number;
 }
 
@@ -85,6 +88,7 @@ export class ApiSocket {
     private statusListeners: Set<(status: 'disconnected' | 'connecting' | 'connected' | 'error') => void> = new Set();
     private currentStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
     private hasConnectedOnce = false;
+    private connectionWaiters = new Set<() => void>();
 
     //
     // Initialization
@@ -102,7 +106,14 @@ export class ApiSocket {
 
     connect() {
         if (!accountRuntimeCurrent()) return;
-        if (!this.config || this.socket) {
+        if (!this.config) return;
+        if (this.socket) {
+            // A server disconnect or a rejected handshake disables Socket.IO's
+            // automatic reconnect. Resume that socket only on an explicit action.
+            if (!this.socket.connected && !this.socket.active) {
+                this.updateStatus('connecting');
+                this.socket.connect();
+            }
             return;
         }
 
@@ -207,7 +218,8 @@ export class ApiSocket {
      * Server uses this to suppress pushes when the mobile app is in foreground.
      */
     sendAppState(state: string) {
-        this.socket?.emit('app-state', { state });
+        if (state === 'active' && this.socket) this.connect();
+        if (this.socket?.connected) this.socket.emit('app-state', { state });
     }
 
     send(event: string, data: any) {
@@ -277,9 +289,7 @@ export class ApiSocket {
         options?: RpcCallOptions,
     ): Promise<R> {
         const rpcSocket = this.socket;
-        if (!rpcSocket?.connected) {
-            throw new Error('Socket not connected');
-        }
+        if (!rpcSocket) throw new RpcNotSentError();
 
         const overallTimeoutMs = options?.overallTimeoutMs;
         const deadlineAt = overallTimeoutMs === undefined
@@ -318,12 +328,21 @@ export class ApiSocket {
             });
         };
 
+        if (!rpcSocket.connected && options?.waitForConnectionMs) {
+            const budget = deadlineAt === undefined ? options.waitForConnectionMs
+                : Math.min(options.waitForConnectionMs, Math.max(0, deadlineAt - Date.now()));
+            await this.waitForConnection(rpcSocket, budget);
+        }
+        assertAccountRuntime();
+        if (this.socket !== rpcSocket || !rpcSocket.connected) throw new RpcNotSentError();
+
         const encryption = getEncryption();
         const traceId = startupTraceIdFromParams(params);
         const encryptedParams = await withinOverallDeadline(encryption.encryptRaw(params));
 
+        assertAccountRuntime();
         if (this.socket !== rpcSocket || !rpcSocket.connected) {
-            throw new Error('Socket not connected');
+            throw new RpcNotSentError();
         }
 
         const timeoutMs = options?.timeoutMs ?? DEFAULT_RPC_ACK_TIMEOUT_MS;
@@ -368,11 +387,39 @@ export class ApiSocket {
         }
     }
 
+    private waitForConnection(socket: Socket, timeoutMs: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const finish = (error?: Error) => {
+                clearTimeout(timer);
+                this.connectionWaiters.delete(check);
+                if (error) reject(error); else resolve();
+            };
+            const check = () => {
+                if (this.socket !== socket || !accountRuntimeCurrent()) {
+                    finish(new RpcNotSentError());
+                } else if (socket.connected) {
+                    finish();
+                } else if (this.currentStatus === 'error' && !socket.active) {
+                    finish(new RpcNotSentError());
+                }
+            };
+            const timer = setTimeout(() => finish(new RpcNotSentError('Socket connection timed out')), Math.max(0, timeoutMs));
+            this.connectionWaiters.add(check);
+            try {
+                this.connect();
+                check();
+            } catch {
+                finish(new RpcNotSentError());
+            }
+        });
+    }
+
     private updateStatus(status: 'disconnected' | 'connecting' | 'connected' | 'error') {
         if (this.currentStatus !== status) {
             this.currentStatus = status;
             this.statusListeners.forEach(listener => listener(status));
         }
+        this.connectionWaiters.forEach(check => check());
     }
 
     private setupEventHandlers() {
@@ -386,6 +433,7 @@ export class ApiSocket {
                 console.log('🔌 SyncSocket: Connected, recovered: ' + this.socket?.recovered);
                 console.log('🔌 SyncSocket: Socket ID:', this.socket?.id);
             }
+            this.sendAppState(getCurrentAppState());
             this.updateStatus('connected');
             if (isReconnect && !this.socket?.recovered) {
                 this.reconnectedListeners.forEach(listener => listener());

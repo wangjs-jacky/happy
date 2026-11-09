@@ -4,6 +4,7 @@
  */
 
 import { apiSocket } from './apiSocket';
+import { RpcNotSentError } from './rpcErrors';
 import { sync } from './sync';
 import { ensureSessionHydratedWithRetry } from './ensureSessionHydratedWithRetry';
 import type { MachineMetadata, Metadata, Session } from './storageTypes';
@@ -343,14 +344,14 @@ async function machineStartSession(
         const result = normalizeSpawnSessionResult(await apiSocket.machineRPC<SpawnSessionResult, Record<string, unknown>>(
             machineId, method,
             { ...parameters, ...(grant ? { codexSessionGrant: grant } : {}) },
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS, waitForConnectionMs: 10_000 },
         ));
         return result.type === 'error' ? { ...result, errorMessage: redact(result.errorMessage) } as SpawnSessionResult : result;
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to start session';
         return {
             type: 'error',
-            ...(dispatching ? { outcomeUnknown: true } : {}),
+            ...(dispatching && !(error instanceof RpcNotSentError) ? { outcomeUnknown: true } : {}),
             ...(error instanceof CodexAccountError ? { codexAccountErrorCode: error.code } : {}),
             errorMessage: error instanceof CodexAccountError
                 ? `${message} (machine: ${machineId}; RPC: ${method}; ${error.code}${error.status ? `; HTTP ${error.status}` : ''})`

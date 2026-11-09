@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => ({
     canResume: false,
     statusState: 'connected',
     statusConnected: true,
+    socketStatus: 'connected',
     isAtLatest: true,
     hasMoreNewer: false,
     historyLoaded: true,
@@ -384,6 +385,7 @@ vi.mock('@/sync/storage', () => ({
         }),
     },
     useIsDataReady: () => mocks.isDataReady,
+    useSocketStatus: () => ({ status: mocks.socketStatus }),
     useLocalSetting: (key: string) => {
         if (key === 'acknowledgedCliVersions') return {};
         if (key === 'zenMode') return mocks.zenMode;
@@ -494,6 +496,8 @@ describe('SessionView Agent-space boundary', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.socketStatus = 'connected';
+        mocks.stagingSnapshot = { messages: [], barriers: {} };
         mocks.pendingCloseCallback = null;
         mocks.isDataReady = false;
         mocks.zenMode = false;
@@ -544,6 +548,28 @@ describe('SessionView Agent-space boundary', () => {
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it.each(['queued', 'failed'])('shows a connection wait for a %s message after an already completed task', async (messageStatus) => {
+        mocks.isDataReady = true;
+        mocks.statusState = 'completed';
+        mocks.statusConnected = true;
+        mocks.socketStatus = 'error';
+        mocks.stagingSnapshot = { messages: [{ id: 'queued-offline', sessionId: 'session-1', text: 'continue', modeMeta: {}, status: messageStatus }], barriers: {} } as any;
+        const Focus = mocks.focusContext.Provider;
+        const tree = (focused: boolean) => <Focus value={focused}><SessionView id="session-1" /></Focus>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(true)); });
+        const queue = renderer.root.findByType(MessageStagingQueueView);
+        expect(queue.props.session.connected).toBe(false);
+        expect(queue.findAllByType('Text').some((node: any) => node.children.includes('messageQueue.waitingForConnection'))).toBe(true);
+        expect(queue.findByProps({ accessibilityLabel: 'messageQueue.steer' }).props.disabled).toBe(true);
+        if (messageStatus === 'failed') expect(queue.findAllByType('Text').some((node: any) => node.children.includes('messageQueue.failed'))).toBe(true);
+
+        mocks.socketStatus = 'connected';
+        await act(async () => { renderer.update(tree(false)); });
+        expect(renderer.root.findByType(MessageStagingQueueView).props.session.connected).toBe(true);
+        act(() => renderer.unmount());
+    });
 
     it('keeps composer submissions queued after Send now and across later native turns', async () => {
         mocks.isDataReady = true;

@@ -49,7 +49,7 @@ describe('Codex attach candidate operations', () => {
         expect(refreshSessions).toHaveBeenCalledTimes(1);
         expect(machineRPC).toHaveBeenNthCalledWith(1, 'machine-1', 'codex-attach-candidate', {
             threadId: 'thread-1', sourceSessionId: 'paws-source', codexSessionGrant: 'a'.repeat(43),
-        }, { timeoutMs: 140_000 });
+        }, { timeoutMs: 140_000, waitForConnectionMs: 10_000 });
         expect(fetchGrant).toHaveBeenCalledTimes(1);
 
         await dismissCodexCandidate('machine-1', 'thread-2');
