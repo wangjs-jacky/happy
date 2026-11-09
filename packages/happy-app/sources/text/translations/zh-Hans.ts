@@ -18,6 +18,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     fileWorkspace: {
+        tabActions: "标签操作",
+        closeOtherTabs: "关闭其他标签",
+        closeAllTabs: "关闭全部标签",
+        closeTabsLeft: "关闭左侧标签",
+        closeTabsRight: "关闭右侧标签",
+        hideFileTree: "收起文件树",
+        showFileTree: "展开文件树",
+
         retryOperation: "重试原操作",
         operationRetryConfirm: "未找到操作回执。是否使用相同的 ID 和原版本基准重试原操作？如果文件在该请求后发生了变化，将提示冲突。",
         operationNotFound: "未找到操作回执。你可以确认重试原请求，系统不会自动发送。",

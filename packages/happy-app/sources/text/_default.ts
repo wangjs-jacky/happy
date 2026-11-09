@@ -16,6 +16,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const en = {
     fileWorkspace: {
+        tabActions: "Tab actions",
+        closeOtherTabs: "Close other tabs",
+        closeAllTabs: "Close all tabs",
+        closeTabsLeft: "Close tabs to the left",
+        closeTabsRight: "Close tabs to the right",
+        hideFileTree: "Hide file tree",
+        showFileTree: "Show file tree",
+
         retryOperation: "Retry original operation",
         operationRetryConfirm: "No receipt was found. Retry the original operation with the same ID and original version baseline? Files changed since that request will cause a conflict.",
         operationNotFound: "No operation receipt was found. You can confirm a retry of the original request; it will not be sent automatically.",
