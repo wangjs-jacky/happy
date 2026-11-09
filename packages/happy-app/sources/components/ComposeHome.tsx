@@ -289,7 +289,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeImageAgent, agentType, imagePluginInstalled],
     );
     const canAttach = composeExperience.canAttach;
-    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker({
+    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages, prepareAddImages } = useImagePicker({
         selection: {
             images: draftImages,
             setImages: setDraftImages,
@@ -1155,6 +1155,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onPickImages={canAttach ? (activeImageAgent || agentType === 'opencode' ? pickImages : pickAttachment) : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
                         onAddImages={canAttach ? addImages : undefined}
+                        onPrepareAddImages={canAttach ? prepareAddImages : undefined}
+                        imageAttachmentsOnly={!!activeImageAgent || agentType === 'opencode'}
                         leadingControls={composerConfigControls}
                     />
                     <Text style={styles.byline}>{t('composeHome.byline')}</Text>
