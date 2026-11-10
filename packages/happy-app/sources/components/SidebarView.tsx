@@ -595,6 +595,13 @@ export const SidebarView = React.memo(({
                 testID="sidebar-command-palette-button"
             />
             <View style={styles.desktopRailDivider} />
+            {desktopPrimaryNavigation && <DesktopRailItem
+                icon="folder-open-outline"
+                label={t('projectGoals.allProjects')}
+                onPress={() => go('/projects')}
+                selected={pathname === '/projects'}
+                testID="sidebar-project-goals-button"
+            />}
             <DesktopRailItem
                 icon="extension-puzzle-outline"
                 label={t('relationshipAdvisorPlugin.marketTitle')}
@@ -613,7 +620,7 @@ export const SidebarView = React.memo(({
                 icon="albums-outline"
                 label={t('sidebar.listsTab')}
                 onPress={openDesktopSessionLists}
-                selected={!appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
+                selected={pathname !== '/projects' && !appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
                 testID="sidebar-session-list-button"
             />
             <DesktopRailItem

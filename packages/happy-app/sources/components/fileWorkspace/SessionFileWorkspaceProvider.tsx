@@ -16,26 +16,34 @@ import { EventRefreshQueue } from './eventRefreshQueue';
 import { readWorkspaceText, writeWorkspaceText } from './fileIO';
 import { FileWorkspaceContext, type FileReference } from './context';
 
-export function SessionFileWorkspaceProvider({ sessionId, children }: { sessionId: string; children: React.ReactNode }) {
+export type FileWorkspaceBinding = {
+    root: string; scope: string; machineId: string;
+    readBytes: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
+    readText: (path: string, signal?: AbortSignal) => Promise<{ content: string; hash: string; media?: import('./controller').FileDocument['media']; fileRevision?: string }>;
+    writeText: (path: string, content: string, hash: string) => Promise<{ hash: string; fileRevision?: string }>;
+};
+export function SessionFileWorkspaceProvider({ sessionId, binding, children }: { sessionId: string; binding?: FileWorkspaceBinding; children: React.ReactNode }) {
     const session = useSession(sessionId);
-    const root = session?.metadata?.path ?? '';
+    const root = binding?.root ?? session?.metadata?.path ?? '';
     const { rightPanelAvailable } = useDesktopWorkspaceLayout();
-    const enabled = Platform.OS === 'web' && rightPanelAvailable;
-    const scope = JSON.stringify([getServerUrl(), getRuntimeAccountSelection()?.key ?? 'legacy', session?.metadata?.machineId ?? sessionId, root, sessionId]);
-    return <FileWorkspaceOwner key={scope + sessionId} {...{ sessionId, root, enabled, scope }}>{children}</FileWorkspaceOwner>;
+    const enabled = Platform.OS === 'web' && (!!binding || rightPanelAvailable);
+    const scope = JSON.stringify([getServerUrl(), getRuntimeAccountSelection()?.key ?? 'legacy', binding?.machineId ?? session?.metadata?.machineId ?? sessionId, root, binding?.scope ?? sessionId]);
+    return <FileWorkspaceOwner key={scope} {...{ sessionId, root, enabled, scope, binding }}>{children}</FileWorkspaceOwner>;
 }
-function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { sessionId: string; root: string; enabled: boolean; scope: string; children: React.ReactNode }) {
+function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children }: { sessionId: string; root: string; enabled: boolean; scope: string; binding?: FileWorkspaceBinding; children: React.ReactNode }) {
     const { status: socketStatus } = useSocketStatus();
     const session = useSession(sessionId);
-    const machineId = session?.metadata?.machineId ?? '';
+    const machineId = binding?.machineId ?? session?.metadata?.machineId ?? '';
+    const transportSession = React.useRef(sessionId);
+    transportSession.current = sessionId;
     const machine = useMachine(machineId);
     const versions = React.useMemo(() => new VersionController(root, (method, input) => artifactRequest(machineId, method, input), accountRuntimeCurrent, loadWorkspaceVersionOperations(scope), value => saveWorkspaceVersionOperations(scope, value)), [root, machineId, scope]);
     const versionSnapshot = React.useSyncExternalStore(versions.subscribe, versions.getSnapshot, versions.getSnapshot);
     const initial = React.useMemo(() => loadFileWorkspaceUI(scope), [scope]);
     const drafts = React.useRef(loadFileWorkspaceDrafts(scope));
     const controller = React.useMemo(() => new FileWorkspaceController({ root,
-        read: async path => {
-            const content = await readWorkspaceText(sessionId, path);
+        read: async (path, signal) => {
+            const content = await (binding ? binding.readText(path, signal) : readWorkspaceText(transportSession.current, path));
             if (machineId && /\.(md|markdown|html?)$/i.test(path)) {
                 void versions.current(path).catch(() => {});
             }
@@ -43,9 +51,9 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
         },
         write: (path, content, hash) => {
             if (versions.state(path).pending) throw new Error(t('fileWorkspace.historyPending'));
-            return versions.state(path).artifact ? versions.save(path, content, hash) : writeWorkspaceText(sessionId, path, content, hash);
+            return versions.state(path).artifact ? versions.save(path, content, hash) : binding ? binding.writeText(path, content, hash) : writeWorkspaceText(transportSession.current, path, content, hash);
         }, isCurrent: accountRuntimeCurrent,
-    }), [sessionId, root, versions, machineId]);
+    }), [binding, root, versions, machineId]);
     const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
     const eventRefresh = React.useMemo(() => new EventRefreshQueue(async path => {
         await controller.refresh(path);
@@ -101,12 +109,20 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
     }, [controller, socketStatus, eventRefresh]);
     const turn = session?.agentState?.turnStatus;
     const terminal = ['completed', 'cancelled', 'failed'].includes(turn?.status ?? '') ? `${turn?.turnId}:${turn?.updatedAt}` : null;
-    const previousTurn = React.useRef(terminal);
+    const previousTurn = React.useRef({ sessionId, terminal, initialized: !!session?.metadata });
     React.useEffect(() => {
-        if (!terminal || previousTurn.current === terminal) return;
-        previousTurn.current = terminal;
+        const previous = previousTurn.current;
+        // Entering another conversation establishes its historical baseline.
+        // Its metadata may arrive after the route switched; that first snapshot
+        // is still history, not a new completion of the current conversation.
+        if (previous.sessionId !== sessionId || !previous.initialized) {
+            previousTurn.current = { sessionId, terminal, initialized: !!session?.metadata };
+            return;
+        }
+        previousTurn.current = { sessionId, terminal, initialized: true };
+        if (!terminal || previous.terminal === terminal) return;
         eventRefresh.enqueue(controller.getSnapshot().tabs);
-    }, [controller, sessionId, terminal, eventRefresh]);
+    }, [controller, sessionId, terminal, !!session?.metadata, eventRefresh]);
     const changes = artifactInvalidations(machine?.daemonState);
     const changeSignature = JSON.stringify(changes);
     const seenChanges = React.useRef<Record<string, string>>({});
@@ -155,5 +171,5 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, children }: { ses
         setOpenRequestId(value => value + 1);
         try { await controller.open(resolved.absolutePath); } catch (error) { Modal.alert(t('fileWorkspace.title'), error instanceof Error && error.message === 'FILE_WORKSPACE_TAB_LIMIT' ? t('fileWorkspace.tooManyTabs') : String(error)); }
     }, [controller, enabled, root, sessionId, restoration]);
-    return <FileWorkspaceContext.Provider value={{ sessionId, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    return <FileWorkspaceContext.Provider value={{ sessionId, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

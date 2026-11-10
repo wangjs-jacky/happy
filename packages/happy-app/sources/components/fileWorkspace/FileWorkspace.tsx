@@ -14,6 +14,7 @@ import { useFileWorkspace } from './context';
 import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { ArtifactPreview } from './ArtifactPreview';
 import { HtmlFilePreview } from './HtmlFilePreview';
+import { WorkspaceMediaPreview } from './WorkspaceMediaPreview';
 import { WorkspaceButton as Button } from './WorkspaceButton';
 import { documentBodyStyle, documentScrollStyle, workspaceChatMinWidth, workspaceResizeWidth } from './documentPresentation';
 
@@ -75,7 +76,7 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
     };
     const download = () => {
         if (!document || Platform.OS !== 'web') return;
-        const url = URL.createObjectURL(new Blob([document.phase === 'ready' ? document.draft : cachedDraft?.draft ?? ''], { type: 'text/plain;charset=utf-8' }));
+        const url = URL.createObjectURL(document.media ? new Blob([document.media.bytes as BlobPart], { type: document.media.mime }) : new Blob([document.phase === 'ready' ? document.draft : cachedDraft?.draft ?? ''], { type: 'text/plain;charset=utf-8' }));
         const anchor = globalThis.document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.click(); URL.revokeObjectURL(url);
     };
     return <View testID="file-workspace" onLayout={event => setWorkspaceWidth(Math.round(event.nativeEvent.layout.width))} style={{ flex: 1, minWidth: 0, minHeight: 0, backgroundColor: photoSkin ? (reducedTransparency ? theme.colors.desktopSkin.readingSolid : theme.colors.desktopSkin.readingWide) : theme.colors.surface, borderRadius: 20, overflow: 'hidden' }} {...({ onKeyDown: (event: any) => { if (historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
@@ -118,7 +119,7 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
         {document?.error && <Text accessibilityRole="alert" style={{ padding: 12, color: theme.colors.textDestructive }}>{document.error}</Text>}
         {document?.phase === 'error' && cachedDraft && <ScrollView contentContainerStyle={{ padding: 16 }}><Text style={{ color: theme.colors.textSecondary }}>{t('fileWorkspace.cachedDraft')}</Text><Text selectable style={{ color: theme.colors.text }}>{cachedDraft.draft}</Text></ScrollView>}
         {!document || document.phase === 'loading' ? <ActivityIndicator style={{ padding: 30 }} color={theme.colors.textSecondary} /> : document.phase === 'ready' ? <>
-            {preview && currentArtifact && !dirty ? <ArtifactPreview sessionId={sessionId} versions={workspace.versions} value={currentArtifact}/> : preview && /\.(html?|svg)$/i.test(path) ? <HtmlFilePreview key={path} sessionId={sessionId} path={path} content={document.draft} root={workspace.root} revision={document.revision} /> :
+            {document.media ? <WorkspaceMediaPreview media={document.media} name={path.split('/').pop() ?? path} /> : preview && currentArtifact && !dirty ? <ArtifactPreview sessionId={sessionId} versions={workspace.versions} value={currentArtifact}/> : preview && /\.(html?|svg)$/i.test(path) ? <HtmlFilePreview key={path} sessionId={sessionId} path={path} content={document.draft} root={workspace.root} revision={document.revision} readBytes={workspace.readBytes} /> :
                 <ScrollView ref={scrollView} onScroll={event => { scroll.current[path] = event.nativeEvent.contentOffset.y; }} scrollEventThrottle={100} style={{ flex: 1 }} contentContainerStyle={preview ? documentScrollStyle : { padding: 12 }}>
                     <View ref={contentRef} testID={preview ? "workspace-document-body" : undefined} style={preview ? documentBodyStyle : undefined} {...({ onMouseUp: () => {
                         const selected = globalThis.window?.getSelection();

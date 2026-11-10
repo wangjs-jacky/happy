@@ -4,6 +4,7 @@ import type { FileWorkspaceController, FileWorkspaceSnapshot } from './controlle
 export type FileReference = { path: string; hash: string; quote?: string; artifact?: { workspaceId: string; artifactId: string; expectedRevision: string; versionId?: string } };
 export type FileWorkspaceContextValue = {
     sessionId: string;
+    readBytes?: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
     openRequestId: number;
     versions: VersionController;
     versionSnapshot: ReturnType<VersionController['getSnapshot']>;
