@@ -189,6 +189,18 @@ describe('MessageComposer web image paste', () => {
         expect(added).toHaveLength(1);
     });
 
+    it('keeps every file from a mixed multi-file drop in one batch', async () => {
+        const composer = mountComposer();
+        const files = [new File(['image'], 'first.png', { type: 'image/png' }),
+            new File(['image'], 'second.png', { type: 'image/png' }),
+            new File(['document'], 'third.txt', { type: 'text/plain' })];
+        const drop = new Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(drop, 'dataTransfer', { value: { types: ['Files'], files } });
+        await act(async () => { document.dispatchEvent(drop); await vi.dynamicImportSettled(); });
+        expect(composer.onAddImages).toHaveBeenCalledTimes(1);
+        expect(composer.onAddImages.mock.calls[0][0].map((item: any) => item.name)).toEqual(['first.png', 'second.png', 'third.txt']);
+    });
+
     it('does not let an inert old composer consume a file drop', async () => {
         const old = mountComposer();
         old.input.parentElement!.setAttribute('inert', '');
