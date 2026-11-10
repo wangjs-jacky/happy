@@ -1,6 +1,6 @@
 # Codex 统一设置浮层验收
 
-实现分支：`codex-unified-settings`。固定基线：`3e9d52ce`。范围：PC Web 新建会话及已有 Codex 会话；原生端、非 Codex 会话保留原选择器。没有合并、推送或发布正式版本。
+实现分支：`codex-unified-settings`。固定基线：`3e9d52ce`。范围：PC Web 新建会话及已有 Codex 会话；原生端、非 Codex 会话保留原选择器。以下为合并前的实现验收记录；发布结果另按 PR 和 Actions 核对。
 
 认可稿来自原工作树 `happy--composer-mode-popover/docs/design/codex-real-ui-refined/`，该树的未提交组件和设计文件保持原样。本分支从当前干净 main 建立，安全带入原组件改动后完成正式实现。
 
@@ -33,14 +33,14 @@ git diff --check
 
 | Case | Before | After |
 |---|---|---|
-| NEW | `/var/folders/45/t5wb73212hvf82tchdvfdfhw0000gn/T/paws-browser-step-ui1gIY/screenshot.png` | `/var/folders/45/t5wb73212hvf82tchdvfdfhw0000gn/T/paws-browser-step-fcMxuP/screenshot.png` |
-| CHAT | `/var/folders/45/t5wb73212hvf82tchdvfdfhw0000gn/T/paws-browser-step-X3gMPx/screenshot.png` | `/var/folders/45/t5wb73212hvf82tchdvfdfhw0000gn/T/paws-browser-step-XiKSJ0/screenshot.png` |
+| NEW | [Before](codex-unified-settings-media/new-before.png) | [After](codex-unified-settings-media/new-after.png) |
+| CHAT | [Before](codex-unified-settings-media/chat-before.png) | [After](codex-unified-settings-media/chat-after.png) |
 
 上述关键图均已通过会话/任务空间/target/URL 绑定的 helper 采集，并逐张通过 Happy `report_browser_step` 发送。没有重复普通图片附件。
 
 ## 视频
 
-`/Users/jacky/.happy/artifacts/codex-unified-settings-20261111/codex-unified-settings-verified.mp4`
+[验收视频](codex-unified-settings-media/acceptance.mp4)
 
 20.03 秒，1680×886，H.264/yuv420p，30fps，faststart，静音。完整解码退出 0；覆盖七个状态的抽帧已核对，无凭据。视频为成功路径的逐状态演示，不是连续录屏，已通过 Happy `send_file` 发送。
 
@@ -50,6 +50,6 @@ git diff --check
 
 代码独立评审和 PC 交互回归均通过：已有会话的搜索、Fast 能力变化、拖动、Space、Escape/焦点恢复，以及新建首条消息状态显示和 900×550 长列表末项选择均通过。
 
-ginghamDark 下普通透明、按下 rgb(31,42,56)、选中 rgb(40,53,68)，画面为深蓝主题；关键截图已由独立评审上报 Skills。检查后恢复 adaptive/caramel 并刷新核对。未独立运行既有 Playwright 用例，真实页面回归由 Ego 完成。
+ginghamDark 下普通透明、按下 rgb(31,42,56)、选中 rgb(40,53,68)，画面为深蓝主题；[主题截图](codex-unified-settings-media/theme-gingham-dark.png)已由独立评审上报 Skills。检查后恢复 adaptive/caramel 并刷新核对。未独立运行既有 Playwright 用例，真实页面回归由 Ego 完成。
 
 两个 Ego 任务空间均已结束；临时基线 worktree 已移除；本次隔离 Web/Server/控制器端口均已停止。正式服务未切换。
