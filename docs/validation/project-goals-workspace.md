@@ -73,3 +73,9 @@ pnpm exec vitest run --config src/modules/goalBoard/vitest.config.ts --maxWorker
 初次并行构建时文件系统套件还出现过超时；一次临时目录 cleanup 超时的认可 case 单独重跑通过。大文件预算测试实际传输了超过 1 MiB 的文件，跨多 Task 档案仅解析一次。夹具 HMR 曾把忽略的 Expo 路由声明重置为空，使用既有 repair-router-types 工具从真实 sources/app 重新生成后 typecheck 通过，未用类型断言绕过。
 
 PR 前后截图选项已询问、尚未收到回复；未采集截图或视频，不声明 Skills 关键帧已上报或完成像素视觉验收。未测试 Android、Tauri 或生产模型执行，未上线。
+
+## PR 全量检查补修
+
+首次 PR 的 workspace suite：4256 个断言通过，两个 MessageComposer 测试套件在收集时因主线新增 Legacy 模型选择器的静态依赖链加载到原生 GlassView，解析 JSX 失败。两份行为测试已隔离新选择器，却漏掉 Legacy 选择器；补齐该 mock 后，截图按钮测试又暴露已有 MultiTextInput mock 缺少 16/22 字体常量，按真实组件补齐。产品组件和原粘贴/按钮断言均未修改，独立 reviewer 复核通过。
+
+补修后两套件 15 tests 通过；全 App 回归 4271 tests / 496 files 全部通过。此修复仅维护测试边界，没有增加或采集截图。
