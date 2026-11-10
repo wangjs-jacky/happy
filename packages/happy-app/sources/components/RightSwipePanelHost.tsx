@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
+import { useAndroidDrawerSwipeLock } from '@/hooks/useAndroidDrawerSwipeLock';
 import { useIsTablet } from '@/utils/responsive';
 import { getResponsiveRightPanelMode, type ResponsiveRightPanelMode } from '@/utils/desktopNavigationLayout';
 import { hapticsLight } from './haptics';
@@ -26,6 +27,7 @@ type Props = {
     closeAccessibilityLabel: string;
     panelAccessibilityLabel: string;
     enabled?: boolean;
+    // Controls swipe-to-open. Android keeps dismissal available while open.
     gestureEnabled: boolean;
     fullWidth?: boolean;
     mode?: Exclude<ResponsiveRightPanelMode, 'persistent'>;
@@ -130,6 +132,10 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
     const [hostWidth, setHostWidth] = React.useState(windowWidth);
     const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
     const open = controlledOpen ?? uncontrolledOpen;
+    useAndroidDrawerSwipeLock(enabled && isFocused && open);
+    const horizontalGestureEnabled = enabled && (Platform.OS === 'android'
+        ? isFocused && (gestureEnabled || open)
+        : gestureEnabled);
     const preferredPanelWidth = Math.min(
         Math.max(Math.floor(hostWidth * 0.72), 260),
         340,
@@ -147,6 +153,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
     const startX = useSharedValue(0);
     const startY = useSharedValue(0);
     const decided = useSharedValue(false);
+    const gestureActive = useSharedValue(false);
     const backHandlerRef = React.useRef<PanelBackHandler | null>(null);
     const mountedRef = React.useRef(true);
     const animationRequestRef = React.useRef(0);
@@ -388,7 +395,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
 
     const horizontalGesture = React.useMemo(() => {
         const pan = Gesture.Pan()
-            .enabled(enabled && gestureEnabled)
+            .enabled(horizontalGestureEnabled)
             .manualActivation(true)
             .onTouchesDown((e) => {
                 'worklet';
@@ -416,6 +423,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
             })
             .onStart(() => {
                 'worklet';
+                gestureActive.value = true;
                 runOnJS(supersedePanelAnimation)();
                 startProgress.value = progress.value;
             })
@@ -434,6 +442,12 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
                         velocity: -e.velocityX / panelWidth,
                     });
                 } else {
+                    if (Platform.OS === 'android') {
+                        // Keep the parent drawer locked until the close animation
+                        // completes, including when a new open interrupts this close.
+                        runOnJS(closePanel)();
+                        return;
+                    }
                     progress.value = withSpring(0, {
                         ...SPRING_CONFIG,
                         velocity: -e.velocityX / panelWidth,
@@ -444,16 +458,23 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
                     });
                     runOnJS(hapticsLight)();
                 }
+            })
+            .onFinalize((_event, success) => {
+                'worklet';
+                if (Platform.OS === 'android' && gestureActive.value && !success) {
+                    progress.value = withSpring(open ? 1 : 0, SPRING_CONFIG);
+                }
+                gestureActive.value = false;
             });
         if (drawerPan) {
             pan.blocksExternalGesture(drawerPan);
         }
         return pan;
-    }, [decided, drawerPan, enabled, gestureEnabled, open, panelWidth, progress, setPanelOpen, startProgress, startX, startY, supersedePanelAnimation]);
+    }, [closePanel, decided, drawerPan, gestureActive, horizontalGestureEnabled, open, panelWidth, progress, setPanelOpen, startProgress, startX, startY, supersedePanelAnimation]);
 
     const externalHorizontalGestures = React.useMemo(
-        () => gestureEnabled ? [horizontalGesture] : [],
-        [gestureEnabled, horizontalGesture],
+        () => (Platform.OS === 'android' ? horizontalGestureEnabled : gestureEnabled) ? [horizontalGesture] : [],
+        [gestureEnabled, horizontalGestureEnabled, horizontalGesture],
     );
 
     const scrimStyle = useAnimatedStyle(() => ({
