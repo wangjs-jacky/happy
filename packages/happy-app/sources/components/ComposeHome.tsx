@@ -302,6 +302,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const isReleasedSubmissionVisible = !!pending && !!releasedSubmission
         && !['failed', 'restored'].includes(pending.phase)
         && pending.text === releasedSubmission.text;
+    const showReleasedPreview = isReleasedSubmissionVisible || (!!pending && !!releasedSubmission
+        && pending.phase === 'failed' && pending.retry === 'project' && pending.text === releasedSubmission.text);
     const releasedIds = isReleasedSubmissionVisible ? new Set(releasedSubmission.userAttachmentIds) : null;
     const visibleSelectedImages = releasedIds ? selectedImages.filter(image => !releasedIds.has(image.id)) : selectedImages;
     const hasImages = canAttach && selectedImages.length > 0;
@@ -1099,7 +1101,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     {pending && (
                         <View style={styles.startingSubmission} testID="compose-home-starting">
                             <ScrollView style={styles.startingSubmissionScroll}>
-                                {isReleasedSubmissionVisible && releasedSubmission.images.length > 0 && <SubmittedAttachmentPreview images={releasedSubmission.images} testID="compose-home-starting-attachments" />}
+                                {showReleasedPreview && releasedSubmission && releasedSubmission.images.length > 0 && <SubmittedAttachmentPreview images={releasedSubmission.images} testID="compose-home-starting-attachments" />}
                                 <Text selectable style={styles.startingSubmissionText} testID="compose-home-starting-text">{pending.text}</Text>
                             </ScrollView>
                             <Text style={styles.startingSubmissionProgress}>{[pending.agent, pending.modelMode, pending.path].filter(Boolean).join(' · ')}</Text>

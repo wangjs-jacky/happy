@@ -534,6 +534,19 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps submitted attachments visible when projection fails after the queue accepted them', async () => {
+        mocks.ensureSessionHydrated.mockResolvedValue(true);
+        mocks.awaitLocalMessageProjection.mockResolvedValue(false);
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => renderer.root.findByType('MessageComposer').props.onChangeText('Sent with files'));
+        await act(async () => { renderer.root.findByType('MessageComposer').props.onSend(); await new Promise(resolve => setTimeout(resolve, 0)); });
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findByType('SubmittedAttachmentPreview').props.images.map((image: any) => image.id)).toEqual(['image-a', 'image-b']);
+        expect(renderer.root.findByType('MessageComposer').props.selectedImages).toBeUndefined();
+        act(() => renderer.unmount());
+    });
+
     it('clears the unchanged submitted text and attachments after the local queue accepts retry', async () => {
         vi.useFakeTimers();
         let renderer: any;

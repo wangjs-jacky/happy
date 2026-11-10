@@ -19,3 +19,13 @@ it('shows sending text together with its attachment previews while the transfer 
     expect(renderer.root.findAllByType('Text').some((n: any) => n.props.children === 'hello')).toBe(true);
     act(() => renderer.unmount());
 });
+
+it('marks restored expired attachments for reselection and disables sending', () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<MessageStagingQueueView messages={[{ id: 'm', sessionId: 's', text: 'hello', attachments: [{ id: 'f', uri: 'blob:expired', name: 'a.txt', size: 1, width: 0, height: 0, mimeType: 'text/plain', kind: 'file' }], attachmentsExpired: true, modeMeta: {}, status: 'failed' }]} session={{ connected: true, state: 'idle' }} onEdit={vi.fn()} onSteer={vi.fn()} onRemove={vi.fn()} />); });
+    expect(renderer.root.findAllByType('SubmittedAttachmentPreview')).toHaveLength(0);
+    expect(renderer.root.findAllByType('Text').some((n: any) => JSON.stringify(n.props.children).includes('messageQueue.attachmentsExpired'))).toBe(true);
+    expect(renderer.root.findAllByType('Pressable')[0].props.disabled).toBe(true);
+    act(() => renderer.unmount());
+});
