@@ -296,7 +296,7 @@ describe('RightSwipePanelHost close completion', () => {
         act(() => {
             mocks.gestureHandlers.onStart();
             mocks.gestureHandlers.onUpdate({ translationX: -160 });
-            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 });
+            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 }, true);
         });
         expect(
             renderer.root.findByProps({ testID: 'right-swipe-panel-drawer' }).props.accessibilityElementsHidden,
@@ -370,7 +370,7 @@ describe('RightSwipePanelHost close completion', () => {
             act(() => {
                 mocks.gestureHandlers.onStart();
                 mocks.gestureHandlers.onUpdate({ translationX: -160 });
-                mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 });
+                mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 }, true);
             });
             expect(renderer.root.findByProps({ testID: 'right-swipe-panel-drawer' }).props.role).toBe('dialog');
         } finally {
@@ -397,7 +397,7 @@ describe('RightSwipePanelHost close completion', () => {
         const open = () => act(() => {
             mocks.gestureHandlers.onStart();
             mocks.gestureHandlers.onUpdate({ translationX: -160 });
-            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 });
+            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: 0 }, true);
         });
         const completeClose = () => act(() => latestSpringCompletion()(true));
 
@@ -573,11 +573,11 @@ describe('Android right drawer gesture ownership', () => {
         mocks.isFocused = true;
     });
 
-    function panelTree(enabled = true) {
+    function panelTree(enabled = true, open?: boolean) {
         return (
             <AndroidDrawerSwipeLockProvider>
                 <DrawerLockProbe />
-                <RightSwipePanelHost {...PANEL_ACCESSIBILITY_LABELS} enabled={enabled} gestureEnabled={false}
+                <RightSwipePanelHost {...PANEL_ACCESSIBILITY_LABELS} enabled={enabled} gestureEnabled={false} open={open}
                     panelContent={<View />}>
                     <OpenControl />
                 </RightSwipePanelHost>
@@ -611,7 +611,7 @@ describe('Android right drawer gesture ownership', () => {
         act(() => {
             mocks.gestureHandlers.onStart();
             mocks.gestureHandlers.onUpdate({ translationX: 160 });
-            mocks.gestureHandlers.onEnd({ translationX: 160, velocityX: 1000 });
+            mocks.gestureHandlers.onEnd({ translationX: 160, velocityX: 1000 }, true);
         });
         expect(locked(renderer)).toBe(true);
         act(() => latestSpringCompletion()(true));
@@ -626,7 +626,7 @@ describe('Android right drawer gesture ownership', () => {
         act(() => {
             mocks.gestureHandlers.onStart();
             mocks.gestureHandlers.onUpdate({ translationX: -160 });
-            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: -1000 });
+            mocks.gestureHandlers.onEnd({ translationX: -160, velocityX: -1000 }, true);
         });
         expect(locked(renderer)).toBe(true);
         const state = { activate: vi.fn(), fail: vi.fn() };
@@ -636,11 +636,16 @@ describe('Android right drawer gesture ownership', () => {
         });
         expect(state.fail).toHaveBeenCalledOnce();
         expect(state.activate).not.toHaveBeenCalled();
+        const springCount = mocks.springCompletions.length;
         act(() => {
             mocks.gestureHandlers.onStart();
-            mocks.gestureHandlers.onUpdate({ translationX: 80 });
+            mocks.gestureHandlers.onUpdate({ translationX: 220 });
+            // RNGH reports unsuccessful onEnd before onFinalize on cancellation.
+            mocks.gestureHandlers.onEnd({ translationX: 220, velocityX: 1000 }, false);
             mocks.gestureHandlers.onFinalize({}, false);
         });
+        // Only the restoring spring may run; no queued JS close may outlive it.
+        expect(mocks.springCompletions.slice(springCount)).toEqual([undefined]);
         expect(locked(renderer)).toBe(true);
         const filmstrip = renderer.root.findAllByType('AnimatedView')[0];
         expect(flattenStyle(filmstrip.props.style).transform).toEqual([{ translateX: -288 }]);
@@ -653,12 +658,34 @@ describe('Android right drawer gesture ownership', () => {
         act(() => {
             mocks.gestureHandlers.onStart();
             mocks.gestureHandlers.onUpdate({ translationX: 220 });
-            mocks.gestureHandlers.onEnd({ translationX: 220, velocityX: 0 });
+            mocks.gestureHandlers.onEnd({ translationX: 220, velocityX: 0 }, true);
         });
         const staleCompletion = latestSpringCompletion();
         act(() => findControl(renderer, 'open-panel').props.onPress());
         act(() => staleCompletion(true));
         expect(locked(renderer)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the left drawer locked until a controlled close finishes, ignoring stale completions', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(panelTree(true, true)); });
+        expect(locked(renderer)).toBe(true);
+        act(() => renderer.update(panelTree(true, false)));
+        expect(locked(renderer)).toBe(true);
+        const staleCompletion = latestSpringCompletion();
+        act(() => renderer.update(panelTree(true, true)));
+        act(() => staleCompletion(true));
+        expect(locked(renderer)).toBe(true);
+        act(() => renderer.update(panelTree(true, false)));
+        const complete = latestSpringCompletion();
+        act(() => complete(false));
+        expect(locked(renderer)).toBe(true);
+        act(() => renderer.update(panelTree(true, true)));
+        act(() => renderer.update(panelTree(true, false)));
+        act(() => latestSpringCompletion()(true));
+        expect(locked(renderer)).toBe(false);
+        expect(mocks.gestureEnabledValues.at(-1)).toBe(false);
         act(() => renderer.unmount());
     });
 
