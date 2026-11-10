@@ -689,6 +689,28 @@ describe('Android right drawer gesture ownership', () => {
         act(() => renderer.unmount());
     });
 
+    it('releases ownership when a controlled close cancels an active gesture', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(panelTree(true, true)); });
+        act(() => {
+            mocks.gestureHandlers.onStart();
+            mocks.gestureHandlers.onUpdate({ translationX: 100 });
+        });
+        const canceledHandlers = { ...mocks.gestureHandlers };
+        act(() => renderer.update(panelTree(true, false)));
+        const interruptedClose = latestSpringCompletion();
+        act(() => {
+            // Native may deliver the handlers installed when the drag began.
+            canceledHandlers.onEnd({ translationX: 100, velocityX: 1000 }, false);
+            canceledHandlers.onFinalize({}, false);
+            interruptedClose(false);
+        });
+        expect(locked(renderer)).toBe(true);
+        act(() => latestSpringCompletion()(true));
+        expect(locked(renderer)).toBe(false);
+        act(() => renderer.unmount());
+    });
+
     it('routes Android system back to the right drawer and unlocks after dismissal', () => {
         const renderer = renderPanel();
         act(() => findControl(renderer, 'open-panel').props.onPress());

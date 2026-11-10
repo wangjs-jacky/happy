@@ -162,6 +162,8 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
     const gestureActive = useSharedValue(false);
     const backHandlerRef = React.useRef<PanelBackHandler | null>(null);
     const mountedRef = React.useRef(true);
+    const openRef = React.useRef(open);
+    React.useLayoutEffect(() => { openRef.current = open; }, [open]);
     const animationRequestRef = React.useRef(0);
     const pendingCloseRef = React.useRef<{ id: number; onClosed?: () => void } | null>(null);
     const hostRef = React.useRef<any>(null);
@@ -242,6 +244,18 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
             runOnJS(completePanelClose)(requestId, finished === true);
         });
     }, [completePanelClose, progress]);
+
+    const settleCanceledGesture = React.useCallback(() => {
+        if (!mountedRef.current) return;
+        // A header close can cancel a drag with callbacks from the previous
+        // render. Read the latest target and retain a completion-aware close.
+        if (!openRef.current) {
+            closePanel();
+        } else {
+            supersedePanelAnimation();
+            progress.value = withSpring(1, SPRING_CONFIG);
+        }
+    }, [closePanel, progress, supersedePanelAnimation]);
 
     const focusPanel = React.useCallback(() => {
         const restoreFocus = () => {
@@ -484,7 +498,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
             .onFinalize((_event, success) => {
                 'worklet';
                 if (Platform.OS === 'android' && gestureActive.value && !success) {
-                    progress.value = withSpring(open ? 1 : 0, SPRING_CONFIG);
+                    runOnJS(settleCanceledGesture)();
                 }
                 gestureActive.value = false;
             });
@@ -492,7 +506,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({
             pan.blocksExternalGesture(drawerPan);
         }
         return pan;
-    }, [closePanel, decided, drawerPan, gestureActive, horizontalGestureEnabled, open, panelWidth, progress, setPanelOpen, startProgress, startX, startY, supersedePanelAnimation]);
+    }, [closePanel, decided, drawerPan, gestureActive, horizontalGestureEnabled, open, panelWidth, progress, setPanelOpen, settleCanceledGesture, startProgress, startX, startY, supersedePanelAnimation]);
 
     const externalHorizontalGestures = React.useMemo(
         () => (Platform.OS === 'android' ? horizontalGestureEnabled : gestureEnabled) ? [horizontalGesture] : [],
