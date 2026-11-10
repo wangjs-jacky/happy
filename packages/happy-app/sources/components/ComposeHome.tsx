@@ -9,6 +9,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { layout } from './layout';
 import { MessageComposer } from './MessageComposer';
+import { SubmittedAttachmentPreview } from './SubmittedAttachmentPreview';
 import type { MultiTextInputHandle } from './MultiTextInput';
 import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
@@ -118,6 +119,7 @@ type SubmittedComposeSnapshot = {
     text: string;
     textRevision: number;
     userAttachmentIds: string[];
+    images: AttachmentPreview[];
 };
 
 const CompactRightPanelToggleButton = React.memo(function CompactRightPanelToggleButton({
@@ -176,6 +178,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const hydrationError = pending?.failure === 'hydrate';
     const { text, setText, images: draftImages, setImages: setDraftImages } = useComposeDraft();
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
+    const [releasedSubmission, setReleasedSubmission] = React.useState<SubmittedComposeSnapshot | null>(null);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
@@ -296,6 +299,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             generation: composeDraftAttachmentSelectionGeneration,
         },
     });
+    const isReleasedSubmissionVisible = !!pending && !!releasedSubmission
+        && !['failed', 'restored'].includes(pending.phase)
+        && pending.text === releasedSubmission.text;
+    const releasedIds = isReleasedSubmissionVisible ? new Set(releasedSubmission.userAttachmentIds) : null;
+    const visibleSelectedImages = releasedIds ? selectedImages.filter(image => !releasedIds.has(image.id)) : selectedImages;
     const hasImages = canAttach && selectedImages.length > 0;
     const pendingStyleImageRestoreState = React.useRef<'idle' | 'restoring' | 'done'>('idle');
 
@@ -658,6 +666,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, []);
 
     const releaseSubmittedText = React.useCallback((snapshot: SubmittedComposeSnapshot) => {
+        setReleasedSubmission(snapshot);
         if (useComposeDraft.getState().revision === snapshot.textRevision) {
             composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setText('');
@@ -721,7 +730,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             text: liveText,
             textRevision: useComposeDraft.getState().revision,
             userAttachmentIds: userImages.map((image) => image.id),
+            images: (images ?? []).map(image => ({ ...image })),
         };
+        setReleasedSubmission(null);
         void submit({
             machineId: draft.selectedMachineId!,
             machine: machine!,
@@ -1088,6 +1099,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     {pending && (
                         <View style={styles.startingSubmission} testID="compose-home-starting">
                             <ScrollView style={styles.startingSubmissionScroll}>
+                                {isReleasedSubmissionVisible && releasedSubmission.images.length > 0 && <SubmittedAttachmentPreview images={releasedSubmission.images} testID="compose-home-starting-attachments" />}
                                 <Text selectable style={styles.startingSubmissionText} testID="compose-home-starting-text">{pending.text}</Text>
                             </ScrollView>
                             <Text style={styles.startingSubmissionProgress}>{[pending.agent, pending.modelMode, pending.path].filter(Boolean).join(' · ')}</Text>
@@ -1148,7 +1160,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         isSending={sending}
                         isSendDisabled={!canSubmit || !canSubmitFirstSubmission(pending, activeImageAgent
                             ? [...selectedCustomReferenceImages, ...selectedImages] : selectedImages)}
-                        selectedImages={hasImages ? selectedImages : undefined}
+                        selectedImages={canAttach && visibleSelectedImages.length ? visibleSelectedImages : undefined}
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         // Image agent needs images only; the normal composer
                         // offers the photo/audio-video chooser.

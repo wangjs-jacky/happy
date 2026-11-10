@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
+import { SubmittedAttachmentPreview } from './SubmittedAttachmentPreview';
 import { canSendStagedMessageNow, type StagedMessage, type StagingSnapshot, type StagingSession } from '@/sync/messageStagingQueue';
 
 export function MessageStagingQueueView(props: {
@@ -24,7 +25,7 @@ export function MessageStagingQueueView(props: {
             {props.messages.map(message => <View key={message.id} style={styles.row} testID={`queued-message-${message.id}`}>
                 <View style={styles.content}>
                     <Text numberOfLines={2} style={styles.text}>{(message.draftText ?? message.text) || t('messageQueue.attachments')}</Text>
-                    {!!message.attachments?.length && <Text style={styles.secondary}>{t('messageQueue.attachments')} · {message.attachments.length}</Text>}
+                    {!!message.attachments?.length && <SubmittedAttachmentPreview images={message.attachments} testID={`queued-attachments-${message.id}`} />}
                     {message.status === 'failed' && <Text style={styles.secondary}>{t('messageQueue.failed')}</Text>}
                 </View>
                 {message.status === 'sending' ? <ActivityIndicator accessibilityLabel={t('messageQueue.sending')} color={theme.colors.textSecondary} /> : <>
