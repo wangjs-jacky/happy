@@ -12,6 +12,8 @@ export function PanelTabs({ activeTab, tabs, onTabChange, testIDPrefix }: {
 }) {
     const { theme } = useUnistyles();
     const refs = React.useRef(new Map<string, View>());
+    const [hoveredKey, setHoveredKey] = React.useState<string | null>(null);
+    const [focusedKey, setFocusedKey] = React.useState<string | null>(null);
     return <View accessibilityRole="tablist" style={styles.tabs}>
         {tabs.map((tab, index) => {
             const selected = tab.key === activeTab;
@@ -19,6 +21,8 @@ export function PanelTabs({ activeTab, tabs, onTabChange, testIDPrefix }: {
                 accessibilityRole="tab" accessibilityLabel={tab.label} accessibilityState={{ selected }}
                 nativeID={`${testIDPrefix}-${tab.key}-tab`} testID={`${testIDPrefix}-${tab.key}-tab`}
                 onPress={() => onTabChange(tab.key)}
+                onHoverIn={() => setHoveredKey(tab.key)} onHoverOut={() => setHoveredKey(null)}
+                onFocus={() => setFocusedKey(tab.key)} onBlur={() => setFocusedKey(null)}
                 {...(Platform.OS === 'web' ? {
                     tabIndex: selected ? 0 : -1,
                     'aria-selected': selected,
@@ -33,7 +37,7 @@ export function PanelTabs({ activeTab, tabs, onTabChange, testIDPrefix }: {
                         refs.current.get(tabs[nextIndex].key)?.focus();
                     },
                 } : {})}
-                style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.tab, selected ? styles.selected : (pressed || hovered) ? styles.pressed : null]}>
+                style={({ pressed }) => [styles.tab, selected ? styles.selected : (pressed || hoveredKey === tab.key) ? styles.pressed : null, focusedKey === tab.key && styles.focused]}>
                 <Ionicons name={tab.icon} size={15} color={selected ? theme.colors.text : theme.colors.textSecondary} />
                 <Text numberOfLines={1} style={[styles.text, selected && styles.selectedText]}>{tab.label}</Text>
             </Pressable>;
@@ -42,9 +46,10 @@ export function PanelTabs({ activeTab, tabs, onTabChange, testIDPrefix }: {
 }
 const styles = StyleSheet.create((theme) => ({
     tabs: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
-    tab: { minWidth: 0, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, backgroundColor: theme.colors.surface },
+    tab: { minWidth: 0, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, borderWidth: 1, borderColor: 'transparent', backgroundColor: theme.colors.surface },
     selected: { backgroundColor: theme.colors.surfaceSelected },
     pressed: { backgroundColor: theme.colors.surfacePressed },
+    focused: { borderColor: theme.colors.textLink },
     text: { minWidth: 0, flexShrink: 1, fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
     selectedText: { color: theme.colors.text },
 }));

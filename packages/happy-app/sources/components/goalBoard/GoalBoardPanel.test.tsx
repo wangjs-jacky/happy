@@ -110,6 +110,15 @@ describe('GoalBoardPanel', () => {
         expect(button(renderer, 'goal-board-details-tab').props.tabIndex).toBe(0);
     });
 
+    it('uses current theme surfaces for unselected tab hover and keyboard focus', () => {
+        const renderer = render(props({ renderTaskFiles: () => <View /> }));
+        press(renderer, 'goal-board-task-g1');
+        act(() => button(renderer, 'goal-board-files-tab').props.onHoverIn());
+        expect(button(renderer, 'goal-board-files-tab').props.style({ pressed: false })).toContainEqual({ backgroundColor: 'pressed' });
+        act(() => button(renderer, 'goal-board-files-tab').props.onFocus());
+        expect(button(renderer, 'goal-board-files-tab').props.style({ pressed: false })).toContainEqual({ borderColor: 'link' });
+    });
+
     it('counts actual done records and retains unknown task status', () => {
         const renderer = render(props({ snapshot: snapshot([task('g1', { status: 'done' }), task('g2', { status: 'review' }), task('g3', { status: 'unknown' })]) }));
         expect(json(renderer)).toContain('goalBoard.completed:{\\"completed\\":1,\\"total\\":3}');
