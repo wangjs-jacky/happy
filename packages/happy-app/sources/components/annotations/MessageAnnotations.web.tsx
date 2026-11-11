@@ -378,7 +378,7 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
     }, [file?.path, sessionId, ui.activeId]);
     const moving = (data: AnnotationSelection, target?: HTMLElement): MovingAnchor => ({
         getAnchor: () => target?.isConnected ? target.getBoundingClientRect() : source.current ? annotationRange(source.current, data)?.getBoundingClientRect() ?? null : null,
-        getBounds: () => source.current?.closest<HTMLElement>('[data-testid="file-workspace"]')?.getBoundingClientRect(),
+        getBounds: () => source.current?.closest<HTMLElement>('[data-testid="workspace-reading-pane"]')?.getBoundingClientRect(),
     });
     const open = (value: NonNullable<typeof selection>, target?: HTMLElement) => {
         try {
@@ -408,7 +408,7 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
     };
     const capture = () => { if (!editRequest && source.current) setSelection(readAnnotationSelection(source.current, messageId, window.getSelection())); };
     const outline: React.CSSProperties = { position: 'absolute', pointerEvents: 'none', boxSizing: 'border-box', border: `${file ? 1.5 : 1}px solid ${c.accent}`, borderRadius: file ? 2 : 6, zIndex: 1 };
-    return <div ref={root} tabIndex={-1} style={{ position: 'relative', width: '100%', minWidth: 0 }} data-testid={`annotation-source-${messageId}`}>
+    return <div ref={root} tabIndex={-1} style={{ position: 'relative', width: '100%', minWidth: 0, outline: 'none' }} data-testid={`annotation-source-${messageId}`}>
         <style>{`::highlight(${highlightName}) { background-color: ${file ? `color-mix(in srgb, ${c.accent} 34%, transparent)` : c.surfaceSelected}; color: ${c.text}; } .paws-annotation-pin,.paws-annotation-bubble,.paws-annotation-capsule { transition: transform 160ms ease; } .paws-annotation-pin:hover { transform: scale(1.12); } .paws-annotation-bubble:hover { transform: scale(1.035); } .paws-annotation-capsule:hover { transform: scale(1.02); } @media (prefers-reduced-motion: reduce) { .paws-annotation-pin,.paws-annotation-bubble,.paws-annotation-capsule { transition: none; transform: none !important; } }`}</style>
         {file && activeBox && <span aria-hidden="true" data-testid="file-annotation-pending-pin" style={{ position: 'absolute', left: activeBox.left + 24, top: activeBox.top - 28, width: 28, height: 28, borderRadius: '50% 50% 50% 5px', background: c.accent, zIndex: 2 }} />}
         {file && activeBox && <div data-testid="file-annotation-active-outline" style={{ ...outline, ...activeBox, opacity: 0.65 }} />}
