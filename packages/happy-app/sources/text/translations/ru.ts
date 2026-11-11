@@ -1322,6 +1322,8 @@ export const ru: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "Начните с идеи",
+        emptyHint: "Расскажите, что хотите сделать, или задайте вопрос.",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",

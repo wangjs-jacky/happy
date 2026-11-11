@@ -1279,6 +1279,8 @@ export const zhHans: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "从一个想法开始",
+        emptyHint: "描述你想完成的事，或直接提出一个问题。",
         continueFresh: "新建 Session 接着聊",
         continueOpen: "打开接续会话",
         continueCreating: "正在创建新会话…",

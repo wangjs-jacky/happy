@@ -2,122 +2,129 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
-import { Session } from '@/sync/storageTypes';
-import { useSessionStatus, formatPathRelativeToHome } from '@/utils/sessionUtils';
+import type { Session } from '@/sync/storageTypes';
+import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
-
-const stylesheet = StyleSheet.create((theme) => ({
-    container: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 48,
-    },
-    iconContainer: {
-        marginBottom: 12,
-    },
-    hostText: {
-        fontSize: 18,
-        color: theme.colors.text,
-        textAlign: 'center',
-        marginBottom: 4,
-        ...Typography.default('semiBold'),
-    },
-    pathText: {
-        fontSize: 14,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-        marginBottom: 40,
-        ...Typography.default('regular'),
-    },
-    noMessagesText: {
-        fontSize: 20,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-        marginBottom: 8,
-        ...Typography.default('regular'),
-    },
-    createdText: {
-        fontSize: 16,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 24,
-        ...Typography.default(),
-    },
-}));
 
 interface EmptyMessagesProps {
     session: Session;
 }
 
-function getOSIcon(os?: string): keyof typeof Ionicons.glyphMap {
-    if (!os) return 'hardware-chip-outline';
-    
-    const osLower = os.toLowerCase();
-    if (osLower.includes('darwin') || osLower.includes('mac')) {
-        return 'laptop-outline';
-    } else if (osLower.includes('win')) {
-        return 'desktop-outline';
-    } else if (osLower.includes('linux')) {
-        return 'terminal-outline';
-    }
-    return 'hardware-chip-outline';
-}
-
-function formatRelativeTime(timestamp: number): string {
-    const now = Date.now();
-    const diffMs = now - timestamp;
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMinutes / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    
-    if (diffMinutes < 1) {
-        return t('time.justNow');
-    } else if (diffMinutes < 60) {
-        return t('time.minutesAgo', { count: diffMinutes });
-    } else if (diffHours < 24) {
-        return t('time.hoursAgo', { count: diffHours });
-    } else {
-        return t('sessionHistory.daysAgo', { count: diffDays });
-    }
-}
-
+/** Shared by empty conversations; task-specific introductions keep their own content. */
 export function EmptyMessages({ session }: EmptyMessagesProps) {
     const { theme } = useUnistyles();
-    const styles = stylesheet;
-    const osIcon = getOSIcon(session.metadata?.os);
-    const sessionStatus = useSessionStatus(session);
-    const startedTime = formatRelativeTime(session.createdAt);
-    
+    const path = session.metadata?.path
+        ? formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)
+        : null;
+    const host = session.metadata?.host;
+
     return (
-        <View style={styles.container}>
-            <Ionicons 
-                name={osIcon}
-                size={72} 
-                color={theme.colors.textSecondary}
-                style={styles.iconContainer}
-            />
-            
-            {session.metadata?.host && (
-                <Text style={styles.hostText}>
-                    {session.metadata.host}
+        <View style={styles.container} testID="session-empty-state">
+            <View style={styles.content}>
+                <View style={styles.icon}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={25} color={theme.colors.textLink} />
+                </View>
+                <Text accessibilityRole="header" style={styles.title}>
+                    {t('session.emptyTitle')}
                 </Text>
-            )}
-            
-            {session.metadata?.path && (
-                <Text style={styles.pathText}>
-                    {formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)}
-                </Text>
-            )}
-            
-            <Text style={styles.noMessagesText}>
-                No messages yet
-            </Text>
-            
-            <Text style={styles.createdText}>
-                Created {startedTime}
-            </Text>
+                <Text style={styles.hint}>{t('session.emptyHint')}</Text>
+
+                {(path || host) && (
+                    <View style={styles.context}>
+                        {path && (
+                            <View style={styles.contextRow}>
+                                <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
+                                <Text
+                                    selectable
+                                    numberOfLines={1}
+                                    ellipsizeMode="middle"
+                                    accessibilityLabel={path}
+                                    style={styles.path}
+                                >
+                                    {path}
+                                </Text>
+                            </View>
+                        )}
+                        {host && (
+                            <View style={styles.contextRow}>
+                                <Ionicons name="terminal-outline" size={13} color={theme.colors.textSecondary} />
+                                <Text selectable numberOfLines={1} style={styles.host}>{host}</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+            </View>
         </View>
     );
 }
+
+const styles = StyleSheet.create((theme) => ({
+    container: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 28,
+        paddingVertical: 24,
+    },
+    content: {
+        width: '100%',
+        maxWidth: 440,
+        alignItems: 'flex-start',
+    },
+    icon: {
+        width: 52,
+        height: 52,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceSelected,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        marginBottom: 22,
+    },
+    title: {
+        fontSize: 28,
+        lineHeight: 38,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    hint: {
+        marginTop: 10,
+        fontSize: 14,
+        lineHeight: 23,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+    context: {
+        width: '100%',
+        marginTop: 28,
+        paddingTop: 16,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: theme.colors.divider,
+        gap: 9,
+    },
+    contextRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        minWidth: 0,
+    },
+    path: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 12,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+    host: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 11,
+        lineHeight: 17,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+}));

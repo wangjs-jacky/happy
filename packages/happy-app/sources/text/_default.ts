@@ -1392,6 +1392,8 @@ export const en = {
     },
 
     session: {
+        emptyTitle: "Start with an idea",
+        emptyHint: "Describe what you want to do, or simply ask a question.",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",
