@@ -34,4 +34,4 @@
 
 ## 独立交互回归
 
-独立 reviewer 的 PC 回归通过：新建与会话中完整底轨、无底部文字；恢复默认保持模型/Fast；拖动释放、Fast Space、Fast 能力切换、Escape 与焦点返回均通过。Gingham dark 普通入口透明，pressed/open 均 rgb(40,53,68)，底轨 rgb(76,90,104)，面板 rgb(31,42,56)。新建页关键截图也由 reviewer 独立绑定并上报 Skills。
+独立 reviewer 的 PC 回归通过：新建与会话中完整底轨、无底部文字；恢复默认保持模型/Fast；拖动释放、Fast Space、Fast 能力切换、Escape 与焦点返回均通过。Gingham dark 普通入口透明，pressed/open 均 rgb(40,53,68)，底轨 rgb(76,90,104)，面板 rgb(31,42,56)。[新建页关键截图](codex-settings-track-media/new-after.png)由 reviewer 独立绑定并上报 Skills。
