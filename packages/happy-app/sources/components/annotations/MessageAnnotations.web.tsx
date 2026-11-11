@@ -38,8 +38,8 @@ function closeEditor() {
     if (focus?.isConnected) focus.focus({ preventScroll: true });
 }
 
-function Icon({ name }: { name: 'edit' | 'trash' | 'close' | 'comment' | 'check' }) {
-    const paths = { edit: 'm16 3 5 5-12 12-6 1 1-6L16 3Zm-2 2 5 5', trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7', close: 'm6 6 12 12M6 18 18 6', comment: 'M21 11a8 8 0 0 1-8 8H6l-4 3V7a5 5 0 0 1 5-5h9a5 5 0 0 1 5 5v4ZM7 7h9M7 11h6', check: 'm5 12 4 4L20 5' };
+function Icon({ name }: { name: 'edit' | 'trash' | 'close' | 'comment' | 'check' | 'scope' }) {
+    const paths = { edit: 'm16 3 5 5-12 12-6 1 1-6L16 3Zm-2 2 5 5', trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7', close: 'm6 6 12 12M6 18 18 6', comment: 'M21 11a8 8 0 0 1-8 8H6l-4 3V7a5 5 0 0 1 5-5h9a5 5 0 0 1 5 5v4ZM7 7h9M7 11h6', check: 'm5 12 4 4L20 5', scope: 'M3 7h6m4 0h8M3 17h10m4 0h4M13 4v6M9 14v6' };
     return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 }
 function useAnnotationStyles() {
@@ -53,9 +53,9 @@ function SmallButton({ children, style, ...props }: React.ButtonHTMLAttributes<H
     const [hover, setHover] = React.useState(false);
     return <button {...props} type={props.type ?? 'button'} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ ...button, ...(hover ? { background: c.surfacePressed } : {}), ...style }}>{children}</button>;
 }
-function FloatingPanel({ anchor, children, label, onClose, testId = 'annotation-editor', width = 460, maxHeight = 'calc(100dvh - 24px)', ignoreOutside, getAnchor, getBounds }: {
+function FloatingPanel({ anchor, children, label, onClose, testId = 'annotation-editor', width = 460, maxHeight = 'calc(100dvh - 24px)', ignoreOutside, getAnchor, getBounds, variant = 'panel' }: {
     anchor: Anchor; children: React.ReactNode; label: string; onClose: () => void; testId?: string; width?: number;
-    maxHeight?: string; ignoreOutside?: HTMLElement | null;
+    maxHeight?: string; ignoreOutside?: HTMLElement | null; variant?: 'panel' | 'capsule' | 'bubble' | 'preview';
 } & MovingAnchor) {
     const { c } = useAnnotationStyles();
     const ref = React.useRef<HTMLDivElement>(null);
@@ -72,13 +72,19 @@ function FloatingPanel({ anchor, children, label, onClose, testId = 'annotation-
             const minTop = Math.max(12, (bounds?.top ?? 0) + 12);
             const right = Math.min(window.innerWidth - 12, (bounds?.right ?? window.innerWidth) - 12);
             const bottom = Math.min(window.innerHeight - 12, (bounds?.bottom ?? window.innerHeight) - 12);
-            ref.current.style.maxWidth = Math.max(0, right - minLeft) + 'px';
+            ref.current.style.maxWidth = Math.max(0, Math.min(width, right - minLeft)) + 'px';
             if (getBounds) ref.current.style.maxHeight = Math.max(0, bottom - minTop) + 'px';
             const rect = ref.current.getBoundingClientRect();
-            const preferredTop = getBounds
-                ? (target.bottom + rect.height + 10 <= bottom ? target.bottom + 10 : target.top - rect.height - 10)
+            const beside = variant === 'bubble';
+            const above = variant === 'capsule';
+            const left = beside
+                ? ((target.right ?? target.left) + rect.width + 12 <= right ? (target.right ?? target.left) + 10 : target.left - rect.width - 10)
+                : target.left + (above ? 30 : 0);
+            const preferredTop = beside ? target.top - 2
+                : above ? (target.top - rect.height - 8 >= minTop ? target.top - rect.height - 8 : target.bottom + 8)
+                : getBounds ? (target.bottom + rect.height + 10 <= bottom ? target.bottom + 10 : target.top - rect.height - 10)
                 : (target.top - rect.height - 10 >= minTop ? target.top - rect.height - 10 : target.bottom + 10);
-            setPosition({ left: Math.max(minLeft, Math.min(target.left, right - rect.width)), top: Math.max(minTop, Math.min(preferredTop, bottom - rect.height)) });
+            setPosition({ left: Math.max(minLeft, Math.min(left, right - rect.width)), top: Math.max(minTop, Math.min(preferredTop, bottom - rect.height)) });
         };
         const schedule = () => { if (frame === undefined) frame = requestAnimationFrame(() => { frame = undefined; layout(); }); };
         const observer = new ResizeObserver(schedule);
@@ -87,7 +93,7 @@ function FloatingPanel({ anchor, children, label, onClose, testId = 'annotation-
         window.addEventListener('resize', schedule);
         layout();
         return () => { observer.disconnect(); if (frame !== undefined) cancelAnimationFrame(frame); window.removeEventListener('scroll', schedule, true); window.removeEventListener('resize', schedule); };
-    }, [anchor, getAnchor, getBounds, onClose]);
+    }, [anchor, getAnchor, getBounds, onClose, variant, width]);
     React.useEffect(() => {
         const pointer = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node) && !ignoreOutside?.contains(event.target as Node)) onClose(); };
         const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); } };
@@ -95,9 +101,9 @@ function FloatingPanel({ anchor, children, label, onClose, testId = 'annotation-
         document.addEventListener('keydown', key, true);
         return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', key, true); };
     }, [onClose, ignoreOutside]);
-    return createPortal(<div ref={ref} role="dialog" aria-label={label} data-testid={testId} style={{ position: 'fixed', zIndex: 10000, ...position, boxSizing: 'border-box', width: `min(${width}px, calc(100vw - 24px))`, maxHeight, overflowY: 'auto', padding: 16, borderRadius: 14, color: c.text, background: c.surface, border: `1px solid ${c.divider}`, boxShadow: `0 8px 36px ${c.shadow.color}`, fontFamily: 'inherit', fontSize: 14 }}>{children}</div>, document.body);
+    return createPortal(<div ref={ref} role="dialog" aria-label={label} data-testid={testId} className={variant === 'bubble' ? 'paws-annotation-bubble' : variant === 'capsule' ? 'paws-annotation-capsule' : undefined} data-annotation-surface={variant} style={{ position: 'fixed', zIndex: 10000, ...position, boxSizing: 'border-box', width: variant === 'bubble' ? 'max-content' : `min(${width}px, calc(100vw - 24px))`, maxHeight, overflowY: 'auto', padding: variant === 'capsule' ? '6px 7px 6px 12px' : variant === 'bubble' ? '11px 18px' : variant === 'preview' ? 10 : 16, borderRadius: variant === 'capsule' ? 999 : variant === 'bubble' ? 26 : variant === 'preview' ? 20 : 14, color: c.text, background: c.surface, border: `1px solid ${variant === 'panel' ? c.divider : `color-mix(in srgb, ${c.text} 9%, ${c.surface})`}`, boxShadow: variant === 'panel' ? `0 8px 36px ${c.shadow.color}` : `0 2px 8px color-mix(in srgb, ${c.shadow.color} 16%, transparent), 0 1px 2px color-mix(in srgb, ${c.shadow.color} 5%, transparent)`, fontFamily: 'inherit', fontSize: 14 }}>{children}</div>, document.body);
 }
-function CommentEditor({ sessionId, item, request, number, onClose }: { sessionId: string; item: MessageAnnotation; request: EditRequest; number: number; onClose: () => void }) {
+function LegacyCommentEditor({ sessionId, item, request, number, onClose }: { sessionId: string; item: MessageAnnotation; request: EditRequest; number: number; onClose: () => void }) {
     const { c, button } = useAnnotationStyles();
     const [comment, setComment] = React.useState(item.comment);
     const [error, setError] = React.useState('');
@@ -134,6 +140,68 @@ function CommentEditor({ sessionId, item, request, number, onClose }: { sessionI
     </FloatingPanel>;
 }
 
+function CommentEditor(props: { sessionId: string; item: MessageAnnotation; request: EditRequest; number: number; onClose: () => void }) {
+    return props.item.file ? <FileCommentCapsule {...props} /> : <LegacyCommentEditor {...props} />;
+}
+function FileCommentCapsule({ sessionId, item, request, onClose }: { sessionId: string; item: MessageAnnotation; request: EditRequest; onClose: () => void }) {
+    const { c } = useAnnotationStyles();
+    const [comment, setComment] = React.useState(item.comment);
+    const [error, setError] = React.useState(false);
+    const input = React.useRef<HTMLInputElement>(null);
+    const composing = React.useRef(false);
+    React.useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
+    const save = () => {
+        if (!comment.trim() || composing.current) return;
+        try {
+            let id = item.id;
+            if (request.selection) id = annotationDraftStore.add(sessionId, request.selection, comment.trim()).id;
+            else annotationDraftStore.update(sessionId, id, comment.trim());
+            fileAnnotationUi.update(sessionId, { activeId: id });
+            onClose();
+        } catch { setError(true); }
+    };
+    return <FloatingPanel anchor={request.anchor} getAnchor={request.getAnchor} getBounds={request.getBounds} width={368} variant="capsule" label={t('messageAnnotations.edit')} onClose={onClose}>
+        <style>{`.paws-annotation-pill-input::placeholder { color: ${c.textSecondary}; opacity: .6; } .paws-annotation-save { transition: transform 160ms ease; } .paws-annotation-save:not(:disabled):hover { transform: scale(1.08); } @media (prefers-reduced-motion: reduce) { .paws-annotation-save { transition: none; } }`}</style>
+        <form data-annotation-quote={item.quote} onSubmit={event => { event.preventDefault(); save(); }} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); if (!event.nativeEvent.isComposing && !composing.current && event.keyCode !== 229) save(); } }} style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 34 }}>
+            <span title={item.quote} style={{ color: c.textSecondary, display: 'flex', opacity: .7 }}><Icon name="scope" /></span>
+            <input ref={input} type="text" data-testid="annotation-comment-input" className="paws-annotation-pill-input" aria-label={t('messageAnnotations.yourComment')} aria-invalid={error || undefined} title={error ? t('messageAnnotations.saveError') : undefined} value={comment} onChange={event => { setComment(event.target.value); setError(false); }} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} placeholder={t('messageAnnotations.addComment')} style={{ flex: 1, minWidth: 0, width: '100%', border: 0, outline: 0, padding: '4px 0', color: c.text, background: 'transparent', font: 'inherit', fontSize: 14, lineHeight: '24px' }} />
+            <button type="submit" data-testid="annotation-save" className="paws-annotation-save" aria-label={t('common.save')} disabled={!comment.trim()} style={{ width: 34, height: 34, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 0, borderRadius: '50%', background: error ? c.textDestructive : c.text, color: c.surface, opacity: comment.trim() ? .9 : .35, cursor: comment.trim() ? 'pointer' : 'default' }}><Icon name="check" /></button>
+        </form>
+    </FloatingPanel>;
+}
+
+function FileAnnotationSummary({ sessionId, items, workspace }: { sessionId: string; items: readonly MessageAnnotation[]; workspace: ReturnType<typeof useFileWorkspace> }) {
+    const { c, button } = useAnnotationStyles();
+    const [open, setOpen] = React.useState(false);
+    const [error, setError] = React.useState('');
+    const chip = React.useRef<HTMLButtonElement>(null);
+    const close = React.useCallback(() => setOpen(false), []);
+    const navigate = async (item: MessageAnnotation, edit: boolean, anchor: DOMRect) => {
+        setOpen(false);
+        try {
+            if (workspace) await workspace.openReference(item.file!.path);
+            if (edit) requestEdit(sessionId, item.id, anchor, chip.current);
+            fileAnnotationUi.focus(sessionId, item.id, edit, item.file!.path);
+        } catch { setError(t('messageAnnotations.unlocated')); }
+    };
+    return <span style={{ display: 'inline-flex', marginInlineEnd: 8 }}>
+        <style>{`.paws-annotation-chip { transition: transform 160ms ease, box-shadow 160ms ease; transform-origin: left center; } .paws-annotation-chip:hover { transform: scale(1.035); } .paws-annotation-preview-row { transition: transform 160ms ease, background-color 160ms ease; } .paws-annotation-preview-row:hover { transform: scale(1.012); background: ${c.surfacePressed}; } @media (prefers-reduced-motion: reduce) { .paws-annotation-chip,.paws-annotation-preview-row { transition: none; transform: none !important; } }`}</style>
+        <button ref={chip} type="button" data-testid="annotation-file-summary" className="paws-annotation-chip" aria-expanded={open} onMouseEnter={() => setOpen(true)} onFocus={() => setOpen(true)} onClick={() => setOpen(true)} style={{ ...button, border: `1px solid color-mix(in srgb, ${c.text} 9%, ${c.surface})`, borderRadius: 999, padding: '6px 10px', background: c.surface, fontSize: 12, gap: 6 }}><Icon name="comment" />{t('messageAnnotations.count', { count: items.length })}</button>
+        {open && chip.current && <FloatingPanel anchor={chip.current.getBoundingClientRect()} label={t('messageAnnotations.list')} testId="file-annotation-preview" variant="preview" width={400} maxHeight="min(420px, 50dvh)" onClose={close} ignoreOutside={chip.current}>
+            {items.map((item, index) => <div key={item.id} data-testid="file-annotation-preview-row" className="paws-annotation-preview-row" role="button" tabIndex={0} onClick={event => { void navigate(item, false, event.currentTarget.getBoundingClientRect()); }} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void navigate(item, false, event.currentTarget.getBoundingClientRect()); } }} style={{ padding: '10px 12px', borderRadius: 14, cursor: 'pointer', borderTop: index ? `1px solid ${c.divider}` : undefined }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: c.textSecondary, fontSize: 12 }}>
+                    <span aria-hidden="true" title={item.quote} style={{ display: 'block', width: 26, height: 22, overflow: 'hidden', border: `1px solid ${c.divider}`, borderRadius: 5, padding: 3, boxSizing: 'border-box', fontSize: 3, lineHeight: '4px', color: c.textSecondary }}>{item.quote}</span>
+                    <span title={item.file!.path}>{t('messageAnnotations.selectedText')}</span><span style={{ flex: 1 }} />
+                    <SmallButton data-testid="annotation-edit" aria-label={t('messageAnnotations.editNumber', { number: index + 1 })} onClick={event => { event.stopPropagation(); void navigate(item, true, event.currentTarget.getBoundingClientRect()); }} style={{ padding: 4, color: c.textSecondary }}><Icon name="edit" /></SmallButton>
+                    <SmallButton data-testid="annotation-remove" aria-label={t('messageAnnotations.removeNumber', { number: index + 1 })} onClick={event => { event.stopPropagation(); try { annotationDraftStore.remove(sessionId, item.id); } catch { setError(t('messageAnnotations.saveError')); } }} style={{ padding: 4, color: c.textSecondary }}><Icon name="trash" /></SmallButton>
+                </div>
+                <div data-testid="annotation-saved-comment" style={{ marginTop: 6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 14, fontWeight: 500, lineHeight: 1.65, color: c.text }}>{item.comment || t('messageAnnotations.fileReview')}</div>
+            </div>)}
+        </FloatingPanel>}
+        {error && <span role="alert" style={{ color: c.textDestructive, fontSize: 12 }}>{error}</span>}
+    </span>;
+}
+
 export function AnnotationComposer({ sessionId }: AnnotationComposerProps) {
     const allItems = useMessageAnnotations(sessionId);
     const items = React.useMemo(() => allItems.filter(a => !a.file), [allItems]);
@@ -151,10 +219,7 @@ export function AnnotationComposer({ sessionId }: AnnotationComposerProps) {
     const editedItem = request?.sessionId === sessionId ? items.find(a => a.id === request.id) : undefined;
     const close = React.useCallback(() => { closeEditor(); }, []);
     return <div ref={ref} data-testid="annotation-composer" style={{ position: 'relative', minWidth: 0, padding: allItems.length ? '12px 14px 0' : 0, color: c.text }}>
-        {fileItems.length > 0 && <SmallButton data-testid="annotation-file-summary" title={t('messageAnnotations.manageInFile')} onClick={() => {
-            fileAnnotationUi.update(sessionId, { panelOpen: true });
-            if (!workspace?.snapshot.open || !/\.(md|markdown)$/i.test(workspace.snapshot.active ?? '')) void workspace?.openReference(fileItems[0].file!.path);
-        }} style={{ border: `1px solid ${c.divider}`, background: c.surface, fontSize: 12, marginInlineEnd: items.length ? 8 : 0 }}><Icon name="comment" />{t('messageAnnotations.count', { count: fileItems.length })}</SmallButton>}
+        {fileItems.length > 0 && <FileAnnotationSummary sessionId={sessionId} items={fileItems} workspace={workspace} />}
         {items.length > 0 && <button ref={trigger} type="button" data-testid="annotation-summary" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(value => !value)} style={{ border: `1px solid ${c.divider}`, borderRadius: 10, padding: '6px 10px', background: c.surface, color: c.text, cursor: 'pointer', display: 'inline-flex', gap: 7, alignItems: 'center', font: 'inherit', fontSize: 12 }}><Icon name="comment" />{t('messageAnnotations.count', { count: items.length })}<span aria-hidden="true">{open ? '⌄' : '⌃'}</span></button>}
         {open && items.length > 0 && trigger.current && <FloatingPanel anchor={trigger.current.getBoundingClientRect()} label={t('messageAnnotations.list')} testId="annotation-list" width={640} maxHeight="min(440px, 50dvh)" onClose={closeList} ignoreOutside={trigger.current}><div id={listId}>
             {items.map((item, index) => <div key={item.id} data-testid={`annotation-row-${item.id}`} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto', gap: 8, padding: '14px 0', borderTop: index ? `1px solid ${c.divider}` : undefined, fontSize: 13 }}>
@@ -173,8 +238,8 @@ export function FileAnnotationControls({ sessionId, enabled }: { sessionId: stri
     const { c } = useAnnotationStyles();
     React.useEffect(() => { if (!enabled) fileAnnotationUi.update(sessionId, { marking: false }); }, [enabled, sessionId, ui.marking]);
     return <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-        <SmallButton data-testid="file-annotation-mode" disabled={!enabled} aria-pressed={ui.marking} title={enabled ? t('messageAnnotations.markHint') : t('messageAnnotations.saveBeforeMarking')} onClick={() => fileAnnotationUi.update(sessionId, { marking: !ui.marking })} style={{ opacity: enabled ? 1 : 0.45, background: ui.marking ? c.surfaceSelected : 'transparent', color: ui.marking ? c.accent : c.textSecondary }}><Icon name={ui.marking ? 'check' : 'comment'} />{t(ui.marking ? 'messageAnnotations.finishMarking' : 'messageAnnotations.mark')}</SmallButton>
-        <SmallButton data-testid="file-annotation-list-toggle" aria-expanded={ui.panelOpen} onClick={() => fileAnnotationUi.update(sessionId, { panelOpen: !ui.panelOpen })} style={{ background: ui.panelOpen ? c.surfaceSelected : 'transparent', color: ui.panelOpen ? c.accent : c.textSecondary }}>{t('messageAnnotations.annotation')}{items.length > 0 && <span style={{ fontSize: 11 }}>{items.length}</span>}</SmallButton>
+        <SmallButton data-testid="file-annotation-mode" disabled={!enabled} aria-pressed={ui.marking} title={enabled ? t('messageAnnotations.markHint') : t('messageAnnotations.saveBeforeMarking')} onClick={() => fileAnnotationUi.update(sessionId, { marking: !ui.marking })} style={{ borderRadius: 999, padding: '7px 12px', opacity: enabled ? 1 : 0.45, background: ui.marking ? c.surfaceSelected : 'transparent', color: ui.marking ? c.accent : c.textSecondary }}><Icon name="scope" />{t('messageAnnotations.mark')}</SmallButton>
+
     </div>;
 }
 export function FileAnnotationHint({ sessionId }: { sessionId: string }) {
@@ -187,66 +252,14 @@ export function FileAnnotationHint({ sessionId }: { sessionId: string }) {
         return () => document.removeEventListener('keydown', key);
     }, [sessionId, ui.marking]);
     if (!ui.marking) return null;
-    return <div data-testid="file-annotation-hint" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', fontSize: 12, color: c.textSecondary, borderBottom: `1px solid ${c.divider}`, background: c.surface }}><Icon name="comment" />{t('messageAnnotations.markHint')}<span style={{ marginInlineStart: 'auto', opacity: 0.65 }}>Esc</span></div>;
+    return null;
 }
-export function FileAnnotationPanel({ sessionId, compact = false, showPreview }: { sessionId: string; compact?: boolean; showPreview?: (path: string) => void }) {
-    const ui = useFileAnnotationUi(sessionId);
+export function FileAnnotationPanel({ sessionId }: { sessionId: string; compact?: boolean; showPreview?: (path: string) => void }) {
     const items = useMessageAnnotations(sessionId);
-    const files = items.filter(a => a.file);
-    const workspace = useFileWorkspace();
-    const { c } = useAnnotationStyles();
     const request = React.useSyncExternalStore(subscribeEditor, getEditor, () => null);
     const edited = editingItem(sessionId, items, request);
     const close = React.useCallback(() => closeEditor(), []);
-    const [error, setError] = React.useState('');
-    const panel = React.useRef<HTMLElement>(null);
-    const jump = async (item: MessageAnnotation) => {
-        try {
-            showPreview?.(item.file!.path);
-            if (workspace) {
-                await workspace.openReference(item.file!.path);
-                const doc = workspace.controller.getSnapshot().documents[item.file!.path];
-                if (doc?.phase !== 'ready' || doc.hash !== item.file!.hash || doc.draft !== doc.content) {
-                    fileAnnotationUi.update(sessionId, { unlocatedId: item.id });
-                    return;
-                }
-            }
-            if (compact) fileAnnotationUi.update(sessionId, { panelOpen: false });
-            fileAnnotationUi.focus(sessionId, item.id);
-        } catch { setError(t('messageAnnotations.unlocated')); }
-    };
-    return <>
-        {ui.panelOpen && <aside ref={panel} data-testid="file-annotation-panel" aria-label={t('messageAnnotations.fileList')} style={{ ...(compact ? { position: 'absolute', insetInlineEnd: 12, top: 12, bottom: 12, borderRadius: 14, boxShadow: `0 8px 28px ${c.shadow.color}` } : { position: 'relative' }), zIndex: 5, flexShrink: 0, width: 304, maxWidth: 'calc(100% - 24px)', minHeight: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', background: c.surface, color: c.text, border: `1px solid ${c.divider}`, fontFamily: 'inherit' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 12px 8px' }}><Icon name="comment" /><span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{t('messageAnnotations.fileList')}</span><SmallButton data-testid="file-annotation-list-close" aria-label={t('common.cancel')} onClick={() => fileAnnotationUi.update(sessionId, { panelOpen: false })}><Icon name="close" /></SmallButton></div>
-            <p style={{ margin: '0 14px 12px', color: c.textSecondary, fontSize: 11, lineHeight: 1.6 }}>{t('messageAnnotations.sendTogether')}</p>
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 10px' }}>
-                {!files.length && <p style={{ padding: 12, color: c.textSecondary, fontSize: 13, lineHeight: 1.8 }}>{t('messageAnnotations.emptyFileList')}</p>}
-                {files.map(item => {
-                    const number = items.indexOf(item) + 1;
-                    const doc = workspace?.snapshot.documents[item.file!.path];
-                    const changed = ui.unlocatedId === item.id || (doc?.phase === 'ready' && (doc.hash !== item.file!.hash || doc.draft !== doc.content));
-                    return <article key={item.id} data-testid="file-annotation-row" style={{ padding: '14px 10px', marginBottom: 6, borderRadius: 10, background: ui.activeId === item.id ? c.surfaceSelected : 'transparent', border: `1px solid ${ui.activeId === item.id ? c.divider : 'transparent'}` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: c.textSecondary }}><span style={{ color: c.accent, fontWeight: 600 }}>{String(number).padStart(2, '0')}</span><span data-testid="annotation-source-file" title={item.file!.path} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileAnnotationLabel(item.file!)}</span></div>
-                        <div title={item.quote} style={{ marginTop: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: c.textSecondary, fontSize: 12 }}>{item.quote}</div>
-                        <p data-testid="annotation-saved-comment" style={{ margin: '8px 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 13, lineHeight: 1.75 }}>{item.comment || t('messageAnnotations.fileReview')}</p>
-                        {changed && <div role="status" style={{ fontSize: 11, lineHeight: 1.6, color: c.textSecondary }}>{t('messageAnnotations.unlocated')}</div>}
-                        <div style={{ display: 'flex', gap: 2, alignItems: 'center', marginTop: 8 }}>
-                            <SmallButton data-testid="file-annotation-jump" disabled={changed} onClick={() => { void jump(item); }} style={{ color: c.accent, opacity: changed ? 0.4 : 1, fontSize: 11, padding: '6px 2px' }}>{t('messageAnnotations.backToPassage')}</SmallButton><span style={{ flex: 1 }} />
-                            <SmallButton data-testid="annotation-edit" aria-label={t('messageAnnotations.editNumber', { number })} onClick={event => {
-                                const target = event.currentTarget;
-                                requestEdit(sessionId, item.id, target.getBoundingClientRect(), target, { getAnchor: () => target.isConnected ? target.getBoundingClientRect() : null, getBounds: () => panel.current?.getBoundingClientRect() });
-                                fileAnnotationUi.update(sessionId, { activeId: item.id });
-                            }}><Icon name="edit" /></SmallButton>
-                            <SmallButton data-testid="annotation-remove" aria-label={t('messageAnnotations.removeNumber', { number })} onClick={() => { try { annotationDraftStore.remove(sessionId, item.id); } catch { setError(t('messageAnnotations.saveError')); } }}><Icon name="trash" /></SmallButton>
-                        </div>
-                    </article>;
-                })}
-            </div>
-            {error && <p role="alert" style={{ color: c.textDestructive, fontSize: 12, margin: 12 }}>{error}</p>}
-            <div style={{ borderTop: `1px solid ${c.divider}`, padding: 8 }}><SmallButton onClick={() => fileAnnotationUi.update(sessionId, { panelOpen: false, marking: true })} style={{ width: '100%', color: c.accent }}>{t('messageAnnotations.continueMarking')}</SmallButton></div>
-        </aside>}
-        {edited?.file && request && <CommentEditor key={request.sequence} sessionId={sessionId} item={edited} request={request} number={request.selection ? items.length + 1 : items.indexOf(edited) + 1} onClose={close} />}
-    </>;
+    return edited?.file && request ? <CommentEditor key={request.sequence} sessionId={sessionId} item={edited} request={request} number={items.indexOf(edited) + 1} onClose={close} /> : null;
 }
 
 export function AnnotatableMessage({ sessionId, messageId, enabled, children }: AnnotationSourceProps) {
@@ -272,7 +285,7 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
     type Box = { left: number; top: number; width: number; height: number };
     const [hover, setHover] = React.useState<Box | null>(null);
     const [activeBox, setActiveBox] = React.useState<Box | null>(null);
-    const [badges, setBadges] = React.useState<Array<{ id: string; top: number; number: number }>>([]);
+    const [badges, setBadges] = React.useState<Array<{ id: string; top: number; left: number; number: number }>>([]);
     const request = React.useSyncExternalStore(subscribeEditor, getEditor, () => null);
     const pending = request?.sessionId === sessionId && request.selection?.messageId === messageId ? request.selection : null;
     const box = (rect: DOMRect): Box => {
@@ -290,20 +303,21 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
             for (const a of annotations) {
                 const range = annotationRange(source.current, a);
                 if (!range) continue;
-                ranges.push(range);
+                if (!file || ui.activeId === a.id) ranges.push(range);
                 const rect = range.getBoundingClientRect();
-                positions.push({ id: a.id, number: items.indexOf(a) + 1, top: (file ? rect.top : rect.bottom - 24) - root.current.getBoundingClientRect().top });
-                if (file && ui.activeId === a.id) focused = box(rect);
+                const last = typeof range.getClientRects === 'function' ? Array.from(range.getClientRects()).at(-1) ?? rect : rect;
+                const base = root.current.getBoundingClientRect();
+                positions.push({ id: a.id, number: items.indexOf(a) + 1, top: (file ? last.top - 12 : rect.bottom - 24) - base.top, left: file ? Math.max(0, Math.min(last.right - base.left - 6, base.width - 30)) : 0 });
             }
             if (pending) {
                 const range = annotationRange(source.current, pending);
-                if (range) { ranges.push(range); focused = box(range.getBoundingClientRect()); }
+                if (range) { if (!file) ranges.push(range); focused = box(range.getBoundingClientRect()); }
             }
             const api = CSS as unknown as { highlights?: { set: (name: string, highlight: unknown) => void; delete: (name: string) => void } };
             const Constructor = (globalThis as unknown as { Highlight?: new(...ranges: Range[]) => unknown }).Highlight;
             if (api.highlights && Constructor) api.highlights.set(highlightName, new Constructor(...ranges));
             positions.sort((a, b) => a.top - b.top);
-            for (let i = 1; i < positions.length; i++) positions[i].top = Math.max(positions[i].top, positions[i - 1].top + 26);
+            for (let i = 1; i < positions.length; i++) positions[i].top = Math.max(positions[i].top, positions[i - 1].top + (file ? 32 : 26));
             setBadges(positions); setActiveBox(focused);
         };
         const schedule = () => { if (frame === undefined) frame = requestAnimationFrame(() => { frame = undefined; layout(); }); };
@@ -318,11 +332,13 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
         const item = items.find(a => a.id === ui.focus!.id);
         if (item?.file?.path !== file.path) return;
         const range = item.messageId === messageId ? annotationRange(source.current, item) : null;
-        if (!range) { fileAnnotationUi.update(sessionId, { unlocatedId: item.id }); return; }
+        if (!range) { fileAnnotationUi.update(sessionId, { unlocatedId: item.id, focus: undefined }); return; }
         if (ui.unlocatedId === item.id) fileAnnotationUi.update(sessionId, { unlocatedId: undefined });
+        if (ui.focus.edit) requestEdit(sessionId, item.id, range.getBoundingClientRect(), root.current, moving(item));
         const target = range.startContainer.parentElement;
         target?.scrollIntoView({ block: 'center', behavior: 'auto' });
         Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[data-annotation-id]') ?? []).find(node => node.dataset.annotationId === item.id)?.focus({ preventScroll: true });
+        fileAnnotationUi.update(sessionId, { focus: undefined });
     }, [file?.path, messageId, ui.focus, items, sessionId]);
     React.useEffect(() => {
         setHover(null);
@@ -352,9 +368,17 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
         const current = editingItem(sessionId, annotationDraftStore.getSnapshot(sessionId), editRequest);
         if (current?.messageId === messageId) closeEditor();
     }, [sessionId, messageId, !!file]);
+    React.useEffect(() => {
+        if (!file || !ui.activeId) return;
+        const dismiss = (event: PointerEvent) => {
+            if (!(event.target instanceof Element) || !event.target.closest('[data-testid="annotation-badge"],[data-testid="file-annotation-bubble"],[data-testid="annotation-editor"],[data-testid="file-annotation-preview"],[data-testid="annotation-file-summary"]')) fileAnnotationUi.update(sessionId, { activeId: undefined });
+        };
+        document.addEventListener('pointerdown', dismiss);
+        return () => document.removeEventListener('pointerdown', dismiss);
+    }, [file?.path, sessionId, ui.activeId]);
     const moving = (data: AnnotationSelection, target?: HTMLElement): MovingAnchor => ({
         getAnchor: () => target?.isConnected ? target.getBoundingClientRect() : source.current ? annotationRange(source.current, data)?.getBoundingClientRect() ?? null : null,
-        getBounds: () => source.current?.closest<HTMLElement>('[data-testid="workspace-reading-pane"]')?.getBoundingClientRect(),
+        getBounds: () => source.current?.closest<HTMLElement>('[data-testid="file-workspace"]')?.getBoundingClientRect(),
     });
     const open = (value: NonNullable<typeof selection>, target?: HTMLElement) => {
         try {
@@ -383,9 +407,10 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
         if (data) open(data, target);
     };
     const capture = () => { if (!editRequest && source.current) setSelection(readAnnotationSelection(source.current, messageId, window.getSelection())); };
-    const outline: React.CSSProperties = { position: 'absolute', pointerEvents: 'none', boxSizing: 'border-box', border: `1px solid ${c.accent}`, borderRadius: 6, zIndex: 1 };
+    const outline: React.CSSProperties = { position: 'absolute', pointerEvents: 'none', boxSizing: 'border-box', border: `${file ? 1.5 : 1}px solid ${c.accent}`, borderRadius: file ? 2 : 6, zIndex: 1 };
     return <div ref={root} tabIndex={-1} style={{ position: 'relative', width: '100%', minWidth: 0 }} data-testid={`annotation-source-${messageId}`}>
-        <style>{`::highlight(${highlightName}) { background-color: ${c.surfaceSelected}; color: ${c.text}; }`}</style>
+        <style>{`::highlight(${highlightName}) { background-color: ${file ? `color-mix(in srgb, ${c.accent} 34%, transparent)` : c.surfaceSelected}; color: ${c.text}; } .paws-annotation-pin,.paws-annotation-bubble,.paws-annotation-capsule { transition: transform 160ms ease; } .paws-annotation-pin:hover { transform: scale(1.12); } .paws-annotation-bubble:hover { transform: scale(1.035); } .paws-annotation-capsule:hover { transform: scale(1.02); } @media (prefers-reduced-motion: reduce) { .paws-annotation-pin,.paws-annotation-bubble,.paws-annotation-capsule { transition: none; transform: none !important; } }`}</style>
+        {file && activeBox && <span aria-hidden="true" data-testid="file-annotation-pending-pin" style={{ position: 'absolute', left: activeBox.left + 24, top: activeBox.top - 28, width: 28, height: 28, borderRadius: '50% 50% 50% 5px', background: c.accent, zIndex: 2 }} />}
         {file && activeBox && <div data-testid="file-annotation-active-outline" style={{ ...outline, ...activeBox, opacity: 0.65 }} />}
         {marking && hover && !request && <div data-testid="file-annotation-hover" style={{ ...outline, ...hover }} />}
         <div ref={source} onMouseUp={capture} onKeyUp={capture}
@@ -393,13 +418,25 @@ function AnnotationSource({ sessionId, messageId, file, children }: Omit<Annotat
             onPointerLeave={() => setHover(null)}
             onClickCapture={event => { if (!marking) return; event.preventDefault(); event.stopPropagation(); if (window.getSelection()?.toString().trim()) return; const target = pointTarget(event.target); if (target) pick(target); }}
             onKeyDown={event => { if (marking && (event.key === 'Enter' || event.key === ' ')) { const target = pointTarget(event.target); if (target) { event.preventDefault(); event.stopPropagation(); pick(target); } } }}
-            style={{ paddingInlineStart: file ? 12 : 0, paddingInlineEnd: !file && annotations.length ? 30 : 0, cursor: marking ? 'crosshair' : undefined }} data-testid="annotation-source-content">{children}</div>
-        {badges.map(badge => <button key={badge.id} type="button" data-testid="annotation-badge" data-annotation-id={badge.id} aria-label={t('messageAnnotations.editNumber', { number: badge.number })} onClick={event => {
-            const item = items.find(a => a.id === badge.id)!;
-            const range = source.current && annotationRange(source.current, item);
-            requestEdit(sessionId, item.id, file && range ? range.getBoundingClientRect() : event.currentTarget.getBoundingClientRect(), root.current, file ? moving(item) : {});
-            if (file) fileAnnotationUi.update(sessionId, { activeId: item.id });
-        }} style={{ ...button, position: 'absolute', ...(file ? { insetInlineStart: -14 } : { insetInlineEnd: 0 }), top: badge.top, borderRadius: file ? '8px 8px 8px 2px' : 24, padding: 0, width: 23, height: 23, background: c.button.primary.background, color: c.button.primary.tint, fontSize: 11, boxShadow: file ? `0 2px 8px ${c.shadow.color}` : undefined, zIndex: 2 }}>{String(badge.number).padStart(file ? 2 : 1, '0')}</button>)}
+            style={{ paddingInlineStart: 0, paddingInlineEnd: !file && annotations.length ? 30 : 0, cursor: marking ? 'crosshair' : undefined }} data-testid="annotation-source-content">{children}</div>
+        {badges.map(badge => <button key={badge.id} type="button" data-testid="annotation-badge" data-annotation-id={badge.id} className={file ? 'paws-annotation-pin' : undefined} aria-label={t('messageAnnotations.editNumber', { number: badge.number })}
+            onMouseEnter={() => { if (file && !editRequest) fileAnnotationUi.update(sessionId, { activeId: badge.id }); }}
+            onFocus={() => { if (file && !editRequest) fileAnnotationUi.update(sessionId, { activeId: badge.id }); }}
+            onClick={event => {
+                if (file) { fileAnnotationUi.update(sessionId, { activeId: badge.id }); return; }
+                requestEdit(sessionId, badge.id, event.currentTarget.getBoundingClientRect(), root.current);
+            }} style={{ ...button, position: 'absolute', ...(file ? { left: badge.left } : { insetInlineEnd: 0 }), top: badge.top, borderRadius: file ? '50% 50% 50% 6px' : 24, padding: 0, width: file ? 30 : 24, height: file ? 30 : 24, background: file ? c.accent : c.button.primary.background, color: c.button.primary.tint, fontSize: 12, zIndex: 3 }}>{badge.number}</button>)}
+        {file && !request && annotations.filter(a => a.id === ui.activeId).map(item => {
+            const position = badges.find(a => a.id === item.id);
+            if (!position || !root.current) return null;
+            const base = root.current.getBoundingClientRect();
+            const anchor = { left: base.left + position.left, right: base.left + position.left + 30, top: base.top + position.top, bottom: base.top + position.top + 30 };
+            const pin = () => Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[data-annotation-id]') ?? []).find(node => node.dataset.annotationId === item.id);
+            const edit = () => { const range = source.current && annotationRange(source.current, item); if (range) requestEdit(sessionId, item.id, range.getBoundingClientRect(), root.current, moving(item)); };
+            return <FloatingPanel key={item.id} anchor={anchor} getAnchor={() => pin()?.getBoundingClientRect() ?? anchor} getBounds={() => source.current?.closest<HTMLElement>('[data-testid="workspace-reading-pane"]')?.getBoundingClientRect()} width={330} variant="bubble" label={t('messageAnnotations.yourComment')} testId="file-annotation-bubble" onClose={() => fileAnnotationUi.update(sessionId, { activeId: undefined })} ignoreOutside={pin()}>
+                <div role="button" tabIndex={0} onClick={edit} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); edit(); } }} style={{ cursor: 'pointer', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontSize: 14, fontWeight: 500 }}>{item.comment || t('messageAnnotations.fileReview')}</div>
+            </FloatingPanel>;
+        })}
         {selection && !request && createPortal(<button type="button" data-testid="annotation-add" onMouseDown={event => event.preventDefault()} onClick={() => open(selection)} style={{ ...button, position: 'fixed', zIndex: 9999, left: Math.max(12, Math.min(selection.rect.left, window.innerWidth - 170)), top: Math.max(12, Math.min(selection.rect.top - 44, window.innerHeight - 48)), padding: '9px 12px', background: c.surface, border: `1px solid ${c.divider}`, boxShadow: `0 4px 20px ${c.shadow.color}` }}><Icon name="comment" />{t(file ? 'messageAnnotations.addFile' : 'messageAnnotations.add')}</button>, document.body)}
         {error && <div role="alert" style={{ color: c.textDestructive, fontSize: 12 }}>{error}</div>}
     </div>;

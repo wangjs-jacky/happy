@@ -198,6 +198,7 @@ export const zhHans: TranslationStructure = {
     },
 
     messageAnnotations: {
+        addComment: '添加评论…',
         mark: "标注",
         finishMarking: "完成标注",
         markHint: "点选段落或标题 · 也可拖选文字",

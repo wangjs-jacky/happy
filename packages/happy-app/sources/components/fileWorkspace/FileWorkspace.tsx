@@ -1,3 +1,4 @@
+import { useFileAnnotationUi } from '@/components/annotations/fileAnnotationUi';
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
@@ -27,7 +28,9 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
     const photoSkin = Platform.OS === 'web' && desktopSkinId !== 'default';
     const [tabMenu, setTabMenu] = React.useState<TabMenuAnchor | null>(null);
     const dismissTabMenu = React.useCallback(() => setTabMenu(null), []);
+    const annotationUi = useFileAnnotationUi(sessionId);
     const [modes, setModes] = React.useState<Record<string, boolean>>({});
+    React.useEffect(() => { const target = annotationUi.focus?.path; if (target) setModes(value => ({ ...value, [target]: true })); }, [annotationUi.focus]);
     const [historyPath, setHistoryPath] = React.useState<string | null>(null);
     const [workspaceWidth, setWorkspaceWidth] = React.useState(0);
     const historyExpanded = React.useRef(false);

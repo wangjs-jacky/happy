@@ -5,7 +5,7 @@ type FileAnnotationUi = Readonly<{
     panelOpen: boolean;
     activeId?: string;
     unlocatedId?: string;
-    focus?: { id: string; sequence: number };
+    focus?: { id: string; sequence: number; edit?: boolean; path?: string };
 }>;
 const empty: FileAnnotationUi = Object.freeze({ marking: false, panelOpen: false });
 const sessions = new Map<string, FileAnnotationUi>();
@@ -20,8 +20,8 @@ export const fileAnnotationUi = {
         sessions.set(sessionId, { ...old, ...patch });
         listeners.forEach(listener => listener());
     },
-    focus(sessionId: string, id: string) {
-        fileAnnotationUi.update(sessionId, { activeId: id, unlocatedId: undefined, focus: { id, sequence: ++sequence } });
+    focus(sessionId: string, id: string, edit = false, path?: string) {
+        fileAnnotationUi.update(sessionId, { activeId: id, unlocatedId: undefined, focus: { id, sequence: ++sequence, edit, path } });
     },
 };
 export function useFileAnnotationUi(sessionId: string) {

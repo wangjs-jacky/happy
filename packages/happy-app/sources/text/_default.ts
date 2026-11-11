@@ -195,6 +195,7 @@ export const en = {
         },
     },
     messageAnnotations: {
+        addComment: 'Add a comment…',
         mark: "Annotate",
         finishMarking: "Done annotating",
         markHint: "Click a paragraph or heading · Drag to select specific text",
