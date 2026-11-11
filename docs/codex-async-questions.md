@@ -29,6 +29,7 @@
 - happy-cli：异步回答/重启恢复、原生 steer、实时/历史 mapper、app-server client，139 项。
 - happy-app：卡片、MessageView、消息分组、归一化、metadata、流式身份、Android runtime 契约，78 项。
 - 相关既有归一化、reducer 与主题回归，148 项。
+- 全量 CI 暴露的输入框测试夹具回归，15 项：补充 LegacySessionComposerModeSelector mock 和缺失的字体常量；不修改输入框产品逻辑。
 - App/CLI 类型检查、wire 构建及 CLI 构建通过。
 
 CLI 模拟连接测试必须隔离父进程的账号绑定环境。例如：
