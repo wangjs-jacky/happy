@@ -43,7 +43,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
     let disposed = false;
     const watchers = new Map<string, { watcher: FSWatcher; identity: string }>();
     const inFlight = new Map<string, Promise<SpawnSessionResult>>();
-    const transfers = new Map<string, { featurePath: string; taskId: string; directory: string; root: string; path: string; revision: string; expiresAt: number }>();
+    const transfers = new Map<string, { featurePath: string; taskId?: string; directory: string; root: string; path: string; revision: string; expiresAt: number }>();
     const catalog = async () => readCatalog(await discoverRoots(deps.workingDirectory, deps.homeDirectory));
     const entryFor = async (featurePath: string) => {
         if (disposed) throw new Error('Project workspace is closed');
@@ -218,8 +218,10 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
         inFlight.set(operationKey, operation);
         try { return await operation; } finally { inFlight.delete(operationKey); }
     };
-    const files = async (input: unknown, operation: 'list' | 'read' | 'write') => {
-        const data = taskInput.extend({ path: pathInput, content: z.string().max(3 * 1024 * 1024).optional(), expectedHash: z.string().optional(), offset: z.number().int().nonnegative().optional(), revision: z.string().max(200).optional(), transferId: z.string().uuid().optional() }).parse(input);
+    const files = async (input: unknown, operation: 'list' | 'read' | 'write', featureScope = false) => {
+        const data = z.object({ featurePath: pathInput, taskId: z.string().min(1).max(2048).optional(), path: pathInput, content: z.string().max(3 * 1024 * 1024).optional(), expectedHash: z.string().optional(), offset: z.number().int().nonnegative().optional(), revision: z.string().max(200).optional(), transferId: z.string().uuid().optional() }).parse(input);
+        if (featureScope) { if (operation === 'write' || data.taskId) throw new Error('Goal overview is read-only'); }
+        else taskInput.parse(data);
         let directory: string, root: string;
         const transfer = operation === 'read' && data.transferId ? transfers.get(data.transferId) : undefined;
         if (data.transferId) {
@@ -228,10 +230,11 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             if (await safePath(root, directory) !== directory) throw new Error('Task directory changed during transfer');
         } else {
             if ((data.offset ?? 0) !== 0) throw new Error('Start a file transfer at offset zero');
-            const selected = await taskFor(data); directory = selected.directory; root = selected.entry.root;
+            if (featureScope) { const entry = await entryFor(data.featurePath); directory = entry.featurePath; root = entry.root; }
+            else { const selected = await taskFor(data); directory = selected.directory; root = selected.entry.root; }
         }
         const path = await safePath(directory, data.path);
-        if (!within(directory, path)) throw new Error('File is outside this Task archive');
+        if (!within(directory, path)) throw new Error('File is outside this archive');
         const { createWorkspaceFileHandlers } = await import('../common/workspaceFiles');
         const handlers = createWorkspaceFileHandlers(directory, deps.getArtifactStore);
         if (operation === 'list') { await watchDirectories([path]); return handlers.list({ path }); }
@@ -339,6 +342,8 @@ export function registerProjectGoalHandlers(manager: { registerHandler(method: s
     manager.registerHandler('goalProjectAuthor', wrap(service.author));
     manager.registerHandler('goalTaskListDirectory', wrap(input => service.files(input, 'list')));
     manager.registerHandler('goalTaskReadFile', wrap(input => service.files(input, 'read')));
+    manager.registerHandler('goalFeatureListDirectory', wrap(input => service.files(input, 'list', true)));
+    manager.registerHandler('goalFeatureReadFile', wrap(input => service.files(input, 'read', true)));
     manager.registerHandler('goalTaskWriteFile', wrap(input => service.files(input, 'write')));
     manager.registerHandler('goalTaskApprove', wrap(service.approve));
     return service;

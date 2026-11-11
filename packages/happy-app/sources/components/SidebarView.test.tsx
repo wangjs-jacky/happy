@@ -248,6 +248,17 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
+    it.each(['sidebar-session-list-button', 'sidebar-archive-button'])('opens %s from the project workspace', testID => {
+        mocks.pathname = '/projects'; mocks.spaceAgent = null;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarView desktopDensity desktopPrimaryNavigation />); });
+        const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === testID);
+        act(() => button.props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith('/');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(testID === 'sidebar-archive-button' ? 'archive' : 'timeline');
+        act(() => renderer.unmount());
+    });
+
     it('ignores a persisted Agent space and renders the regular mobile sidebar', () => {
         let renderer: any;
         act(() => {

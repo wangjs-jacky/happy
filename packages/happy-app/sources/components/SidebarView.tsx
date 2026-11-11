@@ -438,14 +438,14 @@ export const SidebarView = React.memo(({
         setAppConversationsActive(false);
         setDesktopSidebarMode(desktopSidebarListMode);
         if (mobileNavigation) setMobilePanel('sessions');
-        else if (advisorSidebarActive || pathname.startsWith('/apps/conversations')) go('/');
+        else if (pathname === '/projects' || advisorSidebarActive || pathname.startsWith('/apps/conversations')) go('/');
     };
 
     const openArchive = () => {
         setAppConversationsActive(false);
         setDesktopSidebarMode('archive');
         if (mobileNavigation) setMobilePanel('sessions');
-        else if (pathname.startsWith('/apps/conversations')) go('/');
+        else if (pathname === '/projects' || pathname.startsWith('/apps/conversations')) go('/');
     };
 
     const openSettingsFromSidebar = React.useCallback(() => {

@@ -34,7 +34,7 @@ export function getProjectPreviewMachineId() {
 }
 export async function projectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
     const current = owner();
-    if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile'].includes(method)
+    if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile', 'goalFeatureListDirectory', 'goalFeatureReadFile'].includes(method)
         && !(method === 'goalTaskApprove' && canConfirmProjectDeliverable())) throw new Error(t('projectGoals.readOnlyArchive'));
     const transportMethod = isReadOnlyProjectPreview() ? `preview${method[0].toUpperCase()}${method.slice(1)}` : method;
     let response: T;
@@ -101,12 +101,18 @@ const mediaMime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg',
 export function projectTaskFiles(machineId: string, featurePath: string, task: GoalTask): FileWorkspaceBinding {
     const root = task.indexPath.replace(/[\\/][^\\/]+$/, '');
     const input = { featurePath, taskId: task.id };
+    return projectArchiveFiles(machineId, root, input, task.id);
+}
+export function projectFeatureFiles(machineId: string, featurePath: string): FileWorkspaceBinding {
+    return projectArchiveFiles(machineId, featurePath, { featurePath }, 'feature', true);
+}
+function projectArchiveFiles(machineId: string, root: string, input: { featurePath: string; taskId?: string }, scope: string, readOnly = false): FileWorkspaceBinding {
     const readBytes = async (path: string, signal?: AbortSignal) => {
         let offset = 0, revision: string | undefined, bytes: Uint8Array | undefined, transferId: string | undefined;
         // This is a finite file transfer, driven by byte offsets, not a task/status polling loop.
         do {
             signal?.throwIfAborted();
-            const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, 'goalTaskReadFile', { ...input, path, offset, revision, transferId }));
+            const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, readOnly ? 'goalFeatureReadFile' : 'goalTaskReadFile', { ...input, path, offset, revision, transferId }));
             signal?.throwIfAborted();
             if (result.offset !== offset || (revision && result.revision !== revision)) throw new Error('File changed during transfer');
             if (!bytes) bytes = new Uint8Array(result.size);
@@ -120,7 +126,7 @@ export function projectTaskFiles(machineId: string, featurePath: string, task: G
     return {
         // The provider already includes account, machine and canonical root in
         // its tuple. Avoid nested JSON here: MMKV rejects escaped backslashes.
-        root, machineId, scope: `${isReadOnlyProjectPreview() ? 'goal-preview-readonly' : 'goal-task'}:${task.id}`, readOnly: isReadOnlyProjectPreview(),
+        root, machineId, scope: `${isReadOnlyProjectPreview() ? 'goal-preview-readonly' : 'goal-task'}:${scope}`, readOnly: readOnly || isReadOnlyProjectPreview(),
         readBytes: async (path, signal) => (await readBytes(path, signal)).bytes,
         readText: async (path, signal) => {
             const { bytes, hash, fileRevision } = await readBytes(path, signal);
@@ -131,6 +137,7 @@ export function projectTaskFiles(machineId: string, featurePath: string, task: G
             return { content: new TextDecoder('utf-8', { fatal: true }).decode(bytes), hash, fileRevision };
         },
         writeText: async (path, content, expectedHash) => {
+            if (readOnly) throw new Error(t('projectGoals.readOnlyArchive'));
             let binary = ''; for (const byte of new TextEncoder().encode(content)) binary += String.fromCharCode(byte);
             const result = z.object({ success: z.literal(true), hash: z.string(), revision: z.string() }).parse(await projectGoalRequest(machineId, 'goalTaskWriteFile', { ...input, path, content: btoa(binary), expectedHash }));
             return { hash: result.hash, fileRevision: result.revision };
