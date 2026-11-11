@@ -9,7 +9,12 @@ vi.mock('@/auth/accountRuntime', () => ({ accountRuntimeCurrent: () => mock.curr
 vi.mock('@/sync/persistence', () => ({ loadProjectWorkspaceCache: () => mock.raw, saveProjectWorkspaceCache: (raw: string) => { mock.raw = raw; } }));
 vi.mock('@/sync/storage', () => ({ storage: vi.fn(), useMachine: vi.fn(), useSocketStatus: vi.fn() }));
 vi.mock('@/sync/projectGoals', () => ({ loadGoalProjects: vi.fn(), loadProjectGoalBoard: vi.fn() }));
-import { useCachedProjectResource } from './useProjectData';
+vi.mock('@/sync/sync', () => ({ sync: { refreshMachines: vi.fn() } }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
+import { useCachedProjectResource, useProjectData } from './useProjectData';
+import { storage, useMachine, useSocketStatus } from '@/sync/storage';
+import { sync } from '@/sync/sync';
+import { loadGoalProjects } from '@/sync/projectGoals';
 import { readProjectCache, writeProjectCache, removeProjectSessionFromCache, subscribeProjectSessionDeletions, getProjectSessionDeletionRevision, isProjectSessionDeleted } from '@/sync/projectWorkspaceCache';
 const schema = z.array(z.string());
 let renderer: any;
@@ -62,4 +67,25 @@ it('a cache-only 404 immediately removes the mounted conversation candidate', ()
     expect(visible).toBe(true);
     act(() => removeProjectSessionFromCache('only-cached'));
     expect(visible).toBe(false);
+});
+
+it('exposes a failed machine bootstrap and retries only after a user refresh', async () => {
+    let machinesStatus: 'loading' | 'error' = 'loading';
+    vi.mocked(storage).mockImplementation((select: any) => select({ machinesStatus, sessions: {} }));
+    vi.mocked(useMachine).mockReturnValue(null);
+    vi.mocked(useSocketStatus).mockReturnValue({ status: 'connected', lastConnectedAt: null, lastDisconnectedAt: null });
+    vi.mocked(sync.refreshMachines).mockResolvedValue(undefined);
+    let data!: ReturnType<typeof useProjectData>;
+    function Archive() { data = useProjectData('machine'); return null; }
+    act(() => { renderer = TestRenderer.create(<Archive />); });
+    expect(data.status).toBe('connecting');
+    expect(data.loading).toBe(true);
+    expect(sync.refreshMachines).not.toHaveBeenCalled();
+    machinesStatus = 'error';
+    act(() => renderer.update(<Archive />));
+    expect(data.status).toBe('error'); expect(data.error).toBeTruthy(); expect(data.canRetryMachine).toBe(true);
+    expect(data.loading).toBe(false);
+    await act(async () => { await data.refresh(); });
+    expect(sync.refreshMachines).toHaveBeenCalledTimes(1);
+    expect(loadGoalProjects).not.toHaveBeenCalled();
 });

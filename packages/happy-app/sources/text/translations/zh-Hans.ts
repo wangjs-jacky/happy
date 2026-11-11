@@ -24,6 +24,7 @@ export const zhHans: TranslationStructure = {
         loadingTasks: '任务清单',
         refreshing: '正在更新 · 保留上次内容',
         cachedContent: '显示上次读取的内容',
+        machineLoadFailed: '机器信息读取失败，请点刷新重试。',
 
         deliverableUnavailable: '产物暂不可用',
         confirmationHint: '产物是否通过由你确认；任务完成不会自动确认产物。',

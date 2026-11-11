@@ -6,6 +6,8 @@ import { loadGoalProjects, loadProjectGoalBoard } from '@/sync/projectGoals';
 import { projectBoardSchema, projectCatalogSchema, projectCacheKey, readProjectCache, writeProjectCache } from '@/sync/projectWorkspaceCache';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { projectCatalogState } from './projectMachine';
+import { sync } from '@/sync/sync';
+import { t } from '@/text';
 
 /** Cached content remains visible during a single event/user-triggered refresh. */
 export function useCachedProjectResource<T>(key: string, schema: z.ZodType<T>, read: () => Promise<T>, enabled: boolean, revision: string | undefined) {
@@ -40,6 +42,7 @@ export function useCachedProjectResource<T>(key: string, schema: z.ZodType<T>, r
 
 export function useProjectData(machineId: string, featurePath?: string) {
     const machine = useMachine(machineId);
+    const machinesStatus = storage(state => state.machinesStatus);
     const socket = useSocketStatus();
     const online = !!machine && isMachineOnline(machine);
     const connected = socket.status === 'connected';
@@ -55,11 +58,15 @@ export function useProjectData(machineId: string, featurePath?: string) {
     const readBoard = React.useCallback(() => loadProjectGoalBoard(machineId, featurePath!, boardRevision), [machineId, featurePath, generation, boardRevision]);
     const catalog = useCachedProjectResource(projectCacheKey('catalog', machineId), projectCatalogSchema, readCatalog, enabled, invalidation);
     const board = useCachedProjectResource(projectCacheKey('board', machineId, featurePath), projectBoardSchema, readBoard, enabled && !!featurePath, boardRevision);
-    const refresh = React.useCallback(async () => { await Promise.all([catalog.refresh(), ...(featurePath ? [board.refresh()] : [])]); }, [catalog.refresh, board.refresh, featurePath]);
+    const canRetryMachine = connected && !online && machinesStatus === 'error';
+    const refresh = React.useCallback(async () => {
+        if (canRetryMachine) { await sync.refreshMachines().catch(() => {}); return; }
+        await Promise.all([catalog.refresh(), ...(featurePath ? [board.refresh()] : [])]);
+    }, [canRetryMachine, catalog.refresh, board.refresh, featurePath]);
     const resource = featurePath ? board : catalog;
-    const error = resource.error || catalog.error;
+    const error = (!online && machinesStatus === 'error' ? t('projectGoals.machineLoadFailed') : null) || resource.error || catalog.error;
     return { projects: catalog.value ?? [], board: featurePath ? board.value : null,
-        loading: resource.loading, error, refresh, offline: !online || !connected, loaded: catalog.value !== null,
+        loading: resource.loading || (connected && !online && machinesStatus === 'loading'), error, refresh, canRetryMachine, offline: !online || !connected, loaded: catalog.value !== null,
         contentLoaded: resource.value !== null, stale: resource.value !== null && (!resource.fresh || resource.loading),
-        status: projectCatalogState({ connected, online, loading: resource.loading, loaded: resource.value !== null, error }) };
+        status: projectCatalogState({ connected, online, machinesStatus, loading: resource.loading, loaded: resource.value !== null, error }) };
 }

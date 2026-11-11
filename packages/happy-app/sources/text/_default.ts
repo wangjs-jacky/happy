@@ -21,6 +21,7 @@ export const en = {
         loadingTasks: 'Task list',
         refreshing: 'Updating · showing saved content',
         cachedContent: 'Showing saved content',
+        machineLoadFailed: 'Could not load machines. Use Refresh to retry.',
 
         deliverableUnavailable: 'This deliverable is unavailable',
         confirmationHint: 'Only your confirmation approves a deliverable. A completed task does not confirm its outputs.',
