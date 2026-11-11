@@ -68,7 +68,9 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
         const resolved = saved && resolveSessionFilePath(saved.path, root);
         return saved && resolved?.withinSessionRoot ? { ...saved, path: resolved.absolutePath } : null;
     });
-    const [chatWidth, setChatWidth] = React.useState(initial.width);
+    const [chatWidth, updateChatWidth] = React.useState(initial.width);
+    const [chatWidthCustomized, setChatWidthCustomized] = React.useState(initial.widthCustomized ?? false);
+    const setChatWidth = React.useCallback((width: number) => { updateChatWidth(width); setChatWidthCustomized(true); }, []);
     const [maximized, setMaximized] = React.useState(false);
     const [openRequestId, setOpenRequestId] = React.useState(0);
     const restored = React.useRef(false);
@@ -93,8 +95,8 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
         return () => { queueMicrotask(() => { if (lifetime.current === token) {lifetime.current = null; eventRefresh.dispose(); controller.dispose(); versions.dispose(); restoration.finish();} }); };
     }, [controller, versions, eventRefresh, restoration]);
     React.useEffect(() => {
-        if (restored.current && !restoring && accountRuntimeCurrent()) saveFileWorkspaceUI(scope, { tabs: snapshot.tabs, active: snapshot.active, open: snapshot.open, width: chatWidth });
-    }, [scope, restoring, snapshot.tabs, snapshot.active, snapshot.open, chatWidth]);
+        if (restored.current && !restoring && accountRuntimeCurrent()) saveFileWorkspaceUI(scope, { tabs: snapshot.tabs, active: snapshot.active, open: snapshot.open, width: chatWidth, widthCustomized: chatWidthCustomized });
+    }, [scope, restoring, snapshot.tabs, snapshot.active, snapshot.open, chatWidth, chatWidthCustomized]);
     React.useEffect(() => {
         if (restoring || !restored.current || !accountRuntimeCurrent()) return;
         try { setDraftCacheError(!saveFileWorkspaceDrafts(scope, controller.exportDrafts())); } catch { setDraftCacheError(true); }
@@ -173,5 +175,5 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
         setOpenRequestId(value => value + 1);
         try { await controller.open(resolved.absolutePath); } catch (error) { Modal.alert(t('fileWorkspace.title'), error instanceof Error && error.message === 'FILE_WORKSPACE_TAB_LIMIT' ? t('fileWorkspace.tooManyTabs') : String(error)); }
     }, [controller, enabled, root, sessionId, restoration]);
-    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, chatWidthCustomized, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

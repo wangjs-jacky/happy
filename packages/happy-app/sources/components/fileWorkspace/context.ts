@@ -14,7 +14,7 @@ export type FileWorkspaceContextValue = {
     enabled: boolean; root: string; controller: FileWorkspaceController; snapshot: FileWorkspaceSnapshot;
     reference: FileReference | null; setReference: React.Dispatch<React.SetStateAction<FileReference | null>>;
     openReference: (path: string) => Promise<void>;
-    chatWidth: number; setChatWidth: (width: number) => void;
+    chatWidth: number; chatWidthCustomized?: boolean; setChatWidth: (width: number) => void;
     maximized: boolean; setMaximized: (value: boolean) => void;
 };
 export const FileWorkspaceContext = React.createContext<FileWorkspaceContextValue | null>(null);

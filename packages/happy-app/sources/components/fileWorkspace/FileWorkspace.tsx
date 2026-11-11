@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { CodeEditor } from '@/components/CodeEditor';
 import { Modal } from '@/modal';
@@ -19,7 +19,7 @@ import { WorkspaceButton as Button } from './WorkspaceButton';
 import { documentBodyStyle, documentScrollStyle, workspaceChatMinWidth, workspaceResizeWidth } from './documentPresentation';
 
 const language = (path: string) => ({ md: 'markdown', mdx: 'markdown', html: 'html', htm: 'html', js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', css: 'css', json: 'json', yml: 'yaml', yaml: 'yaml', py: 'python', sh: 'bash', svg: 'xml' }[path.split('.').pop()?.toLowerCase() ?? ''] ?? null);
-export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }: { sessionId: string; fileTreeExpanded?: boolean; onToggleFileTree?: () => void }) {
+export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree, framed = false }: { sessionId: string; fileTreeExpanded?: boolean; onToggleFileTree?: () => void; framed?: boolean }) {
     const workspace = useFileWorkspace();
     const { theme } = useUnistyles();
     const desktopSkinId = useLocalSetting('desktopSkinId');
@@ -79,9 +79,9 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
         const url = URL.createObjectURL(document.media ? new Blob([document.media.bytes as BlobPart], { type: document.media.mime }) : new Blob([document.phase === 'ready' ? document.draft : cachedDraft?.draft ?? ''], { type: 'text/plain;charset=utf-8' }));
         const anchor = globalThis.document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.click(); URL.revokeObjectURL(url);
     };
-    return <View testID="file-workspace" onLayout={event => setWorkspaceWidth(Math.round(event.nativeEvent.layout.width))} style={{ flex: 1, minWidth: 0, minHeight: 0, backgroundColor: photoSkin ? (reducedTransparency ? theme.colors.desktopSkin.readingSolid : theme.colors.desktopSkin.readingWide) : theme.colors.surface, borderRadius: 20, overflow: 'hidden' }} {...({ onKeyDown: (event: any) => { if (workspace.readOnly || historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
+    return <View testID="file-workspace" onLayout={event => setWorkspaceWidth(Math.round(event.nativeEvent.layout.width))} style={{ flex: 1, minWidth: 0, minHeight: 0, backgroundColor: photoSkin ? (reducedTransparency ? theme.colors.desktopSkin.readingSolid : theme.colors.desktopSkin.readingWide) : theme.colors.surface, borderRadius: framed ? 13 : 20, borderWidth: framed ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider, overflow: 'hidden' }} {...({ onKeyDown: (event: any) => { if (workspace.readOnly || historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
         <View style={{flex:1,minHeight:0}} {...(historyPath === path ? {"aria-hidden":true,inert:true} : {}) as any}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, backgroundColor: photoSkin ? 'transparent' : theme.colors.surface, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: framed ? 48 : 46, backgroundColor: photoSkin ? 'transparent' : theme.colors.surface, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
             <ScrollView horizontal style={{ flex: 1, minWidth: 0 }} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 6 }}>
                 {snapshot.tabs.map(file => <View key={file} {...(Platform.OS === 'web' ? {
                     tabIndex: 0,

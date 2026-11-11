@@ -65,12 +65,14 @@ describe('workspace owner in real session lifecycle', () => {
         await act(async () => { renderer = TestRenderer.create(taskNode('discussion-one')); await tick(); });
         try {
             const controller = value.controller;
+            expect(value.chatWidthCustomized).toBe(false);
             await act(async () => { controller.edit('/archive/task/result.md', '# My unsaved review'); value.setChatWidth(390); value.setReference({ path: '/archive/task/result.md', hash: 'first' }); await tick(); });
             await act(async () => { renderer.update(taskNode('discussion-two')); await tick(); });
             expect(value.controller).toBe(controller);
             expect(value.sessionId).toBe('discussion-two');
             expect(value.snapshot).toMatchObject({ active: '/archive/task/result.md', open: true, documents: { '/archive/task/result.md': { draft: '# My unsaved review', fileRevision: 'version-one' } } });
             expect(value.chatWidth).toBe(390);
+            expect(value.chatWidthCustomized).toBe(true);
             expect(value.reference?.path).toBe('/archive/task/result.md');
             expect(binding.readText).toHaveBeenCalledTimes(1);
             expect(mocks.reads).not.toHaveBeenCalled();
