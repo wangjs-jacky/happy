@@ -27,6 +27,8 @@ export const it: TranslationStructure = {
         scopeIndex: "Apri index.md",
         overviewUnavailable: "Obiettivo generale non disponibile",
         overviewChatHint: "Discuti gli obiettivi e organizza le attività in questo ambito. Il lavoro inizierà solo dopo l’invio di un messaggio.",
+        mobileChat: "Chat",
+        chooseChat: "Apri conversazione",
         collapseTasks: "Comprimi elenco attività",
         showTasks: "Espandi elenco attività",
         emptyConversationEyebrow: "Conversazione sull’attività",

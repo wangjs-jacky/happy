@@ -27,6 +27,8 @@ export const ca: TranslationStructure = {
         scopeIndex: "Obre index.md",
         overviewUnavailable: "Objectiu general no disponible",
         overviewChatHint: "Parla dels objectius i organitza les tasques d’aquest àmbit. La feina només començarà quan enviïs un missatge.",
+        mobileChat: "Xat",
+        chooseChat: "Obre una conversa",
         collapseTasks: "Contreu la llista de tasques",
         showTasks: "Expandeix la llista de tasques",
         emptyConversationEyebrow: "Conversa de la tasca",

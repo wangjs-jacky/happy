@@ -28,6 +28,8 @@ export const zhHans: TranslationStructure = {
         scopeIndex: "打开 index.md",
         overviewUnavailable: "全局目标暂不可用",
         overviewChatHint: "在当前范围讨论目标和整理任务；只有发送后才会执行。",
+        mobileChat: "对话",
+        chooseChat: "打开对话",
         sessionUnavailable: '暂时无法读取这段对话，请检查连接或从历史中选择其他对话。',
         loadingArchive: '正在读取这台机器的项目…',
         loadingTasks: '任务清单',

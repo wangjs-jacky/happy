@@ -3,7 +3,8 @@ import { act } from 'react';
 // @ts-expect-error react-test-renderer has no declarations.
 import TestRenderer from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ history: [] as any[], sessions: {} as Record<string, any>, owner: { key: 'account' } }));
+const mock = vi.hoisted(() => ({ history: [] as any[], sessions: {} as Record<string, any>, owner: { key: 'account' }, blur: undefined as undefined | (() => void) }));
+vi.mock('expo-router', async () => { const React = await import('react'); return { useFocusEffect: (callback: () => (() => void)) => React.useEffect(() => { const cleanup = callback(); mock.blur = cleanup; return cleanup; }, [callback]) }; });
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', ScrollView: 'ScrollView', ActivityIndicator: 'Spinner', useWindowDimensions: () => ({ width: 1680 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon' }));
 vi.mock('react-native-unistyles', () => { const theme = { colors: { text: 'text', textLink: 'link', textSecondary: 'secondary', textDestructive: 'error', divider: 'divider' } }; return { useUnistyles: () => ({ theme }), StyleSheet: { create: (f: any) => f(theme) } }; });
@@ -41,3 +42,24 @@ it('explicit open resumes the scope history without creating a conversation', as
 it('a verified new empty session is reused while server history catches up', async () => { const press = setup(); await act(async () => { press(); press(); }); await act(async () => { press(); }); expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1); expect(select.mock.calls.map(call => call[0])).toEqual(['new-empty', 'new-empty']); });
 it('failed history never creates a new conversation', async () => { vi.mocked(loadProjectScopeHistory).mockRejectedValue(new Error('History unavailable')); const press = setup(); await act(async () => { press(); }); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); });
 it('cached global association cannot render a session explicitly rebound to a Task', () => { mock.history = [session]; mock.sessions.existing = { metadata: { machineId: 'machine', path: '/scope', goalBoard: { featurePath: '/scope', taskId: 'sibling' } } }; setup('existing'); expect(renderer.root.findAllByType('Session')).toHaveLength(0); });
+
+it('leaving the screen during history lookup prevents late creation and navigation', async () => {
+    let resolve!: (sessions: any[]) => void;
+    vi.mocked(loadProjectScopeHistory).mockReturnValue(new Promise(done => { resolve = done; }));
+    const press = setup();
+    act(() => { press(); });
+    act(() => { mock.blur?.(); });
+    await act(async () => { resolve([]); });
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+});
+it('leaving the screen during creation prevents a late session from changing the route', async () => {
+    let resolve!: (result: any) => void;
+    vi.mocked(machineStartGoalAuthor).mockReturnValue(new Promise(done => { resolve = done; }));
+    const press = setup();
+    await act(async () => { press(); });
+    expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1);
+    act(() => { mock.blur?.(); });
+    await act(async () => { resolve({ type: 'success', sessionId: 'new-empty' }); });
+    expect(select).not.toHaveBeenCalled();
+});

@@ -5,16 +5,16 @@ import { PanelTabs } from '@/components/PanelTabs';
 import { t } from '@/text';
 
 /** Scope and Task share the same right-column frame and file-tab semantics. */
-export function ProjectDetailsPanel({ header, tab, onTab, children, footer, testID, style }: {
+export function ProjectDetailsPanel({ header, tab, onTab, children, footer, testID, style, showTabs = true }: {
     header: React.ReactNode; tab: string; onTab: (value: string) => void;
-    children: React.ReactNode; footer: React.ReactNode; testID: string; style?: any;
+    children: React.ReactNode; footer: React.ReactNode; testID: string; style?: any; showTabs?: boolean;
 }) {
     return <View style={[styles.panel, style]} testID={testID}>
         <View style={styles.header}>{header}</View>
-        <View style={styles.tabs}><PanelTabs activeTab={tab} onTabChange={onTab} testIDPrefix={testID === 'project-task-panel' ? 'project-task' : 'project-scope'} tabs={[
+        {showTabs && <View style={styles.tabs}><PanelTabs activeTab={tab} onTabChange={onTab} testIDPrefix={testID === 'project-task-panel' ? 'project-task' : 'project-scope'} tabs={[
             { key: 'details', label: t('projectGoals.details'), icon: 'document-text-outline' },
             { key: 'files', label: t('projectGoals.files'), icon: 'folder-outline' },
-        ]} /></View>
+        ]} /></View>}
         {children}
         <View style={styles.footer}>{footer}</View>
     </View>;

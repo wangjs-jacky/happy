@@ -29,6 +29,8 @@ export const zhHant: TranslationStructure = {
         scopeIndex: "開啟 index.md",
         overviewUnavailable: "全域目標暫時無法使用",
         overviewChatHint: "在目前範圍討論目標及整理任務；只有傳送後才會執行。",
+        mobileChat: "對話",
+        chooseChat: "開啟對話",
         collapseTasks: "收起任務清單",
         showTasks: "展開任務清單",
         emptyConversationEyebrow: "任務對話",

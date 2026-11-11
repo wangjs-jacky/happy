@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GoalProjectSchema, GoalScopeOverviewSchema, GoalBoardSnapshotSchema, GoalTaskSessionSchema, type GoalTask, type GoalBoardSnapshot } from '@slopus/happy-wire';
+import { projectFileHash } from './projectFileHash';
 import { assertAccountRuntime, getRuntimeAccountSelection } from '@/auth/accountRuntime';
 import { isProjectSessionDeleted } from './projectSessionLinks';
 import { apiSocket } from './apiSocket';
@@ -156,7 +157,7 @@ function projectArchiveFiles(machineId: string, featurePath: string, root: strin
             if (offset + chunk.length > bytes.length || (!chunk.length && offset < bytes.length)) throw new Error('Incomplete file transfer');
             bytes.set(chunk, offset); offset += chunk.length; revision = result.revision; transferId = result.transferId;
         } while (offset < bytes.length);
-        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+        const hash = await projectFileHash(bytes);
         return { bytes, hash, fileRevision: revision };
     };
     return {

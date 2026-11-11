@@ -26,6 +26,8 @@ export const en = {
         overviewUnavailable: 'Global goals are currently unavailable',
         overviewChatHint: 'Discuss goals and organize tasks in this scope. Work begins only after you send a message.',
 
+        mobileChat: "Chat",
+        chooseChat: "Open conversation",
         sessionUnavailable: 'This conversation could not be loaded. Check the connection or choose another conversation from history.',
         loadingArchive: 'Loading projects from this machine…',
         loadingTasks: 'Task list',

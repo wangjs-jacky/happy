@@ -30,6 +30,8 @@ export const ja: TranslationStructure = {
         scopeIndex: "index.md を開く",
         overviewUnavailable: "全体の目標を取得できません",
         overviewChatHint: "この範囲で目標について相談し、タスクを整理できます。メッセージを送信するまで実行されません。",
+        mobileChat: "会話",
+        chooseChat: "会話を開く",
         collapseTasks: "タスク一覧を折りたたむ",
         showTasks: "タスク一覧を展開",
         emptyConversationEyebrow: "タスクの会話",

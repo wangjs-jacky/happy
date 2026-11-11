@@ -38,6 +38,8 @@ export const ru: TranslationStructure = {
         scopeIndex: "Открыть index.md",
         overviewUnavailable: "Общая цель недоступна",
         overviewChatHint: "Обсуждайте цели и упорядочивайте задачи в текущем разделе. Работа начнётся только после отправки сообщения.",
+        mobileChat: "Чат",
+        chooseChat: "Открыть чат",
         collapseTasks: "Свернуть список задач",
         showTasks: "Развернуть список задач",
         emptyConversationEyebrow: "Обсуждение задачи",

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { GoalScopeOverviewSchema, type GoalTaskSession } from '@slopus/happy-wire';
@@ -60,6 +61,8 @@ function OverviewContent(props: ProjectOverviewProps) {
     const split = wide && canSplitProjectFile(rowWidth, rightWidth, props.navigation ? 244 : 0);
     const alive = React.useRef(true);
     const opening = React.useRef(false);
+    const focus = React.useRef(0);
+    useFocusEffect(React.useCallback(() => { focus.current++; return () => { focus.current++; }; }, []));
     const latestConversation = React.useRef(props.conversationId); latestConversation.current = props.conversationId;
     const attempt = React.useRef<string | undefined>(undefined);
     React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -68,13 +71,14 @@ function OverviewContent(props: ProjectOverviewProps) {
         if (opening.current) return;
         // Always verify the scope's own history before creating anything.
         opening.current = true; setBusy(true); setError(null);
-        const owner = getRuntimeAccountSelection(), requestedConversation = latestConversation.current;
+        const owner = getRuntimeAccountSelection(), requestedConversation = latestConversation.current, epoch = focus.current;
+        const isCurrent = () => alive.current && focus.current === epoch && getRuntimeAccountSelection() === owner && latestConversation.current === requestedConversation;
         try {
             const fresh = offline ? [] : await loadProjectScopeHistory(machineId, scopePath);
             const sessions = [...new Map([...history, ...fresh].map(session => [session.sessionId, session])).values()]
                 .filter(session => session.directory === scopePath && !isProjectSessionDeleted(session.sessionId))
                 .sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId));
-            if (!alive.current || getRuntimeAccountSelection() !== owner || latestConversation.current !== requestedConversation) return;
+            if (!isCurrent()) return;
             let id = sessions[0]?.sessionId;
             if (!id) {
                 if (offline || !canCreateProjectConversation()) return;
@@ -83,12 +87,12 @@ function OverviewContent(props: ProjectOverviewProps) {
                 if (result.type !== 'success') throw new Error(result.type === 'error' ? result.errorMessage : t('projectGoals.overviewUnavailable'));
                 id = result.sessionId;
             }
-            if (!alive.current || getRuntimeAccountSelection() !== owner || latestConversation.current !== requestedConversation) return;
+            if (!isCurrent()) return;
             const linked = sessions.find(session => session.sessionId === id) ?? { sessionId: id, title: props.title, directory: scopePath, updatedAt: Date.now(), executed: false };
             setLocalHistory(values => [...values.filter(session => session.sessionId !== id), linked]);
             writeProjectCache(projectCacheKey('history', machineId, scopePath), { sessions: [linked, ...sessions.filter(session => session.sessionId !== id)] });
             props.selectConversation(id); setCenter('chat'); attempt.current = undefined;
-        } catch (error) { if (alive.current) setError(error instanceof Error ? error.message : String(error)); }
+        } catch (error) { if (isCurrent()) setError(error instanceof Error ? error.message : String(error)); }
         finally { opening.current = false; if (alive.current) setBusy(false); }
     };
     const listDirectory = React.useCallback(async (_sessionId: string, path: string) => {
