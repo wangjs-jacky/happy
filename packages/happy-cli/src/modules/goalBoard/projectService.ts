@@ -18,6 +18,7 @@ export type ProjectGoalDependencies = {
     homeDirectory?: string;
     workingDirectory: string;
     storageDirectory: string;
+    observe?: boolean;
     spawn: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
     send: (sessionId: string, prompt: string, localId: string) => Promise<void>;
     history: (featurePath: string, tasks: Array<{ id: string; directory: string; title?: string }>) => Promise<ProjectSession[]>;
@@ -86,6 +87,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
     };
     const receiptFor = async (directory: string) => readJSON<Receipt>(join(await stateDirectory(directory), 'execution.json'));
     const watchDirectories = async (directories: string[]) => {
+        if (deps.observe === false) return;
         // Bounded event subscriptions can cover several clients without one client's selection replacing another's.
         for (const directory of directories) {
             try {

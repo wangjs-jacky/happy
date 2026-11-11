@@ -18,6 +18,7 @@ import { FileWorkspaceContext, type FileReference } from './context';
 
 export type FileWorkspaceBinding = {
     root: string; scope: string; machineId: string;
+    readOnly?: boolean;
     readBytes: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
     readText: (path: string, signal?: AbortSignal) => Promise<{ content: string; hash: string; media?: import('./controller').FileDocument['media']; fileRevision?: string }>;
     writeText: (path: string, content: string, hash: string) => Promise<{ hash: string; fileRevision?: string }>;
@@ -44,12 +45,13 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const controller = React.useMemo(() => new FileWorkspaceController({ root,
         read: async (path, signal) => {
             const content = await (binding ? binding.readText(path, signal) : readWorkspaceText(transportSession.current, path));
-            if (machineId && /\.(md|markdown|html?)$/i.test(path)) {
+            if (!binding?.readOnly && machineId && /\.(md|markdown|html?)$/i.test(path)) {
                 void versions.current(path).catch(() => {});
             }
             return content;
         },
         write: (path, content, hash) => {
+            if (binding?.readOnly) throw new Error(t('projectGoals.readOnlyArchive'));
             if (versions.state(path).pending) throw new Error(t('fileWorkspace.historyPending'));
             return versions.state(path).artifact ? versions.save(path, content, hash) : binding ? binding.writeText(path, content, hash) : writeWorkspaceText(transportSession.current, path, content, hash);
         }, isCurrent: accountRuntimeCurrent,
@@ -58,7 +60,7 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const eventRefresh = React.useMemo(() => new EventRefreshQueue(async path => {
         await controller.refresh(path);
         if (versions.state(path).artifact) await versions.load(path, false, false);
-    }), [controller, versions]);
+    }), [controller, versions, binding?.readOnly]);
     const [draftCacheError, setDraftCacheError] = React.useState(false);
     const [referenceCacheError, setReferenceCacheError] = React.useState(false);
     const [reference, setReference] = React.useState<FileReference | null>(() => {
@@ -140,7 +142,7 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     }, [changeSignature, controller, versions, eventRefresh]);
     const restoreVersion = React.useCallback(async (path: string, action?: 'inspect' | 'resume' | 'rollback' | 'retry', selection?: RestoreSelection) => {
         const doc = controller.getSnapshot().documents[path];
-        if (!doc || doc.saving || (!action && doc.draft !== doc.content)) return false;
+        if (binding?.readOnly || !doc || doc.saving || (!action && doc.draft !== doc.content)) return false;
         setReference(value => value?.path === path ? null : value);
         const success = action === 'inspect' ? await versions.inspect(path) : action === 'retry' ? await versions.retryOperation(path) : action ? await versions.resolve(path, action) : await versions.restore(path, selection);
         if (success) {
@@ -152,7 +154,7 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
             if (current && entry && controller.getSnapshot().active === path) setReference({path,hash:entry.sha256,artifact:{workspaceId:current.artifact.workspaceId,artifactId:current.artifact.id,expectedRevision:current.workingRevision,...(current.readRef.kind === 'version' ? {versionId:current.readRef.versionId} : {})}});
         }
         return success;
-    }, [controller, versions]);
+    }, [controller, versions, binding?.readOnly]);
     const openReference = React.useCallback(async (raw: string) => {
         if (!enabled || !root || !accountRuntimeCurrent()) return;
         let path = raw;
@@ -171,5 +173,5 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
         setOpenRequestId(value => value + 1);
         try { await controller.open(resolved.absolutePath); } catch (error) { Modal.alert(t('fileWorkspace.title'), error instanceof Error && error.message === 'FILE_WORKSPACE_TAB_LIMIT' ? t('fileWorkspace.tooManyTabs') : String(error)); }
     }, [controller, enabled, root, sessionId, restoration]);
-    return <FileWorkspaceContext.Provider value={{ sessionId, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

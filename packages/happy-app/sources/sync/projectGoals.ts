@@ -21,10 +21,13 @@ function owner() {
     const account = getRuntimeAccountSelection();
     return JSON.stringify([account?.key, account?.generation, account?.serverUrl]);
 }
+export function isReadOnlyProjectPreview() { return (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean } }).__HAPPY_CONFIG__?.goalProjectReadOnly === true; }
 export async function projectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
     const current = owner();
+    if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile'].includes(method)) throw new Error(t('projectGoals.readOnlyArchive'));
+    const transportMethod = isReadOnlyProjectPreview() ? `preview${method[0].toUpperCase()}${method.slice(1)}` : method;
     let response: T;
-    try { response = await apiSocket.machineRPC<T, unknown>(machineId, method, input); }
+    try { response = await apiSocket.machineRPC<T, unknown>(machineId, transportMethod, input); }
     catch (error) {
         if (/method.*not found|unknown.*method|not.*registered/i.test(error instanceof Error ? error.message : String(error))) throw new Error(t('projectGoals.unsupported'));
         throw error;
@@ -45,6 +48,7 @@ export async function loadProjectGoalBoard(machineId: string, featurePath: strin
     return result;
 }
 export async function launchProjectGoalTask(machineId: string, featurePath: string, task: GoalTask, action: 'chat' | 'execute', requestId: string, agent: 'codex' | 'claude') {
+    if (isReadOnlyProjectPreview()) throw new ProjectGoalLaunchError(t('projectGoals.readOnlyArchive'), true);
     const current = owner();
     const result = await machineStartGoalTask(machineId, { featurePath, taskId: task.id, action, requestId, agent });
     if (owner() !== current) throw new Error('Project launch account changed');
@@ -54,8 +58,9 @@ export async function launchProjectGoalTask(machineId: string, featurePath: stri
 const fileResponse = z.object({ success: z.literal(true), content: z.string().max(90 * 1024), size: z.number().int().nonnegative().max(50 * 1024 * 1024), revision: z.string().max(200), offset: z.number().int().nonnegative() });
 const historyCursor = z.object({ sessionId: z.string(), updatedAt: z.number() });
 export type ProjectHistoryCursor = z.infer<typeof historyCursor>;
-export async function loadProjectTaskHistory(machineId: string, featurePath: string, taskId: string, cursor?: ProjectHistoryCursor) {
-    return z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25), nextCursor: historyCursor.optional() }).parse(await projectGoalRequest(machineId, 'goalTaskHistory', { featurePath, taskId, cursor }));
+export type ProjectHistoryCandidate = z.infer<typeof GoalTaskSessionSchema> & { featurePath?: string; taskId?: string };
+export async function loadProjectTaskHistory(machineId: string, featurePath: string, taskId: string, cursor?: ProjectHistoryCursor, candidates?: ProjectHistoryCandidate[]) {
+    return z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25), nextCursor: historyCursor.optional() }).parse(await projectGoalRequest(machineId, 'goalTaskHistory', { featurePath, taskId, cursor, ...(isReadOnlyProjectPreview() ? { candidates: candidates ?? [] } : {}) }));
 }
 export function latestProjectTaskConversation(sessions: z.infer<typeof GoalTaskSessionSchema>[], directory: string) {
     const normalized = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -102,7 +107,7 @@ export function projectTaskFiles(machineId: string, featurePath: string, task: G
     return {
         // The provider already includes account, machine and canonical root in
         // its tuple. Avoid nested JSON here: MMKV rejects escaped backslashes.
-        root, machineId, scope: `goal-task:${task.id}`,
+        root, machineId, scope: `${isReadOnlyProjectPreview() ? 'goal-preview-readonly' : 'goal-task'}:${task.id}`, readOnly: isReadOnlyProjectPreview(),
         readBytes: async (path, signal) => (await readBytes(path, signal)).bytes,
         readText: async (path, signal) => {
             const { bytes, hash, fileRevision } = await readBytes(path, signal);

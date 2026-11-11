@@ -1,13 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GoalTask } from '@slopus/happy-wire';
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), launch: vi.fn(), account: { key: 'test', generation: 0, serverUrl: 'http://fixture' } }));
 vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
 vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
-import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation } from './projectGoals';
+import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
 beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.account.generation++; });
+afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; });
+describe('actual archive preview transport', () => {
+    it('reads the real machine through a separate read-only RPC namespace', async () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true };
+        mocks.rpc.mockResolvedValue({ success: true, projects: [] });
+        await loadGoalProjects('actual-machine');
+        expect(mocks.rpc).toHaveBeenCalledWith('actual-machine', 'previewGoalProjects', {});
+    });
+    it('cannot launch a session or task through the read-only preview', async () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true };
+        mocks.launch.mockResolvedValue({ type: 'success', sessionId: 'must-not-create' });
+        await expect(launchProjectGoalTask('actual-machine', '/archive', task, 'chat', 'request', 'codex')).rejects.toThrow();
+        expect(mocks.launch).not.toHaveBeenCalled();
+    });
+});
 describe('project Task transport and conservative attempt state', () => {
     it('produces a Task workspace identity that can be persisted by MMKV', () => {
         const binding = projectTaskFiles('machine', '/archive', task);

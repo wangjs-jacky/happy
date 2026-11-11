@@ -36,8 +36,8 @@ export const GoalBoardButton = React.memo(React.forwardRef<View, GoalBoardButton
         style={(state: { pressed: boolean; hovered?: boolean }) => [
             styles.base,
             variant === 'card' ? styles.card : variant === 'row' ? styles.row : variant === 'chip' ? styles.chip : variant === 'primary' ? styles.primary : variant === 'toolbar' ? styles.toolbar : styles.plain,
-            selected ? styles.selected : undefined,
-            !disabled && (state.pressed || state.hovered || hovered) ? styles.pressed : undefined,
+            variant !== 'card' && selected ? styles.selected : undefined,
+            variant !== 'card' && !disabled && (state.pressed || state.hovered || hovered) ? styles.pressed : undefined,
             focused ? styles.focused : undefined,
             disabled ? styles.disabled : undefined,
         ]}
@@ -48,7 +48,7 @@ const styles = StyleSheet.create((theme) => ({
     base: { minHeight: 36, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.surface, backgroundColor: theme.colors.surface,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 7 },
     plain: {},
-    card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', paddingHorizontal: 0, paddingVertical: 0, borderColor: 'transparent', backgroundColor: 'transparent', borderRadius: 13, overflow: 'hidden', width: '100%' },
+    card: { flexGrow: 1, flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', paddingHorizontal: 0, paddingVertical: 0, borderColor: 'transparent', backgroundColor: 'transparent', borderRadius: 13, overflow: 'hidden', width: '100%' },
     chip: { borderRadius: 999, paddingHorizontal: 10 },
     // Header actions sit on the active header/skin instead of adding a solid chip.
     toolbar: { borderColor: 'transparent', backgroundColor: 'transparent', borderRadius: 10, paddingHorizontal: 10 },

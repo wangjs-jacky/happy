@@ -76,6 +76,22 @@ describe('workspace owner in real session lifecycle', () => {
             expect(mocks.reads).not.toHaveBeenCalled();
         } finally { await act(async () => { renderer.unmount(); await tick(); }); }
     });
+    it('reads a real archive binding without version discovery and blocks save and restore', async () => {
+        mocks.socket = 'connected'; mocks.uiTabs = ['/archive/task/result.md'];
+        const binding = { root: '/archive/task', scope: 'readonly-task', machineId: 'machine', readOnly: true,
+            readBytes: vi.fn(), readText: vi.fn(async () => ({ content: '# Original', hash: 'original' })), writeText: vi.fn() };
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionFileWorkspaceProvider sessionId="" binding={binding}><Probe /></SessionFileWorkspaceProvider>); await tick(); });
+        try {
+            expect(value.readOnly).toBe(true);
+            expect(value.snapshot.documents['/archive/task/result.md'].content).toBe('# Original');
+            expect(mocks.artifacts).not.toHaveBeenCalled();
+            await act(async () => { value.controller.edit('/archive/task/result.md', '# Attempted'); await value.controller.save('/archive/task/result.md'); await tick(); });
+            expect(binding.writeText).not.toHaveBeenCalled();
+            expect(await value.restoreVersion('/archive/task/result.md')).toBe(false);
+            expect(mocks.artifacts).not.toHaveBeenCalled();
+        } finally { await act(async () => { renderer.unmount(); await tick(); }); }
+    });
     it('renders file content while version discovery is still waiting', async () => {
         mocks.socket = 'connected';
         mocks.artifacts.mockReturnValue(new Promise(() => {}));
