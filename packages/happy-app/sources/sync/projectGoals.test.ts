@@ -5,11 +5,17 @@ vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
 vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
-import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects } from './projectGoals';
+import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
 beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.account.generation++; });
 afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; });
 describe('actual archive preview transport', () => {
+    it('uses the configured archive owner only in the read-only preview', () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true, goalProjectMachineId: 'actual-machine' };
+        expect(getProjectPreviewMachineId()).toBe('actual-machine');
+        (globalThis as any).__HAPPY_CONFIG__.goalProjectReadOnly = false;
+        expect(getProjectPreviewMachineId()).toBeUndefined();
+    });
     it('reads the real machine through a separate read-only RPC namespace', async () => {
         (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true };
         mocks.rpc.mockResolvedValue({ success: true, projects: [] });

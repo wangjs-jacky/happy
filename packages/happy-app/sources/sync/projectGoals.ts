@@ -22,6 +22,10 @@ function owner() {
     return JSON.stringify([account?.key, account?.generation, account?.serverUrl]);
 }
 export function isReadOnlyProjectPreview() { return (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean } }).__HAPPY_CONFIG__?.goalProjectReadOnly === true; }
+export function getProjectPreviewMachineId() {
+    const config = (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean; goalProjectMachineId?: string } }).__HAPPY_CONFIG__;
+    return config?.goalProjectReadOnly === true ? config.goalProjectMachineId : undefined;
+}
 export async function projectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
     const current = owner();
     if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile'].includes(method)) throw new Error(t('projectGoals.readOnlyArchive'));

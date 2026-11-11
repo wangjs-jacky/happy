@@ -30,6 +30,8 @@ import { GoalBoardCard } from './GoalBoardCard';
 import { RunningTaskBorder } from './RunningTaskBorder';
 import { ProjectGallery } from './ProjectGallery';
 import { latestProjectTaskConversation, openProjectGoalConversation } from '@/sync/projectGoals';
+import { getProjectPreviewMachineId } from '@/sync/projectGoals';
+import { projectCatalogState, selectProjectMachine } from './projectMachine';
 
 const requestId = () => `goal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 function accountKey() { const a = getRuntimeAccountSelection(); return JSON.stringify([a?.key, a?.generation, a?.serverUrl]); }
@@ -112,7 +114,9 @@ function useProjectData(machineId: string, featurePath?: string) {
     return {
         projects: projects?.owner === owner ? projects.values : [],
         board: board?.owner === JSON.stringify([owner, featurePath]) ? board.data : null,
-        loading, error, refresh, offline: !machine || !isMachineOnline(machine),
+        loading, error, refresh, offline: !machine || !isMachineOnline(machine), loaded: projects?.owner === owner,
+        status: projectCatalogState({ connected: socket.status === 'connected', online: !!machine && isMachineOnline(machine),
+            loading, loaded: projects?.owner === owner, error }),
     };
 }
 
@@ -121,7 +125,7 @@ export function ProjectGoalsWorkspace() {
     const router = useRouter();
     const machines = useAllMachines({ includeOffline: true });
     const draftMachine = useNewSessionDraft(state => state.selectedMachineId);
-    const selectedMachine = machines.find(machine => machine.id === params.machine) ?? machines.find(machine => machine.id === draftMachine) ?? machines[0];
+    const selectedMachine = selectProjectMachine(machines, params.machine, draftMachine, getProjectPreviewMachineId());
     const machineId = selectedMachine?.id ?? '';
     // Account/machine switches remount the archive owner, so stale async work cannot navigate the new account.
     return <ProjectGoalsOwner key={JSON.stringify([accountKey(), machineId])} machineId={machineId} machines={machines} params={params}
@@ -200,7 +204,7 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
             </ScrollView>
         </>}
         {(data.error || actionError) && <View style={styles.errorBar} accessibilityRole="alert"><Text style={styles.error}>{data.error || actionError}</Text></View>}
-        {data.loading && !data.projects.length && <ActivityIndicator style={{ padding: 24 }} color={theme.colors.textSecondary} />}
+        {data.status === 'loading' && machineId && !data.loaded && <ActivityIndicator style={{ padding: 24 }} color={theme.colors.textSecondary} />}
         {!machineId ? <Empty text={t('projectGoals.noMachine')} /> : params.author ? <View style={[styles.author, { backgroundColor: surface }]}><Text style={[styles.meta, { padding: 12 }]}>{t('projectGoals.authoringHint')}</Text><SessionView key={params.author} id={params.author} embedded fullWidth /></View>
             : task && feature ? <TaskWorkspace key={JSON.stringify([machineId, feature.featurePath, task.id])} machineId={machineId} featurePath={feature.featurePath} task={task}
                 allTasks={tasks} conversationId={params.conversation} agent={agent} offline={data.offline}
@@ -211,8 +215,10 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
                 {params.task && feature && !task && <Text style={styles.error}>{t('projectGoals.taskMissing')}</Text>}
                 {feature ? <TaskCards tasks={tasks.filter(task => (task.title + task.goal).toLowerCase().includes(query.toLowerCase()))} onSelect={id => go({ task: id })} />
                     : project ? <View style={styles.grid}>{[...(project.direct ? [project.direct] : []), ...project.features].filter(entry => entry.title.toLowerCase().includes(query.toLowerCase())).map(entry => <CatalogCard key={entry.featurePath} title={entry.featurePath === project.projectPath ? t('projectGoals.tasks') : entry.title} subtitle={entry.summary || t('projectGoals.showTasks')} onPress={() => chooseFeature(entry)} />)}</View>
-                        : <><View style={styles.libraryHeading}><Text style={styles.sectionTitle}>{t('projectGoals.projectLibrary')}</Text><Text style={styles.meta}>{data.projects.length}</Text></View><ProjectGallery projects={data.projects.filter(project => (project.title + (project.summary || '')).toLowerCase().includes(query.toLowerCase()))} onSelect={chooseProject} /></>}
-                {!data.loading && !data.projects.length && <Empty text={t('projectGoals.emptyProjects')} />}
+                        : <><View style={styles.libraryHeading}><Text style={styles.sectionTitle}>{t('projectGoals.projectLibrary')}</Text><Text style={styles.meta}>{data.loaded ? data.projects.length : '—'}</Text></View><ProjectGallery projects={data.projects.filter(project => (project.title + (project.summary || '')).toLowerCase().includes(query.toLowerCase()))} onSelect={chooseProject} /></>}
+                {data.status === 'connecting' && <Empty text={t('projectGoals.connecting')} />}
+                {data.status === 'offline' && <Empty text={t('projectGoals.offlineArchive')} />}
+                {data.status === 'ready' && !data.projects.length && <Empty text={t('projectGoals.emptyProjects')} />}
                 {feature && !tasks.length && <Empty text={t('projectGoals.emptyTasks')} />}
             </ScrollView>}
     </View>;

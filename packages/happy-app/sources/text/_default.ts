@@ -56,6 +56,8 @@ export const en = {
         realArchive: "Local project archive",
         readOnlyArchive: "Project files are read-only in this preview; task execution is unavailable.",
         noMatchingHistory: "No matching conversation found in this account",
+        connecting: "Connecting to load this machine's projects…",
+        offlineArchive: "This machine is offline. Its projects could not be loaded; reconnect it to continue.",
         execute: "Run task",
         history: "Task conversations",
         noHistory: "No conversations yet",
