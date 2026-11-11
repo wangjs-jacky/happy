@@ -24,6 +24,8 @@ No network RPC, package commands, real credentials, or persisted machine configu
 | ENV-5 | During ENV-3 close via `fixture-close`, reopen via `fixture-open` | Same running batch; final nine-success result remains visible |
 | ENV-6 | `/?theme=gingham`, desktop and 390 × 844; scroll `environment-device-columns` | Semantic theme colors; fixed tool identity, device 3 reachable, footer and page remain in viewport |
 | CQ-1 | `/`, 1440 × 900 or 1024 × 768; click `codex-account-refresh-fixture-codex-account` and accept the confirmation | The fixture account changes from unknown to a current 7-day remaining percentage; a synthetic `quota-refreshed` event is recorded with no network or Codex process |
+| MAGPIE | `/?theme=gingham`, 1680 × 885 and 390 × 844; refresh an account, rename another, cancel then confirm its sign-in switch | Real Magpie UI/hook/schema; synthetic `refresh`, `rename`, `switch` events exactly once; cancel zero switch; current sign-in moves |
+| MAGPIE device | Select Mac mini, then return to MacBook Pro | Missing-installation hint clears previous accounts; selecting a device sets actual DOM `aria-pressed` |
 
 `window.fixture.calls` contains allowlisted fixture events (`inspect`, `start`, `end`, `failed`, `uncertain`) with machine/tool/time. Use it only as an assertion boundary alongside visible state. Reloading starts a fresh synthetic scenario.
 
@@ -43,7 +45,7 @@ cliLog(await captureVerifiedBrowserStep({cdp,pageInfo,currentTab}, 'http://127.0
 EOF
 ```
 
-Report each verified Ego round to Happy with its private screenshot, fresh invocation runId and `skillName=ego-browser`. Record positive-path video only after assertions pass. A plain browser `window.confirm` is only a fixture substitute, not evidence for the production Modal host; cancellation/explicit acknowledgment is covered by component tests.
+Use the currently installed `ego-browser skill` guide; the legacy example above is not the current API contract. Report verified key steps through the session-bound capture helper supplied by Happy. Reuse one runId for the whole task space and pin the recorded numeric space plus exact target. Record positive-path video only after assertions pass. Browser `window.confirm`/`window.prompt` are fixture substitutes, not evidence for the production Modal host; cancellation/explicit acknowledgment is covered by component tests.
 
 ## Deliberate limits
 

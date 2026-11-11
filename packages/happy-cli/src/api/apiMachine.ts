@@ -27,6 +27,7 @@ import { createWranglerAdapter } from '@/environment/wranglerAdapter';
 import { createCloudflaredAdapter } from '@/environment/cloudflaredAdapter';
 import { createEnvironmentService } from '@/environment/environmentService';
 import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
+import { createMagpieService } from '@/magpie/service';
 import { detectCLIAvailability, CLIAvailability } from '@/utils/detectCLI';
 import { detectResumeSupport, type ResumeSupport } from '@/resume/localHappyAgentAuth';
 import { shouldReconnect } from '@/utils/lidState';
@@ -227,6 +228,8 @@ export class ApiMachineClient {
             }),
         ]);
         registerEnvironmentHandlers(this.rpcHandlerManager, environmentService);
+        const magpie = createMagpieService();
+        this.rpcHandlerManager.registerHandler('magpie-control', (request: unknown) => magpie.execute(request));
     }
 
     setRPCHandlers({

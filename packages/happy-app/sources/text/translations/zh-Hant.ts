@@ -378,6 +378,7 @@ export const zhHant: TranslationStructure = {
         switching: "正在切換帳號…",
         restartHint: "重新載入 Paws 以完成切換。如果無法重新載入，請關閉並重新開啟應用程式。",
     },
+    magpie: en.magpie,
     codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: '上次檢查結果',

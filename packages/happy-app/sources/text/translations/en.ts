@@ -268,6 +268,7 @@ export const en: TranslationStructure = {
         switching: "Switching account…",
         restartHint: "Reload Paws to finish switching. If reloading does not work, close and reopen the app.",
     },
+    magpie: baseEn.magpie,
     codexAccounts: baseEn.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: 'Previous inspection result',

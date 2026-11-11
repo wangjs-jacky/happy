@@ -67,6 +67,7 @@ vi.mock('expo-updates', () => ({
 vi.mock('@/sync/nativeUpdate', () => ({ refreshNativeUpdateStatus: vi.fn(async () => ({ status: 'unsupported', available: false })) }));
 vi.mock('expo-secure-store', () => ({ getItemAsync: vi.fn(), setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));
 vi.mock('@/auth/AuthContext', () => ({ useAuth: () => ({ credentials: {} }) }));
+vi.mock('@/hooks/useMagpie', () => ({ useMagpie: () => ({ snapshot: null, busy: false, failed: false, execute: vi.fn() }) }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
 vi.mock('@/components/Item', () => ({ Item: 'Item' }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: 'ItemGroup' }));

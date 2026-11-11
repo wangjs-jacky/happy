@@ -11,11 +11,28 @@ export const useUnistyles = () => ({ theme });
 export const Ionicons = ({ name, color, size }: any) => <Text aria-hidden style={{color,fontSize:size}}>{name === 'refresh-outline' ? '↻' : '◇'}</Text>;
 export const setStringAsync = async () => undefined;
 export const t = (key: string, args: any) => { const value = key.split('.').reduce((o: any, k) => o?.[k], zhHans); return typeof value === 'function' ? value(args) : value ?? key; };
-export const Modal = { confirm: async (title: string, message: string) => window.confirm(`${title}\n\n${message}`), alert: (title: string, message: string) => window.alert(`${title}\n${message}`) };
+export const Modal = { confirm: async (title: string, message: string) => window.confirm(`${title}\n\n${message}`), alert: (title: string, message: string) => window.alert(`${title}\n${message}`),
+    prompt: async (title: string, message: string, options: any) => window.prompt(`${title}\n\n${message}`, options.defaultValue) };
 const credentials = { token: 'fixture-only', secret: 'fixture-only' };
 export const useAuth = () => ({ credentials });
 export const getCurrentAuth = () => ({ credentials });
 export const getServerUrl = () => 'fixture://no-network';
+const magpieAccounts = ['a', 'b'].map((letter, index) => ({ id: letter.repeat(64), agent: 'codex', user: `account-${index + 1}@example.test`,
+    name: index ? '备用账号' : '工作账号', plan: 'pro', active: !index, enabled: true, needsLogin: false, quotaError: false,
+    readAt: '2026-11-11T09:00:00.000Z', windows: [{ name: '7 days', remaining: index ? 13 : 95, resetsAt: '2026-11-18T09:15:00.000Z' }],
+    canRename: true, canSwitch: !!index,
+}));
+export const apiSocket = { machineRPC: async (machineId: string, method: string, request: any) => {
+    if (method !== 'magpie-control') throw Error('Unexpected fixture method');
+    calls.push({ machineId, componentId: 'magpie', event: request.action, at: Date.now() });
+    if (machineId === 'device-2') return { status: 'not-installed', accounts: [], version: null, error: null, changed: false, observedAt: new Date().toISOString() };
+    const target = magpieAccounts.find(account => account.id === request.accountId);
+    if (request.action === 'rename' && target) target.name = request.name;
+    if (request.action === 'switch' && target) magpieAccounts.forEach(account => { account.active = account === target; account.canSwitch = account !== target; });
+    if (request.action === 'refresh' && target) target.readAt = new Date().toISOString();
+    return { status: 'ready', accounts: structuredClone(magpieAccounts), version: null, error: null,
+        changed: ['rename', 'switch'].includes(request.action), observedAt: new Date().toISOString() };
+} };
 const codexListeners = new Set<() => void>();
 let codexBusy = false;
 let codexProfiles = [{

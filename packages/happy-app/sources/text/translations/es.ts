@@ -316,6 +316,7 @@ export const es: TranslationStructure = {
         switching: "Cambiando de cuenta…",
         restartHint: "Recarga Paws para completar el cambio. Si no funciona, cierra y vuelve a abrir la aplicación.",
     },
+    magpie: en.magpie,
     codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: 'Resultado de la comprobación anterior',

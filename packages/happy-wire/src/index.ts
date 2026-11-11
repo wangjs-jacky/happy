@@ -17,3 +17,4 @@ export * from './goalBoard';
 export * from './artifacts';
 export * from './composerPrediction';
 export * from './asyncQuestions';
+export * from './magpie';
