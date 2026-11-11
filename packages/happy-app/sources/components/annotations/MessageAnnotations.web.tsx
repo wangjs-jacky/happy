@@ -7,6 +7,7 @@ import { annotationDraftStore, useMessageAnnotations } from './annotationRuntime
 import { annotationRange, readAnnotationRange, readAnnotationSelection } from './annotationSelection';
 import type { AnnotationSourceProps, AnnotationComposerProps, FileAnnotationSourceProps } from './MessageAnnotations';
 import { useFileWorkspace } from '../fileWorkspace/context';
+import { documentDirty } from '../fileWorkspace/controller';
 import { fileAnnotationUi, useFileAnnotationUi } from './fileAnnotationUi';
 export { useMessageAnnotations };
 
@@ -174,13 +175,22 @@ function FileAnnotationSummary({ sessionId, items, workspace }: { sessionId: str
     const { c, button } = useAnnotationStyles();
     const [open, setOpen] = React.useState(false);
     const [error, setError] = React.useState('');
+    const ui = useFileAnnotationUi(sessionId);
+    const locationError = items.some(item => item.id === ui.unlocatedId) ? t('messageAnnotations.unlocated') : '';
     const chip = React.useRef<HTMLButtonElement>(null);
     const getAnchor = React.useCallback(() => chip.current?.getBoundingClientRect() ?? null, []);
     const close = React.useCallback(() => setOpen(false), []);
     const navigate = async (item: MessageAnnotation, edit: boolean, anchor: DOMRect) => {
-        setOpen(false);
+        setOpen(false); setError('');
         try {
-            if (workspace) await workspace.openReference(item.file!.path);
+            if (workspace) {
+                await workspace.openReference(item.file!.path);
+                const current = workspace.controller.getSnapshot().documents[item.file!.path];
+                if (!current || current.phase !== 'ready' || current.hash !== item.file!.hash || documentDirty(current)) {
+                    fileAnnotationUi.update(sessionId, { activeId: undefined, focus: undefined, unlocatedId: item.id });
+                    return;
+                }
+            }
             if (edit) requestEdit(sessionId, item.id, anchor, chip.current);
             fileAnnotationUi.focus(sessionId, item.id, edit, item.file!.path);
         } catch { setError(t('messageAnnotations.unlocated')); }
@@ -199,7 +209,7 @@ function FileAnnotationSummary({ sessionId, items, workspace }: { sessionId: str
                 <div data-testid="annotation-saved-comment" style={{ marginTop: 6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 14, fontWeight: 500, lineHeight: '23px', color: c.text }}>{item.comment || t('messageAnnotations.fileReview')}</div>
             </div>)}
         </FloatingPanel>}
-        {error && <span role="alert" style={{ color: c.textDestructive, fontSize: 12 }}>{error}</span>}
+        {(error || locationError) && <span role="alert" style={{ color: c.textDestructive, fontSize: 12 }}>{error || locationError}</span>}
     </span>;
 }
 

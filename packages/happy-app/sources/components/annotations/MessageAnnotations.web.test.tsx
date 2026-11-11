@@ -22,6 +22,9 @@ vi.mock('./annotationRuntime', async () => {
 });
 import { AnnotationComposer, AnnotatableMessage, AnnotatableFile, prepareAnnotatedMessage, restoreAnnotatedMessage, FileAnnotationPanel, FileAnnotationControls } from './MessageAnnotations.web';
 import { annotationDraftStore } from './annotationRuntime';
+import { fileAnnotationSourceId } from './annotationDraft';
+import { FileWorkspaceContext } from '../fileWorkspace/context';
+import { FileWorkspaceController } from '../fileWorkspace/controller';
 let root: Root, mount: HTMLDivElement;
 let session = 0;
 beforeEach(() => {
@@ -155,4 +158,40 @@ it('supports whitespace dismissal, IME-safe Enter, a saved comment bubble and pr
     act(() => (document.querySelector('[data-testid=annotation-remove]') as HTMLButtonElement).click());
     expect(annotationDraftStore.getSnapshot(sessionId)).toHaveLength(0);
     expect(document.querySelector('[data-testid=annotation-badge]')).toBeNull();
+});
+
+
+it('removes file portals when current annotations are suspended without losing the comment', () => {
+    const sessionId = `history-${++session}`;
+    const file = { path: '/work/readme.md', hash: 'baseline' };
+    annotationDraftStore.add(sessionId, { messageId: fileAnnotationSourceId(file), file, quote: '原文段落', anchorText: '原文段落', start: 0, end: 4 }, '保留这条意见');
+    const render = (visible: boolean) => <><AnnotatableFile sessionId={sessionId} file={visible ? file : null}><p>原文段落</p></AnnotatableFile><FileAnnotationPanel sessionId={sessionId} /></>;
+    act(() => root.render(render(true)));
+    act(() => (document.querySelector('[data-testid=annotation-badge]') as HTMLButtonElement).focus());
+    expect(document.querySelector('[data-testid=file-annotation-bubble]')).not.toBeNull();
+    act(() => root.render(render(false)));
+    expect(document.querySelector('[data-testid=file-annotation-bubble]')).toBeNull();
+    act(() => root.render(render(true)));
+    act(() => (document.querySelector('[data-testid=annotation-badge]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-testid=file-annotation-bubble] [role=button]') as HTMLElement).click());
+    expect(document.querySelector('[data-testid=annotation-editor]')).not.toBeNull();
+    act(() => root.render(render(false)));
+    expect(document.querySelector('[data-testid=annotation-editor]')).toBeNull();
+    expect(annotationDraftStore.getSnapshot(sessionId)[0].comment).toBe('保留这条意见');
+});
+
+it.each(['changed', 'dirty', 'error'])('reports an unlocatable %s file without discarding or reanchoring the comment', async kind => {
+    const sessionId = `unlocated-${kind}-${++session}`;
+    const file = { path: '/work/readme.md', hash: 'baseline' };
+    const item = annotationDraftStore.add(sessionId, { messageId: fileAnnotationSourceId(file), file, quote: '原文段落', anchorText: '原文段落', start: 0, end: 4 }, '保留旧意见');
+    const controller = new FileWorkspaceController({ root: '/work', read: async () => { if (kind === 'error') throw new Error('READ_FAILED'); return { content: '原文段落', hash: kind === 'changed' ? 'changed' : 'baseline' }; }, write: async () => ({ hash: 'saved' }) });
+    await controller.open(file.path);
+    if (kind === 'dirty') controller.edit(file.path, '未保存的内容');
+    const workspace = { controller, openReference: async (path: string) => { await controller.open(path); } } as any;
+    act(() => root.render(<FileWorkspaceContext.Provider value={workspace}><AnnotationComposer sessionId={sessionId} /></FileWorkspaceContext.Provider>));
+    act(() => (document.querySelector('[data-testid=annotation-file-summary]') as HTMLButtonElement).click());
+    await act(async () => { (document.querySelector('[data-testid=file-annotation-preview-row]') as HTMLElement).click(); });
+    expect(document.querySelector('[role=alert]')!.textContent).toBe('原文已变化或无法定位，原批注仍保留。');
+    expect(document.querySelector('[data-testid=annotation-editor]')).toBeNull();
+    expect(annotationDraftStore.getSnapshot(sessionId)).toEqual([item]);
 });

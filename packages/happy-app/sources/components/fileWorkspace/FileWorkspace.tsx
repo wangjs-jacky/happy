@@ -30,7 +30,6 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
     const dismissTabMenu = React.useCallback(() => setTabMenu(null), []);
     const annotationUi = useFileAnnotationUi(sessionId);
     const [modes, setModes] = React.useState<Record<string, boolean>>({});
-    React.useEffect(() => { const target = annotationUi.focus?.path; if (target) setModes(value => ({ ...value, [target]: true })); }, [annotationUi.focus]);
     const [historyPath, setHistoryPath] = React.useState<string | null>(null);
     const [workspaceWidth, setWorkspaceWidth] = React.useState(0);
     const historyExpanded = React.useRef(false);
@@ -44,6 +43,7 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
         setHistoryPath(null);
         if (historyExpanded.current) { historyExpanded.current = false; workspace?.setMaximized(false); }
     }, [workspace?.setMaximized]);
+    React.useEffect(() => { const target = annotationUi.focus?.path; if (target) { setModes(value => ({ ...value, [target]: true })); closeHistory(); } }, [annotationUi.focus, closeHistory]);
     React.useEffect(() => {
         if (historyPath && historyPath !== path) { closeHistory(); return; }
         if (historyPath && workspaceWidth > 0 && workspaceWidth < 600 && workspace && !workspace.maximized) {
@@ -56,7 +56,7 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree }:
     const currentArtifact = workspace.versions.currentForHash(path, document?.error ? null : document?.hash ?? null);
     const cachedDraft = controller.exportDrafts()[path];
     const dirty = document ? documentDirty(document) : false;
-    const annotationFile = document?.phase === 'ready' && document.hash && !dirty ? {
+    const annotationFile = historyPath !== path && document?.phase === 'ready' && document.hash && !dirty ? {
         path, hash: document.hash,
         ...(currentArtifact ? { artifact: {
             workspaceId: currentArtifact.artifact.workspaceId, artifactId: currentArtifact.artifact.id,

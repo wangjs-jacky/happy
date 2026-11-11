@@ -152,3 +152,16 @@ it('binds Markdown annotations to the saved file and disables them for unsaved c
     expect(renderer.root.findByType('MarkdownView').props.markdown).toBe('# Unsaved');
     act(() => renderer.unmount());
 });
+
+
+it('suspends current-file annotations while history is open and restores them on close', () => {
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<Harness />); });
+    expect(renderer.root.findByType(AnnotatableFile).props.file?.hash).toBe('base');
+    act(() => renderer.root.findByProps({ testID: 'workspace-history-open' }).props.onPress());
+    expect(renderer.root.findByType(AnnotatableFile).props.file).toBeNull();
+    expect(renderer.root.findByType('VersionHistoryPanel')).toBeDefined();
+    act(() => renderer.root.findByType('VersionHistoryPanel').props.onClose());
+    expect(renderer.root.findByType(AnnotatableFile).props.file?.hash).toBe('base');
+    act(() => renderer.unmount());
+});
