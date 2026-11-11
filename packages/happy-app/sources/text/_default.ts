@@ -16,6 +16,12 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const en = {
     projectGoals: {
+        sessionUnavailable: 'This conversation could not be loaded. Check the connection or choose another conversation from history.',
+        loadingArchive: 'Loading projects from this machine…',
+        loadingTasks: 'Task list',
+        refreshing: 'Updating · showing saved content',
+        cachedContent: 'Showing saved content',
+
         deliverableUnavailable: 'This deliverable is unavailable',
         confirmationHint: 'Only your confirmation approves a deliverable. A completed task does not confirm its outputs.',
         deliveryHeading: 'What this task will deliver',

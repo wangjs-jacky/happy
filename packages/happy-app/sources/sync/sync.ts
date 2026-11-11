@@ -1,3 +1,4 @@
+import { removeProjectSessionFromCache } from './projectWorkspaceCache';
 import { accountRuntimeCurrent } from '@/auth/accountRuntime';
 import type { HistoryViewportReader, HistoryViewportRange } from './historyWindowPolicy';
 import Constants from 'expo-constants';
@@ -5317,6 +5318,7 @@ class Sync {
     }
 
     public removeSessionLocally = (sessionId: string): void => {
+        removeProjectSessionFromCache(sessionId);
         void this.localHistory?.deleteSession(sessionId);
         if (!this.localHistory && this.sessionWarmCacheAccountKey) invalidateLocalHistorySession(this.sessionWarmCacheAccountKey, sessionId);
         const deletionMutationGeneration = ++this.sessionMutationGeneration;
