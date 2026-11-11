@@ -21,6 +21,15 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 export const ja: TranslationStructure = {
     projectGoals: {
         ...projectGoalsBase.projectGoals,
+        globalOverview: "全体の目標",
+        scopeGoal: "この範囲の目標",
+        noScopeGoal: "索引にはまだ目標が記載されていません。index.md を開いて元の説明を確認してください。",
+        archiveFiles: "アーカイブのファイル",
+        fileCount: ({ count }: { count: number }) => `${count} ファイル`,
+        fileCountPartial: ({ count }: { count: number }) => `少なくとも ${count} ファイル`,
+        scopeIndex: "index.md を開く",
+        overviewUnavailable: "全体の目標を取得できません",
+        overviewChatHint: "この範囲で目標について相談し、タスクを整理できます。メッセージを送信するまで実行されません。",
         collapseTasks: "タスク一覧を折りたたむ",
         showTasks: "タスク一覧を展開",
         emptyConversationEyebrow: "タスクの会話",
