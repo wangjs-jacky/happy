@@ -22,11 +22,26 @@ function coverFor(project: GoalProject) {
     return covers[1 + hash % (covers.length - 1)];
 }
 
-export function ProjectGallery({ projects, onSelect }: { projects: GoalProject[]; onSelect: (project: GoalProject) => void }) {
-    const { theme } = useUnistyles();
+function useGalleryLayout() {
     const [width, setWidth] = React.useState(0);
     const columns = Math.max(1, Math.min(3, Math.floor((width + 24) / 309)));
     const cardWidth = width ? (width - (columns - 1) * 24) / columns : 285;
+    return { cardWidth, setWidth };
+}
+
+export function ProjectGalleryLoading() {
+    const { cardWidth, setWidth } = useGalleryLayout();
+    return <View style={styles.grid} onLayout={event => setWidth(Math.round(event.nativeEvent.layout.width))}>
+        {Array.from({ length: 6 }, (_, index) => <View key={index} style={{ width: cardWidth, maxWidth: '100%' }}>
+            <View style={[styles.cover, styles.skeleton]} />
+            <View style={styles.caption}><View style={[styles.skeletonLine, { width: '72%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} /></View>
+        </View>)}
+    </View>;
+}
+
+export function ProjectGallery({ projects, onSelect }: { projects: GoalProject[]; onSelect: (project: GoalProject) => void }) {
+    const { theme } = useUnistyles();
+    const { cardWidth, setWidth } = useGalleryLayout();
     return <View style={styles.grid} onLayout={event => setWidth(Math.round(event.nativeEvent.layout.width))} testID="project-gallery">
         {projects.map((project, index) => <View key={project.projectPath} style={{ width: cardWidth, maxWidth: '100%' }}>
             <GoalBoardButton variant="card" label={project.title} onPress={() => onSelect(project)} testID={`project-cover-${index}`}>
@@ -47,6 +62,8 @@ export function ProjectGallery({ projects, onSelect }: { projects: GoalProject[]
 
 const styles = StyleSheet.create(theme => ({
     grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 24, width: '100%' },
+    skeleton: { backgroundColor: theme.colors.divider },
+    skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.divider },
     cover: { width: '100%', aspectRatio: 8 / 5, backgroundColor: theme.colors.surfaceHigh, borderRadius: 13, overflow: 'hidden', justifyContent: 'space-between', padding: 16 },
     coverTop: { alignSelf: 'flex-start', backgroundColor: theme.colors.surface, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6 },
     coverNumber: { color: theme.colors.textSecondary, fontSize: 9, letterSpacing: 1.5, ...Typography.default('semiBold') },

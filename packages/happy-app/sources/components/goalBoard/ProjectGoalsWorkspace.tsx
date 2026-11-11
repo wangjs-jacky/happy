@@ -34,7 +34,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
 import { RunningTaskBorder } from './RunningTaskBorder';
-import { ProjectGallery } from './ProjectGallery';
+import { ProjectGallery, ProjectGalleryLoading } from './ProjectGallery';
 import { canCreateProjectConversation, canConfirmProjectDeliverable, openProjectGoalConversation } from '@/sync/projectGoals';
 import { getProjectPreviewMachineId } from '@/sync/projectGoals';
 import { selectProjectMachine } from './projectMachine';
@@ -204,7 +204,6 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
                 {!data.contentLoaded && (data.status === 'loading' || data.status === 'connecting') ? <ProjectLoading /> : feature ? <TaskCards tasks={tasks} query={query} status={statusFilter} setStatus={setStatusFilter} onSelect={id => go({ task: id })} />
                     : project ? <View style={styles.grid}>{[...(project.direct ? [project.direct] : []), ...project.features].filter(entry => entry.title.toLowerCase().includes(query.toLowerCase())).map(entry => <CatalogCard key={entry.featurePath} title={entry.featurePath === project.projectPath ? t('projectGoals.tasks') : entry.title} subtitle={entry.summary || t('projectGoals.showTasks')} onPress={() => chooseFeature(entry)} />)}</View>
                         : <><View style={styles.libraryHeading}><Text style={styles.sectionTitle}>{t('projectGoals.projectLibrary')}</Text><Text style={styles.meta}>{data.loaded ? data.projects.length : '—'}</Text></View><ProjectGallery projects={data.projects.filter(project => (project.title + (project.summary || '')).toLowerCase().includes(query.toLowerCase()))} onSelect={chooseProject} /></>}
-                {data.status === 'connecting' && <Empty text={t('projectGoals.connecting')} />}
                 {data.status === 'offline' && <Empty text={t('projectGoals.offlineArchive')} />}
                 {data.status === 'ready' && !data.projects.length && <Empty text={t('projectGoals.emptyProjects')} />}
                 {feature && !tasks.length && <Empty text={t('projectGoals.emptyTasks')} />}
@@ -215,9 +214,7 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
 function ProjectLoading() {
     return <View testID="project-loading" accessibilityLabel={t('projectGoals.loadingArchive')} accessibilityState={{ busy: true }} style={{ gap: 20 }}>
         <Text style={styles.meta}>{t('projectGoals.loadingArchive')}</Text>
-        <View style={styles.grid}>{Array.from({ length: 6 }, (_, index) => <View key={index} style={styles.skeletonCard}>
-            <View style={styles.skeletonCover} /><View style={[styles.skeletonLine, { width: '72%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} />
-        </View>)}</View>
+        <ProjectGalleryLoading />
     </View>;
 }
 
@@ -457,9 +454,6 @@ const styles = StyleSheet.create(theme => ({
     line: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     machineBackdrop: { position: 'absolute', inset: 0, zIndex: 20 },
     machineMenu: { position: 'absolute', top: 56, right: 16, width: 310, maxHeight: 320, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, zIndex: 21 },
-    skeletonCard: { flexBasis: 280, flexGrow: 1, maxWidth: 440, gap: 14, paddingBottom: 20 },
-    skeletonCover: { height: 170, borderRadius: 13, backgroundColor: theme.colors.divider },
-    skeletonLine: { height: 12, borderRadius: 6, backgroundColor: theme.colors.divider },
     catalog: { flex: 1, minWidth: 0 }, catalogContent: { paddingHorizontal: 32, paddingTop: 28, paddingBottom: 36, gap: 24 },
     catalogHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
     heading: { fontSize: 28, lineHeight: 38, color: theme.colors.text, ...Typography.default('semiBold') },
