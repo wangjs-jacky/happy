@@ -32,7 +32,7 @@ import { GoalBoardButton as Button } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
 import { RunningTaskBorder } from './RunningTaskBorder';
 import { ProjectGallery } from './ProjectGallery';
-import { canCreateProjectConversation, openProjectGoalConversation } from '@/sync/projectGoals';
+import { canCreateProjectConversation, canConfirmProjectDeliverable, openProjectGoalConversation } from '@/sync/projectGoals';
 import { getProjectPreviewMachineId } from '@/sync/projectGoals';
 import { projectCatalogState, selectProjectMachine } from './projectMachine';
 import { useProjectNavigation } from './useProjectNavigation';
@@ -247,7 +247,7 @@ function CatalogCard({ title, subtitle, onPress }: { title: string; subtitle: st
 }
 function ApprovalTag({ task }: { task: GoalTask }) {
     const state = taskApproval(task);
-    return <View style={[styles.tag, state === 'accepted' ? styles.acceptedTag : styles.pendingTag]}><Text style={[styles.tagText, state === 'accepted' ? styles.acceptedText : styles.pendingText]}>{t(state === 'accepted' ? 'projectGoals.accepted' : state === 'changed' ? 'projectGoals.changed' : state === 'noCriteria' ? 'projectGoals.noCriteria' : 'projectGoals.notReviewed')}</Text></View>;
+    return <View style={[styles.tag, state === 'accepted' ? styles.acceptedTag : styles.pendingTag]}><Text style={[styles.tagText, state === 'accepted' ? styles.acceptedText : styles.pendingText]}>{t(state === 'accepted' ? 'projectGoals.accepted' : state === 'changed' ? 'projectGoals.changed' : state === 'noDeliverables' ? 'projectGoals.noDeliverables' : 'projectGoals.notReviewed')}</Text></View>;
 }
 function TaskCards({ tasks, query, status, setStatus, selectedId, onSelect, onAction, offline, busy, hideExecution }: {
     query: string; status: TaskStatusFilter; setStatus: (status: TaskStatusFilter) => void;
@@ -420,9 +420,9 @@ function Deliverable({ artifact, task, machineId, featurePath, refresh, openFile
     const { theme } = useUnistyles();
     const document = artifact.path ? workspace.snapshot.documents[artifact.path] : undefined;
     const hasReadVersion = artifact.path ? !!document?.hash && document?.fileRevision === artifact.revision && document?.phase === 'ready' && document.draft === document.content : !!artifact.url && openedLink === artifact.revision;
-    const accepted = artifact.approval?.status === 'accepted';
+    const accepted = artifact.available && artifact.approval?.status === 'accepted';
     const approve = async () => {
-        if (isReadOnlyProjectPreview() || !hasReadVersion || !artifact.revision || busy) return;
+        if (!artifact.available || !canConfirmProjectDeliverable() || !hasReadVersion || !artifact.revision || busy) return;
         if (!await Modal.confirm(t('projectGoals.approveTitle'), t(artifact.path ? 'projectGoals.approveMessage' : 'projectGoals.approveLinkMessage'))) return;
         setBusy(true); setError(null);
         try { await projectGoalRequest(machineId, 'goalTaskApprove', { featurePath, taskId: task.id, artifactId: artifact.id, expectedRevision: artifact.revision, expectedHash: document?.hash }); await refresh(); }
@@ -431,9 +431,9 @@ function Deliverable({ artifact, task, machineId, featurePath, refresh, openFile
     };
     return <View style={styles.deliverable}>
         <Button variant="row" label={artifact.name} disabled={!artifact.available} onPress={() => { if (artifact.path) void openFile(artifact.path); else if (artifact.url) void openExternalUrl(artifact.url).then(() => setOpenedLink(artifact.revision ?? null)).catch(error => setError(String(error))); }} testID={`project-deliverable-${artifact.id}`}><Ionicons name={artifact.path ? 'document-outline' : 'open-outline'} size={16} color={theme.colors.textLink} /><View style={styles.cardBody}><Text style={styles.body}>{artifact.name}</Text>{artifact.description && <Text style={styles.meta}>{artifact.description}</Text>}</View></Button>
-        <Text style={accepted ? styles.acceptedText : styles.pendingText}>{t(accepted ? 'projectGoals.accepted' : artifact.approval?.status === 'changed' ? 'projectGoals.changed' : 'projectGoals.notReviewed')}</Text>
-        {!isReadOnlyProjectPreview() && !accepted && <Button label={t(artifact.path ? 'projectGoals.approve' : 'projectGoals.approveLink')} disabled={!hasReadVersion || busy} onPress={() => { void approve(); }} testID={`project-deliverable-approve-${artifact.id}`}><Text style={styles.link}>{t(artifact.path ? 'projectGoals.approve' : 'projectGoals.approveLink')}</Text></Button>}
-        {!isReadOnlyProjectPreview() && !accepted && !hasReadVersion && <Text style={styles.meta}>{t(artifact.path ? 'projectGoals.readFileFirst' : 'projectGoals.openLinkFirst')}</Text>}
+        <Text style={accepted ? styles.acceptedText : styles.pendingText}>{t(!artifact.available ? 'projectGoals.deliverableUnavailable' : accepted ? 'projectGoals.accepted' : artifact.approval?.status === 'changed' ? 'projectGoals.changed' : 'projectGoals.notReviewed')}</Text>
+        {artifact.available && canConfirmProjectDeliverable() && !accepted && <Button label={t(artifact.path ? 'projectGoals.approve' : 'projectGoals.approveLink')} disabled={!hasReadVersion || busy} onPress={() => { void approve(); }} testID={`project-deliverable-approve-${artifact.id}`}><Text style={styles.link}>{t(artifact.path ? 'projectGoals.approve' : 'projectGoals.approveLink')}</Text></Button>}
+        {artifact.available && canConfirmProjectDeliverable() && !accepted && !hasReadVersion && <Text style={styles.meta}>{t(artifact.path ? 'projectGoals.readFileFirst' : 'projectGoals.openLinkFirst')}</Text>}
         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     </View>;
 }

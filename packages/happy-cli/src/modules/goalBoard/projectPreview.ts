@@ -40,3 +40,20 @@ export function registerProjectGoalPreviewChat(
     // persists the request claim and never calls send for action=chat.
     manager.registerHandler('previewGoalTaskLaunch', input => service.launch(emptyChat.parse(input)));
 }
+
+const deliverableConfirmation = z.object({
+    featurePath: z.string().min(1).max(8192),
+    taskId: z.string().min(1).max(2048),
+    artifactId: z.string().min(1).max(2048),
+    expectedRevision: z.string().regex(/^[a-f0-9]{24}$/),
+    expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).strict();
+
+/** Separate opt-in for human confirmation; does not enable file writes or execution. */
+export function registerProjectGoalPreviewApproval(
+    manager: Pick<RpcHandlerManager, 'registerHandler'>,
+    service: Pick<ReturnType<typeof createProjectGoalService>, 'approve'>,
+) {
+    // Reuse canonical archive scope, byte/revision checks and durable receipts.
+    manager.registerHandler('previewGoalTaskApprove', input => service.approve(deliverableConfirmation.parse(input)));
+}

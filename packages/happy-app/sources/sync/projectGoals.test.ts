@@ -5,7 +5,7 @@ vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
 vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch, machineStartGoalPreviewChat: mocks.previewChat }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
-import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId } from './projectGoals';
+import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId, taskApproval, canConfirmProjectDeliverable, projectGoalRequest } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
 beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.previewChat.mockReset(); mocks.account.generation++; });
 afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; });
@@ -106,5 +106,41 @@ describe('opening a Task conversation', () => {
         mocks.rpc.mockImplementation(async () => { mocks.account.generation++; return { success: true, sessions: [] }; });
         await expect(openProjectGoalConversation('machine', '/archive', task, 'request', 'codex')).rejects.toThrow('account changed');
         expect(mocks.launch).not.toHaveBeenCalled();
+    });
+});
+
+describe('human confirmation of final deliverables', () => {
+    const output = { id: 'final', name: 'Final', relation: 'output' as const, kind: 'text' as const, available: true, revision: 'a'.repeat(24) };
+    it('does not turn completion, criteria or references into confirmed deliverables', () => {
+        expect(taskApproval({ ...task, status: 'done' })).toBe('noDeliverables');
+        expect(taskApproval({ ...task, acceptanceCriteria: ['A clear result'], expectedDeliverables: ['A report'] })).toBe('noDeliverables');
+        expect(taskApproval({ ...task, artifacts: [{ ...output, relation: 'reference' }] })).toBe('noDeliverables');
+        expect(taskApproval({ ...task, status: 'done', artifacts: [output] })).toBe('unreviewed');
+    });
+    it('requires every final output to be available and explicitly confirmed, without requiring criteria', () => {
+        const accepted = { ...output, approval: { status: 'accepted' as const } };
+        expect(taskApproval({ ...task, artifacts: [accepted] })).toBe('accepted');
+        expect(taskApproval({ ...task, artifacts: [accepted, { ...output, id: 'second' }] })).toBe('unreviewed');
+        expect(taskApproval({ ...task, artifacts: [{ ...accepted, available: false }] })).toBe('noDeliverables');
+        expect(taskApproval({ ...task, artifacts: [accepted, { ...output, id: 'missing', available: false }] })).toBe('unreviewed');
+        expect(taskApproval({ ...task, artifacts: [{ ...accepted, approval: { status: 'changed' } }] })).toBe('changed');
+    });
+    it('only enables confirmation in a read-only preview with a separate explicit opt-in', async () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true, goalProjectAllowChat: true };
+        expect(canConfirmProjectDeliverable()).toBe(false);
+        await expect(projectGoalRequest('machine', 'goalTaskApprove', {})).rejects.toThrow();
+        expect(mocks.rpc).not.toHaveBeenCalled();
+        (globalThis as any).__HAPPY_CONFIG__.goalProjectAllowApproval = true;
+        expect(canConfirmProjectDeliverable()).toBe(true);
+        mocks.rpc.mockResolvedValue({ success: true });
+        const input = { artifactId: 'final', expectedRevision: 'a'.repeat(24) };
+        await projectGoalRequest('machine', 'goalTaskApprove', input);
+        expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('machine', 'previewGoalTaskApprove', input);
+        expect(projectTaskFiles('machine', '/archive', task).readOnly).toBe(true);
+        await expect(projectTaskFiles('machine', '/archive', task).writeText!('/archive/task/file', 'overwrite', 'hash')).rejects.toThrow();
+        await expect(launchProjectGoalTask('machine', '/archive', task, 'execute', 'request', 'codex')).rejects.toThrow();
+        expect(mocks.rpc).toHaveBeenCalledTimes(1);
+        expect(mocks.launch).not.toHaveBeenCalled();
+        expect(mocks.previewChat).not.toHaveBeenCalled();
     });
 });

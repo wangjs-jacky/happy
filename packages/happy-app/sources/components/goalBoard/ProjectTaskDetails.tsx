@@ -31,12 +31,13 @@ export function ProjectTaskDetails({ task, number, approval, onEdit, editDisable
         </View>
         <View style={styles.section}>
             <View style={styles.heading}><Text style={styles.label}>{t('projectGoals.finals')}</Text>{outputs.length > 0 && <Text style={styles.number}>{outputs.length}</Text>}</View>
+            <Text style={styles.secondary}>{t('projectGoals.confirmationHint')}</Text>
             {outputs.length ? children : <View style={styles.noDelivery} testID="project-task-no-delivery"><Ionicons name="document-text-outline" size={22} color={theme.colors.textSecondary} /><Text style={styles.emptyTitle}>{t('projectGoals.noFinals')}</Text><Text style={styles.secondary}>{t('projectGoals.noFinalsHint')}</Text></View>}
         </View>
-        <View style={styles.criteria}>
-            <Button variant="toolbar" label={t('projectGoals.criteria')} expanded={criteriaOpen} onPress={() => setCriteriaOpen(value => !value)} testID="project-task-criteria-toggle"><Ionicons name={criteriaOpen ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} /><Text style={styles.secondary}>{t('projectGoals.criteria')}{criteria.length ? ` · ${criteria.length}` : ` · ${t('projectGoals.noCriteria')}`}</Text></Button>
-            {criteriaOpen && <View style={styles.criteriaItems} testID="project-task-criteria-content">{criteria.length ? criteria.map((value, index) => <View key={index} style={styles.item}><Text style={styles.secondary}>{index + 1}.</Text><Text selectable style={styles.body}>{value}</Text></View>) : <Text style={styles.secondary}>{t('projectGoals.noCriteria')}</Text>}</View>}
-        </View>
+        {criteria.length > 0 && <View style={styles.criteria}>
+            <Button variant="toolbar" label={t('projectGoals.criteria')} expanded={criteriaOpen} onPress={() => setCriteriaOpen(value => !value)} testID="project-task-criteria-toggle"><Ionicons name={criteriaOpen ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} /><Text style={styles.secondary}>{t('projectGoals.criteria')} · {criteria.length}</Text></Button>
+            {criteriaOpen && <View style={styles.criteriaItems} testID="project-task-criteria-content">{criteria.map((value, index) => <View key={index} style={styles.item}><Text style={styles.secondary}>{index + 1}.</Text><Text selectable style={styles.body}>{value}</Text></View>)}</View>}
+        </View>}
     </View>;
 }
 

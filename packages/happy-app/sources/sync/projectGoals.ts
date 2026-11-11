@@ -25,13 +25,17 @@ export function isReadOnlyProjectPreview() { return (globalThis as typeof global
 export function canCreateProjectConversation() {
     return !isReadOnlyProjectPreview() || (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectAllowChat?: boolean } }).__HAPPY_CONFIG__?.goalProjectAllowChat === true;
 }
+export function canConfirmProjectDeliverable() {
+    return !isReadOnlyProjectPreview() || (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectAllowApproval?: boolean } }).__HAPPY_CONFIG__?.goalProjectAllowApproval === true;
+}
 export function getProjectPreviewMachineId() {
     const config = (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean; goalProjectMachineId?: string } }).__HAPPY_CONFIG__;
     return config?.goalProjectReadOnly === true ? config.goalProjectMachineId : undefined;
 }
 export async function projectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
     const current = owner();
-    if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile'].includes(method)) throw new Error(t('projectGoals.readOnlyArchive'));
+    if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile'].includes(method)
+        && !(method === 'goalTaskApprove' && canConfirmProjectDeliverable())) throw new Error(t('projectGoals.readOnlyArchive'));
     const transportMethod = isReadOnlyProjectPreview() ? `preview${method[0].toUpperCase()}${method.slice(1)}` : method;
     let response: T;
     try { response = await apiSocket.machineRPC<T, unknown>(machineId, transportMethod, input); }
@@ -133,11 +137,14 @@ export function projectTaskFiles(machineId: string, featurePath: string, task: G
         },
     };
 }
-export function taskApproval(task: GoalTask): 'accepted' | 'changed' | 'unreviewed' | 'noCriteria' {
+export function taskApproval(task: GoalTask): 'accepted' | 'changed' | 'unreviewed' | 'noDeliverables' {
     const outputs = task.artifacts.filter(artifact => artifact.relation === 'output');
-    if (outputs.length && outputs.every(artifact => artifact.available && artifact.approval?.status === 'accepted')) return 'accepted';
+    // Only explicit confirmation receipts for actual final outputs count.
+    // Task execution and the presence of acceptance criteria are independent.
+    if (!outputs.some(artifact => artifact.available)) return 'noDeliverables';
+    if (outputs.every(artifact => artifact.available && artifact.approval?.status === 'accepted')) return 'accepted';
     if (outputs.some(artifact => artifact.approval?.status === 'changed')) return 'changed';
-    return task.acceptanceCriteria?.length ? 'unreviewed' : 'noCriteria';
+    return 'unreviewed';
 }
 export function taskCanExecute(task: GoalTask) { return task.execution?.state === 'never'; }
 export type ProjectBoardData = { snapshot: GoalBoardSnapshot; sessions: Record<string, z.infer<typeof GoalTaskSessionSchema>[]> };
