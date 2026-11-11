@@ -105,7 +105,9 @@ export function ProjectGoalsWorkspace() {
     const machines = useAllMachines({ includeOffline: true });
     const draftMachine = useNewSessionDraft(state => state.selectedMachineId);
     const selectedMachine = selectProjectMachine(machines, params.machine, draftMachine, getProjectPreviewMachineId());
-    const machineId = selectedMachine?.id ?? '';
+    // Preserve an explicit owner while machine metadata reconnects, so its cached
+    // archive remains readable offline and cannot fall back to another machine.
+    const machineId = selectedMachine?.id ?? getProjectPreviewMachineId() ?? params.machine ?? draftMachine ?? '';
     // Account/machine switches remount the archive owner, so stale async work cannot navigate the new account.
     return <ProjectGoalsOwner key={JSON.stringify([accountKey(), machineId])} machineId={machineId} machines={machines} params={params}
         navigation={navigation} />;
