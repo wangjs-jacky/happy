@@ -712,6 +712,7 @@ export const SidebarView = React.memo(({
         <View
             style={[
                 styles.container,
+                { backgroundColor: theme.colors.groupped.background, borderColor: theme.colors.divider },
                 (desktopDensity || railNavigation) && styles.containerDesktop,
                 dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedFrame : theme.colors.desktopSkin.frame, borderColor: theme.colors.desktopSkin.border },
                 { paddingTop: safeArea.top + (desktopDensity ? 4 : 12) },
@@ -730,7 +731,15 @@ export const SidebarView = React.memo(({
 
             {railNavigation ? (
                 <>
-                    <View style={mobileNavigation ? [styles.desktopPrimaryColumn, styles.mobilePrimaryColumn] : dreamskin ? [styles.desktopPrimaryColumn, { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedRail : theme.colors.desktopSkin.rail }] : styles.desktopPrimaryColumn} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
+                    <View style={[
+                        styles.desktopPrimaryColumn,
+                        mobileNavigation && styles.mobilePrimaryColumn,
+                        // The permanent drawer stays mounted across appearance changes.
+                        // Bind its surfaces to the live theme just like the adjacent workspace.
+                        { backgroundColor: dreamskin
+                            ? reducedTransparency ? theme.colors.desktopSkin.reducedRail : theme.colors.desktopSkin.rail
+                            : theme.colors.groupped.background, borderRightColor: theme.colors.divider },
+                    ]} testID={mobileNavigation ? 'mobile-primary-navigation-column' : 'desktop-primary-navigation-column'}>
                         {mobileNavigation ? (
                             <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                                 {desktopNavigationRail}
@@ -739,7 +748,7 @@ export const SidebarView = React.memo(({
                         {footerNavigation}
                     </View>
                     <View
-                        style={[styles.desktopSecondaryColumn, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedSidebar : theme.colors.desktopSkin.sidebar }, desktopPrimaryNavigation && {
+                        style={[styles.desktopSecondaryColumn, { backgroundColor: theme.colors.groupped.background }, dreamskin && desktopDensity && { backgroundColor: reducedTransparency ? theme.colors.desktopSkin.reducedSidebar : theme.colors.desktopSkin.sidebar }, desktopPrimaryNavigation && {
                             position: 'absolute', left: DESKTOP_PRIMARY_NAVIGATION_WIDTH,
                             top: 0, bottom: 0, width: desktopSecondaryWidth,
                             pointerEvents: desktopSecondaryVisible ? 'auto' : 'none',
