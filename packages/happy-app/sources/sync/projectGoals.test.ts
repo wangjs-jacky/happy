@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GoalTask } from '@slopus/happy-wire';
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), launch: vi.fn(), account: { key: 'test', generation: 0, serverUrl: 'http://fixture' } }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), launch: vi.fn(), previewChat: vi.fn(), account: { key: 'test', generation: 0, serverUrl: 'http://fixture' } }));
 vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
-vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch }));
+vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch, machineStartGoalPreviewChat: mocks.previewChat }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
 import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
-beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.account.generation++; });
+beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.previewChat.mockReset(); mocks.account.generation++; });
 afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; });
 describe('actual archive preview transport', () => {
     it('uses the configured archive owner only in the read-only preview', () => {
@@ -27,6 +27,24 @@ describe('actual archive preview transport', () => {
         mocks.launch.mockResolvedValue({ type: 'success', sessionId: 'must-not-create' });
         await expect(launchProjectGoalTask('actual-machine', '/archive', task, 'chat', 'request', 'codex')).rejects.toThrow();
         expect(mocks.launch).not.toHaveBeenCalled();
+        expect(mocks.previewChat).not.toHaveBeenCalled();
+    });
+    it('creates an empty conversation when authorized and history is empty, then reuses it', async () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true, goalProjectAllowChat: true };
+        const created = { sessionId: 'created', directory: '/archive/task', title: 'Task', updatedAt: 10, executed: false };
+        mocks.rpc.mockResolvedValueOnce({ success: true, sessions: [] }).mockResolvedValueOnce({ success: true, sessions: [created] });
+        mocks.previewChat.mockResolvedValue({ type: 'success', sessionId: 'created' });
+        expect(await openProjectGoalConversation('machine', '/archive', task, 'request', 'codex')).toMatchObject({ created: true, session: { sessionId: 'created', executed: false } });
+        expect(await openProjectGoalConversation('machine', '/archive', task, 'next', 'codex')).toMatchObject({ created: false, session: { sessionId: 'created' } });
+        expect(mocks.previewChat).toHaveBeenCalledExactlyOnceWith('machine', { featurePath: '/archive', taskId: task.id, requestId: 'request', agent: 'codex' });
+        expect(mocks.launch).not.toHaveBeenCalled();
+        expect(projectTaskFiles('machine', '/archive', task).readOnly).toBe(true);
+    });
+    it('still rejects task execution when preview empty conversations are authorized', async () => {
+        (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true, goalProjectAllowChat: true };
+        await expect(launchProjectGoalTask('machine', '/archive', task, 'execute', 'request', 'codex')).rejects.toThrow();
+        expect(mocks.launch).not.toHaveBeenCalled();
+        expect(mocks.previewChat).not.toHaveBeenCalled();
     });
 });
 describe('project Task transport and conservative attempt state', () => {

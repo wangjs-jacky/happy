@@ -32,7 +32,7 @@ import { GoalBoardButton as Button } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
 import { RunningTaskBorder } from './RunningTaskBorder';
 import { ProjectGallery } from './ProjectGallery';
-import { latestProjectTaskConversation, openProjectGoalConversation } from '@/sync/projectGoals';
+import { canCreateProjectConversation, openProjectGoalConversation } from '@/sync/projectGoals';
 import { getProjectPreviewMachineId } from '@/sync/projectGoals';
 import { projectCatalogState, selectProjectMachine } from './projectMachine';
 import { useProjectNavigation } from './useProjectNavigation';
@@ -331,13 +331,7 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     const start = async (target: GoalTask, mode: 'chat' | 'execute', keepFileVisible = false, forceNew = false) => {
         if (opening.current || offline) return;
         if (target.id !== task.id) { selectTask(target.id); return; }
-        if (readOnly) {
-            if (mode !== 'chat' || forceNew || !taskHistory.ready || taskHistory.loading || taskHistory.error) return;
-            const latest = latestProjectTaskConversation(history, workspace.root);
-            if (latest) { if (!keepFileVisible) setCompactTab('chat'); selectConversation(latest.sessionId); }
-            else setError(t('projectGoals.noMatchingHistory'));
-            return;
-        }
+        if (readOnly && (mode !== 'chat' || !taskHistory.ready || taskHistory.loading || taskHistory.error)) return;
         opening.current = true;
         setBusy(true); setError(null);
         if (mode === 'execute') { markProjectTaskExecutionAttempt(machineId, task); setExecutionAttempted(true); }
@@ -378,12 +372,12 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
         <View style={styles.panelHeader}><ProjectTaskSwitcher tasks={allTasks} selectedId={task.id} onSelect={selectTask} /><View style={{ flex: 1 }} /><ProjectTaskStatus status={task.status} /></View>
         <View style={styles.tabs}><PanelTabs activeTab={tab} onTabChange={setTab} testIDPrefix="project-task" tabs={[{ key: 'details', label: t('projectGoals.details'), icon: 'document-text-outline' }, { key: 'files', label: t('projectGoals.files'), icon: 'folder-outline' }]} /></View>
         {tab === 'files' ? <WorkspaceDirectoryTree sessionId={conversationId ?? ''} rootPath={workspace.root} listDirectory={listDirectory} onOpenFile={path => { void openFile(path); }} />
-            : <ScrollView style={styles.detailScroll}><ProjectTaskDetails task={task} number={allTasks.indexOf(task) + 1} approval={<ApprovalTag task={task} />} editDisabled={readOnly || busy || offline} onEdit={() => { void start(task, 'chat'); }}>
+            : <ScrollView style={styles.detailScroll}><ProjectTaskDetails task={task} number={allTasks.indexOf(task) + 1} approval={<ApprovalTag task={task} />} editDisabled={!canCreateProjectConversation() || busy || offline} onEdit={() => { void start(task, 'chat'); }}>
                 {task.artifacts.filter(artifact => artifact.relation === 'output').map(artifact => <Deliverable key={artifact.id} {...{ artifact, task, machineId, featurePath, refresh }} openFile={openFile} />)}
             </ProjectTaskDetails></ScrollView>}
         {error && <Text accessibilityRole="alert" style={[styles.error, { padding: 12 }]}>{error}</Text>}
         {!readOnly && task.execution?.state === 'uncertain' && <Text style={[styles.meta, { paddingHorizontal: 14, paddingVertical: 6 }]}>{t('projectGoals.executionUncertain')}</Text>}
-        <View style={styles.footer}>{readOnly && <Text style={styles.meta}>{t('projectGoals.readOnlyArchive')}</Text>}<Button variant="primary" label={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || offline || (readOnly && (!history.length || !taskHistory.ready || !!taskHistory.error))} onPress={() => { void start(task, 'chat'); }} testID="project-task-open-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')}</Text></Button>
+        <View style={styles.footer}>{readOnly && <Text style={styles.meta}>{t(canCreateProjectConversation() ? 'projectGoals.previewChatHint' : 'projectGoals.readOnlyArchive')}</Text>}<Button variant="primary" label={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || offline || (readOnly && (!taskHistory.ready || taskHistory.loading || !!taskHistory.error || (!history.length && !canCreateProjectConversation())))} onPress={() => { void start(task, 'chat'); }} testID="project-task-open-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')}</Text></Button>
             {canExecute && <Button variant="primary" label={t('projectGoals.execute')} disabled={busy || offline} onPress={() => { void start(task, 'execute'); }} testID="project-task-execute"><Ionicons name="play" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.execute')}</Text></Button>}{busy && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}</View>
     </View>;
     const chat = <View testID="project-task-chat" style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && !workspace.maximized ? { flexGrow: 0, flexShrink: 0, flexBasis: chatWidth, width: chatWidth, minWidth: 310 } : {}]}>
@@ -394,12 +388,12 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
         {historyOpen && <RNModal transparent visible animationType="none" onRequestClose={() => setHistoryOpen(false)}>
             <Pressable style={styles.historyBackdrop} accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setHistoryOpen(false)} />
             <View testID="project-task-history-menu" style={[styles.historyPopover, { left: Math.max(12, Math.min(historyPosition.x, windowWidth - Math.min(350, windowWidth - 24) - 12)), top: Math.max(12, Math.min(historyPosition.y, windowHeight - 180)), width: Math.min(350, windowWidth - 24), maxHeight: Math.max(100, Math.min(360, windowHeight - historyPosition.y - 16)) }]}>
-            <ScrollView style={styles.historyList}>{!readOnly && <Button variant="toolbar" label={t('projectGoals.newChat')} disabled={busy || offline} onPress={() => { setHistoryOpen(false); void start(task, 'chat', false, true); }} testID="project-task-new-chat"><Ionicons name="add-outline" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.newChat')}</Text></Button>}{history.map(session => <Button key={session.sessionId} variant="row" label={session.title} selected={conversationId === session.sessionId} onPress={() => { selectConversation(session.sessionId); setHistoryOpen(false); }} testID={`project-task-history-${session.sessionId}`}><View style={styles.cardBody}><Text numberOfLines={2} style={styles.body}>{session.title}</Text><Text style={styles.meta}>{new Date(session.updatedAt).toLocaleString()}</Text></View></Button>)}
+            <ScrollView style={styles.historyList}>{canCreateProjectConversation() && <Button variant="toolbar" label={t('projectGoals.newChat')} disabled={busy || offline} onPress={() => { setHistoryOpen(false); void start(task, 'chat', false, true); }} testID="project-task-new-chat"><Ionicons name="add-outline" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.newChat')}</Text></Button>}{history.map(session => <Button key={session.sessionId} variant="row" label={session.title} selected={conversationId === session.sessionId} onPress={() => { selectConversation(session.sessionId); setHistoryOpen(false); }} testID={`project-task-history-${session.sessionId}`}><View style={styles.cardBody}><Text numberOfLines={2} style={styles.body}>{session.title}</Text><Text style={styles.meta}>{new Date(session.updatedAt).toLocaleString()}</Text></View></Button>)}
             {taskHistory.loading && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
             {taskHistory.error && <><Text style={styles.error}>{taskHistory.error}</Text><Button label={t('common.retry')} onPress={() => { void taskHistory.read(); }}><Text style={styles.link}>{t('common.retry')}</Text></Button></>}
             {taskHistory.nextCursor && <Button label={t('projectGoals.moreHistory')} disabled={taskHistory.loading} onPress={() => { void taskHistory.read(taskHistory.nextCursor); }}><Text style={styles.link}>{t('projectGoals.moreHistory')}</Text></Button>}
-            {!history.length && !taskHistory.loading && <Text style={styles.meta}>{t(readOnly ? 'projectGoals.noMatchingHistory' : 'projectGoals.noHistory')}</Text>}</ScrollView></View></RNModal>}
-        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth /> : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t(readOnly ? 'projectGoals.noMatchingHistory' : 'projectGoals.emptyChatHint')}</Text>{!readOnly && <Button label={t('projectGoals.openChat')} onPress={() => { void start(task, 'chat'); }} disabled={busy || offline}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button>}</View>}
+            {!history.length && !taskHistory.loading && <Text style={styles.meta}>{t(!canCreateProjectConversation() ? 'projectGoals.noMatchingHistory' : 'projectGoals.noHistory')}</Text>}</ScrollView></View></RNModal>}
+        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth /> : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t(!canCreateProjectConversation() ? 'projectGoals.noMatchingHistory' : 'projectGoals.emptyChatHint')}</Text>{canCreateProjectConversation() && <Button label={t('projectGoals.openChat')} onPress={() => { void start(task, 'chat'); }} disabled={busy || offline}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button>}</View>}
     </View>;
     const catalog = <ScrollView style={styles.catalog} contentContainerStyle={styles.taskCatalogContent}>
         <CatalogHeading title={props.featureTitle} subtitle={`${allTasks.length} ${t('projectGoals.tasks')}`} query={props.query} setQuery={props.setQuery} />

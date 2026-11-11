@@ -62,6 +62,7 @@ export const zhHans: TranslationStructure = {
         directTasks: "直接进入任务",
         realArchive: "本机真实项目档案",
         readOnlyArchive: "本预览只读项目文件，不创建或执行真实任务。",
+        previewChatHint: '项目文件仅供查看；可新建空白对话，不会自动发送任务指令。',
         noMatchingHistory: "当前账号未找到此任务对应的会话",
         connecting: "正在连接，连接后读取这台机器的项目…",
         offlineArchive: "这台机器已离线，暂时无法读取项目。机器重新连接后会恢复加载。",

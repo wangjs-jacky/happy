@@ -59,6 +59,7 @@ export const en = {
         directTasks: "Open tasks",
         realArchive: "Local project archive",
         readOnlyArchive: "Project files are read-only in this preview; task execution is unavailable.",
+        previewChatHint: 'Project files are read-only. Open an empty conversation to discuss this task; no task instructions are sent automatically.',
         noMatchingHistory: "No matching conversation found in this account",
         connecting: "Connecting to load this machine's projects…",
         offlineArchive: "This machine is offline. Its projects could not be loaded; reconnect it to continue.",

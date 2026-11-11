@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { GoalProjectSchema, GoalBoardSnapshotSchema, GoalTaskSessionSchema, type GoalTask, type GoalBoardSnapshot } from '@slopus/happy-wire';
 import { assertAccountRuntime, getRuntimeAccountSelection } from '@/auth/accountRuntime';
 import { apiSocket } from './apiSocket';
-import { machineStartGoalTask } from './ops';
+import { machineStartGoalTask, machineStartGoalPreviewChat } from './ops';
 import type { FileWorkspaceBinding } from '@/components/fileWorkspace/SessionFileWorkspaceProvider';
 import { t } from '@/text';
 // A conservative client latch only covers stale snapshots after an uncertain
@@ -22,6 +22,9 @@ function owner() {
     return JSON.stringify([account?.key, account?.generation, account?.serverUrl]);
 }
 export function isReadOnlyProjectPreview() { return (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean } }).__HAPPY_CONFIG__?.goalProjectReadOnly === true; }
+export function canCreateProjectConversation() {
+    return !isReadOnlyProjectPreview() || (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectAllowChat?: boolean } }).__HAPPY_CONFIG__?.goalProjectAllowChat === true;
+}
 export function getProjectPreviewMachineId() {
     const config = (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean; goalProjectMachineId?: string } }).__HAPPY_CONFIG__;
     return config?.goalProjectReadOnly === true ? config.goalProjectMachineId : undefined;
@@ -52,9 +55,11 @@ export async function loadProjectGoalBoard(machineId: string, featurePath: strin
     return result;
 }
 export async function launchProjectGoalTask(machineId: string, featurePath: string, task: GoalTask, action: 'chat' | 'execute', requestId: string, agent: 'codex' | 'claude') {
-    if (isReadOnlyProjectPreview()) throw new ProjectGoalLaunchError(t('projectGoals.readOnlyArchive'), true);
+    if (isReadOnlyProjectPreview() && (action !== 'chat' || !canCreateProjectConversation())) throw new ProjectGoalLaunchError(t('projectGoals.readOnlyArchive'), true);
     const current = owner();
-    const result = await machineStartGoalTask(machineId, { featurePath, taskId: task.id, action, requestId, agent });
+    const result = isReadOnlyProjectPreview()
+        ? await machineStartGoalPreviewChat(machineId, { featurePath, taskId: task.id, requestId, agent })
+        : await machineStartGoalTask(machineId, { featurePath, taskId: task.id, action, requestId, agent });
     if (owner() !== current) throw new Error('Project launch account changed');
     if (result.type !== 'success') throw new ProjectGoalLaunchError(result.type === 'error' ? result.errorMessage : 'Task directory is unavailable', result.type === 'error' && 'notDispatched' in result && result.notDispatched === true);
     return result.sessionId;
