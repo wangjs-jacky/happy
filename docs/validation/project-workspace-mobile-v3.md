@@ -1,6 +1,6 @@
 # 手机项目工作区 V3 实施与验证
 
-基线：`66b9cf2df80817a8e4115c31cb4e2bbab7667db2`。本次仅实现已审阅的手机交互；不发布正式 Web、production OTA、APK 或 CLI。
+基线：`66b9cf2df80817a8e4115c31cb4e2bbab7667db2`。本次实现已审阅的手机交互。用户随后明确要求“合并并发布”，按 main CI 发布正式 Web 与 Android production OTA；本次不包含 APK 或 CLI 发布。
 
 ## 用户可见变化
 
@@ -41,4 +41,4 @@ pnpm exec tsx --tsconfig packages/happy-cli/tsconfig.json packages/happy-app/e2e
 
 ## 审阅状态
 
-PR 前后截图偏好已询问，尚未收到答复；本轮未采集截图、视频或 Happy Skills 关键帧，不作像素/视觉通过声明。独立交互评审：M1–M4 行为与 M5 DOM 几何 pass，整体手机交互 Gate 4 blocked（缺视觉/真机证据）。按 happy-visual-workflow 的“只有状态为 pass 或有理由的 not-required 才能越过 gate”，暂不创建 PR。先提交本地源码、交付精确 preview OTA 供用户在 App 审阅，不合并正式主线。代码与 DOM 行为通过不等于用户认可。
+PR 前后截图偏好已询问，尚未收到答复；本轮未采集截图、视频或 Happy Skills 关键帧，不作像素/视觉通过声明。独立交互评审：M1–M4 行为与 M5 DOM 几何 pass，整体手机交互 Gate 4 blocked（缺视觉/真机证据）。前轮先交付本地源码与定向 preview OTA；本轮用户已明确要求“合并并发布”，继续正常 PR、现有 CI 和正式发布流程。保留上述视觉/真机缺口，不将发布授权记为手机交互通过或用户产物认可。
