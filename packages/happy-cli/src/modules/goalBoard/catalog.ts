@@ -37,6 +37,12 @@ export async function discoverRoots(workingDirectory: string, homeDirectory = ho
 }
 
 export type CatalogRecord = GoalBoardCatalogEntry & { root: string };
+/** Use actual archive prose; navigation links and frontmatter are not a project description. */
+export function catalogSummary(source: string): string | undefined {
+    const prose = source.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+        .split(/\r?\n/).map(line => line.trim()).find(line => line && !/^(?:#|[-*|>`]|\d+\.|!\[|\[)/.test(line));
+    return prose?.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*_`]/g, '').slice(0, 400);
+}
 export async function readProjects(roots: string[]): Promise<GoalProject[]> {
     const entries = await readCatalog(roots);
     const projects = new Map<string, GoalProject>();
@@ -47,7 +53,7 @@ export async function readProjects(roots: string[]): Promise<GoalProject[]> {
                 const projectPath = await safePath(root, join(root, name));
                 if (!(await stat(projectPath)).isDirectory()) continue;
                 const text = await readDocument(root, join(projectPath, 'index.md'));
-                projects.set(projectPath, { projectPath, title: titleOf(text) || name, features: [] });
+                projects.set(projectPath, { projectPath, title: titleOf(text) || name, summary: catalogSummary(text), features: [] });
             } catch { /* Only indexed archive projects are catalogued. */ }
         }
     }
@@ -90,7 +96,7 @@ export async function readCatalog(roots: string[]): Promise<CatalogRecord[]> {
                     if (!(await stat(featurePath)).isDirectory()) continue;
                     const source = await readDocument(root, join(featurePath, 'index.md'));
                     if (catalog.some(entry => entry.featurePath === featurePath)) continue;
-                    catalog.push({ root, featurePath, projectPath, title: titleOf(source) || feature, projectTitle });
+                    catalog.push({ root, featurePath, projectPath, title: titleOf(source) || feature, summary: catalogSummary(source), projectTitle });
                 } catch { /* Not a readable feature entry. */ }
             }
             if (!catalog.some(entry => entry.projectPath === projectPath)) addDirect();

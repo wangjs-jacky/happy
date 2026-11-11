@@ -33,10 +33,10 @@ export const GoalBoardSnapshotSchema = z.object({
     tasks: z.array(GoalTaskSchema).max(200), warnings: z.array(label).max(50),
 });
 export type GoalBoardSnapshot = z.infer<typeof GoalBoardSnapshotSchema>;
-export const GoalBoardCatalogEntrySchema = z.object({ featurePath: path, title: label, projectTitle: label.optional(), projectPath: path.optional() });
+export const GoalBoardCatalogEntrySchema = z.object({ featurePath: path, title: label, summary: label.optional(), projectTitle: label.optional(), projectPath: path.optional() });
 export type GoalBoardCatalogEntry = z.infer<typeof GoalBoardCatalogEntrySchema>;
 export const GoalProjectSchema = z.object({
-    projectPath: path, title: label, features: z.array(GoalBoardCatalogEntrySchema).max(100),
+    projectPath: path, title: label, summary: label.optional(), features: z.array(GoalBoardCatalogEntrySchema).max(100),
     direct: GoalBoardCatalogEntrySchema.optional(),
 });
 export type GoalProject = z.infer<typeof GoalProjectSchema>;

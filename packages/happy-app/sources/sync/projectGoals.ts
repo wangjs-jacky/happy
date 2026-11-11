@@ -57,6 +57,28 @@ export type ProjectHistoryCursor = z.infer<typeof historyCursor>;
 export async function loadProjectTaskHistory(machineId: string, featurePath: string, taskId: string, cursor?: ProjectHistoryCursor) {
     return z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25), nextCursor: historyCursor.optional() }).parse(await projectGoalRequest(machineId, 'goalTaskHistory', { featurePath, taskId, cursor }));
 }
+export function latestProjectTaskConversation(sessions: z.infer<typeof GoalTaskSessionSchema>[], directory: string) {
+    const normalized = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return sessions.filter(session => normalized(session.directory) === normalized(directory))
+        .sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId))[0];
+}
+
+/** The main entry resumes a verified Task conversation; only explicit new-chat bypasses history. */
+export async function openProjectGoalConversation(machineId: string, featurePath: string, task: GoalTask,
+    requestId: string, agent: 'codex' | 'claude', knownSessions: z.infer<typeof GoalTaskSessionSchema>[] = [], forceNew = false) {
+    const current = owner();
+    const directory = task.indexPath.replace(/[\\/][^\\/]+$/, '');
+    if (!forceNew) {
+        // A failed history read must not silently create a duplicate conversation.
+        const page = await loadProjectTaskHistory(machineId, featurePath, task.id);
+        if (owner() !== current) throw new Error('Project conversation account changed');
+        const latest = latestProjectTaskConversation([...knownSessions, ...page.sessions], directory);
+        if (latest) return { session: latest, created: false };
+    }
+    if (owner() !== current) throw new Error('Project conversation account changed');
+    const sessionId = await launchProjectGoalTask(machineId, featurePath, task, 'chat', requestId, agent);
+    return { session: { sessionId, directory, title: task.title, updatedAt: Date.now(), executed: false }, created: true };
+}
 const mediaMime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
 export function projectTaskFiles(machineId: string, featurePath: string, task: GoalTask): FileWorkspaceBinding {
     const root = task.indexPath.replace(/[\\/][^\\/]+$/, '');

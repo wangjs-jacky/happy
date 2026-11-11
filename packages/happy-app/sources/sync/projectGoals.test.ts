@@ -5,7 +5,7 @@ vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
 vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
-import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError } from './projectGoals';
+import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
 beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.account.generation++; });
 describe('project Task transport and conservative attempt state', () => {
@@ -34,5 +34,38 @@ describe('project Task transport and conservative attempt state', () => {
         mocks.rpc.mockImplementation(async () => { abort.abort(); return { success: true, content: Buffer.alloc(65536, 'a').toString('base64'), size: 1024 * 1024, revision: 'r', offset: 0, transferId: 'transfer' }; });
         await expect(projectTaskFiles('machine', '/archive', task).readText('/archive/task/large.txt', abort.signal)).rejects.toThrow();
         expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('opening a Task conversation', () => {
+    const session = (sessionId: string, updatedAt: number, directory = '/archive/task') => ({ sessionId, updatedAt, directory, title: sessionId, executed: false });
+    it('resumes the newest conversation in this Task without creating or sending anything', async () => {
+        mocks.rpc.mockResolvedValue({ success: true, sessions: [session('older', 10), session('unrelated', 50, '/archive/other'), session('newest', 20)] });
+        const result = await openProjectGoalConversation('machine', '/archive', task, 'request', 'codex');
+        expect(result).toMatchObject({ created: false, session: { sessionId: 'newest' } });
+        expect(mocks.launch).not.toHaveBeenCalled();
+    });
+    it('creates an empty chat only once and resumes it on the next open', async () => {
+        mocks.rpc.mockResolvedValueOnce({ success: true, sessions: [] }).mockResolvedValueOnce({ success: true, sessions: [session('created', 20)] });
+        mocks.launch.mockResolvedValue({ type: 'success', sessionId: 'created' });
+        expect((await openProjectGoalConversation('machine', '/archive', task, 'first', 'codex')).created).toBe(true);
+        expect((await openProjectGoalConversation('machine', '/archive', task, 'second', 'codex')).created).toBe(false);
+        expect(mocks.launch).toHaveBeenCalledExactlyOnceWith('machine', expect.objectContaining({ action: 'chat', taskId: task.id }));
+    });
+    it('does not turn a failed history read into a new duplicate chat', async () => {
+        mocks.rpc.mockRejectedValue(new Error('History unavailable'));
+        await expect(openProjectGoalConversation('machine', '/archive', task, 'request', 'codex')).rejects.toThrow('History unavailable');
+        expect(mocks.launch).not.toHaveBeenCalled();
+    });
+    it('allows an explicit new conversation without replacing existing history', async () => {
+        mocks.launch.mockResolvedValue({ type: 'success', sessionId: 'explicit-new' });
+        const result = await openProjectGoalConversation('machine', '/archive', task, 'request', 'codex', [session('existing', 20)], true);
+        expect(result).toMatchObject({ created: true, session: { sessionId: 'explicit-new' } });
+        expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+    it('abandons opening when the account changes during the history read', async () => {
+        mocks.rpc.mockImplementation(async () => { mocks.account.generation++; return { success: true, sessions: [] }; });
+        await expect(openProjectGoalConversation('machine', '/archive', task, 'request', 'codex')).rejects.toThrow('account changed');
+        expect(mocks.launch).not.toHaveBeenCalled();
     });
 });

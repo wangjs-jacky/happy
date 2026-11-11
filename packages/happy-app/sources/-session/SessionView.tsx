@@ -541,7 +541,7 @@ function DesktopReadingWidthControl() {
     </View>;
 }
 
-type SessionViewProps = { id: string; fileOpenRequest?: { path: string; requestId: string }; embedded?: boolean };
+type SessionViewProps = { id: string; fileOpenRequest?: { path: string; requestId: string }; embedded?: boolean; fullWidth?: boolean };
 
 export const SessionView = React.memo((props: SessionViewProps) => (
     <SubagentInspectorProvider sessionId={props.id}>
@@ -1281,6 +1281,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
                         extraPathSegment={fileViewPath ?? undefined}
                         headerContentLeftInset={props.embedded || splitFileHeader ? 0 : persistentHeaderContentInset}
                         headerContentTopInset={fileHeaderTopInset}
+                        contentMaxWidth={props.fullWidth ? desktopMainWidth || undefined : undefined}
                         compactRightSlot={compactSessionHeader}
                         titleSlot={headerTitleSlot}
                         rightSlot={props.embedded ? undefined : (diffViewOpen || !!fileViewPath) ? overlayHeaderRightSlot : defaultHeaderRightSlot}
@@ -1328,7 +1329,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                 ) : (
-                    <DesktopReadingWidthContext.Provider value={dreamskin ? desktopReadingWidth : layout.maxWidth}>
+                    <DesktopReadingWidthContext.Provider value={props.fullWidth ? desktopMainWidth || layout.maxWidth : dreamskin ? desktopReadingWidth : layout.maxWidth}>
                         <SessionViewLoaded
                             key={sessionId}
                             composerHandleRef={sessionComposerHandleRef}

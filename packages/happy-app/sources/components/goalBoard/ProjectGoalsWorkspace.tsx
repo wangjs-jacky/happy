@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -23,11 +23,12 @@ import { useFileWorkspace } from '@/components/fileWorkspace/context';
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
 import { getWorkspaceChatWidth, getWorkspaceChatMaximumWidth } from '@/components/fileWorkspace/documentPresentation';
 import { PanelTabs } from '@/components/PanelTabs';
-import { DesktopSkinCanvas } from '@/components/DesktopSkinCanvas';
 import { Modal } from '@/modal';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 import { RunningTaskBorder } from './RunningTaskBorder';
+import { ProjectGallery } from './ProjectGallery';
+import { latestProjectTaskConversation, openProjectGoalConversation } from '@/sync/projectGoals';
 
 const requestId = () => `goal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 function accountKey() { const a = getRuntimeAccountSelection(); return JSON.stringify([a?.key, a?.generation, a?.serverUrl]); }
@@ -37,7 +38,7 @@ function useProjectTaskHistory(machineId: string, featurePath: string, taskId: s
     const key = JSON.stringify([accountKey(), machineId, featurePath, taskId]);
     const context = React.useRef(key); context.current = key;
     const epoch = React.useRef(0);
-    const [state, setState] = React.useState<{ key: string; sessions: GoalTaskSession[]; nextCursor?: ProjectHistoryCursor }>({ key, sessions: [] });
+    const [state, setState] = React.useState<{ key: string; sessions: GoalTaskSession[]; loaded: boolean; nextCursor?: ProjectHistoryCursor }>({ key, sessions: [], loaded: false });
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const read = React.useCallback(async (cursor?: ProjectHistoryCursor) => {
@@ -49,7 +50,7 @@ function useProjectTaskHistory(machineId: string, featurePath: string, taskId: s
             setState(previous => {
                 const merged = new Map((previous.key === key ? previous.sessions : []).map(session => [session.sessionId, session]));
                 for (const session of page.sessions) merged.set(session.sessionId, session);
-                return { key, sessions: [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId)),
+                return { key, loaded: true, sessions: [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId)),
                     nextCursor: !cursor && previous.key === key && previous.sessions.length > 25 ? previous.nextCursor : page.nextCursor };
             });
         } catch (error) { if (context.current === key && epoch.current === request) setError(error instanceof Error ? error.message : String(error)); }
@@ -57,7 +58,7 @@ function useProjectTaskHistory(machineId: string, featurePath: string, taskId: s
     }, [machineId, featurePath, taskId, key]);
     const invalidation = (machine?.daemonState as { goalProjectRevision?: string } | null)?.goalProjectRevision;
     React.useEffect(() => { void read(); return () => { epoch.current++; }; }, [read, invalidation]);
-    return { sessions: state.key === key ? state.sessions : [], nextCursor: state.key === key ? state.nextCursor : undefined, loading, error, read };
+    return { sessions: state.key === key ? state.sessions : [], nextCursor: state.key === key ? state.nextCursor : undefined, ready: state.key === key && state.loaded, loading, error, read };
 }
 
 function useProjectData(machineId: string, featurePath?: string) {
@@ -123,6 +124,7 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
     const { theme } = useUnistyles();
     const data = useProjectData(machineId, params.feature);
     const [query, setQuery] = React.useState('');
+    const [machineMenuOpen, setMachineMenuOpen] = React.useState(false);
     const [busy, setBusy] = React.useState(false);
     const [actionError, setActionError] = React.useState<string | null>(null);
     const [agent, setAgent] = React.useState<'codex' | 'claude'>(() => useNewSessionDraft.getState().agentType === 'claude' ? 'claude' : 'codex');
@@ -134,7 +136,6 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
     const feature = data.board?.snapshot;
     const task = feature?.tasks.find(task => task.id === params.task);
     const skin = useLocalSetting('desktopSkinId');
-    const readingWidth = useLocalSetting('desktopReadingWidth');
     const reduced = useReducedTransparency();
     const surface = skin !== 'default' ? (reduced ? theme.colors.desktopSkin.readingSolid : theme.colors.desktopSkin.readingWide) : theme.colors.surface;
     const go = (values: Record<string, string | undefined>) => { setQuery(''); setActionError(null); navigate({ conversation: undefined, author: undefined, ...values }); };
@@ -158,8 +159,8 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
         finally { if (alive.current) setBusy(false); }
     };
     const tasks = feature?.tasks ?? [];
-    return <View style={styles.page} testID="project-goals-workspace">
-        {skin !== 'default' && <DesktopSkinCanvas reading photo={false} readingWidth={readingWidth} skin={skin} />}
+    const selectedMachine = machines.find(machine => machine.id === machineId);
+    return <View style={[styles.page, { backgroundColor: surface }]} testID="project-goals-workspace">
         <View style={[styles.header, { backgroundColor: surface }]}>
             <View style={styles.line}>
                 <Button variant="toolbar" label={t('projectGoals.backProjects')} onPress={() => go({ project: undefined, feature: undefined, task: undefined })}>
@@ -169,33 +170,34 @@ function ProjectGoalsOwner({ machineId, machines, params, navigate }: {
                 {feature && feature.featurePath !== project?.projectPath && <><Ionicons name="chevron-forward" size={13} color={theme.colors.textSecondary} /><Button variant="toolbar" label={feature.title} onPress={() => go({ task: undefined })}><Text numberOfLines={1} style={styles.body}>{feature.title}</Text></Button></>}
             </View>
             <View style={styles.line}>
+                <Button variant="toolbar" label={t('projectGoals.chooseMachine')} expanded={machineMenuOpen} onPress={() => setMachineMenuOpen(value => !value)} testID="project-machine-picker"><Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} /><Text numberOfLines={1} style={[styles.meta, { maxWidth: 200 }]}>{selectedMachine?.metadata?.displayName || selectedMachine?.metadata?.host || t('projectGoals.machine')}</Text><Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} /></Button>
                 <Button variant="toolbar" label={t('projectGoals.refresh')} disabled={data.loading || !machineId || data.offline} onPress={() => { void data.refresh(); }} testID="project-goals-refresh"><Ionicons name="refresh-outline" size={17} color={theme.colors.textSecondary} /></Button>
                 <Button variant="toolbar" label={t('projectGoals.agent')} onPress={() => setAgent(value => value === 'codex' ? 'claude' : 'codex')}><Text style={styles.meta}>{agent === 'codex' ? 'Codex' : 'Claude'}</Text></Button>
                 <Button variant="toolbar" label={t(params.feature ? 'projectGoals.createTask' : 'projectGoals.createProject')} disabled={busy || !machineId || data.offline} onPress={() => { void organize(); }} testID="project-goals-organize"><Ionicons name="sparkles-outline" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t(params.feature ? 'projectGoals.createTask' : 'projectGoals.createProject')}</Text></Button>
             </View>
         </View>
-        <View style={[styles.machineBar, { backgroundColor: surface }]}>
-            <Ionicons name="desktop-outline" size={14} color={theme.colors.textSecondary} />
-            <ScrollView horizontal contentContainerStyle={styles.line}>
+        {machineMenuOpen && <>
+            <Pressable style={styles.machineBackdrop} accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={() => setMachineMenuOpen(false)} />
+            <ScrollView style={styles.machineMenu}>
                 {machines.map(machine => <Button variant="toolbar" key={machine.id} selected={machineId === machine.id} label={machine.metadata?.displayName || machine.metadata?.host || machine.id}
-                    onPress={() => navigate({ machine: machine.id, project: undefined, feature: undefined, task: undefined, conversation: undefined, author: undefined })}>
+                    onPress={() => { setMachineMenuOpen(false); navigate({ machine: machine.id, project: undefined, feature: undefined, task: undefined, conversation: undefined, author: undefined }); }}>
                     <Text style={styles.meta}>{machine.metadata?.displayName || machine.metadata?.host || machine.id}{!isMachineOnline(machine) ? ` · ${t('projectGoals.offline')}` : ''}</Text>
                 </Button>)}
             </ScrollView>
-        </View>
+        </>}
         {(data.error || actionError) && <View style={styles.errorBar} accessibilityRole="alert"><Text style={styles.error}>{data.error || actionError}</Text></View>}
         {data.loading && !data.projects.length && <ActivityIndicator style={{ padding: 24 }} color={theme.colors.textSecondary} />}
-        {!machineId ? <Empty text={t('projectGoals.noMachine')} /> : params.author ? <View style={[styles.author, { backgroundColor: surface }]}><Text style={[styles.meta, { padding: 12 }]}>{t('projectGoals.authoringHint')}</Text><SessionView key={params.author} id={params.author} embedded /></View>
+        {!machineId ? <Empty text={t('projectGoals.noMachine')} /> : params.author ? <View style={[styles.author, { backgroundColor: surface }]}><Text style={[styles.meta, { padding: 12 }]}>{t('projectGoals.authoringHint')}</Text><SessionView key={params.author} id={params.author} embedded fullWidth /></View>
             : task && feature ? <TaskWorkspace key={JSON.stringify([machineId, feature.featurePath, task.id])} machineId={machineId} featurePath={feature.featurePath} task={task}
                 allTasks={tasks} conversationId={params.conversation} agent={agent} offline={data.offline}
                 refresh={data.refresh} selectTask={id => go({ task: id })} selectConversation={id => navigate({ conversation: id })} back={() => go({ task: undefined })} />
             : <ScrollView style={styles.catalog} contentContainerStyle={styles.catalogContent}>
-                <View style={styles.catalogHeading}><Text accessibilityRole="header" style={styles.heading}>{feature ? t('projectGoals.tasks') : project ? t('projectGoals.subprojects') : t('projectGoals.allProjects')}</Text>
+                <View style={styles.catalogHeading}><View style={{ gap: 8 }}><Text accessibilityRole="header" style={styles.heading}>{feature ? feature.title : project ? project.title : t('projectGoals.allProjects')}</Text><Text style={styles.meta}>{feature ? `${tasks.length} ${t('projectGoals.tasks')}` : project ? project.summary || t('projectGoals.subprojects') : t('projectGoals.galleryDescription')}</Text></View>
                     <TextInput style={styles.search} placeholder={t('projectGoals.search')} placeholderTextColor={theme.colors.input.placeholder} value={query} onChangeText={setQuery} accessibilityLabel={t('projectGoals.search')} /></View>
                 {params.task && feature && !task && <Text style={styles.error}>{t('projectGoals.taskMissing')}</Text>}
                 {feature ? <TaskCards tasks={tasks.filter(task => (task.title + task.goal).toLowerCase().includes(query.toLowerCase()))} onSelect={id => go({ task: id })} />
-                    : project ? <View style={styles.grid}>{[...(project.direct ? [project.direct] : []), ...project.features].filter(entry => entry.title.toLowerCase().includes(query.toLowerCase())).map(entry => <CatalogCard key={entry.featurePath} title={entry.featurePath === project.projectPath ? t('projectGoals.tasks') : entry.title} subtitle={t('projectGoals.showTasks')} onPress={() => chooseFeature(entry)} />)}</View>
-                        : <View style={styles.grid}>{data.projects.filter(project => project.title.toLowerCase().includes(query.toLowerCase())).map(project => <CatalogCard key={project.projectPath} title={project.title} subtitle={project.features.length ? `${project.features.length} ${t('projectGoals.subprojects')}` : t('projectGoals.tasks')} onPress={() => chooseProject(project)} />)}</View>}
+                    : project ? <View style={styles.grid}>{[...(project.direct ? [project.direct] : []), ...project.features].filter(entry => entry.title.toLowerCase().includes(query.toLowerCase())).map(entry => <CatalogCard key={entry.featurePath} title={entry.featurePath === project.projectPath ? t('projectGoals.tasks') : entry.title} subtitle={entry.summary || t('projectGoals.showTasks')} onPress={() => chooseFeature(entry)} />)}</View>
+                        : <><View style={styles.libraryHeading}><Text style={styles.sectionTitle}>{t('projectGoals.projectLibrary')}</Text><Text style={styles.meta}>{data.projects.length}</Text></View><ProjectGallery projects={data.projects.filter(project => (project.title + (project.summary || '')).toLowerCase().includes(query.toLowerCase()))} onSelect={chooseProject} /></>}
                 {!data.loading && !data.projects.length && <Empty text={t('projectGoals.emptyProjects')} />}
                 {feature && !tasks.length && <Empty text={t('projectGoals.emptyTasks')} />}
             </ScrollView>}
@@ -214,12 +216,12 @@ function TaskCards({ tasks, selectedId, onSelect, onAction, offline, busy, hideE
     tasks: GoalTask[]; selectedId?: string; onSelect: (id: string) => void; onAction?: (task: GoalTask, action: 'chat' | 'execute') => void; offline?: boolean; busy?: boolean; hideExecution?: boolean;
 }) {
     const { theme } = useUnistyles();
-    return <View style={styles.grid}>{tasks.map(task => <View key={task.id} style={[styles.taskCard, selectedId === task.id && styles.selectedCard, task.status === 'running' && styles.runningCard]} testID={`project-task-card-${task.id}`}>
-        <Button variant="row" selected={selectedId === task.id} label={task.title} onPress={() => onSelect(task.id)}>
-            <View style={styles.cardBody}><View style={styles.line}><Text style={styles.cardTitle}>{task.code ? `${task.code} · ` : ''}{task.title}</Text>{task.status === 'running' && <ActivityIndicator accessibilityLabel={t('projectGoals.running')} size="small" color={theme.colors.textLink} />}</View>
-                <Text numberOfLines={2} style={styles.body}>{task.goal || task.title}</Text><Text numberOfLines={2} style={styles.meta}>{task.expectedDeliverables.join(' · ') || t('projectGoals.noFinals')}</Text><ApprovalTag task={task} /></View>
+    return <View style={styles.grid}>{tasks.map((task, index) => <View key={task.id} style={[styles.taskCard, selectedId === task.id && styles.selectedCard, task.status === 'running' && styles.runningCard]} testID={`project-task-card-${task.id}`}>
+        <Button variant="card" selected={selectedId === task.id} label={task.title} onPress={() => onSelect(task.id)}>
+            <View style={styles.taskCardContent}><View style={[styles.line, { justifyContent: 'space-between' }]}><Text style={styles.taskNumber}>{task.code || `TASK ${String(index + 1).padStart(2, '0')}`}</Text><ApprovalTag task={task} /></View>
+                <Text numberOfLines={2} style={styles.cardTitle}>{task.title}</Text><Text numberOfLines={2} style={styles.taskGoal}>{task.goal || task.title}</Text><View style={styles.taskDelivery}><Ionicons name="document-text-outline" size={13} color={theme.colors.textLink} /><Text numberOfLines={2} style={[styles.meta, { flex: 1 }]}>{task.expectedDeliverables.join(' · ') || t('projectGoals.noFinals')}</Text></View></View>
         </Button>
-        {onAction && selectedId === task.id && <View style={styles.cardActions}><Button variant="toolbar" label={t('projectGoals.newChat')} disabled={offline || busy} onPress={() => onAction(task, 'chat')}><Ionicons name="chatbubble-outline" size={17} color={theme.colors.textSecondary} /></Button>
+        {onAction && selectedId === task.id && <View style={styles.cardActions}><Button variant="toolbar" label={t('projectGoals.openChat')} disabled={offline || busy} onPress={() => onAction(task, 'chat')}><Ionicons name="chatbubble-outline" size={17} color={theme.colors.textSecondary} /></Button>
             {!hideExecution && taskCanExecute(task) && <Button variant="toolbar" label={t('projectGoals.execute')} disabled={offline || busy} onPress={() => onAction(task, 'execute')}><Ionicons name="play" size={17} color={theme.colors.textLink} /></Button>}</View>}
         <RunningTaskBorder active={task.status === 'running'} />
     </View>)}</View>;
@@ -252,6 +254,8 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     const [localHistory, setLocalHistory] = React.useState<GoalTaskSession[]>([]);
     const lifetime = React.useRef({ alive: true });
     const action = React.useRef<{ key: string; id: string; uncertain: boolean } | null>(null);
+    const opening = React.useRef(false);
+    const autoResume = React.useRef(false);
     React.useEffect(() => { lifetime.current.alive = true; return () => { lifetime.current.alive = false; }; }, []);
     const historyFromStore = storage(state => Object.values(state.sessions).filter(session => session.metadata?.machineId === machineId
         && (session.metadata.path === workspace.root || (session.metadata.goalBoard?.featurePath === featurePath && session.metadata.goalBoard.taskId === task.id)))
@@ -266,18 +270,26 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     }, [taskHistory.sessions, localHistory, historyFromStore, machineId, featurePath, task.id, workspace.root]);
     React.useEffect(() => { if (props.conversationId) void ensureSessionHydratedWithRetry(props.conversationId); }, [props.conversationId]);
     const conversationId = history.some(session => session.sessionId === props.conversationId) ? props.conversationId : undefined;
-    const start = async (target: GoalTask, mode: 'chat' | 'execute', keepFileVisible = false) => {
-        if (busy || offline) return;
+    React.useEffect(() => {
+        if (autoResume.current || props.conversationId || !taskHistory.ready || taskHistory.loading || taskHistory.error) return;
+        autoResume.current = true;
+        const latest = latestProjectTaskConversation(history, workspace.root);
+        if (latest) { setChatVisible(true); setCompactTab('chat'); selectConversation(latest.sessionId); }
+    }, [history, props.conversationId, taskHistory.ready, taskHistory.loading, taskHistory.error, workspace.root, selectConversation]);
+    const start = async (target: GoalTask, mode: 'chat' | 'execute', keepFileVisible = false, forceNew = false) => {
+        if (opening.current || offline) return;
         if (target.id !== task.id) { selectTask(target.id); return; }
+        opening.current = true;
         setBusy(true); setError(null);
         if (mode === 'execute') { markProjectTaskExecutionAttempt(machineId, task); setExecutionAttempted(true); }
         const key = `${target.id}:${mode}`;
         if (!action.current || action.current.key !== key || !action.current.uncertain) action.current = { key, id: requestId(), uncertain: true };
         try {
-            const id = await launchProjectGoalTask(machineId, featurePath, target, mode, action.current.id, agent);
+            const result = mode === 'chat' ? await openProjectGoalConversation(machineId, featurePath, target, action.current.id, agent, history, forceNew) : null;
+            const id = result?.session.sessionId ?? await launchProjectGoalTask(machineId, featurePath, target, mode, action.current.id, agent);
             if (!lifetime.current.alive) return;
             action.current.uncertain = false;
-            setLocalHistory(values => [...values, { sessionId: id, title: task.title, directory: workspace.root, updatedAt: Date.now(), executed: mode === 'execute' }]);
+            setLocalHistory(values => [...values.filter(session => session.sessionId !== id), result?.session ?? { sessionId: id, title: task.title, directory: workspace.root, updatedAt: Date.now(), executed: mode === 'execute' }]);
             setChatVisible(true); if (!keepFileVisible) setCompactTab('chat'); selectConversation(id);
             await ensureSessionHydratedWithRetry(id);
             if (lifetime.current.alive) await refresh();
@@ -285,15 +297,14 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
             if (mode === 'execute' && error instanceof ProjectGoalLaunchError && error.notDispatched) { clearUndispatchedProjectTaskAttempt(machineId, task); setExecutionAttempted(false); }
             setError(error instanceof Error ? error.message : String(error)); await refresh();
         } }
-        finally { if (lifetime.current.alive) setBusy(false); }
+        finally { opening.current = false; if (lifetime.current.alive) setBusy(false); }
     };
     const openFile = async (path: string) => {
         setChatVisible(true); setCompactTab('file');
         const alreadyOpen = !!workspace.controller.getSnapshot().documents[path];
         void workspace.openReference(path).then(() => { if (alreadyOpen) return workspace.controller.refresh(path); });
         if (!conversationId) {
-            if (history[0]) selectConversation(history[0].sessionId);
-            else void start(task, 'chat', true);
+            void start(task, 'chat', true);
         }
     };
     const listDirectory = React.useCallback(async (_sessionId: string, path: string) => {
@@ -318,18 +329,18 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
             </ScrollView>}
         {error && <Text accessibilityRole="alert" style={[styles.error, { padding: 12 }]}>{error}</Text>}
         {task.execution?.state === 'uncertain' && <Text style={[styles.meta, { paddingHorizontal: 14, paddingVertical: 6 }]}>{t('projectGoals.executionUncertain')}</Text>}
-        <View style={styles.footer}><Button variant="primary" label={t('projectGoals.newChat')} disabled={busy || offline} onPress={() => { void start(task, 'chat'); }} testID="project-task-new-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t('projectGoals.newChat')}</Text></Button>
+        <View style={styles.footer}><Button variant="primary" label={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || offline} onPress={() => { void start(task, 'chat'); }} testID="project-task-open-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')}</Text></Button>
             {canExecute && <Button variant="primary" label={t('projectGoals.execute')} disabled={busy || offline} onPress={() => { void start(task, 'execute'); }} testID="project-task-execute"><Ionicons name="play" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.execute')}</Text></Button>}{busy && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}</View>
     </View>;
     const chat = <View style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && !workspace.maximized ? { flex: 0, width: chatWidth, minWidth: 310 } : {}]}>
         <View style={styles.historyHeader}><Button variant="toolbar" label={t('projectGoals.backTasks')} onPress={() => { setChatVisible(false); selectConversation(''); }}><Ionicons name="grid-outline" size={16} color={theme.colors.textSecondary} /></Button>
             <Button variant="toolbar" label={t('projectGoals.history')} expanded={historyOpen} onPress={() => setHistoryOpen(value => !value)} testID="project-task-history"><Ionicons name="time-outline" size={15} color={theme.colors.textSecondary} /><Text style={styles.meta}>{t('projectGoals.history')} · {history.length}</Text><Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} /></Button></View>
-        {historyOpen && <ScrollView style={styles.historyList}>{history.map(session => <Button key={session.sessionId} variant="row" label={session.title} selected={conversationId === session.sessionId} onPress={() => { selectConversation(session.sessionId); setHistoryOpen(false); }} testID={`project-task-history-${session.sessionId}`}><View style={styles.cardBody}><Text numberOfLines={2} style={styles.body}>{session.title}</Text><Text style={styles.meta}>{new Date(session.updatedAt).toLocaleString()}</Text></View></Button>)}
+        {historyOpen && <ScrollView style={styles.historyList}><Button variant="toolbar" label={t('projectGoals.newChat')} disabled={busy || offline} onPress={() => { setHistoryOpen(false); void start(task, 'chat', false, true); }} testID="project-task-new-chat"><Ionicons name="add-outline" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.newChat')}</Text></Button>{history.map(session => <Button key={session.sessionId} variant="row" label={session.title} selected={conversationId === session.sessionId} onPress={() => { selectConversation(session.sessionId); setHistoryOpen(false); }} testID={`project-task-history-${session.sessionId}`}><View style={styles.cardBody}><Text numberOfLines={2} style={styles.body}>{session.title}</Text><Text style={styles.meta}>{new Date(session.updatedAt).toLocaleString()}</Text></View></Button>)}
             {taskHistory.loading && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
             {taskHistory.error && <><Text style={styles.error}>{taskHistory.error}</Text><Button label={t('common.retry')} onPress={() => { void taskHistory.read(); }}><Text style={styles.link}>{t('common.retry')}</Text></Button></>}
             {taskHistory.nextCursor && <Button label={t('projectGoals.moreHistory')} disabled={taskHistory.loading} onPress={() => { void taskHistory.read(taskHistory.nextCursor); }}><Text style={styles.link}>{t('projectGoals.moreHistory')}</Text></Button>}
             {!history.length && !taskHistory.loading && <Text style={styles.meta}>{t('projectGoals.noHistory')}</Text>}</ScrollView>}
-        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded /> : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t('projectGoals.emptyChatHint')}</Text><Button label={t('projectGoals.newChat')} onPress={() => { void start(task, 'chat'); }} disabled={busy || offline}><Text style={styles.link}>{t('projectGoals.newChat')}</Text></Button></View>}
+        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth /> : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t('projectGoals.emptyChatHint')}</Text><Button label={t('projectGoals.openChat')} onPress={() => { void start(task, 'chat'); }} disabled={busy || offline}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button></View>}
     </View>;
     return <View style={styles.taskArea} onLayout={event => setRowWidth(Math.round(event.nativeEvent.layout.width))}>
         {!wide && <View style={styles.compactTabs}><PanelTabs activeTab={compactTab} onTabChange={setCompactTab} testIDPrefix="project-workspace" tabs={[{ key: 'tasks', label: t('projectGoals.tasks'), icon: 'grid-outline' }, { key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' }, ...(fileOpen ? [{ key: 'file', label: t('projectGoals.files'), icon: 'document-outline' as const }] : []), { key: 'details', label: t('projectGoals.details'), icon: 'reader-outline' }]} /></View>}
@@ -375,14 +386,20 @@ const styles = StyleSheet.create(theme => ({
     page: { flex: 1, minWidth: 0, minHeight: 0, backgroundColor: 'transparent' },
     header: { minHeight: 58, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     line: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-    machineBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 3, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
-    catalog: { flex: 1, minWidth: 0 }, catalogContent: { padding: 24, gap: 20 },
+    machineBackdrop: { position: 'absolute', inset: 0, zIndex: 20 },
+    machineMenu: { position: 'absolute', top: 56, right: 16, width: 310, maxHeight: 320, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, zIndex: 21 },
+    catalog: { flex: 1, minWidth: 0 }, catalogContent: { paddingHorizontal: 32, paddingTop: 28, paddingBottom: 36, gap: 24 },
     catalogHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
-    heading: { fontSize: 22, color: theme.colors.text, ...Typography.default('semiBold') },
+    heading: { fontSize: 28, lineHeight: 38, color: theme.colors.text, ...Typography.default('semiBold') },
+    libraryHeading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12 },
     search: { minWidth: 180, maxWidth: 320, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 13 },
     grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 14 },
-    catalogCard: { flexGrow: 1, flexBasis: 250, maxWidth: 380, borderRadius: 12, overflow: 'hidden' },
-    taskCard: { flexGrow: 1, flexBasis: 255, maxWidth: 380, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, overflow: 'hidden' },
+    catalogCard: { flexGrow: 1, flexBasis: 280, maxWidth: 440, minHeight: 170, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, overflow: 'hidden' },
+    taskCard: { flexGrow: 1, flexBasis: 228, maxWidth: 320, minHeight: 204, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, overflow: 'hidden' },
+    taskCardContent: { paddingHorizontal: 16, paddingTop: 15, paddingBottom: 12, gap: 10, width: '100%' },
+    taskNumber: { fontSize: 9, letterSpacing: 0.8, color: theme.colors.textSecondary, ...Typography.default() },
+    taskGoal: { fontSize: 12, lineHeight: 21, minHeight: 42, color: theme.colors.textSecondary, ...Typography.default() },
+    taskDelivery: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, paddingTop: 10, minHeight: 42 },
     selectedCard: { borderColor: theme.colors.textLink, backgroundColor: theme.colors.surfaceSelected },
     runningCard: { borderColor: theme.colors.status.connecting },
     cardBody: { flex: 1, minWidth: 0, gap: 10 }, cardTitle: { fontSize: 14, lineHeight: 20, color: theme.colors.text, ...Typography.default('semiBold') },
@@ -393,13 +410,13 @@ const styles = StyleSheet.create(theme => ({
     tagText: { fontSize: 11, lineHeight: 16, ...Typography.default('semiBold') },
     pendingTag: { backgroundColor: theme.colors.box.warning.background }, pendingText: { color: theme.colors.box.warning.text, fontSize: 11 },
     acceptedTag: { backgroundColor: theme.colors.surfaceSelected }, acceptedText: { color: theme.colors.success, fontSize: 11 },
-    taskArea: { flex: 1, minHeight: 0, minWidth: 0 }, workspaceRow: { flex: 1, minHeight: 0, flexDirection: 'row', gap: 10 },
-    taskPanel: { minHeight: 0, borderRadius: 16, overflow: 'hidden' }, panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
+    taskArea: { flex: 1, minHeight: 0, minWidth: 0, padding: 10 }, workspaceRow: { flex: 1, minHeight: 0, flexDirection: 'row', gap: 10 },
+    taskPanel: { minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 48, padding: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     tabs: { flexDirection: 'row', minHeight: 48, paddingHorizontal: 12, paddingVertical: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     detailScroll: { flex: 1, minHeight: 0 }, detailContent: { padding: 16, gap: 20 }, field: { gap: 7 }, sectionTitle: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
     deliverable: { gap: 9, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, padding: 10 },
     footer: { padding: 12, gap: 8, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
-    chat: { flex: 1, minWidth: 0, minHeight: 0, borderRadius: 16, overflow: 'hidden' }, historyHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
+    chat: { flex: 1, minWidth: 0, minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, historyHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     historyList: { maxHeight: 240, padding: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     compactTabs: { flexDirection: 'row', padding: 8, minHeight: 48 }, empty: { flex: 1, padding: 28, justifyContent: 'center', alignItems: 'center', gap: 14 },
     errorBar: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: theme.colors.box.error.background }, error: { fontSize: 12, lineHeight: 19, color: theme.colors.textDestructive },
