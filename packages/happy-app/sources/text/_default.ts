@@ -16,6 +16,10 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const en = {
     projectGoals: {
+        deliveryHeading: 'What this task will deliver',
+        noExpected: 'Delivery to be agreed',
+        noFinalsHint: 'Final work will appear here for you to open and review.',
+
         moreHistory: 'Load older conversations',
         approveLink: 'Accept this link',
         approveLinkMessage: 'Accept the link you opened. Changes to the remote page are not tracked automatically; archive a local file when you need a preserved version.',

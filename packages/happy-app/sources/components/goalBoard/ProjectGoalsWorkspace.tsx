@@ -23,6 +23,8 @@ import { useFileWorkspace } from '@/components/fileWorkspace/context';
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
 import { getProjectChatWidth, getProjectChatMaximumWidth, projectPanelGap } from './projectWorkspaceLayout';
 import { ProjectTaskSwitcher } from './ProjectTaskSwitcher';
+import { ProjectTaskDetails } from './ProjectTaskDetails';
+import { ProjectTaskStatus } from './ProjectTaskStatus';
 import { PanelTabs } from '@/components/PanelTabs';
 import { Modal } from '@/modal';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -237,15 +239,23 @@ function TaskCards({ tasks, selectedId, onSelect, onAction, offline, busy, hideE
     tasks: GoalTask[]; selectedId?: string; onSelect: (id: string) => void; onAction?: (task: GoalTask, action: 'chat' | 'execute') => void; offline?: boolean; busy?: boolean; hideExecution?: boolean;
 }) {
     const { theme } = useUnistyles();
-    return <View style={styles.grid}>{tasks.map((task, index) => <GoalBoardCard key={task.id} selected={selectedId === task.id} style={[styles.taskCard, task.status === 'running' && styles.runningCard]} testID={`project-task-card-${task.id}`}>
+    const [status, setStatus] = React.useState<'all' | GoalTask['status']>('all');
+    const statuses: GoalTask['status'][] = ['pending', 'running', 'review', 'done', 'blocked', ...(tasks.some(task => task.status === 'unknown') ? ['unknown' as const] : [])];
+    const visible = tasks.filter(task => status === 'all' || task.status === status);
+    return <View style={styles.taskBoard} testID="project-task-board">
+        <View style={styles.taskFilters} testID="project-task-filters">
+            {(['all', ...statuses] as const).map(value => <Button key={value} variant="chip" selected={status === value} label={value === 'all' ? t('goalBoard.allTasks') : t(`goalBoard.status.${value}`)} onPress={() => setStatus(value)} testID={`project-task-filter-${value}`}><Text style={status === value ? styles.link : styles.meta}>{value === 'all' ? t('goalBoard.allTasks') : t(`goalBoard.status.${value}`)}</Text><Text style={styles.taskNumber}>{value === 'all' ? tasks.length : tasks.filter(task => task.status === value).length}</Text></Button>)}
+        </View>
+        <View style={styles.grid}>{visible.map(task => <GoalBoardCard key={task.id} selected={selectedId === task.id} style={[styles.taskCard, task.status === 'running' && styles.runningCard]} testID={`project-task-card-${task.id}`}>
         <Button variant="card" selected={selectedId === task.id} label={task.title} onPress={() => onSelect(task.id)}>
-            <View style={styles.taskCardContent}><View style={[styles.line, { justifyContent: 'space-between' }]}><Text style={styles.taskNumber}>{task.code || `TASK ${String(index + 1).padStart(2, '0')}`}</Text><ApprovalTag task={task} /></View>
-                <Text numberOfLines={2} style={styles.cardTitle}>{task.title}</Text><Text numberOfLines={2} style={styles.taskGoal}>{task.goal || task.title}</Text><View style={styles.taskDelivery}><Ionicons name="document-text-outline" size={13} color={theme.colors.textLink} /><Text numberOfLines={2} style={[styles.meta, { flex: 1 }]}>{task.expectedDeliverables.join(' · ') || t('projectGoals.noFinals')}</Text></View></View>
+            <View style={styles.taskCardContent}><View style={[styles.line, { justifyContent: 'space-between' }]}><View style={styles.line}><Text style={styles.taskNumber}>{task.code || `TASK ${String(tasks.indexOf(task) + 1).padStart(2, '0')}`}</Text><ProjectTaskStatus status={task.status} /></View><ApprovalTag task={task} /></View>
+                <Text numberOfLines={2} style={styles.cardTitle}>{task.title}</Text><Text numberOfLines={2} style={styles.taskGoal}>{task.goal || task.title}</Text><View style={styles.taskDelivery}><Ionicons name="document-text-outline" size={13} color={theme.colors.textLink} /><Text numberOfLines={2} style={[styles.meta, { flex: 1 }]}>{task.expectedDeliverables.join(' · ') || t('projectGoals.noExpected')}</Text></View></View>
         </Button>
         {onAction && <View style={styles.cardActions}><Button variant="toolbar" label={t('projectGoals.openChat')} disabled={offline || busy || (isReadOnlyProjectPreview() && selectedId !== task.id)} onPress={() => onAction(task, 'chat')}><Ionicons name="chatbubble-outline" size={17} color={theme.colors.textSecondary} /></Button>
             {!isReadOnlyProjectPreview() && !hideExecution && taskCanExecute(task) && <Button variant="toolbar" label={t('projectGoals.execute')} disabled={offline || busy} onPress={() => onAction(task, 'execute')}><Ionicons name="play" size={17} color={theme.colors.textLink} /></Button>}</View>}
         <RunningTaskBorder active={task.status === 'running'} />
-    </GoalBoardCard>)}</View>;
+    </GoalBoardCard>)}</View>{!visible.length && <View style={styles.noFilteredTasks}><Text style={styles.meta}>{t('goalBoard.noMatches')}</Text></View>}
+    </View>;
 }
 
 type TaskWorkspaceProps = { machineId: string; featurePath: string; task: GoalTask; allTasks: GoalTask[]; conversationId?: string; agent: 'codex' | 'claude'; offline: boolean; refresh: () => Promise<void>; selectTask: (id: string) => void; selectConversation: (id: string) => void; };
@@ -341,12 +351,10 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
         finally { opening.current = false; if (lifetime.current.alive) setBusy(false); }
     };
     const openFile = async (path: string) => {
-        setChatVisible(true); setCompactTab('file');
+        setCompactTab('file');
         const alreadyOpen = !!workspace.controller.getSnapshot().documents[path];
         void workspace.openReference(path).then(() => { if (alreadyOpen) return workspace.controller.refresh(path); });
-        if (!conversationId && !readOnly) {
-            void start(task, 'chat', true);
-        }
+        // Reading a file does not create a conversation or reserve an empty chat column.
     };
     const listDirectory = React.useCallback(async (_sessionId: string, path: string) => {
         try { return await projectGoalRequest<{ success: boolean; entries?: DirectoryEntry[]; error?: string }>(machineId, 'goalTaskListDirectory', { featurePath, taskId: task.id, path }); }
@@ -355,25 +363,22 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     const wide = windowWidth >= 1100;
     const rightWidth = wide ? Math.min(rightExpandedWidth || 340, Math.max(280, rowWidth * 0.3)) : undefined;
     const fileOpen = workspace.enabled && workspace.snapshot.open;
+    const showChat = chatVisible && !!conversationId;
     const chatWidth = getProjectChatWidth(workspace.chatWidthCustomized ? workspace.chatWidth : undefined, rowWidth, rightWidth ?? 0);
     const canExecute = !readOnly && taskCanExecute(task) && !executionAttempted && !history.some(session => session.executed);
     const details = <View style={[styles.taskPanel, { backgroundColor: surface }, wide ? { width: rightWidth, marginLeft: projectPanelGap } : { flex: 1 }]} testID="project-task-panel">
-        <View style={styles.panelHeader}><ProjectTaskSwitcher tasks={allTasks} selectedId={task.id} onSelect={selectTask} /><Text numberOfLines={1} style={[styles.cardTitle, { flex: 1 }]}>{task.title}</Text></View>
+        <View style={styles.panelHeader}><ProjectTaskSwitcher tasks={allTasks} selectedId={task.id} onSelect={selectTask} /><View style={{ flex: 1 }} /><ProjectTaskStatus status={task.status} /></View>
         <View style={styles.tabs}><PanelTabs activeTab={tab} onTabChange={setTab} testIDPrefix="project-task" tabs={[{ key: 'details', label: t('projectGoals.details'), icon: 'document-text-outline' }, { key: 'files', label: t('projectGoals.files'), icon: 'folder-outline' }]} /></View>
         {tab === 'files' ? <WorkspaceDirectoryTree sessionId={conversationId ?? ''} rootPath={workspace.root} listDirectory={listDirectory} onOpenFile={path => { void openFile(path); }} />
-            : <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}><ApprovalTag task={task} /><Field title={t('projectGoals.goal')} values={[task.goal || task.title]} /><Field title={t('projectGoals.expected')} values={task.expectedDeliverables} />
-                <Text style={styles.sectionTitle}>{t('projectGoals.finals')}</Text>
+            : <ScrollView style={styles.detailScroll}><ProjectTaskDetails task={task} number={allTasks.indexOf(task) + 1} approval={<ApprovalTag task={task} />} editDisabled={readOnly || busy || offline} onEdit={() => { void start(task, 'chat'); }}>
                 {task.artifacts.filter(artifact => artifact.relation === 'output').map(artifact => <Deliverable key={artifact.id} {...{ artifact, task, machineId, featurePath, refresh }} openFile={openFile} />)}
-                {!task.artifacts.some(artifact => artifact.relation === 'output') && <Text style={styles.meta}>{t('projectGoals.noFinals')}</Text>}
-                <Field title={t('projectGoals.criteria')} values={task.acceptanceCriteria?.length ? task.acceptanceCriteria : [t('projectGoals.noCriteria')]} />
-                <Button variant="toolbar" label={t('projectGoals.editWithAI')} disabled={readOnly || busy || offline} onPress={() => { void start(task, 'chat'); }}><Ionicons name="sparkles-outline" size={14} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.editWithAI')}</Text></Button>
-            </ScrollView>}
+            </ProjectTaskDetails></ScrollView>}
         {error && <Text accessibilityRole="alert" style={[styles.error, { padding: 12 }]}>{error}</Text>}
         {!readOnly && task.execution?.state === 'uncertain' && <Text style={[styles.meta, { paddingHorizontal: 14, paddingVertical: 6 }]}>{t('projectGoals.executionUncertain')}</Text>}
         <View style={styles.footer}>{readOnly && <Text style={styles.meta}>{t('projectGoals.readOnlyArchive')}</Text>}<Button variant="primary" label={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || offline || (readOnly && (!history.length || !taskHistory.ready || !!taskHistory.error))} onPress={() => { void start(task, 'chat'); }} testID="project-task-open-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')}</Text></Button>
             {canExecute && <Button variant="primary" label={t('projectGoals.execute')} disabled={busy || offline} onPress={() => { void start(task, 'execute'); }} testID="project-task-execute"><Ionicons name="play" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.execute')}</Text></Button>}{busy && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}</View>
     </View>;
-    const chat = <View style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && !workspace.maximized ? { flexGrow: 0, flexShrink: 0, flexBasis: chatWidth, width: chatWidth, minWidth: 310 } : {}]}>
+    const chat = <View testID="project-task-chat" style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && !workspace.maximized ? { flexGrow: 0, flexShrink: 0, flexBasis: chatWidth, width: chatWidth, minWidth: 310 } : {}]}>
         <View style={styles.historyHeader}><Button variant="toolbar" label={t('projectGoals.backTasks')} onPress={() => { autoResume.current = true; setChatVisible(false); selectConversation(''); }}><Ionicons name="grid-outline" size={16} color={theme.colors.textSecondary} /></Button>
             <Button ref={historyAnchor} variant="toolbar" label={t('projectGoals.history')} expanded={historyOpen} onPress={() => {
                 historyAnchor.current?.measureInWindow((x, y, _width, height) => { setHistoryPosition({ x, y: y + height + 6 }); setHistoryOpen(true); });
@@ -389,11 +394,12 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
         {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth /> : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t(readOnly ? 'projectGoals.noMatchingHistory' : 'projectGoals.emptyChatHint')}</Text>{!readOnly && <Button label={t('projectGoals.openChat')} onPress={() => { void start(task, 'chat'); }} disabled={busy || offline}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button>}</View>}
     </View>;
     return <View style={styles.taskArea}>
-        {!wide && <View style={styles.compactTabs}><PanelTabs activeTab={compactTab} onTabChange={setCompactTab} testIDPrefix="project-workspace" tabs={[{ key: 'tasks', label: t('projectGoals.tasks'), icon: 'grid-outline' }, { key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' }, ...(fileOpen ? [{ key: 'file', label: t('projectGoals.files'), icon: 'document-outline' as const }] : []), { key: 'details', label: t('projectGoals.details'), icon: 'reader-outline' }]} /></View>}
+        {!wide && <View style={styles.compactTabs}><PanelTabs activeTab={compactTab} onTabChange={setCompactTab} testIDPrefix="project-workspace" tabs={[{ key: 'tasks', label: t('projectGoals.tasks'), icon: 'grid-outline' }, ...(showChat ? [{ key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' as const }] : []), ...(fileOpen ? [{ key: 'file', label: t('projectGoals.files'), icon: 'document-outline' as const }] : []), { key: 'details', label: t('projectGoals.details'), icon: 'reader-outline' }]} /></View>}
         <View style={[styles.workspaceRow, !wide && { flexDirection: 'column' }]} onLayout={event => setRowWidth(Math.round(event.nativeEvent.layout.width))}>
             {wide ? <>
-                {!workspace.maximized && (chatVisible || conversationId || fileOpen ? chat : <ScrollView style={[styles.catalog, { flex: fileOpen ? 0 : 1 }]} contentContainerStyle={styles.catalogContent}><TaskCards tasks={allTasks} selectedId={task.id} onSelect={selectTask} onAction={(task, mode) => { void start(task, mode); }} busy={busy} offline={offline} hideExecution={executionAttempted} /></ScrollView>)}
-                {fileOpen && <>{!workspace.maximized && <FileWorkspaceResizeHandle width={chatWidth} maximumWidth={getProjectChatMaximumWidth(rowWidth, rightWidth ?? 0)} />}<FileWorkspace framed sessionId={conversationId ?? ''} fileTreeExpanded={tab === 'files'} onToggleFileTree={() => setTab(value => value === 'files' ? 'details' : 'files')} /></>}
+                {!workspace.maximized && showChat && chat}
+                {!workspace.maximized && !showChat && !fileOpen && <ScrollView style={styles.catalog} contentContainerStyle={styles.taskCatalogContent}><TaskCards tasks={allTasks} selectedId={task.id} onSelect={selectTask} onAction={(task, mode) => { void start(task, mode); }} busy={busy} offline={offline} hideExecution={executionAttempted} /></ScrollView>}
+                {fileOpen && <>{!workspace.maximized && showChat && <FileWorkspaceResizeHandle width={chatWidth} maximumWidth={getProjectChatMaximumWidth(rowWidth, rightWidth ?? 0)} />}<FileWorkspace framed sessionId={conversationId ?? ''} fileTreeExpanded={tab === 'files'} onToggleFileTree={() => setTab(value => value === 'files' ? 'details' : 'files')} /></>}
                 {details}
             </> : compactTab === 'details' ? details : compactTab === 'chat' ? chat : compactTab === 'file' ? <FileWorkspace framed sessionId={conversationId ?? ''} /> : <ScrollView contentContainerStyle={styles.catalogContent}><TaskCards tasks={allTasks} selectedId={task.id} onSelect={selectTask} /></ScrollView>}
         </View>
@@ -425,7 +431,6 @@ function Deliverable({ artifact, task, machineId, featurePath, refresh, openFile
         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     </View>;
 }
-function Field({ title, values }: { title: string; values: string[] }) { return <View style={styles.field}><Text style={styles.sectionTitle}>{title}</Text>{values.map((value, index) => <Text key={index} selectable style={styles.body}>{value}</Text>)}</View>; }
 function Empty({ text }: { text: string }) { return <View style={styles.empty}><Text style={styles.meta}>{text}</Text></View>; }
 
 const styles = StyleSheet.create(theme => ({
@@ -442,7 +447,9 @@ const styles = StyleSheet.create(theme => ({
     grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: 14 },
     catalogCard: { flexGrow: 1, flexBasis: 280, maxWidth: 440 },
     catalogCardContent: { padding: 18, flexDirection: 'row', alignItems: 'center', gap: 16 },
-    taskCard: { flexGrow: 1, flexBasis: 228, maxWidth: 320 },
+    taskBoard: { gap: 20 }, taskFilters: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
+    taskCatalogContent: { padding: 22, gap: 20 }, noFilteredTasks: { paddingVertical: 28 },
+    taskCard: { width: 248, maxWidth: '100%', flexGrow: 0, flexShrink: 0, minHeight: 230 },
     taskCardContent: { paddingHorizontal: 16, paddingTop: 15, paddingBottom: 12, gap: 10, width: '100%' },
     taskNumber: { fontSize: 9, letterSpacing: 0.8, color: theme.colors.textSecondary, ...Typography.default() },
     taskGoal: { fontSize: 12, lineHeight: 21, minHeight: 42, color: theme.colors.textSecondary, ...Typography.default() },
@@ -459,7 +466,7 @@ const styles = StyleSheet.create(theme => ({
     taskArea: { flex: 1, minHeight: 0, minWidth: 0, padding: 10 }, workspaceRow: { flex: 1, minHeight: 0, flexDirection: 'row' },
     taskPanel: { minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 48, padding: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     tabs: { flexDirection: 'row', minHeight: 48, paddingHorizontal: 12, paddingVertical: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
-    detailScroll: { flex: 1, minHeight: 0 }, detailContent: { padding: 16, gap: 20 }, field: { gap: 7 }, sectionTitle: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
+    detailScroll: { flex: 1, minHeight: 0 }, sectionTitle: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
     deliverable: { gap: 9, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, padding: 10 },
     footer: { padding: 12, gap: 8, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     chat: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, historyHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },

@@ -19,6 +19,10 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     projectGoals: {
+        deliveryHeading: '这项任务要交付什么',
+        noExpected: '交付内容待约定',
+        noFinalsHint: '最终成果会归档在这里，供你查看并确认。',
+
         moreHistory: '加载更早的对话',
         approveLink: '认可此链接',
         approveLinkMessage: '此次认可对应你打开的链接。网页内容变化不会自动追踪；需要留版时，请将它归档为任务文件。',
