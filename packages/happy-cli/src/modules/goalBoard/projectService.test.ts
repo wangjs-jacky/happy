@@ -60,6 +60,11 @@ describe('project Goal workspace', () => {
         const input = { featurePath: f.feature, path: join(f.feature, 'index.md') };
         expect(await f.service.files(input, 'read', true)).toMatchObject({ success: true, size: 9 });
         await expect(f.service.files(input, 'read')).rejects.toThrow();
+        const largePath = join(f.taskDirectory, 'large.md');
+        await f.put(largePath, 'x'.repeat(70 * 1024));
+        const chunk = await f.service.files({ ...f.input, path: largePath }, 'read', true);
+        if (!('revision' in chunk) || !('transferId' in chunk)) throw new Error('Expected a file transfer');
+        await expect(f.service.files({ ...f.input, path: largePath, offset: 65536, revision: chunk.revision, transferId: chunk.transferId }, 'read')).rejects.toThrow('expired or changed');
         await expect(f.service.files({ ...input, path: join(f.root, 'p/index.md') }, 'read', true)).rejects.toThrow();
         await symlink(join(f.root, 'p/index.md'), join(f.feature, 'escape.md'));
         await expect(f.service.files({ ...input, path: join(f.feature, 'escape.md') }, 'read', true)).rejects.toThrow();

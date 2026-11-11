@@ -43,7 +43,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
     let disposed = false;
     const watchers = new Map<string, { watcher: FSWatcher; identity: string }>();
     const inFlight = new Map<string, Promise<SpawnSessionResult>>();
-    const transfers = new Map<string, { featurePath: string; taskId?: string; directory: string; root: string; path: string; revision: string; expiresAt: number }>();
+    const transfers = new Map<string, { scope: boolean; featurePath: string; taskId?: string; directory: string; root: string; path: string; revision: string; expiresAt: number }>();
     const catalog = async () => readCatalog(await discoverRoots(deps.workingDirectory, deps.homeDirectory));
     const entryFor = async (featurePath: string) => {
         if (disposed) throw new Error('Project workspace is closed');
@@ -264,7 +264,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
         let directory: string, root: string;
         const transfer = operation === 'read' && data.transferId ? transfers.get(data.transferId) : undefined;
         if (data.transferId) {
-            if (disposed || !transfer || transfer.expiresAt < Date.now() || transfer.featurePath !== data.featurePath || transfer.taskId !== data.taskId || transfer.path !== data.path || transfer.revision !== data.revision) throw new Error('File transfer expired or changed; reopen it');
+            if (disposed || !transfer || transfer.expiresAt < Date.now() || transfer.scope !== scope || transfer.featurePath !== data.featurePath || transfer.taskId !== data.taskId || transfer.path !== data.path || transfer.revision !== data.revision) throw new Error('File transfer expired or changed; reopen it');
             directory = transfer.directory; root = transfer.root;
             if (await safePath(root, directory) !== directory) throw new Error('Task directory changed during transfer');
         } else {
@@ -297,7 +297,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             if (offset + bytesRead < source.info.size) {
                 for (const [id, value] of transfers) if (value.expiresAt < Date.now()) transfers.delete(id);
                 if (!data.transferId && transfers.size >= 128) throw new Error('Too many active archive file transfers');
-                transfers.set(transferId, { featurePath: data.featurePath, taskId: data.taskId, directory, root, path: data.path, revision, expiresAt: Date.now() + 60000 });
+                transfers.set(transferId, { scope, featurePath: data.featurePath, taskId: data.taskId, directory, root, path: data.path, revision, expiresAt: Date.now() + 60000 });
             } else transfers.delete(transferId);
             return { success: true, content: bytes.subarray(0, bytesRead).toString('base64'), size: source.info.size, revision, offset, transferId };
         } finally { await source.handle.close(); }
