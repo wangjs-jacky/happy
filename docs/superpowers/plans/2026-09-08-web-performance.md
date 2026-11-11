@@ -1,5 +1,7 @@
 # Web performance repair
 
+> 历史流程说明：本文保留当时的合并文案确认要求。后续 Happy/Paws 发布按根目录 [CLAUDE.md](../../../CLAUDE.md#已授权发布不重复确认合并文案) 执行：用户已明确授权发布时不再重复确认文案；原检查与业务验收要求不变。
+
 ## Global Constraints
 
 User approved fixing and verifying the diagnosed memory, sidebar, typing, loading and first-message startup issues together. Work only in this sibling worktree. Preserve existing user edits elsewhere and production services. Browser automation only through Ego. No test messages to existing real sessions. Keep stable wire identities, reading anchors, image cache semantics, outbox deduplication, pending permissions and account isolation. No silent data loss on submit, retry, refresh, or history eviction. Preserve native behavior unless a shared correctness bug requires a compatible fix. UI colors use theme tokens. User requested Before/After screenshots for long sidebar and first-message submission. Base 48b4aa5f73212110873bb40f4317fcd84410702f.
