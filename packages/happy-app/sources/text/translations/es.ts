@@ -138,6 +138,11 @@ export const es: TranslationStructure = {
     },
 
     messageAnnotations: {
+        ...en.messageAnnotations,
+        addFile: "Anotar fragmento",
+        filePlaceholder: "¿Cómo te gustaría mejorar este fragmento?",
+        fileReview: "Revisa este fragmento y sugiere mejoras.",
+        fileInstructions: en.messageAnnotations.fileInstructions,
         add: 'Añadir a la conversación',
         edit: 'Editar anotación',
         remove: 'Eliminar anotación',
@@ -1352,6 +1357,20 @@ failedContinueTask: "Continuar tarea pendiente",
     },
 
     agentInput: {
+        asyncQuestion: {
+            title: 'Pregunta',
+            hint: 'Puedes responder más tarde. El trabajo continúa.',
+            later: 'Más tarde',
+            expand: 'Mostrar pregunta',
+            answered: 'Respondida',
+            dismissed: 'Omitida',
+            sending: 'Enviando…',
+            uncertain: 'Comprobar envío',
+            uncertainHint: 'Es posible que la respuesta ya se haya enviado. Revisa la conversación antes de enviarla de nuevo.',
+            unavailable: 'Actualiza la CLI y vuelve a conectar esta sesión para responder aquí.',
+            error: 'No se pudo enviar. Tu respuesta se conserva; inténtalo de nuevo.',
+        },
+
         prediction: {
             accept: 'Insertar',
             acceptHint: 'Tab para insertar',

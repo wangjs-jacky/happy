@@ -149,6 +149,11 @@ export const ru: TranslationStructure = {
     },
 
     messageAnnotations: {
+        ...en.messageAnnotations,
+        addFile: "Добавить пометку",
+        filePlaceholder: "Как вы хотите улучшить этот фрагмент?",
+        fileReview: "Проверьте этот фрагмент и предложите улучшения.",
+        fileInstructions: en.messageAnnotations.fileInstructions,
         add: 'Добавить в беседу',
         edit: 'Редактировать пометку',
         remove: 'Удалить пометку',
@@ -1368,6 +1373,20 @@ failedContinueTask: "Продолжить незавершённую задач�
     },
 
     agentInput: {
+        asyncQuestion: {
+            title: 'Вопрос',
+            hint: 'Можно ответить позже. Работа продолжается.',
+            later: 'Позже',
+            expand: 'Показать вопрос',
+            answered: 'Ответ получен',
+            dismissed: 'Пропущено',
+            sending: 'Отправка…',
+            uncertain: 'Проверьте отправку',
+            uncertainHint: 'Возможно, ответ уже отправлен. Проверьте диалог перед повторной отправкой.',
+            unavailable: 'Обновите CLI и переподключите сеанс, чтобы ответить здесь.',
+            error: 'Не удалось отправить. Ответ сохранён; попробуйте снова.',
+        },
+
         prediction: {
             accept: 'Вставить',
             acceptHint: 'Tab — вставить',

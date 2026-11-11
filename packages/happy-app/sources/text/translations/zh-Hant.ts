@@ -200,6 +200,11 @@ export const zhHant: TranslationStructure = {
     },
 
     messageAnnotations: {
+        ...en.messageAnnotations,
+        addFile: "新增批註",
+        filePlaceholder: "你希望這段內容怎樣修改？",
+        fileReview: "請檢查這段內容並提出改進建議。",
+        fileInstructions: en.messageAnnotations.fileInstructions,
         add: '新增至對話',
         edit: '編輯批註',
         remove: '刪除批註',
@@ -1412,6 +1417,15 @@ failedContinueTask: "繼續未完成的工作",
     },
 
     agentInput: {
+        asyncQuestion: {
+            title: '問題', hint: '可以稍後回答，任務仍會繼續。',
+            later: '稍後回答', expand: '展開問題', answered: '已回答', dismissed: '已略過',
+            sending: '正在傳送…', uncertain: '傳送結果待確認',
+            uncertainHint: '回答可能已傳送，請先檢查對話，避免重複提交。',
+            unavailable: '請用新版 CLI 重新連線此對話後，在這裡回答。',
+            error: '提交失敗，已保留回答，可以重試。',
+        },
+
         prediction: {
             accept: '填入',
             acceptHint: 'Tab 填入',

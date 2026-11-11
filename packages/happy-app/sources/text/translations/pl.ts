@@ -149,6 +149,11 @@ export const pl: TranslationStructure = {
     },
 
     messageAnnotations: {
+        ...en.messageAnnotations,
+        addFile: "Dodaj adnotację",
+        filePlaceholder: "Jak chcesz poprawić ten fragment?",
+        fileReview: "Przejrzyj ten fragment i zaproponuj ulepszenia.",
+        fileInstructions: en.messageAnnotations.fileInstructions,
         add: 'Dodaj do rozmowy',
         edit: 'Edytuj adnotację',
         remove: 'Usuń adnotację',
@@ -1368,6 +1373,20 @@ failedContinueTask: "Kontynuuj niedokończone zadanie",
     },
 
     agentInput: {
+        asyncQuestion: {
+            title: 'Pytanie',
+            hint: 'Możesz odpowiedzieć później. Praca trwa dalej.',
+            later: 'Później',
+            expand: 'Pokaż pytanie',
+            answered: 'Odpowiedziano',
+            dismissed: 'Pominięto',
+            sending: 'Wysyłanie…',
+            uncertain: 'Sprawdź wysłanie',
+            uncertainHint: 'Odpowiedź mogła już zostać wysłana. Sprawdź rozmowę przed ponownym wysłaniem.',
+            unavailable: 'Zaktualizuj CLI i połącz sesję ponownie, aby odpowiedzieć tutaj.',
+            error: 'Nie udało się wysłać. Odpowiedź została zachowana; spróbuj ponownie.',
+        },
+
         prediction: {
             accept: 'Wstaw',
             acceptHint: 'Tab, aby wstawić',
