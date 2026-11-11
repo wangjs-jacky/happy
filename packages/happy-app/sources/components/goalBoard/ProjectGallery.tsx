@@ -31,7 +31,7 @@ function useGalleryLayout() {
 
 export function ProjectGalleryLoading() {
     const { cardWidth, setWidth } = useGalleryLayout();
-    return <View style={styles.grid} onLayout={event => setWidth(Math.round(event.nativeEvent.layout.width))}>
+    return <View style={styles.grid} onLayout={event => setWidth(Math.floor(event.nativeEvent.layout.width))}>
         {Array.from({ length: 6 }, (_, index) => <View key={index} style={{ width: cardWidth, maxWidth: '100%' }}>
             <View style={[styles.cover, styles.skeleton]} />
             <View style={styles.caption}><View style={[styles.skeletonLine, { width: '72%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} /></View>
@@ -42,7 +42,7 @@ export function ProjectGalleryLoading() {
 export function ProjectGallery({ projects, onSelect }: { projects: GoalProject[]; onSelect: (project: GoalProject) => void }) {
     const { theme } = useUnistyles();
     const { cardWidth, setWidth } = useGalleryLayout();
-    return <View style={styles.grid} onLayout={event => setWidth(Math.round(event.nativeEvent.layout.width))} testID="project-gallery">
+    return <View style={styles.grid} onLayout={event => setWidth(Math.floor(event.nativeEvent.layout.width))} testID="project-gallery">
         {projects.map((project, index) => <View key={project.projectPath} style={{ width: cardWidth, maxWidth: '100%' }}>
             <GoalBoardButton variant="card" label={project.title} onPress={() => onSelect(project)} testID={`project-cover-${index}`}>
                 <View style={styles.cover}>
