@@ -36,6 +36,10 @@ const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex
 
 /** Machine-scoped archive access. Every request resolves its own feature; no shared selection. */
 export function createProjectGoalService(deps: ProjectGoalDependencies) {
+    // macOS FSEvents can synchronously deadlock Node while opening/closing
+    // directory watchers. Keep the daemon responsive: explicit reads remain
+    // current, and service mutations still publish their changed event.
+    const observe = deps.observe ?? process.platform !== 'darwin';
     let disposed = false;
     const watchers = new Map<string, { watcher: FSWatcher; identity: string }>();
     const inFlight = new Map<string, Promise<SpawnSessionResult>>();
@@ -87,7 +91,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
     };
     const receiptFor = async (directory: string) => readJSON<Receipt>(join(await stateDirectory(directory), 'execution.json'));
     const watchDirectories = async (directories: string[]) => {
-        if (deps.observe === false) return;
+        if (!observe) return;
         // Bounded event subscriptions can cover several clients without one client's selection replacing another's.
         for (const directory of directories) {
             try {

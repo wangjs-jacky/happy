@@ -16,7 +16,7 @@
 
 目录与文件访问每次受已安装 Goal catalog、规范化目录和 symlink 边界约束。文件按 64 KiB 分块传输；后续块使用绑定 Task、路径、revision 的有限 transfer token，不重复解析全部任务。关闭文件 owner 会中止后续块。
 
-归档保存使用机器上相同的 ArtifactStore，遵守活动 writer、版本和账号归属约束。目录监听按 dev/ino 重绑，支持原子替换；目录与任务变化通过 fs.watch 和加密机器状态事件通知，没有新增业务轮询。
+归档保存使用机器上相同的 ArtifactStore，遵守活动 writer、版本和账号归属约束。启用目录监听的平台按 dev/ino 重绑，支持原子替换，通过 fs.watch 和加密机器状态事件通知，没有新增业务轮询。macOS 的新项目服务默认关闭原生目录监听，外部文件变化需用户刷新；服务内确认、保存与启动仍发送 changed 通知，避免本机 FSEvents 同步阻塞拖住 daemon。既有会话看板监听不在这项修复范围。
 
 工作区不改变任务 index 的执行状态。用户认可不是 AI 写入 `done` 的替代。部署需要匹配的 CLI/daemon；本次未替换生产执行器、安装全局 CLI 或部署正式 Web。
 

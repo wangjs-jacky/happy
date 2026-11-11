@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm, symlink, realpath, rename, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { watch } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createProjectGoalService, type ProjectGoalDependencies, type ProjectSession } from './projectService';
 import { ArtifactStore } from '../artifacts/store';
 import * as parser from './parser';
+
+vi.mock('node:fs', async (original) => {
+    const fs = await original<typeof import('node:fs')>();
+    return { ...fs, watch: vi.fn(fs.watch) };
+});
 
 const cleanups: Array<() => void | Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -27,6 +33,7 @@ async function fixture(overrides: Partial<ProjectGoalDependencies> = {}) {
     const history: ProjectSession[] = [];
     let count = 0;
     const deps: ProjectGoalDependencies = { homeDirectory: home, workingDirectory: home, storageDirectory: join(home, 'state'),
+        observe: false,
         history: vi.fn(async () => history), spawn: vi.fn(async () => ({ type: 'success' as const, sessionId: `session-${++count}` })),
         send: vi.fn(async () => {}), changed: vi.fn(), ...overrides };
     const make = () => { const service = createProjectGoalService(deps); cleanups.push(() => service.dispose()); return service; };
@@ -37,6 +44,23 @@ async function fixture(overrides: Partial<ProjectGoalDependencies> = {}) {
 }
 
 describe('project Goal workspace', () => {
+    it('reads fresh files without subscribing when directory observation is disabled', async () => {
+        vi.mocked(watch).mockClear();
+        const f = await fixture({ observe: false });
+        await f.service.projects();
+        await f.put(join(f.taskDirectory, 'index.md'), '---\nstatus: done\n---\n# Updated task');
+        expect((await f.service.board(f.feature)).snapshot.tasks[0]).toMatchObject({ title: 'Updated task', status: 'done' });
+        f.service.dispose();
+        expect(watch).not.toHaveBeenCalled();
+    });
+    it.skipIf(process.platform !== 'darwin')('defaults to explicit refresh on macOS without opening native watchers', async () => {
+        vi.mocked(watch).mockClear();
+        const f = await fixture({ observe: undefined });
+        await f.service.projects();
+        await f.service.board(f.feature);
+        f.service.dispose();
+        expect(watch).not.toHaveBeenCalled();
+    });
     it('keeps project/feature/direct-task layers and empty indexed projects', async () => {
         const f = await fixture();
         const result = await f.service.projects();
@@ -113,6 +137,7 @@ describe('project Goal workspace', () => {
         const output = (await f.service.board(f.feature)).snapshot.tasks[0].artifacts.find(artifact => artifact.relation === 'output')!;
         const expectedHash = createHash('sha256').update('# Version one').digest('hex');
         await f.service.approve({ ...f.input, artifactId: output.id, expectedRevision: output.revision, expectedHash });
+        expect(f.deps.changed).toHaveBeenCalled();
         expect((await f.make().board(f.feature)).snapshot.tasks[0].artifacts[0].approval?.status).toBe('accepted');
         await f.put(join(f.taskDirectory, 'report.md'), '# Version two');
         expect((await f.service.board(f.feature)).snapshot.tasks[0].artifacts[0].approval?.status).toBe('changed');
@@ -186,8 +211,10 @@ describe('project Goal workspace', () => {
         expect(await f.service.files(input, 'write')).toMatchObject({ success: true });
         expect((await store.versions({ workspaceId: artifact.workspaceId, artifactId: artifact.id })).versions[0].source).toBe('manual');
     });
-    it('rebinds archive watchers after replacing an output directory', async () => {
-        const f = await fixture();
+    // The macOS production path deliberately uses explicit refresh because
+    // native FSEvents close can block the process, beyond Vitest's timeout.
+    it.skipIf(process.platform === 'darwin')('rebinds archive watchers after replacing an output directory', async () => {
+        const f = await fixture({ observe: true });
         await f.put(join(f.taskDirectory, 'out/result.md'), 'One');
         await f.put(join(f.taskDirectory, 'index.md'), '---\nstatus: pending\n---\n# Task\n## 最终交付\n[Final](out/result.md)');
         await f.service.board(f.feature);
