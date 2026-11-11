@@ -40,6 +40,34 @@ describe('durable transcript reading anchors', () => {
         expect(save).toHaveBeenCalledWith(expect.objectContaining({ anchorId: 'message', offset: -20 }));
         act(() => renderer.unmount());
     });
+    it('restores a delayed reading state after rows have mounted without another layout or scroll event', async () => {
+        let resolveRead!: (state: ReadingState) => void;
+        const read = new Promise<ReadingState>(resolve => { resolveRead = resolve; });
+        const scrollToOffset = vi.fn();
+        const adapter = { key: 'delayed-history', read: () => read, save: vi.fn(), wireId: wire, wireSeq: () => 2 };
+        let reading!: ReturnType<typeof useTranscriptReading>;
+        const items = [{ type: 'message', id: 'wire2', message: msg('wire2') }] as any;
+        function Probe() {
+            reading = useTranscriptReading({ adapter, items, inverted: false, isAtLatest: false,
+                externallyScheduled: true, synchronousAnchoring: true,
+                listRef: { current: { scrollToOffset, scrollToIndex: vi.fn() } },
+                viewportRef: { current: { getBoundingClientRect: () => ({ top: 100, height: 600 }) } },
+                expanded: [], restoreExpanded: () => {} });
+            return null;
+        }
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<Probe />); });
+        reading.markers!.register('wire2', { isConnected: true,
+            getBoundingClientRect: () => ({ top: 250, height: 200 }) } as any, 0);
+        await reading.layout(); // Initial layout happened before IndexedDB resolved.
+        expect(scrollToOffset).not.toHaveBeenCalled();
+        try {
+            await act(async () => { resolveRead({ version: 1, anchorId: 'wire2', anchorSeq: 2,
+                offset: -30, expandedGroupIds: [], followLatest: false }); await read; });
+            expect(scrollToOffset).toHaveBeenCalledWith({ offset: 180, animated: false });
+        } finally { act(() => renderer.unmount()); }
+    });
+
     it('keeps public normal transcripts at the top when automatic latest layout is disabled', async () => {
         const scrollToEnd = vi.fn();
         let reading: ReturnType<typeof useTranscriptReading>;

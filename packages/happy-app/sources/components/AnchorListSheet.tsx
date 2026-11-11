@@ -10,9 +10,10 @@ export interface AnchorListSheetProps {
     anchors: UserMessageAnchor[];
     hasMoreOlder?: boolean;
     isLoadingOlder?: boolean;
+    error?: boolean;
     onLoadOlder?: () => void;
     /** Called with the chosen anchor so the chat can scroll to it. */
-    onSelect: (anchor: UserMessageAnchor) => void;
+    onSelect: (anchor: UserMessageAnchor) => void | Promise<void>;
     /** Injected by the modal infra. */
     onClose?: () => void;
 }
@@ -30,10 +31,16 @@ export const AnchorListSheet = React.memo(function AnchorListSheet(props: Anchor
         [windowSize.width, windowSize.height],
     );
 
-    const handlePick = React.useCallback((anchor: UserMessageAnchor) => {
-        hapticsLight();
-        onSelect(anchor);
-        onClose?.();
+    const [selecting, setSelecting] = React.useState<string | null>(null);
+    const [selectionError, setSelectionError] = React.useState(false);
+    const selectionPending = React.useRef(false);
+    const handlePick = React.useCallback(async (anchor: UserMessageAnchor) => {
+        if (selectionPending.current) return;
+        selectionPending.current = true;
+        hapticsLight(); setSelecting(anchor.id); setSelectionError(false);
+        try { await onSelect(anchor); onClose?.(); }
+        catch { setSelectionError(true); }
+        finally { selectionPending.current = false; setSelecting(null); }
     }, [onSelect, onClose]);
 
     return (
@@ -45,6 +52,7 @@ export const AnchorListSheet = React.memo(function AnchorListSheet(props: Anchor
                     : t('session.anchorsSubtitle', { count: anchors.length })}</Text>
             </View>
 
+            {(props.error || selectionError) && <Text accessibilityRole="alert" style={styles.emptyText}>{t('sessionHistory.failedToLoadMore')}</Text>}
             <AnchorRows
                 data={anchors}
                 ListHeaderComponent={props.hasMoreOlder && props.onLoadOlder ? (
@@ -63,14 +71,17 @@ export const AnchorListSheet = React.memo(function AnchorListSheet(props: Anchor
                 renderItem={({ item: anchor }) => (
                         <Pressable
                             key={anchor.id}
-                            onPress={() => handlePick(anchor)}
+                            disabled={selecting !== null}
+                            accessibilityRole="button"
+                            accessibilityState={{ busy: selecting === anchor.id, disabled: selecting !== null }}
+                            onPress={() => { void handlePick(anchor); }}
                             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
                         >
                             <View style={styles.ordinalBadge}>
-                                <Text style={styles.ordinalText}>{anchor.ordinal}</Text>
+                                <Text style={styles.ordinalText}>{anchor.ordinal || '·'}</Text>
                             </View>
                             <Text style={styles.rowText} numberOfLines={2}>
-                                {anchor.text}
+                                {selecting === anchor.id ? t('common.loading') : anchor.text}
                             </Text>
                         </Pressable>
                 )}

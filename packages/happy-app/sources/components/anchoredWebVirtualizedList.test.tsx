@@ -225,3 +225,56 @@ it('initializes the actual Web entry after the app Babel/Unistyles transform', (
     expect(module.exports.TranscriptList.render({ data: [], getItemLayout: () => ({ index: 0, offset: 0, length: 100 }) }, null).type.name)
         .toBe('AnchoredWebVirtualizedList');
 });
+
+
+it.each(['index', 'end', 'offset'] as const)('mounts a programmatic %s destination without waiting for a browser scroll event', async method => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    const data = Array.from({ length: 100 }, (_, i) => i);
+    let list: any; let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(<List {...props(data)}
+        ref={(value: any) => { list = value; }} renderItem={({ item }: { item: number }) => <span data-row={item} />} />); });
+    const destination = method === 'end' ? 99 : 80;
+    const node = { scrollTop: 0, clientHeight: 600, scrollHeight: 10000,
+        addEventListener() {}, removeEventListener() {} };
+    // A scrollTo call does not guarantee a DOM scroll event: restored/no-op
+    // offsets and visibility changes must still mount the intended viewport.
+    const scrollTo = vi.fn(({ y }: { y: number }) => { node.scrollTop = y; });
+    list._scrollRef = { getScrollableNode: () => node, scrollTo };
+    list._scrollMetrics = { ...list._scrollMetrics, visibleLength: 600, contentLength: 10000 };
+    try {
+        expect(renderer.root.findAllByProps({ 'data-row': destination })).toHaveLength(0);
+        await act(async () => {
+            if (method === 'index') list.scrollToIndex({ index: destination, animated: false, viewPosition: 0.5 });
+            else if (method === 'end') list.scrollToEnd({ animated: false });
+            else list.scrollToOffset({ offset: 8000, animated: false });
+        });
+        expect(renderer.root.findAllByProps({ 'data-row': destination })).toHaveLength(1);
+        expect(renderer.root.findAllByType('span').length).toBeLessThan(50);
+        expect(scrollTo).toHaveBeenCalled();
+        expect(list._scrollMetrics.offset).toBe(node.scrollTop);
+    } finally { act(() => renderer.unmount()); }
+});
+
+
+it('preserves retained visible cells during measured history compensation even when estimates disagree', async () => {
+    let list: any; let renderer: any;
+    const coordinator = new WebTranscriptScrollCoordinator(() => list);
+    const data = Array.from({ length: 100 }, (_, i) => i);
+    await act(async () => { renderer = TestRenderer.create(<List {...props(data)} scrollCoordinator={coordinator}
+        ref={(value: any) => { list = value; }} renderItem={({ item }: { item: number }) => <span data-row={item} />} />); });
+    const node = { scrollTop: 100, clientHeight: 600, scrollHeight: 10000,
+        addEventListener() {}, removeEventListener() {} };
+    list._scrollRef = { getScrollableNode: () => node, scrollTo: ({ y }: { y: number }) => { node.scrollTop = y; } };
+    // The translated mask owns mounted cells during a prepend; approximate
+    // index geometry must not replace it just to apply a measured DOM delta.
+    await act(async () => list.setState({ cellsAroundViewport: { first: 75, last: 85 },
+        renderMask: VendorList._createRenderMask(list.props, { first: 75, last: 85 }) }));
+    const retained = renderer.root.findByProps({ 'data-row': 80 });
+    try {
+        coordinator.userIntent('older');
+        const ticket = coordinator.beginHistory('page', 'older')!;
+        await act(async () => { coordinator.compensate(ticket, 250); });
+        expect(renderer.root.findByProps({ 'data-row': 80 })).toBe(retained);
+        expect(node.scrollTop).toBe(250);
+    } finally { act(() => renderer.unmount()); coordinator.dispose(); }
+});

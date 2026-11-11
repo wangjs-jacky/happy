@@ -25,8 +25,18 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
     nested?: boolean;
     rootSubagentId?: string;
 }) {
-    const { theme } = useUnistyles();
     const suppressed = React.useContext(ConversationActivitySuppressedContext);
+    // The parent work group already owns this strip. Do not walk tool trees
+    // again for each nested group just to discard the resulting activities.
+    return suppressed ? null : <VisibleConversationActivityStrip {...props} />;
+});
+
+const VisibleConversationActivityStrip = React.memo(function VisibleConversationActivityStrip(props: {
+    messages: Message[];
+    nested?: boolean;
+    rootSubagentId?: string;
+}) {
+    const { theme } = useUnistyles();
     const inspector = useSubagentInspector();
     const activities = React.useMemo(
         () => collectConversationActivities(props.messages, { rootSubagentId: props.rootSubagentId }),
@@ -37,7 +47,7 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
         [activities.skills, activities.subagents],
     );
 
-    if (suppressed || (activities.skills.length === 0 && activities.subagents.length === 0)) {
+    if (activities.skills.length === 0 && activities.subagents.length === 0) {
         return null;
     }
 

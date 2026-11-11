@@ -14,6 +14,7 @@ import { isSessionTurnActive } from '@/hooks/useGroupedMessages';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { ChatFooter } from './ChatFooter';
 import { ConversationTranscript } from './ConversationTranscript';
+import type { SessionPromptNavigation } from '@/sync/sessionPromptIndex';
 import { getAvatarUrl } from '@/sync/profile';
 import type { TranscriptReadingAdapter } from './transcriptReading';
 import { useSessionTextPreviews } from '@/sync/sessionTextStream';
@@ -181,6 +182,15 @@ const SingleSessionChatList = React.memo((props: ChatListProps) => {
         };
     }, [history, encryption, sessionEncryption, props.session.id]);
 
+    const promptNavigation = React.useMemo<SessionPromptNavigation | undefined>(() => {
+        // Keep this change scoped to Web while native retains its existing reader.
+        if (Platform.OS !== 'web' || !reading) return undefined;
+        const id = props.session.id;
+        return { key: reading.key,
+            readPage: (before, current) => sync.readSessionPromptPage(id, before, current),
+            loadTarget: (prompt, current) => sync.jumpToSessionPrompt(id, prompt, current) };
+    }, [reading, props.session.id]);
+
     return (
         <ConversationTranscript
             turnAvatar={props.turnAvatar}
@@ -188,6 +198,7 @@ const SingleSessionChatList = React.memo((props: ChatListProps) => {
             sessionId={props.session.id}
             messages={messages}
             reading={reading}
+            promptNavigation={promptNavigation}
             groupToolCalls={groupToolCalls}
             currentTurnActive={isAtLatest && isSessionTurnActive(session)}
             followLatestRequest={props.followLatestRequest}

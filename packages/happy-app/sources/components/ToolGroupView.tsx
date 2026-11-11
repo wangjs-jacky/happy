@@ -115,22 +115,19 @@ interface AgentWorkGroupViewProps {
     onToggle: () => void;
 }
 
+const EMPTY_NESTED_ITEMS: ToolDisplayItem[] = [];
+
 export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) => {
     const readingWidth = useDesktopReadingWidth();
     const durableExpansion = React.useContext(TranscriptGroupExpansionContext);
     const { group, metadata, sessionId, expanded, onToggle } = props;
     const summaryCategory = React.useMemo(() => getGroupSummaryCategory(group.messages), [group.messages]);
-    const runningElapsedSeconds = useElapsedTime(group.completedAt === null ? group.startedAt : null);
-    const durationMs = group.completedAt === null
-        ? runningElapsedSeconds * 1000
-        : group.completedAt - group.startedAt;
-    const label = t('toolGroup.workedFor', { duration: formatWorkDuration(durationMs) });
     const nestedItemsNewestFirst = React.useMemo(
-        () => groupToolCallsForDisplay(group.messages, true, {
+        () => expanded ? groupToolCallsForDisplay(group.messages, true, {
             groupSingleToolCalls: true,
             showRunning: group.hasRunning,
-        }),
-        [group.hasRunning, group.messages],
+        }) : EMPTY_NESTED_ITEMS,
+        [expanded, group.hasRunning, group.messages],
     );
     const nestedItems = React.useMemo(
         () => [...nestedItemsNewestFirst].reverse(),
@@ -165,13 +162,14 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
                 if (item.type !== 'tool-group') {
                     continue;
                 }
+                const isNew = !knownToolGroupsRef.current.has(item.id);
                 knownToolGroupsRef.current.add(item.id);
                 if (item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedToolGroupsRef.current.has(item.id)) {
                     next.delete(item.id);
                     changed = true;
                     continue;
                 }
-                if (!item.hasPendingPermission && !next.has(item.id)) {
+                if (isNew && !item.hasPendingPermission && !next.has(item.id)) {
                     next.add(item.id);
                     changed = true;
                 }
@@ -226,11 +224,11 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
     return (
         <View style={styles.outerContainer}>
             <View style={[styles.innerContainer, { maxWidth: readingWidth }]}>
-                <CollapseHeader
-                    testID="conversation-agent-work-toggle"
+                <AgentWorkHeader
+                    startedAt={group.startedAt}
+                    completedAt={group.completedAt}
                     expanded={expanded}
                     hasRunning={group.hasRunning}
-                    label={label}
                     onPress={onToggle}
                     category={summaryCategory}
                 />
@@ -245,6 +243,23 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
             </View>
         </View>
     );
+});
+
+// A one-second duration update must not reconcile all nested command rows,
+// Markdown and activity markers in a long running work group.
+const AgentWorkHeader = React.memo(function AgentWorkHeader(props: {
+    startedAt: number;
+    completedAt: number | null;
+    expanded: boolean;
+    hasRunning: boolean;
+    onPress: () => void;
+    category: ToolSummaryCategory | null;
+}) {
+    const elapsed = useElapsedTime(props.completedAt === null ? props.startedAt : null);
+    const duration = props.completedAt === null ? elapsed * 1000 : props.completedAt - props.startedAt;
+    return <CollapseHeader testID="conversation-agent-work-toggle" expanded={props.expanded}
+        hasRunning={props.hasRunning} onPress={props.onPress} category={props.category}
+        label={t('toolGroup.workedFor', { duration: formatWorkDuration(duration) })} />;
 });
 
 function CollapseHeader(props: {

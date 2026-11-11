@@ -3,7 +3,7 @@ import { act } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { SubagentInspectorProvider, useSubagentInspector } from './subagent/SubagentInspectorContext';
-import { ConversationActivityStrip } from './ConversationActivityStrip';
+import { ConversationActivityStrip, ConversationActivitySuppressedContext } from './ConversationActivityStrip';
 import { BrowserProgressContext } from './BrowserProgressContext';
 import { getBrowserStepRuns } from './rightPanel/browserStepRunsModel';
 
@@ -70,6 +70,26 @@ function toolMessage(id: string, name: string, input: Record<string, unknown>, c
 }
 
 describe('ConversationActivityStrip', () => {
+    it('does not traverse hidden nested tool trees and resumes when shown', () => {
+        let reads = 0;
+        const skill = toolMessage('1', 'Skill', { skill: 'ego-browser' });
+        const messages = new Proxy([skill], { get(target, key, receiver) {
+            if (key === '0') reads++;
+            return Reflect.get(target, key, receiver);
+        } });
+        const render = (hidden: boolean) => <ConversationActivitySuppressedContext.Provider value={hidden}>
+            <ConversationActivityStrip messages={messages} />
+        </ConversationActivitySuppressedContext.Provider>;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(render(true)); });
+        expect(reads).toBe(0);
+        expect(renderer.toJSON()).toBeNull();
+        act(() => renderer.update(render(false)));
+        expect(reads).toBeGreaterThan(0);
+        expect(renderer.root.findAllByProps({ testID: 'activity-skill-ego-browser' }).length).toBeGreaterThan(0);
+        act(() => renderer.unmount());
+    });
+
     it('keeps a stable inner scroll anchor when older activities change the display order', () => {
         const skill = toolMessage('2', 'Skill', { skill: 'ego-browser' });
         const older = toolMessage('1', 'Skill', { skill: 'systematic-debugging' });

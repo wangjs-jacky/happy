@@ -19,6 +19,8 @@ export interface UserMessageAnchor {
     createdAt: number;
     /** 1-based chronological order (1 = first thing the user said). */
     ordinal: number;
+    /** Present for directory anchors outside the current render window. */
+    seq?: number;
 }
 
 /**

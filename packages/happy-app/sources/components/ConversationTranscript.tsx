@@ -1,3 +1,6 @@
+import { useSessionPromptIndex } from '@/hooks/useSessionPromptIndex';
+import type { SessionPrompt, SessionPromptNavigation } from '@/sync/sessionPromptIndex';
+import { getUserMessageDisplayText } from './messageDisplayText';
 import type { HistoryViewportReader } from '@/sync/historyWindowPolicy';
 import * as React from 'react';
 import { TranscriptReadOnlyContext } from './TranscriptReadOnlyContext';
@@ -65,6 +68,7 @@ export type ConversationTranscriptProps = {
     scopedItems?: DisplayItem[];
     scopedViewport?: (items: DisplayItem[], direction: 'older' | 'newer') => ReturnType<HistoryViewportReader>;
     reading?: TranscriptReadingAdapter;
+    promptNavigation?: SessionPromptNavigation;
     groupToolCalls?: boolean;
     currentTurnActive?: boolean;
     followLatestRequest?: number;
@@ -119,6 +123,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const showScrollButtonRef = React.useRef(false);
     const [showAnchorPill, setShowAnchorPill] = React.useState(false);
     const [anchorSheetOpen, setAnchorSheetOpen] = React.useState(false);
+    const pendingPromptJump = React.useRef<{ wireId: string; session: string | undefined; ticket: object } | null>(null);
     const [viewportHeight, setViewportHeight] = React.useState<number | null>(null);
     const [contentMeasurement, setContentMeasurement] = React.useState<{
         boundary: string;
@@ -357,9 +362,26 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         return null;
     }, [displayItems]);
     const anchors = useUserMessageAnchors(displayItems);
+    const visiblePrompts = React.useMemo<SessionPrompt[]>(() => props.promptNavigation && props.reading
+        ? displayItems.flatMap(item => {
+            if (item.type !== 'message' || item.message.kind !== 'user-text') return [];
+            const id = props.reading!.wireId(item.message.id);
+            const seq = props.reading!.wireSeq(item.message.id);
+            if (!id || seq === null) return [];
+            const message = item.message;
+            const text = getUserMessageDisplayText(message.displayText || message.text).trim().replace(/\s+/g, ' ').slice(0, 500);
+            return text ? [{ id, seq, text, createdAt: message.createdAt, localId: message.localId,
+                editedFromMessageId: message.meta?.editedFromMessageId }] : [];
+        }) : [], [displayItems, props.reading, props.promptNavigation]);
+    const promptIndex = useSessionPromptIndex(props.promptNavigation, anchorSheetOpen, visiblePrompts);
     const anchorsRef = React.useRef(anchors);
     anchorsRef.current = anchors;
-    const hasAnchorNavigation = anchors.length > 0 || props.hasMoreOlder === true;
+    const hasAnchorNavigation = !!props.promptNavigation || anchors.length > 0 || props.hasMoreOlder === true;
+    const directoryAnchors = React.useMemo<UserMessageAnchor[]>(() => promptIndex.prompts.map((prompt, index) => ({
+        id: prompt.id, seq: prompt.seq, text: prompt.text, createdAt: prompt.createdAt, displayIndex: -1,
+        // An incomplete backwards directory cannot know global turn numbers.
+        ordinal: promptIndex.hasMore ? 0 : index + 1,
+    })), [promptIndex.prompts, promptIndex.hasMore]);
 
     const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => {
         const initial = new Set<string>();
@@ -389,6 +411,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     const cancelReadingRestoreRef = React.useRef(reading.cancelRestore);
     cancelReadingRestoreRef.current = reading.cancelRestore;
     const claimScroll = React.useCallback(() => {
+        pendingPromptJump.current = null;
         initialWebFill.current = false;
         coordinator?.userIntent();
         if (coordinator) { jumpPending.current = false; jumpRequest.current = null; }
@@ -494,7 +517,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             return next;
         });
     }, [isGroupExpanded, props.reading, reading, recordManualCollapse]);
-    const nestedExpansion = props.reading ? {
+    const nestedExpansion = React.useMemo(() => props.reading ? {
         isExpanded: (item: DisplayItem) => groupIsExpanded(item, expandedKeys, props.reading!.wireId)
             || (isAtLatest && isCollapsibleDisplayItem(item) && item.hasPendingPermission && !isManuallyCollapsed(item)),
         toggle: (item: DisplayItem) => {
@@ -505,7 +528,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
             setExpandedKeys(previous => setGroupExpansion(previous, item, !expanded, props.reading!.wireId));
         },
         observe: (item: DisplayItem) => setExpandedKeys(previous => setGroupExpansion(previous, item, true, props.reading!.wireId)),
-    } : null;
+    } : null, [props.reading, expandedKeys, isAtLatest, isManuallyCollapsed, reading, recordManualCollapse]);
     const agentForkTargets = React.useMemo<Map<string, MessageForkTarget>>(
         () => getAgentMessageForkTargets(props.messages, {
             flavor: props.metadata?.flavor === 'codex' ? 'codex' : 'claude',
@@ -676,6 +699,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, []);
 
     const scrollLatest = React.useCallback(() => {
+        pendingPromptJump.current = null;
         coordinator?.jump();
         boundaryFill.current = null;
         if (Platform.OS === 'web') userScrollStarted.current = false;
@@ -685,6 +709,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
     }, [inverted, reading, coordinator]);
     const sessionRef = React.useRef(props.sessionId); sessionRef.current = props.sessionId;
     const scrollToBottom = React.useCallback(async () => {
+        pendingPromptJump.current = null;
         if (isAtLatest) { scrollLatest(); return; }
         if (!props.onJumpToLatest || jumpRequest.current) return;
         const session = props.sessionId;
@@ -747,6 +772,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         loadBoundary('older');
     }, [boundaryAttemptKey, contentGeneration, contentMeasurement, loadBoundary, viewportHeight]);
     React.useEffect(() => {
+        pendingPromptJump.current = null;
         setAnchorSheetOpen(false);
         if (indexRetryTimerRef.current) clearTimeout(indexRetryTimerRef.current);
         jumpPending.current = false;
@@ -788,6 +814,28 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         else if (jumpPending.current && isAtLatest) { jumpPending.current = false; scrollLatest(); }
     }, [isAtLatest, props.newerError, scrollLatest]);
     const scrollToAnchor = React.useCallback((anchor: UserMessageAnchor) => {
+        if (props.promptNavigation && anchor.seq !== undefined) {
+            const navigation = props.promptNavigation;
+            const seq = anchor.seq;
+            return (async () => {
+            const pending = { wireId: anchor.id, session: props.sessionId, ticket: {} };
+            pendingPromptJump.current = pending;
+            boundaryFill.current = null;
+            initialWebFill.current = false;
+            userScrollStarted.current = false;
+            coordinator?.jump();
+            cancelReadingRestoreRef.current('older');
+            try {
+                await navigation.loadTarget({ id: anchor.id, seq },
+                    () => pendingPromptJump.current === pending && sessionRef.current === pending.session);
+                // A target already present may not cause a new render.
+                setPromptJumpRevision(value => value + 1);
+            } catch (error) {
+                if (pendingPromptJump.current === pending) pendingPromptJump.current = null;
+                throw error;
+            }
+            })();
+        }
         // History loads and incoming messages can shift indexes while the
         // sheet is open. Resolve the stable id against the current transcript.
         const current = anchorsRef.current.find((candidate) => candidate.id === anchor.id);
@@ -814,7 +862,32 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 coordinator.driver.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
             }
         } else flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-    }, [inverted, coordinator]);
+    }, [inverted, coordinator, props.promptNavigation, props.sessionId]);
+    const [promptJumpRevision, setPromptJumpRevision] = React.useState(0);
+    React.useLayoutEffect(() => {
+        const pending = pendingPromptJump.current;
+        if (!pending || pending.session !== props.sessionId || !props.reading || !coordinator) return;
+        const index = listItems.findIndex(item => item.type === 'message'
+            && item.message.kind === 'user-text' && props.reading!.wireId(item.message.id) === pending.wireId);
+        if (index < 0) return; // The target window has not committed yet.
+        const key = listItems[index].renderKey;
+        const align = () => {
+            if (pendingPromptJump.current !== pending) return false;
+            const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
+            const row = node && [...node.querySelectorAll<HTMLElement>('[data-transcript-key]')]
+                .find(row => row.dataset.transcriptKey === key);
+            if (!node || !row) return false;
+            pendingPromptJump.current = null;
+            coordinator.driver.scrollToOffset({ offset: Math.max(0, node.scrollTop
+                + row.getBoundingClientRect().top - node.getBoundingClientRect().top - 16), animated: false });
+            return true;
+        };
+        coordinator.jump();
+        if (!align()) {
+            coordinator.jump(key, align);
+            coordinator.driver.scrollToIndex({ index, animated: false, viewPosition: 0 });
+        }
+    }, [listItems, props.sessionId, props.reading, coordinator, promptJumpRevision]);
     const handleScrollToIndexFailed = React.useCallback((info: { index: number; averageItemLength: number }) => {
         scrollPortRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
         if (coordinator) return; // Web finishes when the requested row mounts.
@@ -826,7 +899,10 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         }, 120);
     }, [coordinator]);
     const openAnchorSheet = React.useCallback(() => setAnchorSheetOpen(true), []);
-    const closeAnchorSheet = React.useCallback(() => setAnchorSheetOpen(false), []);
+    const closeAnchorSheet = React.useCallback(() => {
+        pendingPromptJump.current = null;
+        setAnchorSheetOpen(false);
+    }, []);
 
 
     React.useEffect(() => {
@@ -834,6 +910,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
         const node = (flatListRef.current as any)?.getScrollableNode?.() as HTMLElement | undefined;
         if (!node) return;
         const claim = (delta?: number) => {
+            pendingPromptJump.current = null;
             initialWebFill.current = false;
             jumpPending.current = false;
             jumpRequest.current = null;
@@ -995,7 +1072,7 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 error={props.olderError} message={props.olderErrorMessage} retryable={props.olderRetryable} retry={() => loadBoundary('older', true)} />
             <HistoryBoundary direction="newer" reached={boundaries.newer && !isAtLatest} loading={props.isLoadingNewer}
                 error={props.newerError} retry={() => loadBoundary('newer', true)} />
-            {props.showAnchorNavigation !== false && showAnchorPill && hasAnchorNavigation ? (
+            {props.showAnchorNavigation !== false && (showAnchorPill || Platform.OS === 'web') && hasAnchorNavigation ? (
                 <Animated.View
                     entering={FadeIn.duration(180)}
                     exiting={FadeOut.duration(260)}
@@ -1004,19 +1081,21 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                     <Pressable testID="conversation-anchors-button" accessibilityRole="button" onPress={openAnchorSheet} style={({ pressed }) => [styles.anchorPill, pressed && styles.anchorPillPressed]}>
                         <Octicons name="list-unordered" size={14} color={theme.colors.text} />
                         <Text style={styles.anchorPillLabel}>{t('session.anchorsButton')}</Text>
-                        <Text testID="conversation-anchors-count" style={styles.anchorPillCount}>{props.hasMoreOlder ? `${anchors.length}+` : anchors.length}</Text>
+                        <Text testID="conversation-anchors-count" style={styles.anchorPillCount}>{props.promptNavigation ? (promptIndex.hasMore ? `${directoryAnchors.length}+` : directoryAnchors.length) : props.hasMoreOlder ? `${anchors.length}+` : anchors.length}</Text>
                     </Pressable>
                 </Animated.View>
             ) : null}
             {props.showAnchorNavigation !== false && anchorSheetOpen ? (
                 <BaseModal visible onClose={closeAnchorSheet} accessibilityLabel={t('session.anchorsTitle')}>
                     <AnchorListSheet
-                        anchors={anchors}
-                        hasMoreOlder={props.hasMoreOlder}
-                        isLoadingOlder={props.isLoadingOlder}
-                        onLoadOlder={props.onLoadOlder ? () => loadBoundary('older', true) : undefined}
+                        anchors={props.promptNavigation ? directoryAnchors : anchors}
+                        hasMoreOlder={props.promptNavigation ? promptIndex.hasMore : props.hasMoreOlder}
+                        isLoadingOlder={props.promptNavigation ? promptIndex.loading : props.isLoadingOlder}
+                        error={props.promptNavigation ? promptIndex.error : false}
+                        onLoadOlder={props.promptNavigation ? () => { void promptIndex.load(); }
+                            : props.onLoadOlder ? () => loadBoundary('older', true) : undefined}
                         onSelect={scrollToAnchor}
-                        onClose={closeAnchorSheet}
+                        onClose={() => setAnchorSheetOpen(false)}
                     />
                 </BaseModal>
             ) : null}
