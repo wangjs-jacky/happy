@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator, Modal, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { GoalDeliveryAgreementSchema, readGoalDeliveryAgreement, writeGoalDeliveryAgreement, type GoalTask } from '@slopus/happy-wire';
+import { GoalDeliveryAgreementSchema, readGoalDeliveryAgreement, writeGoalDeliveryAgreement, relativeGoalDeliveryFile, type GoalTask } from '@slopus/happy-wire';
 import { projectGoalRequest, projectTaskFiles } from '@/sync/projectGoals';
 import { getRuntimeAccountSelection, accountRuntimeCurrent } from '@/auth/accountRuntime';
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
@@ -41,7 +41,7 @@ export function ProjectDeliveryEditor({ machineId, featurePath, tasks, onClose, 
             if (cancelled || !current()) return;
             const managed = readGoalDeliveryAgreement(file.content);
             const finals = managed?.finalOutputs.map(output => output.target) ?? task.artifacts.filter(artifact => artifact.relation === 'output')
-                .flatMap(artifact => artifact.url ? [artifact.url] : artifact.path?.startsWith(binding.root + '/') ? [artifact.path.slice(binding.root.length + 1)] : []);
+                .flatMap(artifact => { const target = artifact.path ? relativeGoalDeliveryFile(binding.root, artifact.path) : undefined; return artifact.url ? [artifact.url] : target ? [target] : []; });
             setDrafts(value => ({ ...value, [task.id]: { source: file.content, hash: file.hash,
                 expected: (managed?.expectedDeliverables ?? task.expectedDeliverables).join('\n'), criteria: (managed?.acceptanceCriteria ?? task.acceptanceCriteria ?? []).join('\n'), finals: finals.join('\n') } }));
         }).catch(error => { if (!cancelled && current()) setError(String(error)); });
@@ -53,7 +53,7 @@ export function ProjectDeliveryEditor({ machineId, featurePath, tasks, onClose, 
         let agreement;
         try {
             agreement = GoalDeliveryAgreementSchema.parse({ expectedDeliverables: lines(draft.expected), acceptanceCriteria: lines(draft.criteria),
-                finalOutputs: [...new Set(lines(draft.finals))].map(target => ({ target, name: task.artifacts.find(artifact => artifact.url === target || artifact.path === `${binding.root}/${target}`)?.name ?? target.split('/').pop() ?? target })) });
+                finalOutputs: [...new Set(lines(draft.finals))].map(target => ({ target, name: task.artifacts.find(artifact => artifact.url === target || (artifact.path && relativeGoalDeliveryFile(binding.root, artifact.path) === target.replace(/\\/g, '/')))?.name ?? target.split(/[\\/]/).pop() ?? target })) });
         } catch { setError(t('projectGoals.deliveryInvalid')); return; }
         saving.current = true; setBusy(true); setError(null);
         try {

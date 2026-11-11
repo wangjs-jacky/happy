@@ -11,6 +11,12 @@ export const GoalDeliveryAgreementSchema = z.object({
     }) })).max(30),
 });
 export type GoalDeliveryAgreement = z.infer<typeof GoalDeliveryAgreementSchema>;
+/** Normalize transport separators for display; the machine still authorizes real file paths. */
+export function relativeGoalDeliveryFile(root: string, path: string): string | undefined {
+    const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/, '');
+    const normalizedPath = path.replace(/\\/g, '/');
+    return normalizedPath.startsWith(normalizedRoot + '/') ? normalizedPath.slice(normalizedRoot.length + 1) : undefined;
+}
 const start = '<!-- paws:delivery:start -->';
 const end = '<!-- paws:delivery:end -->';
 const blockPattern = /^<!-- paws:delivery:start -->\r?\n([\s\S]*?)^<!-- paws:delivery:end -->[ \t]*$/m;
