@@ -14,7 +14,10 @@ export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, 
         if (route === '/projects') {
             await page.waitForFunction(() => {
                 const root = document.querySelector('[data-testid="project-goals-workspace"]');
-                return root && !root.textContent.includes('正在读取这台机器的项目') && !root.textContent.includes('正在连接，连接后读取这台机器的项目');
+                if (!root) return false;
+                const text = root.textContent ?? '';
+                const resolved = root.querySelector('[role="alert"]') || text.includes('尚未发现 Goal First 项目') || text.includes('这台机器已离线');
+                return resolved && !text.includes('正在读取这台机器的项目') && !text.includes('正在连接，连接后读取这台机器的项目');
             }, undefined, { timeout: 30000 });
         }
         await page.evaluate(async () => {

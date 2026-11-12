@@ -1,7 +1,7 @@
 # Paws 桌面导航与顶部栏改版初版方案（历史记录）
 
-日期：2026-11-12  
-状态：用户已授权实施；当前改动与验收见 [交付记录](validation/codex-navigation-redesign.md)  
+日期：2026-11-12
+状态：用户已授权实施；当前改动与验收见 [交付记录](validation/codex-navigation-redesign.md)
 依据：用户提供的 Codex 截图，以及本机 Happy 仓库 `main` 的源码快照 `1b1bc78e`。
 
 > 以下保留初版方案；当前实施范围、真实交互核对和验收以 [交付记录](validation/codex-navigation-redesign.md) 为准。
