@@ -6,12 +6,14 @@ import type { GoalTask } from '@slopus/happy-wire';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { GoalBoardButton as Button } from './GoalBoardButton';
+import { ProjectSurfaces } from './ProjectSurfaces';
 
 /** The task brief stays readable even when an older archive has no delivery contract. */
 export function ProjectTaskDetails({ task, number, approval, onEdit, editDisabled, onDelivery, deliveryDisabled, children }: {
     task: GoalTask; number: number; approval: React.ReactNode; onEdit: () => void; editDisabled: boolean; children: React.ReactNode;
     onDelivery?: () => void; deliveryDisabled?: boolean;
 }) {
+    const surfaces = React.useContext(ProjectSurfaces);
     const { theme } = useUnistyles();
     const [criteriaOpen, setCriteriaOpen] = React.useState(false);
     const criteria = task.acceptanceCriteria ?? [];
@@ -25,7 +27,7 @@ export function ProjectTaskDetails({ task, number, approval, onEdit, editDisable
         </View>
         <View style={styles.section}>
             <View style={styles.heading}><Text style={styles.label}>{t('projectGoals.deliveryHeading')}</Text>{onDelivery && <Button variant="toolbar" label={t('projectGoals.editDelivery')} onPress={onDelivery} disabled={deliveryDisabled}><Text style={styles.link}>{t('projectGoals.editDelivery')}</Text></Button>}</View>
-            <View style={styles.agreement} testID="project-task-delivery-agreement">
+            <View style={[styles.agreement, surfaces && { backgroundColor: surfaces.selected }]} testID="project-task-delivery-agreement">
                 <Text style={styles.agreementLabel}>{t('projectGoals.expected')}</Text>
                 {task.expectedDeliverables.length ? task.expectedDeliverables.map((value, index) => <View key={index} style={styles.item}><Text style={styles.bullet}>•</Text><Text selectable style={styles.body}>{value}</Text></View>) : <Text style={styles.secondary}>{t('projectGoals.noExpected')}</Text>}
             </View>

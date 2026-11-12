@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { GoalProjectSchema, GoalBoardSnapshotSchema, GoalTaskSessionSchema, type GoalTask, type GoalBoardSnapshot } from '@slopus/happy-wire';
+import { GoalProjectSchema, GoalScopeOverviewSchema, GoalBoardSnapshotSchema, GoalTaskSessionSchema, type GoalTask, type GoalBoardSnapshot } from '@slopus/happy-wire';
+import { projectFileHash } from './projectFileHash';
 import { assertAccountRuntime, getRuntimeAccountSelection } from '@/auth/accountRuntime';
+import { isProjectSessionDeleted } from './projectSessionLinks';
 import { apiSocket } from './apiSocket';
 import { machineStartGoalTask, machineStartGoalPreviewChat } from './ops';
 import type { FileWorkspaceBinding } from '@/components/fileWorkspace/SessionFileWorkspaceProvider';
@@ -32,7 +34,7 @@ export function getProjectPreviewMachineId() {
     const config = (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { goalProjectReadOnly?: boolean; goalProjectMachineId?: string } }).__HAPPY_CONFIG__;
     return config?.goalProjectReadOnly === true ? config.goalProjectMachineId : undefined;
 }
-export async function projectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
+async function sendProjectGoalRequest<T>(machineId: string, method: string, input: unknown): Promise<T> {
     const current = owner();
     if (isReadOnlyProjectPreview() && !['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalTaskListDirectory', 'goalTaskReadFile', 'goalFeatureListDirectory', 'goalFeatureReadFile'].includes(method)
         && !(method === 'goalTaskApprove' && canConfirmProjectDeliverable())) throw new Error(t('projectGoals.readOnlyArchive'));
@@ -50,11 +52,32 @@ export async function projectGoalRequest<T>(machineId: string, method: string, i
     }
     return response;
 }
-export async function loadGoalProjects(machineId: string) {
-    return z.object({ success: z.literal(true), projects: z.array(GoalProjectSchema).max(1000) }).parse(await projectGoalRequest(machineId, 'goalProjects', {})).projects;
+// Identical concurrent reads share one encrypted request; no timer or polling.
+const projectReads = new Map<string, Promise<unknown>>();
+export function projectGoalRequest<T>(machineId: string, method: string, input: unknown, readVersion?: string): Promise<T> {
+    if (!['goalProjects', 'goalProjectRead', 'goalTaskHistory', 'goalScopeRead', 'goalScopeHistory'].includes(method)) return sendProjectGoalRequest<T>(machineId, method, input);
+    const key = JSON.stringify([owner(), isReadOnlyProjectPreview(), machineId, method, input, readVersion]);
+    const existing = projectReads.get(key);
+    if (existing) return existing as Promise<T>;
+    const pending = sendProjectGoalRequest<T>(machineId, method, input).finally(() => { if (projectReads.get(key) === pending) projectReads.delete(key); });
+    projectReads.set(key, pending);
+    return pending;
 }
-export async function loadProjectGoalBoard(machineId: string, featurePath: string) {
-    const result = z.object({ success: z.literal(true), snapshot: GoalBoardSnapshotSchema, sessions: z.record(z.string(), z.array(GoalTaskSessionSchema).max(1000)) }).parse(await projectGoalRequest(machineId, 'goalProjectRead', { featurePath }));
+
+/** Explicit Task metadata takes precedence over a coincidentally shared cwd. */
+export function projectSessionMatchesTask(metadata: { machineId?: string; path?: string; goalBoard?: { featurePath: string; taskId?: string } } | null | undefined,
+    machineId: string, featurePath: string, taskId: string, directory: string) {
+    if (!metadata || metadata.machineId !== machineId) return false;
+    if (metadata.goalBoard) return metadata.goalBoard.featurePath === featurePath && metadata.goalBoard.taskId === taskId;
+    const normalize = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return typeof metadata.path === 'string' && normalize(metadata.path) === normalize(directory);
+}
+
+export async function loadGoalProjects(machineId: string, readVersion?: string) {
+    return z.object({ success: z.literal(true), projects: z.array(GoalProjectSchema).max(1000) }).parse(await projectGoalRequest(machineId, 'goalProjects', {}, readVersion)).projects;
+}
+export async function loadProjectGoalBoard(machineId: string, featurePath: string, readVersion?: string) {
+    const result = z.object({ success: z.literal(true), snapshot: GoalBoardSnapshotSchema, sessions: z.record(z.string(), z.array(GoalTaskSessionSchema).max(1000)) }).parse(await projectGoalRequest(machineId, 'goalProjectRead', { featurePath }, readVersion));
     if (result.snapshot.featurePath !== featurePath) throw new Error('Project returned a different feature');
     return result;
 }
@@ -72,26 +95,40 @@ const fileResponse = z.object({ success: z.literal(true), content: z.string().ma
 const historyCursor = z.object({ sessionId: z.string(), updatedAt: z.number() });
 export type ProjectHistoryCursor = z.infer<typeof historyCursor>;
 export type ProjectHistoryCandidate = z.infer<typeof GoalTaskSessionSchema> & { featurePath?: string; taskId?: string };
-export async function loadProjectTaskHistory(machineId: string, featurePath: string, taskId: string, cursor?: ProjectHistoryCursor, candidates?: ProjectHistoryCandidate[]) {
-    return z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25), nextCursor: historyCursor.optional() }).parse(await projectGoalRequest(machineId, 'goalTaskHistory', { featurePath, taskId, cursor, ...(isReadOnlyProjectPreview() ? { candidates: candidates ?? [] } : {}) }));
+export async function loadProjectTaskHistory(machineId: string, featurePath: string, taskId: string, cursor?: ProjectHistoryCursor, candidates?: ProjectHistoryCandidate[], readVersion?: string) {
+    return z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25), nextCursor: historyCursor.optional() }).parse(await projectGoalRequest(machineId, 'goalTaskHistory', { featurePath, taskId, cursor, ...(isReadOnlyProjectPreview() ? { candidates: candidates ?? [] } : {}) }, readVersion));
 }
 export function latestProjectTaskConversation(sessions: z.infer<typeof GoalTaskSessionSchema>[], directory: string) {
     const normalized = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
-    return sessions.filter(session => normalized(session.directory) === normalized(directory))
+    return sessions.filter(session => !isProjectSessionDeleted(session.sessionId) && normalized(session.directory) === normalized(directory))
         .sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId))[0];
 }
 
 /** The main entry resumes a verified Task conversation; only explicit new-chat bypasses history. */
 export async function openProjectGoalConversation(machineId: string, featurePath: string, task: GoalTask,
-    requestId: string, agent: 'codex' | 'claude', knownSessions: z.infer<typeof GoalTaskSessionSchema>[] = [], forceNew = false) {
+    requestId: string, agent: 'codex' | 'claude', knownSessions: z.infer<typeof GoalTaskSessionSchema>[] = [], forceNew = false, historyVersion?: string) {
     const current = owner();
     const directory = task.indexPath.replace(/[\\/][^\\/]+$/, '');
     if (!forceNew) {
+        // Known, Task-scoped associations can route immediately. History refresh
+        // is independent of navigation; a missing association still fails closed.
+        const known = latestProjectTaskConversation(knownSessions, directory);
+        if (known) return { session: known, created: false };
         // A failed history read must not silently create a duplicate conversation.
-        const page = await loadProjectTaskHistory(machineId, featurePath, task.id);
-        if (owner() !== current) throw new Error('Project conversation account changed');
-        const latest = latestProjectTaskConversation([...knownSessions, ...page.sessions], directory);
-        if (latest) return { session: latest, created: false };
+        let cursor: ProjectHistoryCursor | undefined;
+        const seen = new Set<string>();
+        do {
+            const page = await loadProjectTaskHistory(machineId, featurePath, task.id, cursor, undefined, historyVersion);
+            if (owner() !== current) throw new Error('Project conversation account changed');
+            const latest = latestProjectTaskConversation(page.sessions, directory);
+            if (latest) return { session: latest, created: false };
+            cursor = page.nextCursor;
+            if (cursor) {
+                const key = JSON.stringify(cursor);
+                if (seen.has(key) || seen.size >= 800) throw new Error('Task history pagination did not advance');
+                seen.add(key);
+            }
+        } while (cursor);
     }
     if (owner() !== current) throw new Error('Project conversation account changed');
     const sessionId = await launchProjectGoalTask(machineId, featurePath, task, 'chat', requestId, agent);
@@ -99,20 +136,23 @@ export async function openProjectGoalConversation(machineId: string, featurePath
 }
 const mediaMime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
 export function projectTaskFiles(machineId: string, featurePath: string, task: GoalTask): FileWorkspaceBinding {
-    const root = task.indexPath.replace(/[\\/][^\\/]+$/, '');
-    const input = { featurePath, taskId: task.id };
-    return projectArchiveFiles(machineId, root, input, task.id);
+    return projectArchiveFiles(machineId, featurePath, task.indexPath.replace(/[\\/][^\\/]+$/, ''), task.id);
+}
+export function projectScopeFiles(machineId: string, scopePath: string): FileWorkspaceBinding {
+    return projectArchiveFiles(machineId, scopePath, scopePath);
 }
 export function projectFeatureFiles(machineId: string, featurePath: string): FileWorkspaceBinding {
-    return projectArchiveFiles(machineId, featurePath, { featurePath }, 'feature', true);
+    return projectArchiveFiles(machineId, featurePath, featurePath, undefined, true);
 }
-function projectArchiveFiles(machineId: string, root: string, input: { featurePath: string; taskId?: string }, scope: string, readOnly = false): FileWorkspaceBinding {
+function projectArchiveFiles(machineId: string, featurePath: string, root: string, taskId?: string, featureReadOnly = false): FileWorkspaceBinding {
+    const input = { featurePath, ...(taskId ? { taskId } : {}) };
+    const prefix = featureReadOnly ? 'goalFeature' : taskId ? 'goalTask' : 'goalScope';
     const readBytes = async (path: string, signal?: AbortSignal) => {
         let offset = 0, revision: string | undefined, bytes: Uint8Array | undefined, transferId: string | undefined;
         // This is a finite file transfer, driven by byte offsets, not a task/status polling loop.
         do {
             signal?.throwIfAborted();
-            const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, readOnly ? 'goalFeatureReadFile' : 'goalTaskReadFile', { ...input, path, offset, revision, transferId }));
+            const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, `${prefix}ReadFile`, { ...input, path, offset, revision, transferId }));
             signal?.throwIfAborted();
             if (result.offset !== offset || (revision && result.revision !== revision)) throw new Error('File changed during transfer');
             if (!bytes) bytes = new Uint8Array(result.size);
@@ -120,13 +160,13 @@ function projectArchiveFiles(machineId: string, root: string, input: { featurePa
             if (offset + chunk.length > bytes.length || (!chunk.length && offset < bytes.length)) throw new Error('Incomplete file transfer');
             bytes.set(chunk, offset); offset += chunk.length; revision = result.revision; transferId = result.transferId;
         } while (offset < bytes.length);
-        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+        const hash = await projectFileHash(bytes);
         return { bytes, hash, fileRevision: revision };
     };
     return {
         // The provider already includes account, machine and canonical root in
         // its tuple. Avoid nested JSON here: MMKV rejects escaped backslashes.
-        root, machineId, scope: `${isReadOnlyProjectPreview() ? 'goal-preview-readonly' : 'goal-task'}:${scope}`, readOnly: readOnly || isReadOnlyProjectPreview(),
+        root, machineId, scope: `${isReadOnlyProjectPreview() ? 'goal-preview-readonly' : 'goal-task'}:${featureReadOnly ? 'feature' : taskId ?? 'scope'}`, readOnly: featureReadOnly || isReadOnlyProjectPreview(),
         readBytes: async (path, signal) => (await readBytes(path, signal)).bytes,
         readText: async (path, signal) => {
             const { bytes, hash, fileRevision } = await readBytes(path, signal);
@@ -137,9 +177,9 @@ function projectArchiveFiles(machineId: string, root: string, input: { featurePa
             return { content: new TextDecoder('utf-8', { fatal: true }).decode(bytes), hash, fileRevision };
         },
         writeText: async (path, content, expectedHash) => {
-            if (readOnly) throw new Error(t('projectGoals.readOnlyArchive'));
+            if (featureReadOnly) throw new Error(t('projectGoals.readOnlyArchive'));
             let binary = ''; for (const byte of new TextEncoder().encode(content)) binary += String.fromCharCode(byte);
-            const result = z.object({ success: z.literal(true), hash: z.string(), revision: z.string() }).parse(await projectGoalRequest(machineId, 'goalTaskWriteFile', { ...input, path, content: btoa(binary), expectedHash }));
+            const result = z.object({ success: z.literal(true), hash: z.string(), revision: z.string() }).parse(await projectGoalRequest(machineId, `${prefix}WriteFile`, { ...input, path, content: btoa(binary), expectedHash }));
             return { hash: result.hash, fileRevision: result.revision };
         },
     };
@@ -155,3 +195,13 @@ export function taskApproval(task: GoalTask): 'accepted' | 'changed' | 'unreview
 }
 export function taskCanExecute(task: GoalTask) { return task.execution?.state === 'never'; }
 export type ProjectBoardData = { snapshot: GoalBoardSnapshot; sessions: Record<string, z.infer<typeof GoalTaskSessionSchema>[]> };
+
+export async function loadProjectScope(machineId: string, scopePath: string, revision?: string) {
+    const response = z.object({ success: z.literal(true), overview: GoalScopeOverviewSchema }).parse(await projectGoalRequest(machineId, 'goalScopeRead', { scopePath }, revision));
+    if (response.overview.scopePath !== scopePath) throw new Error('Project returned a different scope');
+    return response.overview;
+}
+export async function loadProjectScopeHistory(machineId: string, scopePath: string) {
+    const response = z.object({ success: z.literal(true), sessions: z.array(GoalTaskSessionSchema).max(25) }).parse(await projectGoalRequest(machineId, 'goalScopeHistory', { scopePath }));
+    return response.sessions.filter(session => !isProjectSessionDeleted(session.sessionId) && session.directory === scopePath);
+}

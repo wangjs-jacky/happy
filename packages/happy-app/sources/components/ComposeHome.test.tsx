@@ -62,6 +62,7 @@ vi.mock('react-native', () => ({
         get OS() { return mocks.platformOS; },
         select: (values: Record<string, unknown>) => values[mocks.platformOS] ?? values.default,
     },
+    Dimensions: { get: () => ({ width: 480, height: 800 }) },
     useWindowDimensions: () => ({ width: 480, height: 800 }),
 }));
 vi.mock('react-native-unistyles', () => {
@@ -206,7 +207,7 @@ vi.mock('./navigation/Header', () => ({ Header: 'Header' }));
 vi.mock('./layout', () => ({ layout: { maxWidth: 720, headerMaxWidth: 720 } }));
 vi.mock('./MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
 vi.mock('./SubmittedAttachmentPreview', () => ({ SubmittedAttachmentPreview: 'SubmittedAttachmentPreview' }));
-vi.mock('./SessionConfigPanel', () => ({ SessionConfigPanel: 'SessionConfigPanel' }));
+vi.mock('./SessionConfigPanel', () => ({ SessionConfigPanel: ({ renderComposer }: any) => renderComposer?.({ leading: null, trailing: null, below: null }) ?? null }));
 vi.mock('./ComposeHomeParticles', () => ({ ComposeHomeParticles: 'ComposeHomeParticles' }));
 vi.mock('./Avatar', () => ({ Avatar: 'Avatar' }));
 vi.mock('./RightSwipePanelHost', () => ({ RightSwipePanelHost: 'RightSwipePanelHost', useRightSwipePanel: () => null }));

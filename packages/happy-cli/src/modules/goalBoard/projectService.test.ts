@@ -47,18 +47,18 @@ async function fixture(overrides: Partial<ProjectGoalDependencies> = {}) {
 describe('project Goal workspace', () => {
     it('browses the whole selected goal while rejecting sibling archives and write attempts', async () => {
         const f = await fixture();
-        const listed = await f.service.files({ featurePath: f.feature, path: f.feature }, 'list', true);
+        const listed = await f.service.files({ featurePath: f.feature, path: f.feature }, 'list', true, true);
         expect(listed.success).toBe(true);
         if (!('entries' in listed)) throw new Error('Expected directory response');
         expect(listed.entries.map(entry => entry.name)).toContain('index.md');
-        const file = await f.service.files({ featurePath: f.feature, path: join(f.feature, 'index.md') }, 'read', true);
+        const file = await f.service.files({ featurePath: f.feature, path: join(f.feature, 'index.md') }, 'read', true, true);
         if (!('content' in file) || typeof file.content !== 'string') throw new Error('Expected file response');
         expect(Buffer.from(file.content, 'base64').toString()).toBe('# Feature');
-        await expect(f.service.files({ featurePath: f.feature, path: join(f.root, 'p/index.md') }, 'read', true)).rejects.toThrow();
-        await expect(f.service.files({ featurePath: f.feature, path: join(f.feature, 'index.md'), content: '' }, 'write', true)).rejects.toThrow('read-only');
+        await expect(f.service.files({ featurePath: f.feature, path: join(f.root, 'p/index.md') }, 'read', true, true)).rejects.toThrow();
+        await expect(f.service.files({ featurePath: f.feature, path: join(f.feature, 'index.md'), content: '' }, 'write', true, true)).rejects.toThrow('read-only');
         await f.put(join(f.root, 'outside.md'), 'private');
         await symlink(join(f.root, 'outside.md'), join(f.feature, 'escape.md'));
-        await expect(f.service.files({ featurePath: f.feature, path: join(f.feature, 'escape.md') }, 'read', true)).rejects.toThrow();
+        await expect(f.service.files({ featurePath: f.feature, path: join(f.feature, 'escape.md') }, 'read', true, true)).rejects.toThrow();
         await symlink(join(f.root, 'outside.md'), join(f.taskDirectory, 'outside-final.md'));
         const source = await readFile(join(f.taskDirectory, 'index.md'), 'utf8');
         await f.put(join(f.taskDirectory, 'index.md'), writeGoalDeliveryAgreement(source, { expectedDeliverables: [], acceptanceCriteria: [], finalOutputs: [{ name: 'Unopenable final', target: 'outside-final.md' }] }));
@@ -81,6 +81,60 @@ describe('project Goal workspace', () => {
         const stale = await f.service.files({ ...f.input, path: index, content: Buffer.from('old write').toString('base64'), expectedHash: createHash('sha256').update(original).digest('hex') }, 'write');
         expect(stale.success).toBe(false);
         expect(await readFile(index, 'utf8')).toBe(content);
+    });
+    it('keeps feature read-only transfers separate from writable project scope transfers', async () => {
+        const f = await fixture();
+        const path = join(f.taskDirectory, 'large-feature.md');
+        await f.put(path, 'x'.repeat(70 * 1024));
+        const input = { featurePath: f.feature, path };
+        const chunk = await f.service.files(input, 'read', true, true);
+        if (!('revision' in chunk) || !('transferId' in chunk)) throw new Error('Expected a file transfer');
+        const next = { ...input, offset: 65536, revision: chunk.revision, transferId: chunk.transferId };
+        await expect(f.service.files(next, 'read', true)).rejects.toThrow('expired or changed');
+        expect(await f.service.files(next, 'read', true, true)).toMatchObject({ success: true, offset: 65536 });
+        await expect(f.service.files({ ...f.input, path }, 'read', true, true)).rejects.toThrow('read-only');
+    });
+    it('reads the selected real scope index and counts only that archive, without following symlinks', async () => {
+        const f = await fixture();
+        await f.put(join(f.feature, 'index.md'), '# Feature\n## 目标\nA real feature goal');
+        await f.put(join(f.root, 'p/features/sibling/index.md'), '# Sibling\n目标：Keep separate');
+        await symlink(join(f.root, 'p/features/sibling'), join(f.feature, 'sibling-link'));
+        const result = await f.service.overview({ scopePath: f.feature });
+        expect(result.overview).toMatchObject({ scopePath: f.feature, indexPath: join(f.feature, 'index.md'), title: 'Feature', goal: 'A real feature goal', fileCount: 4, countComplete: true });
+        expect((await f.service.overview({ scopePath: join(f.root, 'p') })).overview.fileCount).toBe(6);
+        await expect(f.service.overview({ scopePath: f.home })).rejects.toThrow('outside');
+        expect(f.deps.spawn).not.toHaveBeenCalled(); expect(f.deps.send).not.toHaveBeenCalled();
+    });
+    it('shares scoped files while rejecting sibling archives, symlink escapes and scope/task confusion', async () => {
+        const f = await fixture();
+        const input = { featurePath: f.feature, path: join(f.feature, 'index.md') };
+        expect(await f.service.files(input, 'read', true)).toMatchObject({ success: true, size: 9 });
+        await expect(f.service.files(input, 'read')).rejects.toThrow();
+        const largePath = join(f.taskDirectory, 'large.md');
+        await f.put(largePath, 'x'.repeat(70 * 1024));
+        const chunk = await f.service.files({ ...f.input, path: largePath }, 'read', true);
+        if (!('revision' in chunk) || !('transferId' in chunk)) throw new Error('Expected a file transfer');
+        await expect(f.service.files({ ...f.input, path: largePath, offset: 65536, revision: chunk.revision, transferId: chunk.transferId }, 'read')).rejects.toThrow('expired or changed');
+        await expect(f.service.files({ ...input, path: join(f.root, 'p/index.md') }, 'read', true)).rejects.toThrow();
+        await symlink(join(f.root, 'p/index.md'), join(f.feature, 'escape.md'));
+        await expect(f.service.files({ ...input, path: join(f.feature, 'escape.md') }, 'read', true)).rejects.toThrow();
+    });
+    it('an explicit sibling binding overrides a coincidentally matching Task directory', async () => {
+        const f = await fixture();
+        f.history.push({ sessionId: 'sibling', title: 'Sibling', directory: f.taskDirectory, updatedAt: 1, executed: false,
+            metadata: { path: f.taskDirectory, goalBoard: { featurePath: f.feature, taskId: 'another-task' } } as any });
+        expect((await f.service.historyPage(f.input)).sessions).toEqual([]);
+    });
+    it('global history keeps exact scope discussions and excludes explicit Task associations', async () => {
+        const f = await fixture();
+        for (const [sessionId, directory, goalBoard] of [
+            ['scope', f.feature, undefined], ['other', f.taskDirectory, undefined],
+            ['task', f.feature, { featurePath: f.feature, taskId: f.task.id }],
+        ] as const) f.history.push({ sessionId, directory, title: sessionId, updatedAt: 1, executed: false, metadata: { path: directory, goalBoard } as any });
+        expect((await f.service.scopeHistory({ scopePath: f.feature })).sessions.map(session => session.sessionId)).toEqual(['scope']);
+        const input = { scopePath: f.feature, requestId: 'scope-chat', agent: 'codex' };
+        expect(await f.service.author(input)).toEqual(await f.service.author(input));
+        expect(f.deps.spawn).toHaveBeenCalledTimes(1); expect(f.deps.send).not.toHaveBeenCalled();
     });
     it('reads fresh files without subscribing when directory observation is disabled', async () => {
         vi.mocked(watch).mockClear();
