@@ -3,10 +3,11 @@ import { Modal, Platform, Pressable, Text, View, useWindowDimensions } from 'rea
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { GoalProject } from '@slopus/happy-wire';
+import type { GoalBoardCatalogEntry, GoalProject } from '@slopus/happy-wire';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { GoalBoardButton } from './GoalBoardButton';
+import { GoalBoardCard } from './GoalBoardCard';
 import type { ProjectLibraryEntry } from '@/sync/projectLibrary';
 
 export function projectGalleryColumns(width: number) {
@@ -20,28 +21,29 @@ const covers = [
     require('@/assets/images/project-goals/harness.jpg'),
     require('@/assets/images/project-goals/mini.jpg'),
 ];
-function coverFor(project: GoalProject) {
+function coverFor(project: Pick<GoalProject, 'projectPath' | 'title'>) {
     if (/happy|paws/i.test(project.title)) return covers[0];
     let hash = 0;
     for (const char of project.projectPath.split('/').pop() || project.title) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
     return covers[1 + hash % (covers.length - 1)];
 }
 
-function useGalleryLayout() {
+function useGalleryLayout(compact = true) {
     const [width, setWidth] = React.useState(0);
-    const columns = projectGalleryColumns(width);
-    const cardWidth = width ? (width - (columns - 1) * 20) / columns : 260;
+    const gap = compact ? 20 : 24;
+    const columns = compact ? projectGalleryColumns(width) : Math.max(1, Math.min(3, Math.floor((width + 24) / 309)));
+    const cardWidth = width ? (width - (columns - 1) * gap) / columns : compact ? 260 : 285;
     // Let CSS size web columns inside the actual scrollbar-adjusted content box.
     // onLayout can report the pre-scrollbar width during first mount.
-    const gridStyle = Platform.OS === 'web' ? { display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } as any : null;
-    return { cardWidth: Platform.OS === 'web' ? '100%' as const : cardWidth, setWidth, gridStyle };
+    const gridStyle = Platform.OS === 'web' ? { display: 'grid', gap, gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } as any : null;
+    return { cardWidth: Platform.OS === 'web' ? '100%' as const : cardWidth, setWidth, gridStyle: Platform.OS === 'web' ? gridStyle : { gap } };
 }
 
-export function ProjectGalleryLoading() {
-    const { cardWidth, setWidth, gridStyle } = useGalleryLayout();
+export function ProjectGalleryLoading({ compact = true }: { compact?: boolean } = {}) {
+    const { cardWidth, setWidth, gridStyle } = useGalleryLayout(compact);
     return <View style={[styles.grid, gridStyle]} onLayout={event => setWidth(Math.floor(event.nativeEvent.layout.width))}>
-        {Array.from({ length: 10 }, (_, index) => <View key={index} style={{ width: cardWidth, maxWidth: '100%' }}>
-            <View style={[styles.cover, styles.skeleton]} />
+        {Array.from({ length: compact ? 10 : 6 }, (_, index) => <View key={index} style={{ width: cardWidth, maxWidth: '100%' }}>
+            <View style={[styles.cover, !compact && { aspectRatio: 8 / 5 }, styles.skeleton]} />
             <View style={styles.caption}><View style={[styles.skeletonLine, { width: '72%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} /></View>
         </View>)}
     </View>;
@@ -73,6 +75,32 @@ export function ProjectGallery({ projects, onSelect, preferences = {}, onFavorit
                 {onArchive && onDelete && onRestore && <ProjectCardMenu project={project} state={preferences[project.projectPath]?.state ?? 'active'} onArchive={() => onArchive(project)} onDelete={() => onDelete(project)} onRestore={() => onRestore(project)} index={index} />}
             </View>
         </View>)}
+    </View>;
+}
+
+export function ProjectFeatureGallery({ entries, projectPath, onSelect }: {
+    entries: GoalBoardCatalogEntry[];
+    projectPath: string;
+    onSelect: (entry: GoalBoardCatalogEntry) => void;
+}) {
+    const { theme } = useUnistyles();
+    const { cardWidth, setWidth, gridStyle } = useGalleryLayout(false);
+    return <View style={[styles.grid, gridStyle]} onLayout={event => setWidth(Math.floor(event.nativeEvent.layout.width))} testID="project-feature-gallery">
+        {entries.map(entry => {
+            const title = entry.featurePath === projectPath ? t('projectGoals.tasks') : entry.title;
+            return <GoalBoardCard key={entry.featurePath} style={{ width: cardWidth, maxWidth: '100%', minWidth: 0 }}>
+                <GoalBoardButton variant="card" label={title} onPress={() => onSelect(entry)}>
+                    <View style={styles.featureCover}>
+                        <Image source={coverFor({ projectPath: entry.featurePath, title: entry.title })} contentFit="cover" style={StyleSheet.absoluteFillObject} />
+                    </View>
+                    <View style={styles.featureCaption}>
+                        <Text numberOfLines={2} style={styles.featureTitle}>{title}</Text>
+                        <Text numberOfLines={3} style={styles.featureDescription}>{entry.summary || t('projectGoals.showTasks')}</Text>
+                        <View style={styles.featureMeta}><Ionicons name="folder-open-outline" size={14} color={theme.colors.textSecondary} /><Text style={styles.metaText}>{t('projectGoals.showTasks')}</Text><Ionicons name="arrow-forward" size={15} color={theme.colors.textSecondary} /></View>
+                    </View>
+                </GoalBoardButton>
+            </GoalBoardCard>;
+        })}
     </View>;
 }
 
@@ -121,4 +149,10 @@ const styles = StyleSheet.create(theme => ({
     menu: { position: 'absolute', padding: 6, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, shadowColor: theme.colors.shadow.color, shadowOpacity: theme.colors.shadow.opacity, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
     menuTitle: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
     menuText: { flexShrink: 1, fontSize: 13, lineHeight: 20, color: theme.colors.text, ...Typography.default() },
+    metaText: { flex: 1, fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() },
+    featureCover: { width: '100%', aspectRatio: 8 / 5, overflow: 'hidden', backgroundColor: theme.colors.surfaceHigh },
+    featureCaption: { padding: 18, gap: 10 },
+    featureTitle: { minHeight: 48, fontSize: 16, lineHeight: 24, color: theme.colors.text, ...Typography.default('semiBold') },
+    featureDescription: { minHeight: 60, fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
+    featureMeta: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
 }));
