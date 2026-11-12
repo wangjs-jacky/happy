@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { isApplicationSession } from '@slopus/happy-wire';
 import { Text, View, Pressable, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,6 +60,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingBottom: 4,
     },
     mobileRailScroll: { flex: 1, minHeight: 0 },
+    desktopRailScroll: { flex: 1, minHeight: 0 },
     mobileRailButton: { width: 48, minHeight: 56, height: undefined, gap: 4, paddingVertical: 6 },
     mobileRailLabel: {
         color: theme.colors.textSecondary,
@@ -309,7 +311,32 @@ function DesktopRailItem({
 }) {
     const styles = stylesheet;
     const [active, setActive] = React.useState(false);
+    const [tooltipAnchor, setTooltipAnchor] = React.useState<{ left: number; top: number } | null>(null);
+    React.useEffect(() => {
+        if (!active || Platform.OS !== 'web' || typeof window === 'undefined') return;
+        const dismiss = () => setActive(false);
+        window.addEventListener('scroll', dismiss, true);
+        window.addEventListener('resize', dismiss);
+        return () => {
+            window.removeEventListener('scroll', dismiss, true);
+            window.removeEventListener('resize', dismiss);
+        };
+    }, [active]);
     const itemKey = testID.replace('sidebar-', '').replace('-button', '');
+    const showTooltip = (event?: any) => {
+        const rect = event?.currentTarget?.getBoundingClientRect?.();
+        if (rect) setTooltipAnchor({ left: rect.right + 8, top: rect.top + 7 });
+        setActive(true);
+    };
+    const tooltip = active && !showLabel ? (
+        <View
+            pointerEvents="none"
+            style={[styles.desktopRailTooltip, tooltipAnchor && Platform.OS === 'web' && { position: 'fixed', ...tooltipAnchor } as any]}
+            testID={`desktop-navigation-rail-tooltip-${itemKey}`}
+        >
+            <Text numberOfLines={1} style={styles.desktopRailTooltipText}>{label}</Text>
+        </View>
+    ) : null;
 
     return (
         <View style={styles.desktopRailItem}>
@@ -318,8 +345,8 @@ function DesktopRailItem({
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
                 onBlur={() => setActive(false)}
-                onFocus={() => setActive(true)}
-                onHoverIn={() => setActive(true)}
+                onFocus={showTooltip}
+                onHoverIn={showTooltip}
                 onHoverOut={() => setActive(false)}
                 onPress={onPress}
                 style={({ pressed }) => [
@@ -341,15 +368,7 @@ function DesktopRailItem({
                 )}
                 {showLabel ? <Text numberOfLines={2} style={styles.mobileRailLabel}>{label}</Text> : null}
             </Pressable>
-            {active && !showLabel ? (
-                <View
-                    pointerEvents="none"
-                    style={styles.desktopRailTooltip}
-                    testID={`desktop-navigation-rail-tooltip-${itemKey}`}
-                >
-                    <Text numberOfLines={1} style={styles.desktopRailTooltipText}>{label}</Text>
-                </View>
-            ) : null}
+            {tooltip && tooltipAnchor && Platform.OS === 'web' && typeof document !== 'undefined' ? createPortal(tooltip, document.body) : tooltip}
         </View>
     );
 }
@@ -386,7 +405,7 @@ export const SidebarView = React.memo(({
     const router = useRouter();
     const pathname = usePathname();
     const mobileNavigation = !desktopDensity;
-    const { leftVisible, toggleLeftSidebar } = useDesktopWorkspaceLayout();
+    const { leftVisible, leftPinned, toggleLeftSidebar } = useDesktopWorkspaceLayout();
     const railNavigation = desktopPrimaryNavigation || mobileNavigation;
     const routeSessionId = pathname.match(/^\/session\/([^/]+)/)?.[1];
     const routeSession = useSession(routeSessionId ? decodeURIComponent(routeSessionId) : '');
@@ -439,6 +458,7 @@ export const SidebarView = React.memo(({
     const openDesktopSessionLists = () => {
         setAppConversationsActive(false);
         setDesktopSidebarMode(desktopSidebarListMode);
+        if (desktopPrimaryNavigation && pathname !== '/projects' && !leftPinned) toggleLeftSidebar();
         if (desktopPrimaryNavigation && pathname === '/projects' && (!leftVisible || desktopSidebarMode === desktopSidebarListMode)) toggleLeftSidebar();
         if (mobileNavigation) setMobilePanel('sessions');
         else if (pathname === '/projects' || advisorSidebarActive || pathname.startsWith('/apps/conversations')) go('/');
@@ -579,6 +599,13 @@ export const SidebarView = React.memo(({
 
     const desktopNavigationRail = (
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
+            {desktopPrimaryNavigation && <DesktopRailItem
+                icon="home-outline"
+                label={t('sidebar.listsTab')}
+                onPress={openDesktopSessionLists}
+                selected={(pathname !== '/projects' || leftVisible) && !appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
+                testID="sidebar-session-list-button"
+            />}
             <DesktopRailItem
                 icon="add"
                 iconColor={stylesheet.newSessionIcon.color}
@@ -620,13 +647,13 @@ export const SidebarView = React.memo(({
                 }
                 go(path);
             }} />
-            <DesktopRailItem
+            {!desktopPrimaryNavigation && <DesktopRailItem
                 icon="albums-outline"
                 label={t('sidebar.listsTab')}
                 onPress={openDesktopSessionLists}
                 selected={(pathname !== '/projects' || leftVisible) && !appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
                 testID="sidebar-session-list-button"
-            />
+            />}
             <DesktopRailItem
                 icon="file-tray-stacked-outline"
                 label={t('sessionHistory.archiveTitle')}
@@ -748,7 +775,7 @@ export const SidebarView = React.memo(({
                             <ScrollView style={styles.mobileRailScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                                 {desktopNavigationRail}
                             </ScrollView>
-                        ) : <>{desktopNavigationRail}<View style={styles.desktopPrimarySpacer} /></>}
+                        ) : <ScrollView style={styles.desktopRailScroll} showsVerticalScrollIndicator={false}>{desktopNavigationRail}</ScrollView>}
                         {footerNavigation}
                     </View>
                     <View
@@ -765,8 +792,8 @@ export const SidebarView = React.memo(({
                         {...(desktopPrimaryNavigation && !desktopSecondaryVisible ? { inert: true } as any : {})}
                         testID="desktop-secondary-navigation-column"
                     >
-                        {desktopPrimaryNavigation && pathname === '/projects' && desktopSecondaryVisible && <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, paddingLeft: 16, paddingRight: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }} testID="project-global-sidebar-header">
-                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') }}>{t(desktopSidebarMode === 'archive' ? 'sessionHistory.archiveTitle' : 'sidebar.listsTab')}</Text>
+                        {desktopPrimaryNavigation && pathname === '/projects' && desktopSecondaryVisible && desktopSidebarMode === 'archive' && <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, paddingLeft: 16, paddingRight: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }} testID="project-global-sidebar-header">
+                            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') }}>{t('sessionHistory.archiveTitle')}</Text>
                             <Pressable accessibilityRole="button" accessibilityLabel={t('sidebarLists.close')} onPress={toggleLeftSidebar} style={({ pressed }) => ({ padding: 9, borderRadius: 8, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })} testID="project-global-sidebar-close"><Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} /></Pressable>
                         </View>}
                         {mobileNavigation ? (
@@ -798,7 +825,7 @@ export const SidebarView = React.memo(({
                         ) : advisorSidebarActive ? (
                             <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />
                         ) : (
-                            <DesktopSidebarSessionsNavigation transparentSidebar={dreamskin} />
+                            <DesktopSidebarSessionsNavigation transparentSidebar={dreamskin} desktopHeader={desktopPrimaryNavigation} onNewSession={() => go('/new')} onSearch={openSessionSearch} />
                         )}
                     </View>
                 </>

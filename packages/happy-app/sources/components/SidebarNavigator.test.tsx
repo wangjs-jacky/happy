@@ -162,7 +162,7 @@ vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({
     useDesktopWorkspaceLayout: () => ({
         enabled: mocks.isTablet,
         leftExpandedWidth: mocks.isTablet ? 360 : 0,
-        leftPinned: mocks.isTablet && !mocks.zenMode && !mocks.desktopLeftSidebarCollapsed,
+        leftPinned: mocks.isTablet && mocks.pathname !== '/projects' && !mocks.zenMode && !mocks.desktopLeftSidebarCollapsed,
         leftVisible: mocks.isTablet && !mocks.zenMode && (!mocks.desktopLeftSidebarCollapsed || mocks.hovered),
         leftMaximumWidth: 640,
         leftWidth: mocks.isTablet && !mocks.zenMode && !mocks.desktopLeftSidebarCollapsed ? 360 : 0,
@@ -265,7 +265,7 @@ describe('SidebarNavigator drawer behavior', () => {
         expect(drawer.props.screenOptions.drawerStyle.width).toBe(420);
         expect(renderer.root.findByProps({ testID: 'desktop-left-panel-resize-handle' }).props.style)
             .toContainEqual({ left: 420 });
-        expect(renderer.root.findByProps({ testID: 'desktop-navigation-controls' }).parent.props.style.left).toBe(446);
+        expect(renderer.root.findByProps({ testID: 'desktop-navigation-controls' }).parent.props.style.left).toBe(0);
         const sidebarToggle = renderer.root.findByProps({ testID: 'desktop-navigation-sidebar-button' });
         expect(sidebarToggle.props['aria-expanded']).toBe(true);
         expect(sidebarToggle.props.accessibilityState).toEqual({ expanded: true, selected: true });
@@ -280,6 +280,21 @@ describe('SidebarNavigator drawer behavior', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps the global toolbar in visual and keyboard order on the project route', () => {
+        mocks.pathname = '/projects';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarNavigator />); });
+        const bar = renderer.root.findByProps({ testID: 'desktop-global-navigation-bar' });
+        expect(bar.findAllByType('Pressable').map((node: any) => node.props.testID)).toEqual([
+            'desktop-navigation-back-button', 'desktop-navigation-forward-button',
+            'desktop-navigation-sidebar-button', 'desktop-navigation-zen-button',
+        ]);
+        const toggle = bar.findByProps({ testID: 'desktop-navigation-sidebar-button' });
+        expect(toggle.props.accessibilityLabel).toBe('desktopWorkspace.hideSessions');
+        expect(toggle.props['aria-pressed']).toBe(true);
+        act(() => renderer.unmount());
+    });
+
     it('reveals an unpinned overlay without occupying chat width or selecting the pin button', () => {
         mocks.desktopLeftSidebarCollapsed = true;
         mocks.hovered = true;
@@ -291,9 +306,9 @@ describe('SidebarNavigator drawer behavior', () => {
         expect(toggle.props['aria-pressed']).toBe(false);
         expect(toggle.props.accessibilityLabel).toBe('desktopWorkspace.pinSessions');
         const header = renderer.root.findByProps({ testID: 'desktop-navigation-controls' }).parent;
-        expect(header.props.style.left).toBe(86);
-        expect(header.props['aria-hidden']).toBe(true);
-        expect(header.props.inert).toBe(true);
+        expect(header.props.style.left).toBe(0);
+        expect(header.props['aria-hidden']).toBe(false);
+        expect(header.props.inert).toBeUndefined();
         const handle = renderer.root.findByProps({ testID: 'desktop-left-panel-resize-handle' });
         expect(handle.props['aria-valuenow']).toBe(360);
         act(() => handle.props.onKeyDown({ key: 'Home' }));
@@ -316,7 +331,7 @@ describe('SidebarNavigator drawer behavior', () => {
         expect(content.props.inert).toBeUndefined();
         expect(content.props.children.props.desktopSecondaryVisible).toBe(false);
         expect(content.props.children.props.desktopPrimaryNavigation).toBe(true);
-        expect(renderer.root.findByProps({ testID: 'desktop-navigation-controls' }).parent.props.style.left).toBe(86);
+        expect(renderer.root.findByProps({ testID: 'desktop-navigation-controls' }).parent.props.style.left).toBe(0);
         act(() => renderer.unmount());
     });
 

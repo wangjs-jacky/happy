@@ -9,8 +9,6 @@ import {
 } from '@/components/agents/SessionAgentSpaceBoundary';
 import {
     getDesktopRightPanelWidth,
-    getPersistentHeaderContentInset,
-    PERSISTENT_NAVIGATION_DESKTOP_CONTROLS_WIDTH,
 } from '@/utils/desktopNavigationLayout';
 import { SessionView } from './SessionView';
 import { FileWorkspaceContext } from '@/components/fileWorkspace/context';
@@ -1338,23 +1336,12 @@ describe('SessionView Agent-space boundary', () => {
             renderer = TestRenderer.create(<SessionView id="session-1" />);
         });
 
-        const expectedInset = getPersistentHeaderContentInset({
-            windowWidth: mocks.windowWidth,
-            headerMaxWidth: 800,
-            headerHorizontalPadding: 16,
-            sidebarVisible: true,
-            rightPanelWidth: getDesktopRightPanelWidth(mocks.windowWidth),
-            controlStartPadding: 16,
-            buttonCount: 4,
-            controlsWidth: PERSISTENT_NAVIGATION_DESKTOP_CONTROLS_WIDTH,
-            targetHitSlop: 8,
-        });
-        expect(renderer.root.findByType('ChatHeaderView').props.headerContentLeftInset).toBe(expectedInset);
+        expect(renderer.root.findByType('ChatHeaderView').props.headerContentLeftInset).toBe(0);
 
         act(() => renderer.unmount());
     });
 
-    it('recomputes navigation clearance from the measured chat column beside an open document', () => {
+    it('does not reserve inline navigation space below the global desktop bar', () => {
         mocks.isDataReady = true;
         mocks.windowWidth = 2560;
         mocks.isTablet = true;
@@ -1365,13 +1352,13 @@ describe('SessionView Agent-space boundary', () => {
         const main = () => renderer.root.findByProps({ testID: 'desktop-workspace-main' });
         const header = () => renderer.root.findByType('ChatHeaderView').props;
         act(() => main().props.onLayout({ nativeEvent: { layout: { width: 800 } } }));
-        expect(header().headerContentLeftInset).toBe(210);
+        expect(header().headerContentLeftInset).toBe(0);
         expect(header().headerContentTopInset).toBe(0);
         act(() => main().props.onLayout({ nativeEvent: { layout: { width: 1000 } } }));
-        expect(header().headerContentLeftInset).toBe(110);
+        expect(header().headerContentLeftInset).toBe(0);
         act(() => main().props.onLayout({ nativeEvent: { layout: { width: 600 } } }));
         expect(header().headerContentLeftInset).toBe(0);
-        expect(header().headerContentTopInset).toBe(40);
+        expect(header().headerContentTopInset).toBe(40); // The narrow file header still uses its own second row.
         act(() => renderer.unmount());
     });
 

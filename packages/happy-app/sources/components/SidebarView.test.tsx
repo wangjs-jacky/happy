@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     desktopSidebarListMode: 'timeline',
     desktopSidebarMode: 'projects',
     leftVisible: false,
+    leftPinned: false,
     toggleLeftSidebar: vi.fn(),
     spaceAgent: {
         id: 'health',
@@ -68,7 +69,7 @@ vi.mock('react-native', () => ({
 vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
-vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({ useDesktopWorkspaceLayout: () => ({ leftVisible: mocks.leftVisible, toggleLeftSidebar: mocks.toggleLeftSidebar }) }));
+vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({ useDesktopWorkspaceLayout: () => ({ leftVisible: mocks.leftVisible, leftPinned: mocks.leftPinned, toggleLeftSidebar: mocks.toggleLeftSidebar }) }));
 vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: mocks.dispatch }),
     useRouter: () => ({ navigate: mocks.navigate }),
@@ -206,6 +207,7 @@ describe('SidebarView Agent space exit', () => {
         vi.clearAllMocks();
         mocks.pathname = '/';
         mocks.leftVisible = false;
+        mocks.leftPinned = false;
         mocks.theme = appThemes.ginghamLight;
         mocks.desktopSkin = 'default';
         mocks.focusHistory.length = 0;
@@ -657,7 +659,7 @@ describe('SidebarView Agent space exit', () => {
         expect(mocks.navigate).toHaveBeenCalledWith('/new');
         act(() => newSession.props.onHoverIn());
         const tooltip = primaryColumn.findByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' });
-        expect(tooltip.props.style).toEqual(expect.objectContaining({ minWidth: 92 }));
+        expect(Object.assign({}, ...[tooltip.props.style].flat(Infinity).filter(Boolean))).toEqual(expect.objectContaining({ minWidth: 92 }));
         expect(tooltip.findByType('Text').props).toMatchObject({
             children: 'sidebar.newSession',
             numberOfLines: 1,
@@ -674,7 +676,7 @@ describe('SidebarView Agent space exit', () => {
         const sessionListButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
         expect(sessionListButton.props.accessibilityState).toEqual({ selected: true });
-        expect(sessionListButton.findByType('Ionicons').props.name).toBe('albums-outline');
+        expect(sessionListButton.findByType('Ionicons').props.name).toBe('home-outline');
 
         const archiveButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
@@ -686,6 +688,18 @@ describe('SidebarView Agent space exit', () => {
         }).props.onPress());
         expect(mocks.navigate).toHaveBeenCalledWith('/relationship-advisor');
 
+        act(() => renderer.unmount());
+    });
+
+    it('opens a collapsed session sidebar from the desktop home button', () => {
+        mocks.pathname = '/session/example';
+        mocks.leftVisible = true; // Hover-revealed but not pinned.
+        mocks.leftPinned = false;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SidebarView desktopDensity desktopPrimaryNavigation />); });
+        act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
+        expect(mocks.toggleLeftSidebar).toHaveBeenCalledOnce();
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(mocks.desktopSidebarListMode);
         act(() => renderer.unmount());
     });
 

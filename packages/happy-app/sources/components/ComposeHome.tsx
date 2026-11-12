@@ -19,7 +19,6 @@ import {
     getPersistentHeaderContentInset,
     getDesktopRightPanelPresentation,
     getPersistentNavigationControlsWidth,
-    PERSISTENT_NAVIGATION_DESKTOP_CONTROLS_WIDTH,
     TAURI_HEADER_CONTROL_LEFT,
 } from '@/utils/desktopNavigationLayout';
 import { isTauri } from '@/utils/isTauri';
@@ -787,7 +786,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         zenMode,
     });
     const showDesktopRightPanel = desktopRightPanelPresentation === 'expanded';
-    const persistentHeaderContentInset = isTablet
+    const persistentHeaderContentInset = isTablet && Platform.OS !== 'web'
         ? getPersistentHeaderContentInset({
             windowWidth,
             headerMaxWidth: layout.headerMaxWidth,
@@ -798,10 +797,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             // SidebarNavigator 同时存在 `left: sidebar + 16` 和非 Tauri 环境下的
             // `paddingLeft: 16`，命中区域计算必须包含第二段偏移。
             controlStartPadding: isMacTauri ? TAURI_HEADER_CONTROL_LEFT : 16,
-            buttonCount: Platform.OS === 'web' ? 4 : 3,
-            controlsWidth: Platform.OS === 'web'
-                ? PERSISTENT_NAVIGATION_DESKTOP_CONTROLS_WIDTH
-                : getPersistentNavigationControlsWidth(3),
+            buttonCount: 3,
+            controlsWidth: getPersistentNavigationControlsWidth(3),
             targetHitSlop: 8,
         })
         : 0;
