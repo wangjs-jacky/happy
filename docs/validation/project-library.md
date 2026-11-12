@@ -8,27 +8,45 @@
 
 ```sh
 pnpm --filter happy-app typecheck
-pnpm --filter happy-app exec vitest run sources/sync/projectLibrary.test.ts sources/components/goalBoard/GoalBoardButton.test.tsx sources/sync/projectWorkspaceCache.test.ts sources/components/goalBoard/ProjectSurfaces.test.ts
+pnpm --filter happy-app exec vitest run sources/sync/projectLibrary.test.ts sources/components/goalBoard sources/sync/projectWorkspaceCache.test.ts
+pnpm --filter happy-app exec vitest run sources/utils/otaRuntimeConfig.test.ts
 ```
 
-首轮 17 项直接相关单测通过，覆盖状态过滤、恢复收藏、账号与机器隔离、迟到确认拒绝、存储失败不发布视图变更、损坏数据恢复，以及现有表面颜色/焦点和缓存行为。整合最新主线后，App typecheck 和 13 文件、86 项项目工作区相关测试全部通过（上述命令将组件测试路径改为整个 `sources/components/goalBoard` 可复跑该集合）。
+整合主线后，App typecheck、13 文件 86 项项目工作区相关测试，以及 7 项 Android runtime 契约测试通过。新增测试覆盖状态过滤、恢复收藏、账号与机器隔离、迟到确认拒绝、存储失败不发布视图变更和损坏数据恢复。
 
 ## 真实页面验收
 
-使用现有 `e2e/fixtures/project-goals/serve.mjs`，在隔离完整 App、独立 PGlite 账号、加密机器 RPC 和合成档案中验收；未修改真实项目、daemon 或生产账号，未发送模型指令。
+使用现有 `e2e/fixtures/project-goals/serve.mjs`，在隔离完整 App、独立 PGlite 账号、加密机器 RPC 和 10 个合成项目中验收；未修改真实项目、daemon 或生产账号，未发送模型指令。
 
-| Case | 通过标准 |
+| Case | 实测通过标准 |
 | --- | --- |
 | PL1 | 星标不触发导航；收藏筛选仅显示收藏项目；整页刷新后保留 |
 | PL2 | 归档移出全部/收藏；恢复后收藏状态保留；Esc 关闭菜单且焦点返回触发按钮 |
-| PL3 | 删除可取消；确认后移入已删除，刷新仍有效；恢复保留收藏 |
+| PL3 | 删除可取消；确认后移入已删除，刷新仍有效；恢复保留收藏；删除前后选中项目原 index 字节相同 |
 | PL4 | 搜索与当前筛选叠加；无结果和取消最后一个收藏有明确空态 |
-| PL5 | 宽屏五列、笔记本四列、窄屏一列；无横向溢出，菜单完整位于视口 |
+| PL5 | 1680×885 五列、1366×768 四列、390×844 一列；全部零横向溢出，菜单完整位于视口 |
 
-本轮结果：PL1–PL4 已通过真实页面操作。PL5 仅完成宽屏五列、无横向溢出和右侧菜单边界核对，笔记本与窄屏尚未完成；不把断点公式或单测当作实页证据。后续 Skills 关键帧采集挂起，已终止本次采集与排队的整合版本回归；新回归脚本尚未完整跑通，未宣称整合后的浏览器全量通过。整合版本的类型检查和 86 项自动测试通过。
+普通模式和录像模式的 PL1–PL5 均完整通过。录像记录 PL1–PL4 的实际操作，PL5 的三种尺寸有单独 DOM 几何证据；1366 和 390 的菜单、1680 的最终列表已通过 Happy 的归属校验关键帧上报。Gingham 深色的普通/hover/selected 表面分别为 `rgb(26,35,48)`、`rgb(31,42,56)`、`rgb(40,53,68)`，取自当前主题。
 
-复跑入口为 `e2e/fixtures/project-goals/verify-project-library.ego.mjs`。先通过 Ego 登录 fixture 的私有认证 URL、导航到带明确机器参数的 `/projects`，记录数字 task-space 和目标 tab。然后仅在 Ego 中设置 `globalThis.projectLibraryConfig = { runtimePath, taskSpaceId, targetId }`，导入该脚本。需要全新隔离账号，脚本仅修改合成账号的本地列表偏好。结果写入 ignored `test-results/project-goals/library-results.json`。默认英文 fixture 便于稳定选择确认按钮；各语言编译检查另行覆盖。
+独立静态代码审查无阻断问题；PC 截图评审确认四列密度、筛选/搜索层级、文字和菜单边界正常。390 帧仅补充窄屏适配，不代表原生设备或独立 Mobile 评审通过。
 
-额外在 Gingham 深色下核对普通、hover 和 selected 表面分别来自当前主题。独立静态代码审查未发现阻断问题，并据建议为菜单长文字补充收缩和换行。
+## 复跑与视频
 
-PR 前后对比截图已询问待回复；未把未回复视为同意。Skills 关键帧采集挂起后已停止，本轮未上报截图，未采用未验证画面替代。因浏览器任务在采集阶段中断，未刷新 ego-ops 的成功验证日期；原有经验继续保留。未执行原生移动设备、跨设备同步或正式发布验收。
+入口为 `e2e/fixtures/project-goals/verify-project-library.ego.mjs`。先通过 Ego 登录 fixture 的私有认证 URL，导航到带明确机器参数的 `/projects`，记录数字任务空间和确切目标标签页；仅在 Ego 中设置：
+
+```js
+globalThis.projectLibraryConfig = { runtimePath, taskSpaceId, targetId };
+// 普通模式通过后，增加 record: true 复跑可读操作节奏的视频。
+```
+
+再导入该脚本。使用初始未收藏、未归档、未删除的隔离账号；只修改合成账号的本地列表偏好。默认英文 fixture 便于稳定选择确认按钮。结果写入 ignored `test-results/project-goals/library-results.json`。
+
+录像模式在 `test-results/project-goals/library-video` 保存本轮原始 CDP JPEG 与时间记录，不复用截图 helper 或 Ego 的临时截图。最终 H.264/yuv420p/30fps、1680×886、17.23 秒、faststart MP4 已通过完整解码、首中末视觉覆盖检查，并通过 Happy 私人媒体卡发送。视频包含刷新恢复时的离线缓存读回，不代表生产机器或外部模型验收；不虚构公开 PR 视频 URL 或手机实际播放确认。
+
+## 浏览器驱动边界与恢复
+
+首次补验的 Skills 截图采集及旧响应式等待曾中断；经本任务明确授权恢复 Ego 后重做，以上为最新通过结果，旧部分完成状态已被替代。每个恢复后的新任务空间重新记录独立 runId/target，未接管其他页面。
+
+RN Web 在本组件的 button 上未输出 aria-selected，驱动改用当前可访问标签判断收藏状态。响应式模拟、原生 CDP 鼠标输入、布局读回保持在同一 Ego 目标通道，并在两个动画帧后读取实际尺寸；不把“设置了尺寸”当作生效。旧混合 Page 激活/模拟路径未保留所需视口，现有脚本不再依赖该路径或无界等待。
+
+PR 前后对比矩阵未单独选定，本轮关键帧及视频作为验收证据私人交付。原生设备、跨设备同步不在本次验收范围。正式合并发布的精确版本和运行回执按本机 Release OPS 唯一记录维护，不把候选页面当作正式上线。
