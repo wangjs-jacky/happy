@@ -12,6 +12,7 @@ import { describeEnvironmentCell } from '@/environment/environmentDashboard';
 const mocks = vi.hoisted(() => ({ confirm: vi.fn(), alert: vi.fn(), push: vi.fn(), remove: vi.fn(), deleteLocal: vi.fn(), hook: vi.fn(), width: 1365,
     accounts: { profiles: [], bindings: ['a', 'b', 'c'].map(machineId => ({ machineId, profileId: null, version: 1 })), migration: 'none', loading: false, busy: false, error: null, rename: vi.fn(), remove: vi.fn(), bind: vi.fn() } }));
 vi.mock('@/hooks/useCodexAccounts', () => ({ useCodexAccounts: () => mocks.accounts }));
+vi.mock('@/hooks/useMagpie', () => ({ useMagpie: () => ({ snapshot: null, busy: false, failed: false, execute: vi.fn() }) }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock('@/sync/ops', () => ({ machineDelete: mocks.remove }));
 vi.mock('@/sync/storage', () => ({ storage: { getState: () => ({ deleteMachine: mocks.deleteLocal }) } }));
@@ -168,7 +169,8 @@ describe('DeviceEnvironment matrix', () => {
     it('places account cards above the matrix and aligns the default account cells inside each device column', () => {
         mocks.width = 390; render(controller());
         const scroller = renderer.root.findAllByType('ScrollView').find((node: any) => !node.props.horizontal);
-        expect(scroller.children[0].findByProps({ testID: 'codex-account-section' })).toBeDefined();
+        expect(scroller.children[0].findByProps({ testID: 'magpie-section' })).toBeDefined();
+        expect(scroller.children[1].findByProps({ testID: 'codex-account-section' })).toBeDefined();
         const columns = renderer.root.findByProps({ testID: 'environment-device-columns' });
         for (const id of ['a', 'b', 'c']) {
             const cell = columns.findByProps({ testID: `codex-binding-cell-${id}` });

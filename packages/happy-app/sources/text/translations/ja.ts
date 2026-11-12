@@ -350,6 +350,7 @@ export const ja: TranslationStructure = {
         switching: "アカウントを切り替え中…",
         restartHint: "Paws を再読み込みして切り替えを完了してください。再読み込みできない場合はアプリを閉じて開き直してください。",
     },
+    magpie: en.magpie,
     codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: '前回の確認結果',

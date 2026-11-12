@@ -17,6 +17,7 @@ import { t } from '@/text';
 import { environmentComponentName, environmentIcons, environmentReason } from './environmentLabels';
 import { useCodexAccounts } from '@/hooks/useCodexAccounts';
 import { CodexAccountSection, CodexAccountBindingCell } from './CodexAccountSection';
+import { MagpieSection } from './MagpieSection';
 
 const machineName = (row: EnvironmentRow) => row.machine.metadata?.displayName || row.machine.metadata?.host || row.machine.id;
 const working = (cell: EnvironmentCell) => ['checking', 'queued', 'preparing', 'updating'].includes(cell.phase);
@@ -194,6 +195,7 @@ const EnvironmentContent = React.memo(({ controller }: { controller: Environment
                 disabled={busy || !controller.rows.length} onPress={() => { void controller.scan(); }} />
         </View>
         <ScrollView ref={scroll} style={styles.scroller} contentContainerStyle={styles.scrollContent}>
+            <MagpieSection connected={connected} machines={controller.rows.map(row => ({ id: row.machine.id, name: machineName(row), active: row.machine.active }))} />
             <CodexAccountSection controller={accounts} machines={controller.rows.map(row => ({ id: row.machine.id, name: machineName(row), active: row.machine.active }))} />
             {!controller.rows.length ? <Text style={styles.empty}>{t('deviceEnvironment.emptyFleet')}</Text> : <>
                 {narrow ? <Text style={styles.hint}>{t('deviceEnvironmentDashboard.horizontalHint')}</Text> : null}

@@ -358,6 +358,7 @@ export const ru: TranslationStructure = {
         switching: "Переключение аккаунта…",
         restartHint: "Перезагрузите Paws, чтобы завершить переключение. Если это не помогает, закройте и снова откройте приложение.",
     },
+    magpie: en.magpie,
     codexAccounts: en.codexAccounts,
     deviceEnvironmentDashboard: {
         previousResult: 'Результат предыдущей проверки',
