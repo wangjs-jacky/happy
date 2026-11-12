@@ -20,7 +20,7 @@ import { SidebarHelpMenu } from './SidebarHelpMenu';
 import { useCommandPaletteLauncher } from './CommandPalette/CommandPaletteProvider';
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
 import { AppConversationsSidebar } from './AppConversationsSidebar';
-import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
+import { DesktopSidebarHeader, DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 import { PluginMarketplaceModal } from './plugins/PluginMarketplaceModal';
 import { PluginLeftSidebarSlot } from './plugins/PluginLeftSidebarSlot';
 import { usePluginSurfaceViews } from './plugins/usePluginSurfaceViews';
@@ -424,7 +424,7 @@ export const SidebarView = React.memo(({
     const desktopSkinId = useLocalSetting('desktopSkinId');
     const dreamskin = Platform.OS === 'web' && desktopDensity && desktopSkinId !== 'default';
     const reducedTransparency = useReducedTransparency();
-    const [desktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
+    const [desktopSidebarListMode, setDesktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
@@ -457,9 +457,11 @@ export const SidebarView = React.memo(({
 
     const openDesktopSessionLists = () => {
         setAppConversationsActive(false);
-        setDesktopSidebarMode(desktopSidebarListMode);
+        const targetMode = desktopPrimaryNavigation ? 'projects' : desktopSidebarListMode;
+        setDesktopSidebarMode(targetMode);
+        if (desktopPrimaryNavigation) setDesktopSidebarListMode('projects');
         if (desktopPrimaryNavigation && pathname !== '/projects' && !leftPinned) toggleLeftSidebar();
-        if (desktopPrimaryNavigation && pathname === '/projects' && (!leftVisible || desktopSidebarMode === desktopSidebarListMode)) toggleLeftSidebar();
+        if (desktopPrimaryNavigation && pathname === '/projects' && (!leftVisible || desktopSidebarMode === targetMode)) toggleLeftSidebar();
         if (mobileNavigation) setMobilePanel('sessions');
         else if (pathname === '/projects' || advisorSidebarActive || pathname.startsWith('/apps/conversations')) go('/');
     };
@@ -601,30 +603,30 @@ export const SidebarView = React.memo(({
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
             {desktopPrimaryNavigation && <DesktopRailItem
                 icon="home-outline"
-                label={t('sidebar.listsTab')}
+                label={t('common.home')}
                 onPress={openDesktopSessionLists}
                 selected={(pathname !== '/projects' || leftVisible) && !appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
                 testID="sidebar-session-list-button"
             />}
-            <DesktopRailItem
+            {!desktopPrimaryNavigation && <DesktopRailItem
                 icon="add"
                 iconColor={stylesheet.newSessionIcon.color}
                 label={t('sidebar.newSession')}
                 onPress={() => go('/new')}
                 testID="sidebar-new-session-button"
-            />
+            />}
             <DesktopRailItem
                 icon="chatbubble-ellipses-outline"
                 label={t('tabs.inbox')}
                 onPress={() => { closeDrawer(); openActivity(); }}
                 testID="sidebar-inbox-button"
             />
-            <DesktopRailItem
+            {!desktopPrimaryNavigation && <DesktopRailItem
                 icon="search-outline"
                 label={t('sidebar.searchSessions')}
                 onPress={openSessionSearch}
                 testID="sidebar-command-palette-button"
-            />
+            />}
             <View style={styles.desktopRailDivider} />
             {railNavigation && <DesktopRailItem
                 icon="folder-open-outline"
@@ -820,10 +822,13 @@ export const SidebarView = React.memo(({
                                 </View>
                                 {appConversationsActive ? <AppConversationsSidebar showTitle={false} onNavigate={go} /> : advisorSidebarActive ? <PluginLeftSidebarSlot desktopDensity fillAvailableSpace onNavigate={go} /> : null}
                             </>
-                        ) : appConversationsActive ? (
-                            <AppConversationsSidebar visible={desktopSecondaryVisible} onNavigate={go} />
-                        ) : advisorSidebarActive ? (
-                            <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />
+                        ) : appConversationsActive || advisorSidebarActive ? (
+                            <>
+                                {desktopPrimaryNavigation && <DesktopSidebarHeader mode="archive" onModeChange={value => { setDesktopSidebarListMode(value); setDesktopSidebarMode(value); }} onNewSession={() => go('/new')} onSearch={openSessionSearch} onSelectView={() => { setAppConversationsActive(false); go('/'); }} />}
+                                {appConversationsActive
+                                    ? <AppConversationsSidebar visible={desktopSecondaryVisible} onNavigate={go} />
+                                    : <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />}
+                            </>
                         ) : (
                             <DesktopSidebarSessionsNavigation transparentSidebar={dreamskin} desktopHeader={desktopPrimaryNavigation} onNewSession={() => go('/new')} onSearch={openSessionSearch} />
                         )}

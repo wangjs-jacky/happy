@@ -104,9 +104,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     desktopHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, minHeight: 50, gap: 4, position: 'relative', zIndex: 30 },
     desktopHeaderTabs: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     desktopBrand: { color: theme.colors.text, fontSize: 17, flex: 1, ...Typography.default('semiBold') },
-    desktopHeaderTab: { alignItems: 'center', justifyContent: 'center', borderRadius: 7, minHeight: 32, paddingHorizontal: 7 },
     desktopHeaderIcon: { alignItems: 'center', justifyContent: 'center', borderRadius: 7, width: 32, height: 32 },
-    desktopHeaderTooltipSlot: { position: 'absolute', right: 12, top: 9, width: 32, height: 32, pointerEvents: 'none' },
     desktopHeaderSelected: { backgroundColor: theme.colors.surfaceSelected },
     desktopHeaderPressed: { backgroundColor: theme.colors.surfacePressed },
     desktopNewSession: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 38, borderRadius: 8, marginHorizontal: 10, paddingHorizontal: 10 },
@@ -362,6 +360,64 @@ const stylesheet = StyleSheet.create((theme) => ({
     assignmentLabel: { color: theme.colors.text, flex: 1, fontSize: 13, ...Typography.default() },
 }));
 
+type DesktopSidebarHeaderProps = {
+    onNewSession?: () => void;
+    onSearch?: () => void;
+    onSelectView?: () => void;
+    mode?: 'projects' | 'lists' | 'timeline' | 'archive';
+    onModeChange?: (mode: 'projects' | 'lists' | 'timeline') => void;
+};
+
+/** A single set of desktop actions stays available across all sidebar surfaces. */
+export const DesktopSidebarHeader = React.memo(function DesktopSidebarHeader({ onNewSession, onSearch, onSelectView, mode: controlledMode, onModeChange }: DesktopSidebarHeaderProps) {
+    const [storedMode, setMode] = useLocalSettingMutable('desktopSidebarMode');
+    const mode = controlledMode ?? storedMode;
+    const [, setListMode] = useLocalSettingMutable('desktopSidebarListMode');
+    const [tooltip, setTooltip] = React.useState<'lists' | 'timeline' | 'search' | null>(null);
+    const styles = stylesheet;
+
+    const selectView = (value: 'lists' | 'timeline') => {
+        const next = mode === value ? 'projects' : value;
+        if (onModeChange) onModeChange(next);
+        else { setListMode(next); setMode(next); }
+        setTooltip(null);
+        onSelectView?.();
+    };
+
+    return <>
+        <View style={styles.desktopHeader}>
+            <Text style={styles.desktopBrand}>Paws</Text>
+            <View style={styles.desktopHeaderTabs}>
+                {(['lists', 'timeline'] as const).map(value => {
+                    const selected = mode === value;
+                    const label = t(value === 'lists' ? 'sidebar.listsTab' : 'sidebar.timelineTab');
+                    return <View key={value}>
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={label}
+                            accessibilityState={{ selected }}
+                            aria-pressed={selected}
+                            onHoverIn={() => setTooltip(value)}
+                            onHoverOut={() => setTooltip(null)}
+                            onFocus={() => setTooltip(value)}
+                            onBlur={() => setTooltip(null)}
+                            onPress={() => selectView(value)}
+                            testID={`desktop-sidebar-tab-${value}`}
+                            style={({ pressed }) => [styles.desktopHeaderIcon, selected && styles.desktopHeaderSelected, pressed && styles.desktopHeaderPressed]}
+                        ><Feather name={value === 'lists' ? 'list' : 'bell'} size={17} color={selected ? styles.tabTextSelected.color : styles.tabText.color} /></Pressable>
+                        <DesktopShortcutTooltip align="right" label={label} testID={`desktop-sidebar-header-tooltip-${value}`} visible={tooltip === value} />
+                    </View>;
+                })}
+                <View>
+                    <Pressable accessibilityRole="button" accessibilityLabel={t('sidebar.searchSessions')} onHoverIn={() => setTooltip('search')} onHoverOut={() => setTooltip(null)} onFocus={() => setTooltip('search')} onBlur={() => setTooltip(null)} onPress={() => { setTooltip(null); onSearch?.(); }} testID="desktop-sidebar-header-search" style={({ pressed }) => [styles.desktopHeaderIcon, pressed && styles.desktopHeaderPressed]}><Feather name="search" size={17} color={styles.tabText.color} /></Pressable>
+                    <DesktopShortcutTooltip align="right" label={t('sidebar.searchSessions')} testID="desktop-sidebar-header-tooltip-search" visible={tooltip === 'search'} />
+                </View>
+            </View>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('sidebar.newSession')} onPress={onNewSession} testID="desktop-sidebar-header-new-session" style={({ pressed }) => [styles.desktopNewSession, pressed && styles.desktopHeaderPressed]}><Feather name="edit" size={17} color={styles.tabTextSelected.color} /><Text style={styles.desktopNewSessionText}>{t('sidebar.newSession')}</Text></Pressable>
+    </>;
+});
+
 export const DesktopSidebarSessionsNavigation = React.memo(({ transparentSidebar = false, desktopHeader = false, onNewSession, onSearch }: { transparentSidebar?: boolean; desktopHeader?: boolean; onNewSession?: () => void; onSearch?: () => void }) => {
     return <SidebarScrollProvider><SidebarSessionsNavigationContent transparentSidebar={transparentSidebar} desktopHeader={desktopHeader} onNewSession={onNewSession} onSearch={onSearch} /></SidebarScrollProvider>;
 });
@@ -370,7 +426,6 @@ function SidebarSessionsNavigationContent({ transparentSidebar, desktopHeader, o
     const [mode, setMode] = useLocalSettingMutable('desktopSidebarMode');
     const [, setListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const styles = stylesheet;
-    const [headerTooltip, setHeaderTooltip] = React.useState<'timeline' | 'search' | null>(null);
 
     const selectListMode = React.useCallback((value: 'projects' | 'lists' | 'timeline') => {
         setListMode(value);
@@ -379,24 +434,8 @@ function SidebarSessionsNavigationContent({ transparentSidebar, desktopHeader, o
 
     return (
         <View style={styles.container} testID="desktop-sidebar-session-navigation">
-            {desktopHeader && mode !== 'archive' ? (
-                <>
-                    <View style={styles.desktopHeader}>
-                        <Text style={styles.desktopBrand}>Paws</Text>
-                        <View style={styles.desktopHeaderTabs} accessibilityRole="tablist">
-                        {(['projects', 'lists', 'timeline'] as const).map((value) => {
-                            const selected = mode === value;
-                            const label = t(value === 'projects' ? 'sidebar.projectsTab' : value === 'lists' ? 'sidebar.listsTab' : 'sidebar.timelineTab');
-                            return <Pressable key={value} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected }} aria-selected={selected} onHoverIn={() => setHeaderTooltip(value === 'timeline' ? 'timeline' : null)} onHoverOut={() => setHeaderTooltip(null)} onFocus={() => setHeaderTooltip(value === 'timeline' ? 'timeline' : null)} onBlur={() => setHeaderTooltip(null)} onPress={() => { setHeaderTooltip(null); selectListMode(value); }} testID={`desktop-sidebar-tab-${value}`} style={({ pressed }) => [value === 'timeline' ? styles.desktopHeaderIcon : styles.desktopHeaderTab, selected && styles.desktopHeaderSelected, pressed && styles.desktopHeaderPressed]}>
-                                {value === 'timeline' ? <Feather name="bell" size={17} color={selected ? styles.tabTextSelected.color : styles.tabText.color} /> : <Text style={[styles.tabText, selected && styles.tabTextSelected]}>{label}</Text>}
-                            </Pressable>;
-                        })}
-                        </View>
-                        <Pressable accessibilityRole="button" accessibilityLabel={t('sidebar.searchSessions')} onHoverIn={() => setHeaderTooltip('search')} onHoverOut={() => setHeaderTooltip(null)} onFocus={() => setHeaderTooltip('search')} onBlur={() => setHeaderTooltip(null)} onPress={() => { setHeaderTooltip(null); onSearch?.(); }} testID="desktop-sidebar-header-search" style={({ pressed }) => [styles.desktopHeaderIcon, pressed && styles.desktopHeaderPressed]}><Feather name="search" size={17} color={styles.tabText.color} /></Pressable>
-                        <View style={[styles.desktopHeaderTooltipSlot, headerTooltip === 'timeline' && { right: 48 }]}><DesktopShortcutTooltip align="right" label={t(headerTooltip === 'timeline' ? 'sidebar.timelineTab' : 'sidebar.searchSessions')} testID="desktop-sidebar-header-tooltip" visible={headerTooltip !== null} /></View>
-                    </View>
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('sidebar.newSession')} onPress={onNewSession} testID="desktop-sidebar-header-new-session" style={({ pressed }) => [styles.desktopNewSession, pressed && styles.desktopHeaderPressed]}><Feather name="edit" size={17} color={styles.tabTextSelected.color} /><Text style={styles.desktopNewSessionText}>{t('sidebar.newSession')}</Text></Pressable>
-                </>
+            {desktopHeader ? (
+                <DesktopSidebarHeader mode={mode} onModeChange={selectListMode} onNewSession={onNewSession} onSearch={onSearch} />
             ) : mode !== 'archive' ? (
                 <View accessibilityRole="tablist" style={styles.tabs}>
                     <View pointerEvents="none" style={styles.tabTrack} />

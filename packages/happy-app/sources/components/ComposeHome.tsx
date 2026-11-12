@@ -2,7 +2,7 @@ import * as React from 'react';
 import { View, Text, Pressable, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
-import { DrawerActions } from '@react-navigation/native';
+import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -148,6 +148,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
     const isTablet = useIsTablet();
+    const isFocused = useIsFocused();
+    const desktopWeb = Platform.OS === 'web' && isTablet;
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
     const inTauri = isTauri();
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
@@ -838,6 +840,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const capabilityHubLabel = t('rightPanelCapabilityHub.title');
     const rightPanelToggleButton = desktopRightPanelAvailable && desktopRightPanelPresentation !== 'zen' ? (
         <DesktopRightPanelToggleButton
+            globalPlacement={desktopWeb && isFocused}
             expanded={showDesktopRightPanel}
             label={showDesktopRightPanel
                 ? t('desktopWorkspace.hidePanel', { panel: capabilityHubLabel })
@@ -911,11 +914,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         testID: 'dreamskin-home-scroll',
                     } : {})}
                 >
-                <View style={[styles.greetWrap, dreamskin && windowHeight >= 700 && styles.dreamskinGreetWrap]}>
-                    {!dreamskin && <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />}
-                    <View style={styles.greetingContent}>
+                <View style={[styles.greetWrap, dreamskin && windowHeight >= 700 && styles.dreamskinGreetWrap, desktopWeb && styles.desktopGreetWrap]}>
+                    {!dreamskin && !desktopWeb && <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />}
+                    <View style={[styles.greetingContent, desktopWeb && styles.desktopGreetingContent]}>
+                        {desktopWeb && <Ionicons name="terminal-outline" size={40} color={theme.colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />}
                         <Text
-                            style={[styles.greeting, isTablet && styles.greetingDesktop]}
+                            style={[styles.greeting, isTablet && styles.greetingDesktop, desktopWeb && styles.desktopGreetingCentered]}
                             testID="compose-home-greeting"
                         >
                             {displayAgent
@@ -1359,10 +1363,19 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 0,
         minHeight: 96,
     },
+    desktopGreetWrap: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 0,
+    },
     greetingContent: {
         width: '100%',
         maxWidth: layout.maxWidth,
         alignSelf: 'center',
+    },
+    desktopGreetingContent: {
+        alignItems: 'center',
+        gap: 24,
     },
     greeting: {
         ...Typography.display('semiBold'),
@@ -1373,6 +1386,10 @@ const styles = StyleSheet.create((theme) => ({
     },
     greetingDesktop: {
         maxWidth: 520,
+    },
+    desktopGreetingCentered: {
+        maxWidth: 760,
+        textAlign: 'center',
     },
     composer: {
         paddingHorizontal: 14,

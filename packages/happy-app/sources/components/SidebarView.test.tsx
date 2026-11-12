@@ -197,6 +197,7 @@ vi.mock('./plugins/pluginText', () => ({
 }));
 vi.mock('./DesktopSidebarSessionsNavigation', () => ({
     DesktopSidebarSessionsNavigation: 'DesktopSidebarSessionsNavigation',
+    DesktopSidebarHeader: 'DesktopSidebarHeader',
 }));
 
 describe('SidebarView Agent space exit', () => {
@@ -261,7 +262,7 @@ describe('SidebarView Agent space exit', () => {
         const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === testID);
         act(() => button.props.onPress());
         expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith('/');
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(testID === 'sidebar-archive-button' ? 'archive' : 'timeline');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(testID === 'sidebar-archive-button' ? 'archive' : 'projects');
         act(() => renderer.unmount());
     });
 
@@ -382,7 +383,7 @@ describe('SidebarView Agent space exit', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SidebarView desktopDensity desktopPrimaryNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
         expect(mocks.toggleLeftSidebar).toHaveBeenCalledTimes(1);
         expect(mocks.navigate).toHaveBeenCalledWith('/');
         act(() => renderer.unmount());
@@ -599,8 +600,13 @@ describe('SidebarView Agent space exit', () => {
         const secondary = renderer.root.findByProps({ testID: 'desktop-secondary-navigation-column' });
         expect(secondary.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(secondary.findByType('PluginLeftSidebarSlot').props.fillAvailableSpace).toBe(true);
+        const header = secondary.findByType('DesktopSidebarHeader');
+        act(() => header.props.onModeChange('lists'));
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('lists');
+        act(() => header.props.onSearch());
+        expect(mocks.navigate).toHaveBeenCalledWith('/session/search');
         act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
         expect(mocks.navigate).toHaveBeenCalledWith('/');
 
         mocks.pathname = '/session/ordinary-session';
@@ -610,7 +616,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('renders separate session destinations, installed plugins, and a green new-session plus icon', () => {
+    it('keeps desktop rail destinations without duplicating new session or search', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -624,9 +630,7 @@ describe('SidebarView Agent space exit', () => {
         const primaryColumnStyle = Object.assign({}, ...[primaryColumn.props.style].flat(Infinity));
         expect(primaryColumnStyle).toEqual(expect.objectContaining({ width: 60, zIndex: 100 }));
         expect(primaryColumn.findAllByType('Pressable').map((node: any) => node.props.testID)).toEqual(expect.arrayContaining([
-            'sidebar-new-session-button',
             'sidebar-inbox-button',
-            'sidebar-command-palette-button',
             'sidebar-plugins-button',
             'sidebar-plugin-relationship-advisor-button',
             'sidebar-session-list-button',
@@ -635,37 +639,8 @@ describe('SidebarView Agent space exit', () => {
         expect(primaryColumn.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
-        expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' })).toHaveLength(0);
-
-        const newSession = primaryColumn.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-new-session-button')!;
-        expect(newSession).toBeDefined();
-        expect(newSession.findAllByType('Text')).toHaveLength(0);
-        const newSessionGlyph = newSession.findByProps({ testID: 'sidebar-new-session-glyph' });
-        expect(newSessionGlyph.props.style).toEqual(expect.objectContaining({
-            alignItems: 'center',
-            backgroundColor: '#0a6',
-            borderRadius: 5,
-            height: 22,
-            justifyContent: 'center',
-            width: 22,
-        }));
-        expect(newSessionGlyph.findByType('Ionicons').props).toMatchObject({
-            name: 'add',
-            color: '#FFFFFF',
-            size: 20,
-        });
-        act(() => newSession.props.onPress());
-        expect(mocks.navigate).toHaveBeenCalledWith('/new');
-        act(() => newSession.props.onHoverIn());
-        const tooltip = primaryColumn.findByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' });
-        expect(Object.assign({}, ...[tooltip.props.style].flat(Infinity).filter(Boolean))).toEqual(expect.objectContaining({ minWidth: 92 }));
-        expect(tooltip.findByType('Text').props).toMatchObject({
-            children: 'sidebar.newSession',
-            numberOfLines: 1,
-        });
-        act(() => newSession.props.onHoverOut());
-        expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' })).toHaveLength(0);
+        expect(primaryColumn.findAllByProps({ testID: 'sidebar-new-session-button' })).toHaveLength(0);
+        expect(primaryColumn.findAllByProps({ testID: 'sidebar-command-palette-button' })).toHaveLength(0);
 
         const secondaryColumn = renderer.root.findByProps({ testID: 'desktop-secondary-navigation-column' });
         expect(secondaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
@@ -699,11 +674,12 @@ describe('SidebarView Agent space exit', () => {
         act(() => { renderer = TestRenderer.create(<SidebarView desktopDensity desktopPrimaryNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).props.onPress());
         expect(mocks.toggleLeftSidebar).toHaveBeenCalledOnce();
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(mocks.desktopSidebarListMode);
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
+        expect(mocks.setDesktopSidebarListMode).toHaveBeenCalledWith('projects');
         act(() => renderer.unmount());
     });
 
-    it('restores the last Projects / Lists / Timeline view when leaving the archive surface', () => {
+    it('returns to the default project view when leaving the archive surface', () => {
         mocks.spaceAgent = null;
         mocks.desktopSidebarMode = 'archive';
         mocks.desktopSidebarListMode = 'timeline';
@@ -724,7 +700,7 @@ describe('SidebarView Agent space exit', () => {
         const sessionListButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
         act(() => sessionListButton.props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
 
         act(() => renderer.unmount());
     });

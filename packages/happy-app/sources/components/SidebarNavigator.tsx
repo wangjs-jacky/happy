@@ -8,7 +8,7 @@ import { useWindowDimensions, View, Pressable, Platform, BackHandler, Text } fro
 import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { isTauri } from '@/utils/isTauri';
@@ -218,7 +218,7 @@ const SidebarNavigatorContent = React.memo(() => {
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}>
             {dreamskin && isDesktopLayout && <DesktopSkinCanvas skin={desktopSkinId} />}
-            {isDesktopLayout && Platform.OS === 'web' && <View style={styles.globalNavigationBar} testID="desktop-global-navigation-bar"><PersistentHeader globalBar /></View>}
+            {isDesktopLayout && Platform.OS === 'web' && <View pointerEvents="box-none" style={styles.globalNavigationBar} testID="desktop-global-navigation-bar"><PersistentHeader globalBar /><View nativeID="desktop-global-navigation-right-slot" pointerEvents="box-none" style={styles.globalRightSlot} /></View>}
             <View style={{ flex: 1 }}>
                 <Drawer
                     screenOptions={drawerNavigationOptions}
@@ -333,11 +333,9 @@ const PersistentHeader = React.memo(({ globalBar = false }: { globalBar?: boolea
                 } as any)}
                 testID="desktop-navigation-sidebar-button"
             >
-                <Ionicons
-                    name={sidebarSelected ? 'folder-open-outline' : 'folder-outline'}
-                    size={19}
-                    color={theme.colors.header.tint}
-                />
+                {globalBar
+                    ? <Feather name="sidebar" size={18} color={theme.colors.header.tint} />
+                    : <Ionicons name={sidebarSelected ? 'folder-open-outline' : 'folder-outline'} size={19} color={theme.colors.header.tint} />}
             </Pressable>
             <DesktopShortcutTooltip
                 label={sidebarToggleLabel}
@@ -397,7 +395,7 @@ const PersistentHeader = React.memo(({ globalBar = false }: { globalBar?: boolea
                 style={[styles.historyButton, !canGoBackEffective && styles.historyButtonDisabled]}
                 testID="desktop-navigation-back-button"
             >
-                <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
+                {globalBar ? <Feather name="arrow-left" size={18} color={theme.colors.header.tint} /> : <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />}
             </Pressable>
             <DesktopShortcutTooltip
                 label={t('common.back')}
@@ -421,7 +419,7 @@ const PersistentHeader = React.memo(({ globalBar = false }: { globalBar?: boolea
                 style={[styles.historyButton, !canGoForwardEffective && styles.historyButtonDisabled]}
                 testID="desktop-navigation-forward-button"
             >
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
+                {globalBar ? <Feather name="arrow-right" size={18} color={theme.colors.header.tint} /> : <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />}
             </Pressable>
             <DesktopShortcutTooltip
                 align="right"
@@ -475,6 +473,7 @@ const PersistentHeader = React.memo(({ globalBar = false }: { globalBar?: boolea
 
 const styles = StyleSheet.create((theme) => ({
     globalNavigationBar: { height: 48, backgroundColor: theme.colors.groupped.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
+    globalRightSlot: { position: 'absolute', top: 4, right: 8, width: 40, height: 40, zIndex: 1200 },
     drawerContent: {
         backgroundColor: theme.colors.surface,
         flex: 1,

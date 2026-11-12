@@ -1117,18 +1117,22 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
         ? t('common.files')
         : t('rightPanelCapabilityHub.title'));
     const compactPanelLabel = subagentPanelLabel ?? (desktopPanelMode === 'tasks' ? t('goalBoard.title') : t('rightPanelCapabilityHub.title'));
-    const rightPanelToggleLabel = desktopPanelMode === 'tasks' ? t('rightPanelCapabilityHub.title') : desktopRightPanelAvailable ? desktopPanelLabel : compactPanelLabel;
+    const switchTasksToCapabilities = desktopPanelMode === 'tasks' && !subagentSelection;
+    const rightPanelToggleLabel = switchTasksToCapabilities ? t('rightPanelCapabilityHub.title') : desktopRightPanelAvailable ? desktopPanelLabel : compactPanelLabel;
+    // From the task board this control switches to capabilities rather than hiding the panel.
+    const rightPanelToggleExpanded = !switchTasksToCapabilities && (desktopRightPanelAvailable ? showDesktopRightPanel : rightDrawerOpen);
     const rightPanelToggleButton = (
         (desktopRightPanelAvailable && desktopRightPanelPresentation !== 'zen')
         || compactRightDrawerAvailable
     ) ? (
         <DesktopRightPanelToggleButton
-            expanded={desktopRightPanelAvailable ? showDesktopRightPanel : rightDrawerOpen}
-            label={(desktopRightPanelAvailable ? showDesktopRightPanel : rightDrawerOpen)
+            globalPlacement={Platform.OS === 'web' && desktopRightPanelAvailable && isFocused}
+            expanded={rightPanelToggleExpanded}
+            label={rightPanelToggleExpanded
                 ? t('desktopWorkspace.hidePanel', { panel: rightPanelToggleLabel })
                 : t('desktopWorkspace.showPanel', { panel: rightPanelToggleLabel })}
             onPress={() => {
-                if (desktopPanelMode === 'tasks') {
+                if (switchTasksToCapabilities) {
                     setDesktopPanelMode('capabilities');
                     if (desktopRightPanelAvailable) setDesktopRightPanelCollapsed(false); else setRightDrawerOpen(true);
                     return;

@@ -73,7 +73,7 @@ vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather', Ionicons: 'Ionicons' }));
 vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({
         theme: {
@@ -271,7 +271,7 @@ describe('SidebarNavigator drawer behavior', () => {
         expect(sidebarToggle.props.accessibilityState).toEqual({ expanded: true, selected: true });
         expect(sidebarToggle.props.accessibilityLabel).toBe('desktopWorkspace.unpinSessions');
         expect(sidebarToggle.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ height: 40 }));
-        expect(sidebarToggle.findByType('Ionicons').props.name).toBe('folder-open-outline');
+        expect(sidebarToggle.findByType('Feather').props.name).toBe('sidebar');
 
         act(() => sidebarToggle.props.onPress());
         expect(mocks.setDesktopLeftSidebarCollapsed).toHaveBeenCalledWith(true);

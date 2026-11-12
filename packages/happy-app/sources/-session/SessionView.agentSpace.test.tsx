@@ -157,7 +157,7 @@ vi.mock('react-native-reanimated', () => ({
     useSharedValue: (value: unknown) => ({ value }),
     withTiming: (value: unknown) => value,
 }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
+vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather', Ionicons: 'Ionicons', Octicons: 'Octicons', MaterialCommunityIcons: 'MaterialCommunityIcons' }));
 vi.mock('react-native-unistyles', () => {
     const theme = {
         dark: true,
@@ -1584,9 +1584,29 @@ describe('SessionView Agent-space boundary', () => {
         await act(async () => { renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress(); });
         expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
         expect(renderer.root.findByType('RightSwipePanelHost').props.panelAccessibilityLabel).toBe('goalBoard.title');
-        await act(async () => renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' }).props.onPress());
+        const capabilityToggle = renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' });
+        expect(capabilityToggle.props.accessibilityLabel).toBe('desktopWorkspace.showPanel');
+        expect(capabilityToggle.props['aria-expanded']).toBe(false);
+        await act(async () => capabilityToggle.props.onPress());
         expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(true);
         expect(renderer.root.findByType('RightSwipePanelHost').props.panelAccessibilityLabel).toBe('rightPanelCapabilityHub.title');
+        await act(async () => renderer.unmount());
+    });
+
+    it('closes the active subagent when it covers an open task board', async () => {
+        mocks.isDataReady = true;
+        mocks.sessionMessages = [{ kind: 'agent-text', id: 'message-one', localId: null, createdAt: 1, text: 'Visible message' }];
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="session-1" />); });
+        await act(async () => renderer.root.findByProps({ testID: 'goal-board-trigger' }).props.onPress());
+        act(() => mocks.openSubagent?.({ id: 'agent-one', title: 'Agent', status: 'running' }));
+        expect(renderer.root.findByType('SubagentInspectorPanel')).toBeDefined();
+        const toggle = renderer.root.findByProps({ testID: 'desktop-right-panel-toggle-button' });
+        expect(toggle.props.accessibilityLabel).toBe('desktopWorkspace.hidePanel');
+        expect(toggle.props['aria-expanded']).toBe(true);
+        await act(async () => toggle.props.onPress());
+        expect(renderer.root.findAllByType('SubagentInspectorPanel')).toHaveLength(0);
+        expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(false);
         await act(async () => renderer.unmount());
     });
 

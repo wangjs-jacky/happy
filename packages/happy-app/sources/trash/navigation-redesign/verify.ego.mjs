@@ -3,7 +3,7 @@ import path from 'node:path';
 
 // Invoke from an Ego round with an already authenticated isolated App page.
 // This records verified states, not a continuous interaction recording.
-export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, artifactsRoot }) {
+export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, artifactsRoot, colorScheme }) {
     await fs.mkdir(artifactsRoot, { recursive: true });
     const output = await fs.mkdtemp(path.join(artifactsRoot, 'paws-navigation-'));
     const states = [];
@@ -27,18 +27,26 @@ export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, 
     };
     await page.cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await page.goto(`${baseUrl}/new`);
-    await page.waitForSelector('loc=css:[data-testid="desktop-sidebar-tab-projects"]');
+    await page.cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    if (colorScheme) await page.cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: colorScheme }] });
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="desktop-sidebar-tab-lists"]')].some(el => el.getBoundingClientRect().width > 0));
     if (await page.evaluate(() => document.querySelector('[data-testid="desktop-navigation-sidebar-button"]')?.getAttribute('aria-pressed') !== 'true')) {
         await page.click('loc=css:[data-testid="sidebar-session-list-button"]', { label: '固定会话导航' });
     }
     for (const [mode, label] of [['projects', '项目视图'], ['lists', '清单视图'], ['timeline', '时间线视图']]) {
-        await page.click(`loc=css:[data-testid="desktop-sidebar-tab-${mode}"]`, { label: '切换侧栏视图' });
-        await page.waitForFunction(id => document.querySelector(`[data-testid="desktop-sidebar-tab-${id}"]`)?.getAttribute('aria-selected') === 'true', mode);
+        if (mode === 'projects') {
+            await page.click('loc=css:[data-testid="sidebar-session-list-button"]', { label: '返回项目视图' });
+            await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="desktop-sidebar-tab-lists"], [data-testid="desktop-sidebar-tab-timeline"]')].filter(el => el.getBoundingClientRect().width > 0).every(el => el.getAttribute('aria-pressed') === 'false'));
+        } else {
+            await page.click(`loc=css:[data-testid="desktop-sidebar-tab-${mode}"]`, { label: '切换侧栏视图' });
+            await page.waitForFunction(id => [...document.querySelectorAll(`[data-testid="desktop-sidebar-tab-${id}"]`)].some(el => el.getBoundingClientRect().width > 0 && el.getAttribute('aria-pressed') === 'true'), mode);
+        }
+        await page.mouse.move(700, 400);
         await frame(label, '/new');
     }
     await page.mouse.move(600, 250);
     await page.hover('loc=css:[data-testid="desktop-sidebar-tab-timeline"]', { label: '查看时间线提示' });
-    await page.waitForSelector('loc=css:[data-testid="desktop-sidebar-header-tooltip"]');
+    await page.waitForSelector('loc=css:[data-testid="desktop-sidebar-header-tooltip-timeline"]');
     await frame('时间线提示', '/new');
     await page.click('loc=css:[data-testid="desktop-sidebar-header-search"]', { label: '打开会话搜索' });
     await page.waitForSelector('loc=css:[data-testid="command-palette"]');
@@ -50,6 +58,7 @@ export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, 
     await frame('收起侧栏', '/new');
     await page.click('loc=css:[data-testid="sidebar-session-list-button"]', { label: '恢复并固定侧栏' });
     await page.waitForFunction(() => document.querySelector('[data-testid="desktop-navigation-sidebar-button"]')?.getAttribute('aria-pressed') === 'true');
+    await page.mouse.move(700, 400);
     await frame('恢复侧栏', '/new');
     await page.click('loc=css:[data-testid="sidebar-project-goals-button"]', { label: '打开项目工作区' });
     await page.waitForURL(`${baseUrl}/projects`);
