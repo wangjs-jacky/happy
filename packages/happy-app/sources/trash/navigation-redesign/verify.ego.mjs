@@ -11,6 +11,12 @@ export async function verifyNavigationRedesign({ task, page, targetId, baseUrl, 
         const expected = `${baseUrl}${route}`;
         const tab = (await task.tabs()).find(item => item.label === page.label);
         if (tab?.targetId !== targetId || await page.url() !== expected) throw new Error('Evidence page changed');
+        if (route === '/projects') {
+            await page.waitForFunction(() => {
+                const root = document.querySelector('[data-testid="project-goals-workspace"]');
+                return root && !root.textContent.includes('正在读取这台机器的项目') && !root.textContent.includes('正在连接，连接后读取这台机器的项目');
+            }, undefined, { timeout: 30000 });
+        }
         await page.evaluate(async () => {
             await Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
         });

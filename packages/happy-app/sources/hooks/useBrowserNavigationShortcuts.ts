@@ -10,7 +10,7 @@ import {
     getMouseNavigationDirection,
 } from '@/navigation/browserNavigation';
 import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
-import { observeBrowserRoute } from '@/navigation/browserRouteObserver';
+import { ensureBrowserRouteObserver } from '@/navigation/browserRouteObserver';
 import { storage } from '@/sync/storage';
 import { usePathname, useRouter } from 'expo-router';
 import * as React from 'react';
@@ -69,7 +69,7 @@ export function useBrowserNavigationShortcuts() {
 
     React.useEffect(() => {
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
-            return observeBrowserRoute(window, syncBrowserHistory);
+            ensureBrowserRouteObserver(window, syncBrowserHistory);
         }
     }, [syncBrowserHistory]);
 
