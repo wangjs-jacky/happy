@@ -25,7 +25,7 @@ import { GoalBoardButton as Button } from './GoalBoardButton';
 import { projectPanelGap, getProjectCatalogWidth } from './projectWorkspaceLayout';
 
 export type ProjectOverviewProps = {
-    machineId: string; scopePath: string; title: string; conversationId?: string;
+    machineId: string; scopePath: string; title: string; conversationId?: string; enterGlobal?: boolean;
     agent: 'codex' | 'claude'; offline: boolean; connecting?: boolean; revision?: string; surface: string;
     selectConversation: (id: string) => void; children: React.ReactNode;
 };
@@ -49,11 +49,11 @@ function OverviewContent(props: ProjectOverviewProps) {
             return session.directory === scopePath && !isProjectSessionDeleted(session.sessionId) && (!metadata || (metadata.machineId === machineId && (!metadata.goalBoard || (!metadata.goalBoard.taskId && metadata.goalBoard.featurePath === scopePath))));
         }).sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId));
     const conversationId = history.find(session => session.sessionId === props.conversationId)?.sessionId;
-    const showChat = !!props.conversationId;
+    const showChat = !!props.conversationId || !!props.enterGlobal;
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [tab, setTab] = React.useState('details');
-    const [center, setCenter] = React.useState('tasks');
+    const [tab, setTab] = React.useState(props.enterGlobal ? 'files' : 'details');
+    const [center, setCenter] = React.useState(props.enterGlobal ? 'chat' : 'tasks');
     const { width } = useWindowDimensions();
     const [rowWidth, setRowWidth] = React.useState(0);
     const wide = width >= 1100;
@@ -98,6 +98,14 @@ function OverviewContent(props: ProjectOverviewProps) {
         } catch (error) { if (isCurrent()) setError(error instanceof Error ? error.message : String(error)); }
         finally { opening.current = false; if (alive.current) setBusy(false); }
     };
+    React.useEffect(() => {
+        if (!props.enterGlobal || props.conversationId) return;
+        // Defer until StrictMode's mount replay has finished. Opening is a single
+        // user navigation action; failures remain available for explicit retry.
+        let active = true;
+        void Promise.resolve().then(() => { if (active) void start(); });
+        return () => { active = false; };
+    }, [props.enterGlobal, props.conversationId]);
     const listDirectory = React.useCallback(async (_sessionId: string, path: string) => {
         try { return await projectGoalRequest<{ success: boolean; entries?: DirectoryEntry[]; error?: string }>(machineId, 'goalScopeListDirectory', { featurePath: scopePath, path }); }
         catch (error) { return { success: false, error: String(error) }; }
@@ -130,7 +138,7 @@ function OverviewContent(props: ProjectOverviewProps) {
     </ProjectDetailsPanel>;
     const chat = <View style={[styles.center, { backgroundColor: surface }]} testID="project-scope-chat">
         <ProjectConversationHeader testIDPrefix="project-scope" sessions={history} selectedId={conversationId} onSelect={id => { props.selectConversation(id); setCenter('chat'); }} onNew={canCreateProjectConversation() ? () => { void start(true); } : undefined} onRefresh={() => { void historyResource.refresh(); }} loading={historyResource.loading} error={historyResource.error} onRetry={() => { void historyResource.refresh(); }} busy={busy} offline={offline} />
-        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth emptyState={appendDraft => <ProjectConversationEmptyState task={{ title: props.title, goal: info?.goal ?? '' }} onDraft={appendDraft} onFiles={showFiles} scrollable={false} />} /> : <View style={styles.brief}><Text style={styles.meta}>{t(historyResource.loading ? 'common.loading' : 'projectGoals.sessionUnavailable')}</Text></View>}
+        {conversationId ? <SessionView key={conversationId} id={conversationId} embedded fullWidth emptyState={appendDraft => <ProjectConversationEmptyState task={{ title: props.title, goal: info?.goal ?? '' }} onDraft={appendDraft} onFiles={showFiles} scrollable={false} />} /> : <View style={styles.brief}><Text style={styles.meta}>{t(historyResource.loading || busy ? 'common.loading' : 'projectGoals.sessionUnavailable')}</Text></View>}
     </View>;
     return <View style={styles.area} testID="project-overview-workspace">
         {!wide && <View style={styles.compactTabs}><PanelTabs activeTab={center} onTabChange={setCenter} testIDPrefix="project-overview" tabs={[{ key: 'tasks', label: t('projectGoals.tasks'), icon: 'grid-outline' }, ...(showChat ? [{ key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' as const }] : []), ...(fileOpen ? [{ key: 'file', label: t('projectGoals.files'), icon: 'document-outline' as const }] : []), { key: 'details', label: t('projectGoals.globalOverview'), icon: 'compass-outline' }]} /></View>}

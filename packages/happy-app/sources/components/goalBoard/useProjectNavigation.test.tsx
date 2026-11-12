@@ -65,4 +65,14 @@ describe('mounted project navigation', () => {
         expect(app.location.conversation).toBeUndefined();
         expect(app.writes).toHaveBeenCalledTimes(writes);
     });
+    it('completes global deselection in place so one Back returns to the Task and Forward reuses global chat', () => {
+        const app = setup({ project: 'p', feature: 'f', task: 't', conversation: 'task-chat' });
+        act(() => app.navigation.navigate({ task: undefined, conversation: undefined, view: 'files' }));
+        act(() => app.navigation.navigate({ conversation: 'global-chat' }, { replace: true }));
+        act(() => app.navigation.back());
+        expect(app.location).toMatchObject({ task: 't', conversation: 'task-chat', view: undefined });
+        act(() => app.navigation.forward());
+        expect(app.location).toMatchObject({ task: undefined, conversation: 'global-chat', view: 'files' });
+        expect(app.navigation.canForward).toBe(false);
+    });
 });

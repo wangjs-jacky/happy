@@ -32,13 +32,44 @@ import { machineStartGoalAuthor } from '@/sync/ops';
 let renderer: any;
 const select = vi.fn();
 const session = { sessionId: 'existing', title: 'Real discussion', directory: '/scope', updatedAt: 1, executed: false };
-function setup(conversationId?: string) {
-    act(() => { renderer = TestRenderer.create(<React.StrictMode><ProjectOverviewWorkspace machineId="machine" scopePath="/scope" title="Scope" agent="codex" offline={false} surface="transparent" selectConversation={select} conversationId={conversationId}><div>Catalog</div></ProjectOverviewWorkspace></React.StrictMode>); });
+function setup(conversationId?: string, enterGlobal = false) {
+    act(() => { renderer = TestRenderer.create(<React.StrictMode><ProjectOverviewWorkspace machineId="machine" scopePath="/scope" title="Scope" agent="codex" offline={false} surface="transparent" selectConversation={select} conversationId={conversationId} enterGlobal={enterGlobal}><div>Catalog</div></ProjectOverviewWorkspace></React.StrictMode>); });
     return () => renderer.root.findAllByType('Button').find((node: any) => node.props.testID === 'project-scope-open-chat').props.onPress();
 }
 beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks(); mock.history = []; mock.sessions = {}; mock.fileOpen = false; vi.mocked(loadProjectScopeHistory).mockResolvedValue([]); vi.mocked(machineStartGoalAuthor).mockResolvedValue({ type: 'success', sessionId: 'new-empty' }); });
 afterEach(() => { if (renderer) act(() => renderer.unmount()); });
 it('selection renders the global brief without creating or entering any conversation', () => { setup(); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); });
+it('deselecting a Task shows the scope tree and resumes the global conversation', async () => {
+    vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]);
+    setup(undefined, true);
+    await act(async () => {});
+    const tree = renderer.root.findByType('Tree');
+    expect(tree.props.scopePath).toBe('/scope');
+    expect(tree.props.rootPath).toBe('/scope');
+    expect(tree.props.taskId).toBeUndefined();
+    expect(renderer.root.findAllByProps({ testID: 'project-scope-chat' })).toHaveLength(1);
+    expect(select).toHaveBeenCalledExactlyOnceWith('existing');
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
+});
+it('deselecting a Task with no global history creates only one empty scope conversation in StrictMode', async () => {
+    setup(undefined, true);
+    await act(async () => {});
+    expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1);
+    expect(machineStartGoalAuthor).toHaveBeenCalledWith('machine', expect.objectContaining({ scopePath: '/scope' }));
+    expect(select).toHaveBeenCalledExactlyOnceWith('new-empty');
+});
+it('an unavailable global history stops after one attempt and leaves explicit retry available', async () => {
+    vi.mocked(loadProjectScopeHistory).mockRejectedValue(new Error('History unavailable'));
+    const retry = setup(undefined, true);
+    await act(async () => {});
+    await act(async () => {});
+    expect(loadProjectScopeHistory).toHaveBeenCalledTimes(1);
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
+    expect(select).not.toHaveBeenCalled();
+    vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]);
+    await act(async () => { retry(); });
+    expect(select).toHaveBeenCalledExactlyOnceWith('existing');
+});
 it('explicit open resumes the scope history without creating a conversation', async () => { vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]); const press = setup(); await act(async () => { press(); }); expect(select).toHaveBeenCalledExactlyOnceWith('existing'); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); });
 it('a verified new empty session is reused while server history catches up', async () => { const press = setup(); await act(async () => { press(); press(); }); await act(async () => { press(); }); expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1); expect(select.mock.calls.map(call => call[0])).toEqual(['new-empty', 'new-empty']); });
 it('failed history never creates a new conversation', async () => { vi.mocked(loadProjectScopeHistory).mockRejectedValue(new Error('History unavailable')); const press = setup(); await act(async () => { press(); }); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); });

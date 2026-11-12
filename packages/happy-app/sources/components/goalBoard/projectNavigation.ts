@@ -1,6 +1,6 @@
 import { createRouteHistory, applyRouteHistoryPathname, type RouteHistoryState } from '@/navigation/browserNavigation';
 
-const keys = ['machine', 'project', 'feature', 'task', 'conversation', 'author'] as const;
+const keys = ['machine', 'project', 'feature', 'task', 'conversation', 'author', 'view', 'file'] as const;
 export type ProjectLocation = Partial<Record<typeof keys[number], string>>;
 
 export function projectLocationKey(location: ProjectLocation) {
@@ -17,6 +17,12 @@ export const createProjectHistory = (location: ProjectLocation) => createRouteHi
 
 export function pushProjectLocation(history: RouteHistoryState, patch: ProjectLocation) {
     return applyRouteHistoryPathname(history, projectLocationKey({ ...projectHistoryLocation(history), ...patch }), null);
+}
+
+export function replaceProjectLocation(history: RouteHistoryState, patch: ProjectLocation): RouteHistoryState {
+    const key = projectLocationKey({ ...projectHistoryLocation(history), ...patch });
+    if (key === history.stack[history.cursor]) return history;
+    return { ...history, stack: history.stack.map((entry, index) => index === history.cursor ? key : entry) };
 }
 
 export function moveProjectHistory(history: RouteHistoryState, direction: -1 | 1): RouteHistoryState {
