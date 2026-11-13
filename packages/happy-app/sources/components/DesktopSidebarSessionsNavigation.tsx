@@ -1,3 +1,4 @@
+import { PersonalAgentEntry } from './personal/PersonalAgentEntry';
 import * as React from 'react';
 import {
     AccessibilityInfo,
@@ -416,6 +417,7 @@ export const DesktopSidebarHeader = React.memo(function DesktopSidebarHeader({ o
             </View>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel={t('sidebar.newSession')} onPress={onNewSession} testID="desktop-sidebar-header-new-session" style={({ pressed }) => [styles.desktopNewSession, pressed && styles.desktopHeaderPressed]}><Feather name="edit" size={17} color={styles.tabTextSelected.color} /><Text style={styles.desktopNewSessionText}>{t('sidebar.newSession')}</Text></Pressable>
+        <PersonalAgentEntry />
     </>;
 });
 

@@ -1,3 +1,4 @@
+import { isPersonalAgentConversation } from './personalAgent';
 import { create } from "zustand";
 import { useShallow } from 'zustand/react/shallow'
 import equal from 'fast-deep-equal'
@@ -276,6 +277,7 @@ function buildSessionListViewData(
     const archivedSessions: Session[] = [];
 
     Object.values(sessions).forEach(session => {
+        if (isPersonalAgentConversation(session)) return;
         if (isSessionArchived(session)) {
             archivedSessions.push(session);
         } else {
@@ -513,6 +515,7 @@ export const storage = create<StorageState>()((set, get) => {
 
             // Process all sessions from merged set
             Object.values(mergedSessions).forEach(session => {
+                if (isPersonalAgentConversation(session)) return;
                 if (activeSet.has(session.id)) {
                     activeSessions.push(session);
                 } else {
@@ -1653,8 +1656,14 @@ export function useSessionListViewData(): SessionListViewItem[] | null {
 export function useAllSessions(): Session[] {
     return storage(useShallow((state) => {
         if (!state.isDataReady) return [];
-        return Object.values(state.sessions).sort((a, b) => b.updatedAt - a.updatedAt);
+        return Object.values(state.sessions).filter(s => !isPersonalAgentConversation(s)).sort((a, b) => b.updatedAt - a.updatedAt);
     }));
+}
+
+/** Account-owned Personal history never participates in ordinary session lists. */
+export function usePersonalAgentConversations(): Session[] {
+    return storage(useShallow(state => state.isDataReady
+        ? Object.values(state.sessions).filter(isPersonalAgentConversation) : []));
 }
 
 const EMPTY_AGENT_SPACE_SESSIONS: Session[] = [];
@@ -1668,7 +1677,7 @@ export function useAgentSpaceSessions(machineId: string | null, path: string | n
     const sessions = storage(useShallow((state) => {
         if (!machineId || !path || !state.isDataReady) return EMPTY_AGENT_SPACE_SESSIONS;
         return selectAgentSpaceSessions({
-            sessions: Object.values(state.sessions),
+            sessions: Object.values(state.sessions).filter(s => !isPersonalAgentConversation(s)),
             machineId,
             agentPath: path,
             homeDir: state.machines[machineId]?.metadata?.homeDir,

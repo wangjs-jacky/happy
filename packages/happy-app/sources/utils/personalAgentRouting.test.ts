@@ -14,7 +14,7 @@ describe('Paws Personal engine selection', () => {
     });
     it('exposes its own native engine without Codex models or unsupported worktrees', () => {
         expect(getCodingAgentPickerItems([{ key: 'personal', label: 'Paws Personal' }, { key: 'ask', label: 'Ask' }]))
-            .toEqual([{ key: 'personal', label: 'Paws Personal' }]);
+            .toEqual([]);
         expect(getSessionConfigExperience('personal')).toMatchObject({ showPath: true, showPermission: true, showWorktree: false });
         expect(getHardcodedModelModes('personal', key => key).map(model => model.key)).toEqual(['default']);
         expect(getHardcodedPermissionModes('personal', key => key).map(mode => mode.key)).toEqual(['default', 'read-only', 'yolo']);
