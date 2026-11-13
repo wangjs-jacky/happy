@@ -100,4 +100,51 @@ describe('PermissionFooter offline protection', () => {
 
         act(() => renderer.unmount());
     });
+
+    it('only offers the supported one-time allow and deny actions for Personal', async () => {
+        mocks.presence = 'online';
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<PermissionFooter metadata={{ flavor: 'personal' }}
+            permission={{ id: 'personal-permission', status: 'pending' }} sessionId="personal-session" toolName="run_command" />); });
+        expect(renderer.root.findAllByProps({ testID: 'permission-approve-session-button' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'permission-approve-edits-button' })).toHaveLength(0);
+        await act(async () => { await renderer.root.findByProps({ testID: 'permission-approve-button' }).props.onPress(); });
+        expect(mocks.allow).toHaveBeenCalledWith('personal-session', 'personal-permission');
+        act(() => renderer.unmount());
+    });
+
+    it('shows a failed Personal decision and allows a one-time retry', async () => {
+        mocks.presence = 'online';
+        mocks.allow.mockRejectedValueOnce(new Error('RPC unavailable')).mockResolvedValueOnce(undefined);
+        consoleErrorSpy.mockImplementation(() => {});
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<PermissionFooter metadata={{ flavor: 'personal' }}
+            permission={{ id: 'personal-permission', status: 'pending' }} sessionId="personal-session" toolName="run_command" />); });
+        await act(async () => { await renderer.root.findByProps({ testID: 'permission-approve-button' }).props.onPress(); });
+        expect(renderer.root.findByProps({ accessibilityRole: 'alert' }).children).toContain('personalAgent.approvalFailed');
+        expect(renderer.root.findByProps({ testID: 'permission-approve-button' }).props.disabled).toBe(false);
+        await act(async () => { await renderer.root.findByProps({ testID: 'permission-approve-button' }).props.onPress(); });
+        expect(mocks.allow).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findAllByProps({ accessibilityRole: 'alert' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps Personal decisions disabled offline and sends the original request id when denied', async () => {
+        let renderer: any;
+        const footer = () => <PermissionFooter metadata={{ flavor: 'personal' }}
+            permission={{ id: 'personal-permission', status: 'pending' }} sessionId="personal-session" toolName="run_command" />;
+        act(() => { renderer = TestRenderer.create(footer()); });
+        expect(renderer.root.findByProps({ testID: 'permission-offline-notice' })).toBeTruthy();
+        for (const testID of ['permission-approve-button', 'permission-deny-button']) {
+            expect(renderer.root.findByProps({ testID }).props.disabled).toBe(true);
+            await act(async () => { await renderer.root.findByProps({ testID }).props.onPress(); });
+        }
+        expect(mocks.allow).not.toHaveBeenCalled();
+        expect(mocks.deny).not.toHaveBeenCalled();
+        mocks.presence = 'online';
+        act(() => { renderer.update(footer()); });
+        await act(async () => { await renderer.root.findByProps({ testID: 'permission-deny-button' }).props.onPress(); });
+        expect(mocks.deny).toHaveBeenCalledWith('personal-session', 'personal-permission');
+        act(() => renderer.unmount());
+    });
 });

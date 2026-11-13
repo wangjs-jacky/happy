@@ -20,6 +20,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const ja: TranslationStructure = {
     personalAgent: {
+        waitingForApproval: "確認を待っています",
+        waitingForApprovalDescription: "アシスタントは一時停止中です。操作を確認し、今回のみ許可するか拒否してください。",
+        allowOnce: "今回のみ許可",
+        denyAction: "拒否",
+        approvalFailed: "確認結果を送信できませんでした。もう一度お試しください。",
         defaultName: "Paws",
         editProfile: "アシスタントを編集",
         name: "名前",

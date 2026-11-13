@@ -27,20 +27,24 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
     const [loadingAllEdits, setLoadingAllEdits] = useState(false);
     const [loadingBypass, setLoadingBypass] = useState(false);
     const [loadingForSession, setLoadingForSession] = useState(false);
+    const [responseFailed, setResponseFailed] = useState(false);
     const session = useSession(sessionId);
     const isConnected = session?.presence === 'online';
     const canRespond = permission.status === 'pending' && isConnected;
     
     // Check if this is a Codex session - check both metadata.flavor and tool name prefix
     const isCodex = metadata?.flavor === 'codex' || toolName.startsWith('Codex');
+    const isPersonal = metadata?.flavor === 'personal';
 
     const handleApprove = async () => {
         if (!canRespond || loadingButton !== null || loadingAllEdits || loadingBypass || loadingForSession) return;
 
         setLoadingButton('allow');
+        setResponseFailed(false);
         try {
             await sessionAllow(sessionId, permission.id);
         } catch (error) {
+            setResponseFailed(true);
             console.error('Failed to approve permission:', error);
         } finally {
             setLoadingButton(null);
@@ -100,9 +104,11 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
         if (!canRespond || loadingButton !== null || loadingAllEdits || loadingBypass || loadingForSession) return;
 
         setLoadingButton('deny');
+        setResponseFailed(false);
         try {
             await sessionDeny(sessionId, permission.id);
         } catch (error) {
+            setResponseFailed(true);
             console.error('Failed to deny permission:', error);
         } finally {
             setLoadingButton(null);
@@ -403,9 +409,11 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
         );
     }
 
-    // Render Claude buttons (existing behavior)
+    // Personal supports one-time decisions only. Claude's allowedTools and
+    // permission mode grants are not implemented by its native handler.
     return (
         <View style={styles.container}>
+            {isPersonal && isPending && responseFailed && <Text accessibilityRole="alert" style={styles.offlineNoticeText}>{t('personalAgent.approvalFailed')}</Text>}
             {isPending && !isConnected ? (
                 <View style={styles.offlineNotice} testID="permission-offline-notice">
                     <Ionicons name="cloud-offline-outline" size={15} color={theme.colors.textSecondary} />
@@ -436,14 +444,14 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
                                 isPending && styles.buttonTextAllow,
                                 isApprovedViaAllow && styles.buttonTextSelected
                             ]} numberOfLines={1} ellipsizeMode="tail">
-                                {t('common.yes')}
+                                {isPersonal ? t('personalAgent.allowOnce') : t('common.yes')}
                             </Text>
                         </View>
                     )}
                 </TouchableOpacity>
 
                 {/* Allow All Edits button - only show for Edit and MultiEdit tools */}
-                {(toolName === 'Edit' || toolName === 'MultiEdit' || toolName === 'Write' || toolName === 'NotebookEdit' || toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode') && (
+                {!isPersonal && (toolName === 'Edit' || toolName === 'MultiEdit' || toolName === 'Write' || toolName === 'NotebookEdit' || toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode') && (
                     <TouchableOpacity
                         style={[
                             styles.button,
@@ -475,7 +483,7 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
                 )}
 
                 {/* Bypass all permissions (yolo mode) - only show for ExitPlanMode */}
-                {(toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode') && (
+                {!isPersonal && (toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode') && (
                     <TouchableOpacity
                         style={[
                             styles.button,
@@ -507,7 +515,7 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
                 )}
 
                 {/* Allow for session button - only show for non-edit, non-exit-plan tools */}
-                {toolName && toolName !== 'Edit' && toolName !== 'MultiEdit' && toolName !== 'Write' && toolName !== 'NotebookEdit' && toolName !== 'exit_plan_mode' && toolName !== 'ExitPlanMode' && (
+                {!isPersonal && toolName && toolName !== 'Edit' && toolName !== 'MultiEdit' && toolName !== 'Write' && toolName !== 'NotebookEdit' && toolName !== 'exit_plan_mode' && toolName !== 'ExitPlanMode' && (
                     <TouchableOpacity
                         style={[
                             styles.button,
@@ -561,7 +569,7 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
                                 isPending && styles.buttonTextDeny,
                                 isDenied && styles.buttonTextSelected
                             ]} numberOfLines={1} ellipsizeMode="tail">
-                                {t('claude.permissions.noTellClaude')}
+                                {isPersonal ? t('personalAgent.denyAction') : t('claude.permissions.noTellClaude')}
                             </Text>
                         </View>
                     )}
