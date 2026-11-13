@@ -472,7 +472,7 @@ function SidebarSessionsNavigationContent({ transparentSidebar, desktopHeader, o
                 ? <SessionHistoryList variant="sidebar" />
                 : mode === 'lists'
                 ? <SidebarListsView />
-                : <MainView sessionListLayout={mode === 'timeline' ? 'time' : 'projects'} variant="sidebar" transparentSidebar={transparentSidebar} />}
+                : <MainView desktopSections={desktopHeader} sessionListLayout={mode === 'timeline' ? 'time' : 'projects'} variant="sidebar" transparentSidebar={transparentSidebar} />}
         </View>
     );
 }

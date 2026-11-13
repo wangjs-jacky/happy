@@ -255,14 +255,14 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it.each(['sidebar-session-list-button', 'sidebar-archive-button'])('opens %s from the project workspace', testID => {
+    it.each(['sidebar-session-list-button'])('opens %s from the project workspace', testID => {
         mocks.pathname = '/projects'; mocks.spaceAgent = null;
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SidebarView desktopDensity desktopPrimaryNavigation />); });
         const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === testID);
         act(() => button.props.onPress());
         expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith('/');
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith(testID === 'sidebar-archive-button' ? 'archive' : 'projects');
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
         act(() => renderer.unmount());
     });
 
@@ -348,13 +348,13 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findAllByType('ScrollView')).toHaveLength(1);
         expect(renderer.root.findByType('SidebarAccountMenu').props.mobileRail).toBe(true);
         expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(0);
-        for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'session-list', 'archive', 'plugin-relationship-advisor']) {
+        for (const entry of ['new-session', 'inbox', 'command-palette', 'plugins', 'session-list', 'plugin-relationship-advisor']) {
             const button = renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === `sidebar-${entry}-button`);
             expect(button.findAllByType('Text')).toHaveLength(0);
             expect(button.props.style({ pressed: false })).toContainEqual(expect.objectContaining({ height: 44, width: 44 }));
         }
         expect(renderer.root.findByProps({ testID: 'sidebar-session-list-button' }).findByType('Ionicons').props.name).toBe('albums-outline');
-        expect(renderer.root.findByProps({ testID: 'sidebar-archive-button' }).findByType('Ionicons').props.name).toBe('file-tray-stacked-outline');
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-archive-button' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-add-agent-button' })).toHaveLength(0);
         const mobileNewSession = renderer.root.findByProps({ testID: 'sidebar-new-session-button' });
@@ -413,36 +413,12 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('switches the mobile sidebar to the archived-session list without navigating away', () => {
-        mocks.spaceAgent = null;
-        mocks.pathname = '/session/current';
-        let renderer: any;
-        act(() => { renderer = TestRenderer.create(<SidebarView closeDrawerOnNavigate />); });
-
-        const archiveButton = renderer.root.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
-        expect(archiveButton.props.accessibilityState).toEqual({ selected: false });
-        act(() => archiveButton.props.onPress());
-
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('archive');
-        expect(mocks.navigate).not.toHaveBeenCalled();
-        expect(mocks.dispatch).not.toHaveBeenCalled();
-        act(() => renderer.unmount());
-    });
-
-    it('labels the mobile archive surface and selects its rail destination', () => {
-        mocks.spaceAgent = null;
+    it('migrates an old archive sidebar preference back to projects', () => {
         mocks.desktopSidebarMode = 'archive';
         let renderer: any;
-        act(() => { renderer = TestRenderer.create(<SidebarView closeDrawerOnNavigate />); });
-
-        const archiveButton = renderer.root.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
-        const sessionListButton = renderer.root.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
-        expect(archiveButton.props.accessibilityState).toEqual({ selected: true });
-        expect(sessionListButton.props.accessibilityState).toEqual({ selected: false });
-        expect(renderer.root.findAllByType('Text').some((node: any) => node.props.children === 'sessionHistory.archiveTitle')).toBe(true);
+        act(() => { renderer = TestRenderer.create(<SidebarView />); });
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
+        expect(renderer.root.findAllByProps({ testID: 'sidebar-archive-button' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 
@@ -634,7 +610,6 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-plugins-button',
             'sidebar-plugin-relationship-advisor-button',
             'sidebar-session-list-button',
-            'sidebar-archive-button',
         ]));
         expect(primaryColumn.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
@@ -653,10 +628,7 @@ describe('SidebarView Agent space exit', () => {
         expect(sessionListButton.props.accessibilityState).toEqual({ selected: true });
         expect(sessionListButton.findByType('Ionicons').props.name).toBe('home-outline');
 
-        const archiveButton = primaryColumn.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
-        act(() => archiveButton.props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('archive');
+        expect(primaryColumn.findAllByProps({ testID: 'sidebar-archive-button' })).toHaveLength(0);
 
         act(() => primaryColumn.findByProps({
             testID: 'sidebar-plugin-relationship-advisor-button',
@@ -679,31 +651,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('returns to the default project view when leaving the archive surface', () => {
-        mocks.spaceAgent = null;
-        mocks.desktopSidebarMode = 'archive';
-        mocks.desktopSidebarListMode = 'timeline';
-        let renderer: any;
 
-        act(() => {
-            renderer = TestRenderer.create(
-                <SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation />,
-            );
-        });
-
-        const primaryColumn = renderer.root.findByProps({ testID: 'desktop-primary-navigation-column' });
-        const archiveButton = primaryColumn.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
-        expect(archiveButton.props.accessibilityState).toEqual({ selected: true });
-        expect(archiveButton.findByType('Ionicons').props.name).toBe('file-tray-stacked-outline');
-
-        const sessionListButton = primaryColumn.findAllByType('Pressable')
-            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
-        act(() => sessionListButton.props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('projects');
-
-        act(() => renderer.unmount());
-    });
 });
 
 

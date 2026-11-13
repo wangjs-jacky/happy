@@ -1531,6 +1531,7 @@ failedContinueTask: "Continue unfinished task",
         projectsTab: 'Projects',
         listsTab: 'Lists',
         timelineTab: 'Timeline',
+        priorityItems: 'Priority',
     },
     sidebarLists: {
         lists: 'Lists', tags: 'Tags', newList: 'New list', newTag: 'New tag', tagNamePlaceholder: 'Tag name',

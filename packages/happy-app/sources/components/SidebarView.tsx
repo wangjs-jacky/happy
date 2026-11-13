@@ -421,6 +421,9 @@ export const SidebarView = React.memo(({
     const realtimeStatus = useRealtimeStatus();
     const profile = useProfile();
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
+    React.useEffect(() => {
+        if (desktopSidebarMode === 'archive') setDesktopSidebarMode('projects');
+    }, [desktopSidebarMode, setDesktopSidebarMode]);
     const desktopSkinId = useLocalSetting('desktopSkinId');
     const dreamskin = Platform.OS === 'web' && desktopDensity && desktopSkinId !== 'default';
     const reducedTransparency = useReducedTransparency();
@@ -464,14 +467,6 @@ export const SidebarView = React.memo(({
         if (desktopPrimaryNavigation && pathname === '/projects' && (!leftVisible || desktopSidebarMode === targetMode)) toggleLeftSidebar();
         if (mobileNavigation) setMobilePanel('sessions');
         else if (pathname === '/projects' || advisorSidebarActive || pathname.startsWith('/apps/conversations')) go('/');
-    };
-
-    const openArchive = () => {
-        setAppConversationsActive(false);
-        setDesktopSidebarMode('archive');
-        if (desktopPrimaryNavigation && pathname === '/projects' && (!leftVisible || desktopSidebarMode === 'archive')) toggleLeftSidebar();
-        if (mobileNavigation) setMobilePanel('sessions');
-        else if (pathname === '/projects' || pathname.startsWith('/apps/conversations')) go('/');
     };
 
     const openSettingsFromSidebar = React.useCallback(() => {
@@ -575,30 +570,6 @@ export const SidebarView = React.memo(({
         </View>
     );
 
-    const archiveNavigation = (
-        <View style={styles.secondaryNavigation} testID="sidebar-secondary-navigation">
-                <View
-                    style={styles.secondaryNavigationDivider}
-                    testID="sidebar-secondary-navigation-divider"
-                />
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: desktopPrimaryNavigation && desktopSidebarMode === 'archive' }}
-                    onPress={() => desktopPrimaryNavigation ? setDesktopSidebarMode('archive') : go('/session/recent')}
-                    style={({ pressed }) => [
-                        styles.newSessionButton,
-                        desktopDensity && styles.newSessionButtonDesktop,
-                        desktopPrimaryNavigation && desktopSidebarMode === 'archive' && styles.navigationRowSelected,
-                        pressed && styles.newSessionButtonPressed,
-                    ]}
-                    testID="sidebar-archive-button"
-                >
-                    <Ionicons name="archive-outline" size={16} color={stylesheet.newSessionText.color} />
-                    <Text style={styles.newSessionText}>{t('sessionHistory.archiveTitle')}</Text>
-                </Pressable>
-        </View>
-    );
-
     const desktopNavigationRail = (
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
             {desktopPrimaryNavigation && <DesktopRailItem
@@ -656,13 +627,6 @@ export const SidebarView = React.memo(({
                 selected={(pathname !== '/projects' || leftVisible) && !appConversationsActive && !advisorSidebarActive && desktopSidebarMode !== 'archive'}
                 testID="sidebar-session-list-button"
             />}
-            <DesktopRailItem
-                icon="file-tray-stacked-outline"
-                label={t('sessionHistory.archiveTitle')}
-                onPress={openArchive}
-                selected={!appConversationsActive && !advisorSidebarActive && desktopSidebarMode === 'archive'}
-                testID="sidebar-archive-button"
-            />
             <DesktopRailItem
                 icon="browsers-outline"
                 label={t('appConversations.title')}
@@ -837,7 +801,6 @@ export const SidebarView = React.memo(({
             ) : (
                 <>
                     {primaryNavigation}
-                    {archiveNavigation}
                     {pluginNavigation}
                     {voiceStatus}
                     <DesktopSidebarSessionsNavigation />
