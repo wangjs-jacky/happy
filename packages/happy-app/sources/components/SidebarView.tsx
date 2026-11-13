@@ -1,10 +1,11 @@
 import { PersonalAgentEntry } from './personal/PersonalAgentEntry';
+import { useDesktopWorkspacePathname } from '@/hooks/useDesktopWorkspacePathname';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { isApplicationSession } from '@slopus/happy-wire';
 import { Text, View, Pressable, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useNavigation, usePathname } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useSession, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
@@ -377,7 +378,7 @@ function DesktopRailItem({
 
 function DesktopPluginRailItems({ onNavigate, showLabels = false, selectedPath }: { onNavigate: (path: string) => void; showLabels?: boolean; selectedPath?: string | null }) {
     const views = usePluginSurfaceViews('left-sidebar');
-    const pathname = usePathname();
+    const pathname = useDesktopWorkspacePathname();
 
     return views.map((view) => view.path ? (
         <DesktopRailItem
@@ -405,7 +406,7 @@ export const SidebarView = React.memo(({
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
-    const pathname = usePathname();
+    const pathname = useDesktopWorkspacePathname();
     const mobileNavigation = !desktopDensity;
     const { leftVisible, leftPinned, toggleLeftSidebar } = useDesktopWorkspaceLayout();
     const railNavigation = desktopPrimaryNavigation || mobileNavigation;
@@ -467,7 +468,7 @@ export const SidebarView = React.memo(({
         setDesktopSidebarMode(targetMode);
         if (desktopPrimaryNavigation) setDesktopSidebarListMode('projects');
         if (desktopPrimaryNavigation && pathname === '/projects') {
-            if (!leftVisible || desktopSidebarMode === targetMode) toggleLeftSidebar();
+            go('/');
             return;
         }
         if (desktopPrimaryNavigation && !leftPinned) toggleLeftSidebar();
