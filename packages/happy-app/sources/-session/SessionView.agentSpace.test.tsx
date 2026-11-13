@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => ({
     desktopReadingWidth: 960,
     setDesktopReadingWidth: vi.fn(),
     previewLocalSettings: vi.fn(),
-    updateSessionDraft: vi.fn(),
+    flushDraft: vi.fn(),
     isTablet: false,
     isLandscape: false,
     focusContext: null as unknown as React.Context<boolean>,
@@ -315,7 +315,7 @@ vi.mock('@/components/FileViewPanel', async () => {
     };
 });
 vi.mock('@/components/diff/PierreDiffView', () => ({ prefetchPierreDiff: vi.fn() }));
-vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn() }) }));
+vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn(), updateDraft: vi.fn(), flushDraft: mocks.flushDraft }) }));
 vi.mock('@/hooks/useComposerPrediction', () => ({ useComposerPrediction: () => ({ text: null, invalidate: vi.fn(), onTextChange: vi.fn(), onInputActivity: vi.fn() }) }));
 vi.mock('@/hooks/useSessionManagementPreferences', () => ({
     useSessionManagementPreferences: () => ({ isPinned: () => false, togglePinned: vi.fn() }),
@@ -392,7 +392,6 @@ vi.mock('@/sync/storage', () => ({
             currentViewingSessionId: null,
             applyLocalSettings: vi.fn(),
             resetSessionAgentOverrides: vi.fn(),
-            updateSessionDraft: mocks.updateSessionDraft,
             setCurrentViewingSession: vi.fn(),
         }),
     },
@@ -1509,7 +1508,7 @@ describe('SessionView Agent-space boundary', () => {
         expect(link.props.metadata).toBe(mocks.session.metadata);
         expect(link.props.floating).toBe(landscape);
         act(() => link.props.beforeNavigate());
-        expect(mocks.updateSessionDraft).toHaveBeenLastCalledWith('session-1', liveText);
+        expect(mocks.flushDraft).toHaveBeenLastCalledWith(liveText);
         expect(mocks.sendMessage).not.toHaveBeenCalled();
         await act(async () => renderer.unmount());
     });

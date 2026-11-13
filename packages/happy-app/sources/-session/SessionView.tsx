@@ -1199,8 +1199,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
     const workspaceLink = showChip ? <SessionWorkspaceLink id={sessionId} metadata={session?.metadata} embedded={props.embedded} focused={isFocused}
         compact={!isTablet || compactSessionHeader || !!props.embedded} floating={!showSessionHeader} beforeNavigate={() => {
             // Save the imperative textarea before the destination composer renders.
-            const composer = sessionComposerHandleRef.current;
-            if (composer) storage.getState().updateSessionDraft(sessionId, composer.getMessage());
+            sessionComposerHandleRef.current?.flushDraft();
         }} /> : null;
     const goalParentAction = showChip && goalBoard.parentSessionId ? (
         <GoalBoardButton testID="goal-board-return-parent" label={t('goalBoard.returnToParent')}
@@ -1627,6 +1626,7 @@ function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
 // the whole loaded screen on every keystroke).
 type ChatComposerHandle = {
     getMessage: () => string;
+    flushDraft: () => void;
     clearMessage: () => void;
     setMessage: (text: string) => void;
 };
@@ -1663,7 +1663,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
         setMessage(text);
     }, []);
 
-    const { clearDraft, updateDraft } = useDraft(sessionId, message, applyDraft);
+    const { clearDraft, updateDraft, flushDraft } = useDraft(sessionId, message, applyDraft);
 
     const handleChangeText = React.useCallback((text: string) => {
         prediction.onTextChange(text);
@@ -1675,6 +1675,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
 
     React.useImperativeHandle(composerHandleRef, () => ({
         getMessage: () => inputHandleRef.current?.getText() ?? '',
+        flushDraft: () => flushDraft(inputHandleRef.current?.getText()),
         clearMessage: () => {
             inputHandleRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setMessage('');
@@ -1686,7 +1687,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
             inputHandleRef.current?.focus();
             setMessage(text);
         },
-    }), [clearDraft, updateDraft]);
+    }), [clearDraft, updateDraft, flushDraft]);
 
     return (
         <MessageComposer
