@@ -19,6 +19,8 @@ import { MessageStagingQueueView } from '@/components/MessageStagingQueueView';
 import TestRenderer from 'react-test-renderer';
 
 vi.mock('@/components/ReadingWidthRail', () => ({ ReadingWidthRail: 'ReadingWidthRail' }));
+// Workspace identity/RPC fencing is exercised by SessionWorkspaceLink's own tests.
+vi.mock('@/components/goalBoard/SessionWorkspaceLink', () => ({ SessionWorkspaceLink: 'SessionWorkspaceLink' }));
 
 const mocks = vi.hoisted(() => ({
     closePanel: vi.fn(),
@@ -36,6 +38,7 @@ const mocks = vi.hoisted(() => ({
     desktopReadingWidth: 960,
     setDesktopReadingWidth: vi.fn(),
     previewLocalSettings: vi.fn(),
+    updateSessionDraft: vi.fn(),
     isTablet: false,
     isLandscape: false,
     focusContext: null as unknown as React.Context<boolean>,
@@ -389,6 +392,7 @@ vi.mock('@/sync/storage', () => ({
             currentViewingSessionId: null,
             applyLocalSettings: vi.fn(),
             resetSessionAgentOverrides: vi.fn(),
+            updateSessionDraft: mocks.updateSessionDraft,
             setCurrentViewingSession: vi.fn(),
         }),
     },
@@ -1482,6 +1486,32 @@ describe('SessionView Agent-space boundary', () => {
         expect(renderer.root.findAllByType('FilesSidebar')).toHaveLength(1);
 
         act(() => renderer.unmount());
+    });
+
+    it.each([
+        { embedded: false, platform: 'web', width: 1600, landscape: false },
+        { embedded: true, platform: 'web', width: 1600, landscape: false },
+        { embedded: true, platform: 'web', width: 390, landscape: false },
+        { embedded: true, platform: 'android', width: 844, landscape: true },
+    ])('wires the exact session and synchronous draft flush into its workspace link ($embedded/$platform/$width)', async ({ embedded, platform, width, landscape }) => {
+        mocks.isDataReady = true; mocks.platformOS = platform; mocks.windowWidth = width;
+        mocks.isTablet = width >= 1100; mocks.isLandscape = landscape;
+        const liveText = 'Draft typed immediately before switching';
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<SessionView id="session-1" embedded={embedded} />, {
+                createNodeMock: (element: any) => element.type === 'MessageComposer' ? { getText: () => liveText } : null,
+            });
+        });
+        const link = renderer.root.findByType('SessionWorkspaceLink');
+        expect(link.props.id).toBe('session-1');
+        expect(link.props.embedded).toBe(embedded);
+        expect(link.props.metadata).toBe(mocks.session.metadata);
+        expect(link.props.floating).toBe(landscape);
+        act(() => link.props.beforeNavigate());
+        expect(mocks.updateSessionDraft).toHaveBeenLastCalledWith('session-1', liveText);
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        await act(async () => renderer.unmount());
     });
 
     it.each([
