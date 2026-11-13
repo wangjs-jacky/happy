@@ -34,4 +34,7 @@ export async function handlePersonalCommand(args: string[]): Promise<void> {
     }
     const { credentials } = await authAndSetupMachineIfNeeded();
     await runPersonal({ credentials, resume: value('--resume'), startedBy: value('--started-by') === 'daemon' ? 'daemon' : 'terminal' });
+    // Only the executable exits here. SDK/live checks can await runPersonal
+    // without terminating their host; the CLI must release imported handles.
+    process.exit(0);
 }
