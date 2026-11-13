@@ -46,11 +46,12 @@ export const GoalBoardButton = React.memo(React.forwardRef<View, GoalBoardButton
             variant === 'card' ? styles.card : variant === 'row' ? styles.row : variant === 'chip' ? styles.chip : variant === 'primary' ? styles.primary : variant === 'toolbar' ? styles.toolbar : styles.plain,
             (variant === 'icon' || variant === 'overlay') && styles.icon,
             variant === 'icon' && styles.transparent,
+            variant === 'overlay' && styles.overlay,
             variant === 'card' && setCardFocused ? styles.ownedCard : undefined,
-            variant !== 'card' && selected ? styles.selected : undefined,
-            variant !== 'card' && !disabled && (state.pressed || state.hovered || hovered) ? styles.pressed : undefined,
-            (variant !== 'card' || !setCardFocused) && focused ? styles.focused : undefined,
-            surfaces && variant !== 'card' && { backgroundColor: !disabled && (state.pressed || state.hovered || hovered) ? surfaces.pressed : selected || variant === 'primary' ? surfaces.selected : variant === 'toolbar' || variant === 'icon' ? 'transparent' : surfaces.surface, ...(!focused ? { borderColor: 'transparent' } : {}) },
+            variant !== 'card' && selected ? variant === 'overlay' ? styles.overlaySelected : styles.selected : undefined,
+            variant !== 'card' && !disabled && (state.pressed || state.hovered || hovered) ? variant === 'overlay' ? styles.overlayPressed : styles.pressed : undefined,
+            (variant !== 'card' || !setCardFocused) && focused ? variant === 'overlay' ? styles.overlayFocused : styles.focused : undefined,
+            surfaces && variant !== 'card' && variant !== 'overlay' && { backgroundColor: !disabled && (state.pressed || state.hovered || hovered) ? surfaces.pressed : selected || variant === 'primary' ? surfaces.selected : variant === 'toolbar' || variant === 'icon' ? 'transparent' : surfaces.surface, ...(!focused ? { borderColor: 'transparent' } : {}) },
             disabled ? styles.disabled : undefined,
         ]}
     >{children}{tooltip && Platform.OS === 'web' ? <DesktopShortcutTooltip label={tooltip} testID={`${testID}-tooltip`} visible={hovered || focused} /> : null}</Pressable>;
@@ -63,6 +64,10 @@ const styles = StyleSheet.create((theme) => ({
     touchTarget: { minWidth: 44, minHeight: 44 },
     icon: { width: 44, height: 44, minWidth: 44, minHeight: 44, flexGrow: 0, flexShrink: 0, borderRadius: 22, borderColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 },
     transparent: { backgroundColor: 'transparent' },
+    overlay: { backgroundColor: theme.colors.imageOverlay.surface },
+    overlayPressed: { backgroundColor: theme.colors.imageOverlay.surfacePressed },
+    overlaySelected: { backgroundColor: theme.colors.imageOverlay.surfaceSelected },
+    overlayFocused: { borderColor: theme.colors.imageOverlay.text },
     // Chromium paints outline-style:auto even at width 0; use a solid zero-width
     // outline so the explicit theme border remains the sole focus indicator.
     // Native ScrollView galleries must wrap the content height. Growing here

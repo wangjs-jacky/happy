@@ -32,3 +32,15 @@ Android 项目封面按钮沿用桌面的 `flexGrow: 1`，真实 ScrollView 中�
 - 未验证 iOS、Web 浏览器或生产设备，未发布 Web、APK 或 OTA。
 
 本机原始 UI 层级、onLayout 测量摘要、合成环境与录屏位于被忽略的 `packages/happy-app/test-results/project-mobile/`。可用现有 `e2e/fixtures/project-goals/serve.mjs` 启动隔离环境，并在 Android 开发壳通过 ADB 反向映射其服务和 Metro 端口后复验。
+
+## 封面按钮配色修订
+
+根据“白色按钮与封面不搭”的反馈，将收藏、更多、子项目动作、编号和子项目入口统一为主题色调的深色半透明表面及浅色前景。顶栏仍使用透明图标按钮。`imageOverlay` 语义 token 在浅色与深色主题中均保持暗底，按下、悬停、选中和焦点状态不会被普通照片工作区的表面覆盖。
+
+- 116 项 `themePacks` 与整个 `goalBoard` 目录回归通过；包含普通、按下、悬停、选中及焦点状态。
+- 全部 20 套主题的图片表面在纯白和纯黑图片下，文字对比度至少 4.5，危险图标至少 3；Gingham 明暗两态的 token 来源分别断言。
+- 使用真实 Android 的 ProjectGallery、GoalBoardButton、图片、图标、字体和主题切换，验证 Gingham 浅/深色及收藏/取消收藏；卡片间距仍约 20dp。本轮使用隔离组件入口，不连接后端；临时入口已恢复。
+- 新配色录屏 `mobile-overlay-colors-verified.mp4` 为 H.264、1080×2424、11.79 秒，完整解码通过并已通过 Happy 私人媒体卡发送；手机播放尚未确认。前一段 16.58 秒录像只证明最初布局版本，不代表最新配色。
+- 该临时入口导致 Expo 生成空路由声明；已停止 Metro，使用既有 `repair-router-types.mjs` 从 78 个真实 App 路由恢复声明，再运行完整类型检查。未修改产品路由以绕过错误。
+- 独立复核发现的 GoalBoardPanel 测试主题 mock 缺少新 token 已补齐，全目录回归通过；未在产品代码中加入 token 缺失兜底。
+- 本轮仍未采集前后截图、验证生产发布或 iOS。

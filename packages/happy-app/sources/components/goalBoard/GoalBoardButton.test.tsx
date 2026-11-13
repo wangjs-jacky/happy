@@ -7,7 +7,7 @@ import { GoalBoardButton } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
 import { ProjectSurfaces } from './ProjectSurfaces';
 vi.mock('react-native', () => ({ Pressable: 'Pressable', View: 'View', Platform: { OS: 'web' } }));
-vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (factory: any) => factory({ colors: { surface: 'normal', surfacePressed: 'hover', surfaceSelected: 'selected', textLink: 'focus', divider: 'divider' } }) } }));
+vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (factory: any) => factory({ colors: { surface: 'normal', surfacePressed: 'hover', surfaceSelected: 'selected', textLink: 'focus', divider: 'divider', imageOverlay: { surface: 'image', surfacePressed: 'image-hover', surfaceSelected: 'image-selected', text: 'image-ink' } } }) } }));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let renderer: any;
 afterEach(() => { if (renderer) act(() => renderer.unmount()); });
@@ -53,12 +53,15 @@ it.each(['icon', 'overlay'] as const)('keeps %s actions touchable with theme fee
         const normal = flatten(button.props.style({ pressed: false }));
         expect(normal.width).toBeGreaterThanOrEqual(44);
         expect(normal.height).toBeGreaterThanOrEqual(44);
-        expect(normal.backgroundColor).toBe(variant === 'icon' ? 'transparent' : surfaces?.surface ?? 'normal');
-        expect(flatten(button.props.style({ pressed: true })).backgroundColor).toBe(surfaces?.pressed ?? 'hover');
+        expect(normal.backgroundColor).toBe(variant === 'icon' ? 'transparent' : 'image');
+        expect(flatten(button.props.style({ pressed: true })).backgroundColor).toBe(variant === 'overlay' ? 'image-hover' : surfaces?.pressed ?? 'hover');
+        expect(flatten(button.props.style({ pressed: false, hovered: true })).backgroundColor).toBe(variant === 'overlay' ? 'image-hover' : surfaces?.pressed ?? 'hover');
         act(() => button.props.onFocus());
-        expect(flatten(button.props.style({ pressed: false })).borderColor).toBe('focus');
+        expect(flatten(button.props.style({ pressed: false })).borderColor).toBe(variant === 'overlay' ? 'image-ink' : 'focus');
         act(() => button.props.onPress());
         expect(onPress).toHaveBeenCalledOnce();
+        act(() => renderer.update(<ProjectSurfaces.Provider value={surfaces}><GoalBoardButton selected variant={variant} label="More" onPress={onPress}>Icon</GoalBoardButton></ProjectSurfaces.Provider>));
+        expect(flatten(button.props.style({ pressed: false })).backgroundColor).toBe(variant === 'overlay' ? 'image-selected' : surfaces?.selected ?? 'selected');
         act(() => renderer.unmount()); renderer = null;
     }
 });
