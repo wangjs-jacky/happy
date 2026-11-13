@@ -8,7 +8,7 @@ Only project navigation fields are persisted. External destinations, unrelated q
 
 ## Validation
 
-The old implementation failed both new sidebar regressions: restoring a saved feature/task route, and clicking the currently active project entry. The final implementation passes 110 checks, including the OTA runtime contract, and a non-incremental application typecheck.
+The old implementation failed both new sidebar regressions: restoring a saved feature/task route, and clicking the currently active project entry. After integrating the desktop navigation update from main (`0f98275e`), the final implementation passes 206 checks across 16 files, including the OTA runtime contract, and a non-incremental application typecheck.
 
 Cases covered:
 
@@ -32,7 +32,14 @@ pnpm --filter happy-app exec vitest run \
   sources/sync/persistence.localSettings.test.ts \
   sources/components/goalBoard/useProjectNavigation.test.tsx \
   sources/navigation/desktopModalRouter.test.ts \
-  sources/utils/otaRuntimeConfig.test.ts
+  sources/utils/otaRuntimeConfig.test.ts \
+  sources/components/goalBoard/ProjectOverviewWorkspace.test.tsx \
+  sources/components/goalBoard/projectNavigation.test.ts \
+  sources/components/SidebarNavigator.test.tsx \
+  sources/components/DesktopSidebarSessionsNavigation.test.tsx \
+  sources/hooks/useDesktopWorkspaceLayout.test.tsx \
+  sources/navigation/browserNavigationStore.test.ts \
+  sources/navigation/browserRouteObserver.test.ts
 pnpm --filter happy-app exec tsc --noEmit --incremental false
 ```
 
