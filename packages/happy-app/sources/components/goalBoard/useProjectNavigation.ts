@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { canRouteBack, canRouteForward } from '@/navigation/browserNavigation';
-import { createProjectHistory, moveProjectHistory, projectHistoryLocation, projectLocationKey, pushProjectLocation, replaceProjectLocation, type ProjectLocation } from './projectNavigation';
+import { createProjectHistory, moveProjectHistory, projectHistoryLocation, projectLocationKey, pushProjectLocation, type ProjectLocation } from './projectNavigation';
 
 /** Query navigation stays on the same route so live file previews keep their owner. */
 export function useProjectNavigation(location: ProjectLocation, setParams: (location: ProjectLocation) => void) {
@@ -13,8 +13,8 @@ export function useProjectNavigation(location: ProjectLocation, setParams: (loca
         const next = pushProjectLocation(current.current, projectHistoryLocation(createProjectHistory(JSON.parse(key))));
         current.current = next; setHistory(next);
     }, [key]);
-    const navigate = React.useCallback((patch: ProjectLocation, options?: { replace?: boolean }) => {
-        const next = options?.replace ? replaceProjectLocation(current.current, patch) : pushProjectLocation(current.current, patch);
+    const navigate = React.useCallback((patch: ProjectLocation) => {
+        const next = pushProjectLocation(current.current, patch);
         if (next === current.current) return;
         current.current = next; setHistory(next); setter.current(projectHistoryLocation(next));
     }, []);

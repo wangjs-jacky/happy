@@ -19,12 +19,6 @@ export function pushProjectLocation(history: RouteHistoryState, patch: ProjectLo
     return applyRouteHistoryPathname(history, projectLocationKey({ ...projectHistoryLocation(history), ...patch }), null);
 }
 
-export function replaceProjectLocation(history: RouteHistoryState, patch: ProjectLocation): RouteHistoryState {
-    const key = projectLocationKey({ ...projectHistoryLocation(history), ...patch });
-    if (key === history.stack[history.cursor]) return history;
-    return { ...history, stack: history.stack.map((entry, index) => index === history.cursor ? key : entry) };
-}
-
 export function moveProjectHistory(history: RouteHistoryState, direction: -1 | 1): RouteHistoryState {
     const cursor = Math.max(0, Math.min(history.stack.length - 1, history.cursor + direction));
     return cursor === history.cursor ? history : { ...history, cursor };

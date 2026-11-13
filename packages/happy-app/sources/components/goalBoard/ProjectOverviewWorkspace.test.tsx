@@ -3,24 +3,25 @@ import { act } from 'react';
 // @ts-expect-error react-test-renderer has no declarations.
 import TestRenderer from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mock = vi.hoisted(() => ({ history: [] as any[], sessions: {} as Record<string, any>, owner: { key: 'account' }, fileOpen: false, blur: undefined as undefined | (() => void) }));
+const mock = vi.hoisted(() => ({ history: [] as any[], sessions: {} as Record<string, any>, owner: { key: 'account' }, fileOpen: false, maximized: false, blur: undefined as undefined | (() => void) }));
 vi.mock('expo-router', async () => { const React = await import('react'); return { useFocusEffect: (callback: () => (() => void)) => React.useEffect(() => { const cleanup = callback(); mock.blur = cleanup; return cleanup; }, [callback]) }; });
-vi.mock('react-native', () => ({ View: 'View', Text: 'Text', ScrollView: 'ScrollView', ActivityIndicator: 'Spinner', useWindowDimensions: () => ({ width: 1680 }) }));
+vi.mock('react-native', () => ({ Platform: { OS: 'web' }, Pressable: 'Pressable', View: 'View', Text: 'Text', ScrollView: 'ScrollView', ActivityIndicator: 'Spinner', useWindowDimensions: () => ({ width: 1680 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon' }));
 vi.mock('react-native-unistyles', () => { const theme = { colors: { text: 'text', textLink: 'link', textSecondary: 'secondary', textDestructive: 'error', divider: 'divider' } }; return { useUnistyles: () => ({ theme }), StyleSheet: { create: (f: any) => f(theme) } }; });
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/auth/accountRuntime', () => ({ getRuntimeAccountSelection: () => mock.owner }));
-vi.mock('@/sync/storage', () => ({ storage: (select: any) => select({ sessions: mock.sessions }) }));
+vi.mock('@/sync/storage', () => ({ storage: Object.assign((select: any) => select({ sessions: mock.sessions }), { getState: () => ({ sessions: mock.sessions }) }) }));
+vi.mock('@/sync/sync', () => ({ sync: { ensureSessionHydrated: vi.fn().mockResolvedValue(false) } }));
+vi.mock('@/sync/projectSessionLinks', () => ({ isProjectSessionDeleted: () => false }));
 vi.mock('@/sync/ops', () => ({ machineStartGoalAuthor: vi.fn() }));
-vi.mock('@/sync/projectGoals', () => ({ canCreateProjectConversation: () => true, loadProjectScope: vi.fn(), loadProjectScopeHistory: vi.fn(), projectGoalRequest: vi.fn(), projectScopeFiles: () => ({}) }));
+vi.mock('@/sync/projectGoals', () => ({ canCreateProjectConversation: () => true, isReadOnlyProjectPreview: () => false, loadProjectScope: vi.fn(), loadProjectScopeHistory: vi.fn(), projectGoalRequest: vi.fn(), projectScopeFiles: () => ({}) }));
 vi.mock('@/sync/projectWorkspaceCache', () => ({ projectCacheKey: (kind: string) => kind, projectHistorySchema: {}, writeProjectCache: vi.fn(), isProjectSessionDeleted: () => false }));
 vi.mock('./useProjectData', () => ({ useCachedProjectResource: (key: string) => ({ value: key === 'overview' ? { title: 'Real scope', goal: 'Real goal', scopePath: '/scope', indexPath: '/scope/index.md', fileCount: 8, countComplete: true } : { sessions: mock.history }, loading: false }) }));
 vi.mock('@/components/fileWorkspace/SessionFileWorkspaceProvider', () => ({ SessionFileWorkspaceProvider: ({ children }: any) => children }));
-vi.mock('@/components/fileWorkspace/context', () => ({ useFileWorkspace: () => ({ snapshot: { open: mock.fileOpen }, enabled: true }) }));
+vi.mock('@/components/fileWorkspace/context', () => ({ useFileWorkspace: () => ({ snapshot: { open: mock.fileOpen }, enabled: true, maximized: mock.maximized }) }));
 vi.mock('./ProjectArchiveTree', () => ({ ProjectArchiveTree: 'Tree' }));
 vi.mock('@/components/fileWorkspace/FileWorkspace', () => ({ FileWorkspace: 'File' }));
-vi.mock('@/components/PanelTabs', () => ({ PanelTabs: 'Tabs' }));
 vi.mock('./ProjectConversationHeader', () => ({ ProjectConversationHeader: 'ConversationHeader' }));
 vi.mock('./ProjectDetailsPanel', () => ({ ProjectDetailsPanel: ({ header, children, footer }: any) => <>{header}{children}{footer}</> }));
 vi.mock('./ProjectConversationEmptyState', () => ({ ProjectConversationEmptyState: 'Empty' }));
@@ -32,44 +33,13 @@ import { machineStartGoalAuthor } from '@/sync/ops';
 let renderer: any;
 const select = vi.fn();
 const session = { sessionId: 'existing', title: 'Real discussion', directory: '/scope', updatedAt: 1, executed: false };
-function setup(conversationId?: string, enterGlobal = false) {
-    act(() => { renderer = TestRenderer.create(<React.StrictMode><ProjectOverviewWorkspace machineId="machine" scopePath="/scope" title="Scope" agent="codex" offline={false} surface="transparent" selectConversation={select} conversationId={conversationId} enterGlobal={enterGlobal}><div>Catalog</div></ProjectOverviewWorkspace></React.StrictMode>); });
+function setup(conversationId?: string, initialTab?: 'files' | 'details') {
+    act(() => { renderer = TestRenderer.create(<React.StrictMode><ProjectOverviewWorkspace machineId="machine" scopePath="/scope" title="Scope" agent="codex" offline={false} surface="transparent" selectConversation={select} conversationId={conversationId} initialTab={initialTab}><div>Catalog</div></ProjectOverviewWorkspace></React.StrictMode>); });
     return () => renderer.root.findAllByType('Button').find((node: any) => node.props.testID === 'project-scope-open-chat').props.onPress();
 }
-beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks(); mock.history = []; mock.sessions = {}; mock.fileOpen = false; vi.mocked(loadProjectScopeHistory).mockResolvedValue([]); vi.mocked(machineStartGoalAuthor).mockResolvedValue({ type: 'success', sessionId: 'new-empty' }); });
+beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; vi.clearAllMocks(); mock.history = []; mock.sessions = {}; mock.fileOpen = false; mock.maximized = false; vi.mocked(loadProjectScopeHistory).mockResolvedValue([]); vi.mocked(machineStartGoalAuthor).mockResolvedValue({ type: 'success', sessionId: 'new-empty' }); });
 afterEach(() => { if (renderer) act(() => renderer.unmount()); });
 it('selection renders the global brief without creating or entering any conversation', () => { setup(); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); });
-it('deselecting a Task shows the scope tree and resumes the global conversation', async () => {
-    vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]);
-    setup(undefined, true);
-    await act(async () => {});
-    const tree = renderer.root.findByType('Tree');
-    expect(tree.props.scopePath).toBe('/scope');
-    expect(tree.props.rootPath).toBe('/scope');
-    expect(tree.props.taskId).toBeUndefined();
-    expect(renderer.root.findAllByProps({ testID: 'project-scope-chat' })).toHaveLength(1);
-    expect(select).toHaveBeenCalledExactlyOnceWith('existing');
-    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
-});
-it('deselecting a Task with no global history creates only one empty scope conversation in StrictMode', async () => {
-    setup(undefined, true);
-    await act(async () => {});
-    expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1);
-    expect(machineStartGoalAuthor).toHaveBeenCalledWith('machine', expect.objectContaining({ scopePath: '/scope' }));
-    expect(select).toHaveBeenCalledExactlyOnceWith('new-empty');
-});
-it('an unavailable global history stops after one attempt and leaves explicit retry available', async () => {
-    vi.mocked(loadProjectScopeHistory).mockRejectedValue(new Error('History unavailable'));
-    const retry = setup(undefined, true);
-    await act(async () => {});
-    await act(async () => {});
-    expect(loadProjectScopeHistory).toHaveBeenCalledTimes(1);
-    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
-    expect(select).not.toHaveBeenCalled();
-    vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]);
-    await act(async () => { retry(); });
-    expect(select).toHaveBeenCalledExactlyOnceWith('existing');
-});
 it('explicit open resumes the scope history without creating a conversation', async () => { vi.mocked(loadProjectScopeHistory).mockResolvedValue([session]); const press = setup(); await act(async () => { press(); }); expect(select).toHaveBeenCalledExactlyOnceWith('existing'); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); });
 it('a verified new empty session is reused while server history catches up', async () => { const press = setup(); await act(async () => { press(); press(); }); await act(async () => { press(); }); expect(machineStartGoalAuthor).toHaveBeenCalledTimes(1); expect(select.mock.calls.map(call => call[0])).toEqual(['new-empty', 'new-empty']); });
 it('failed history never creates a new conversation', async () => { vi.mocked(loadProjectScopeHistory).mockRejectedValue(new Error('History unavailable')); const press = setup(); await act(async () => { press(); }); expect(machineStartGoalAuthor).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); });
@@ -129,13 +99,65 @@ it('keeps cards visible while switching the center between conversation and docu
     mock.history = [session]; mock.fileOpen = true; setup('existing');
     act(() => renderer.root.findAllByType('View').find((node: any) => node.props.onLayout).props.onLayout({ nativeEvent: { layout: { width: 1600 } } }));
     expect(renderer.root.findByType('File').parent.props.style.display).toBe('none');
-    expect(renderer.root.findAllByType('Tabs')).toHaveLength(0);
+    expect(renderer.root.findByProps({ testID: 'project-scope-center-chat-tab' }).props.accessibilityState.selected).toBe(true);
     act(() => renderer.root.findByProps({ testID: 'project-scope-panel' }).props.onTab('files'));
     expect(renderer.root.findByType('File').parent.props.style.display).toBeUndefined();
     expect(renderer.root.findAllByType('Tree')).toHaveLength(1);
     expect(renderer.root.findAllByType('div')).toHaveLength(1);
     act(() => renderer.root.findByProps({ testID: 'project-scope-panel' }).props.onTab('details'));
     expect(renderer.root.findByType('File').parent.props.style.display).toBe('none');
-    expect(renderer.root.findAllByType('Tabs')).toHaveLength(0);
+    expect(renderer.root.findByProps({ testID: 'project-scope-center-chat-tab' }).props.accessibilityState.selected).toBe(true);
     expect(renderer.root.findAllByType('Tree')).toHaveLength(0);
+});
+
+it('returns from files to discussion and back through the center tabs without reopening a file', () => {
+    mock.history = [session]; mock.fileOpen = true; setup('existing');
+    act(() => renderer.root.findByProps({ testID: 'project-scope-panel' }).props.onTab('files'));
+    const file = renderer.root.findByType('File');
+    const chat = renderer.root.findByProps({ testID: 'project-scope-chat' });
+    const discussion = renderer.root.findByType('Session');
+    const tab = (key: string) => renderer.root.findByProps({ testID: `project-scope-center-${key}-tab` });
+
+    for (let i = 0; i < 2; i++) {
+        expect(tab('file').props.accessibilityState.selected).toBe(true);
+        act(() => tab('chat').props.onPress());
+        expect(file.parent.props.style.display).toBe('none');
+        expect(chat.parent.props.style.display).toBeUndefined();
+        expect(tab('chat').props.accessibilityState.selected).toBe(true);
+        act(() => tab('file').props.onPress());
+        expect(file.parent.props.style.display).toBeUndefined();
+        expect(chat.parent.props.style.display).toBe('none');
+        expect(renderer.root.findByType('File')).toBe(file);
+        expect(renderer.root.findByType('Session')).toBe(discussion);
+        expect(renderer.root.findAllByType('Tree')).toHaveLength(1);
+        expect(renderer.root.findAllByType('div')).toHaveLength(1);
+    }
+    expect(select).not.toHaveBeenCalled();
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
+});
+
+it.each([
+    { fileOpen: false, maximized: false, conversationId: 'existing' },
+    { fileOpen: true, maximized: false, conversationId: undefined },
+    { fileOpen: true, maximized: true, conversationId: 'existing' },
+])('omits the center switcher when only one view is available: %o', ({ fileOpen, maximized, conversationId }) => {
+    mock.history = [session]; mock.fileOpen = fileOpen; mock.maximized = maximized; setup(conversationId);
+    expect(renderer.root.findAllByProps({ testID: 'project-scope-center-file-tab' })).toHaveLength(0);
+});
+
+it('deselection opens the project tree beside the already resolved global conversation', () => {
+    mock.history = [session]; setup('existing', 'files');
+    const tree = renderer.root.findByType('Tree');
+    expect(tree.props.scopePath).toBe('/scope');
+    expect(tree.props.rootPath).toBe('/scope');
+    expect(tree.props.taskId).toBeUndefined();
+    expect(renderer.root.findByType('Session').props.id).toBe('existing');
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
+});
+it('closing a global conversation opened by deselection does not create or reopen one', async () => {
+    mock.history = [session]; setup('existing', 'files');
+    act(() => renderer.root.findByType('ConversationHeader').props.onClose());
+    expect(select).toHaveBeenCalledExactlyOnceWith(undefined);
+    await act(async () => {});
+    expect(machineStartGoalAuthor).not.toHaveBeenCalled();
 });
