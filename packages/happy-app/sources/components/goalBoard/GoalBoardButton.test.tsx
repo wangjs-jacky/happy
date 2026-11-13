@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 import { GoalBoardButton } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
+import { ProjectSurfaces } from './ProjectSurfaces';
 vi.mock('react-native', () => ({ Pressable: 'Pressable', View: 'View', Platform: { OS: 'web' } }));
 vi.mock('react-native-unistyles', () => ({ StyleSheet: { create: (factory: any) => factory({ colors: { surface: 'normal', surfacePressed: 'hover', surfaceSelected: 'selected', textLink: 'focus', divider: 'divider' } }) } }));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,4 +43,22 @@ it('keeps a visible keyboard focus boundary for a standalone project cover', () 
     const button = renderer.root.findByType('Pressable');
     act(() => button.props.onFocus());
     expect(flatten(button.props.style({ pressed: false }))).toMatchObject({ borderWidth: 1, borderColor: 'focus' });
+});
+it.each(['icon', 'overlay'] as const)('keeps %s actions touchable with theme feedback on ordinary and photo surfaces', variant => {
+    for (const surfaces of [null, { surface: 'photo', pressed: 'photo-hover', selected: 'photo-selected' }]) {
+        const onPress = vi.fn();
+        act(() => { renderer = TestRenderer.create(<ProjectSurfaces.Provider value={surfaces}><GoalBoardButton variant={variant} label="More" onPress={onPress}>Icon</GoalBoardButton></ProjectSurfaces.Provider>); });
+        const button = renderer.root.findByType('Pressable');
+        expect(button.props.accessibilityLabel).toBe('More');
+        const normal = flatten(button.props.style({ pressed: false }));
+        expect(normal.width).toBeGreaterThanOrEqual(44);
+        expect(normal.height).toBeGreaterThanOrEqual(44);
+        expect(normal.backgroundColor).toBe(variant === 'icon' ? 'transparent' : surfaces?.surface ?? 'normal');
+        expect(flatten(button.props.style({ pressed: true })).backgroundColor).toBe(surfaces?.pressed ?? 'hover');
+        act(() => button.props.onFocus());
+        expect(flatten(button.props.style({ pressed: false })).borderColor).toBe('focus');
+        act(() => button.props.onPress());
+        expect(onPress).toHaveBeenCalledOnce();
+        act(() => renderer.unmount()); renderer = null;
+    }
 });
