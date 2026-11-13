@@ -69,6 +69,16 @@ describe('theme pack interactive surfaces', () => {
         expect(theme.colors.surfaceSelected).toBe('#283544');
     });
 
+    it.each(['ginghamDark', 'ginghamLight', 'sakuraDark', 'dreamskinDark', 'fireflyLight'] as const)(
+        'keeps navigation surfaces and icons on the active palette in %s', (name) => {
+            const { colors } = appThemes[name];
+            expect(colors.header.tint).toBe(colors.text);
+            expect(contrastRatio(colors.header.tint, colors.header.background)).toBeGreaterThanOrEqual(4.5);
+            expect(colors.surfacePressed).not.toBe(colors.header.background);
+            expect(colors.surfaceSelected).not.toBe(colors.header.background);
+        },
+    );
+
     it.each(['ginghamDark', 'dreamskinDark', 'caramelLight'] as const)(
         'keeps the full slider rail distinct from the panel in %s', (name) => {
             const { colors, dark } = appThemes[name];

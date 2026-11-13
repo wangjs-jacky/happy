@@ -39,7 +39,7 @@ function applyAccent(base: typeof lightTheme, a: AccentMode): typeof lightTheme 
             surfaceHigh: a.surfaceHigh,
             surfaceHighest: a.surfaceHighest,
             groupped: { ...base.colors.groupped, background: a.bg },
-            header: { ...base.colors.header, background: a.surface },
+            header: { ...base.colors.header, background: a.surface, tint: a.text },
             fab: { ...base.colors.fab, background: a.primary, backgroundPressed: a.primaryPressed, icon: a.onPrimary },
             button: {
                 ...base.colors.button,
