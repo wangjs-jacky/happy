@@ -15,7 +15,8 @@ Base: `26c17bfdc08fe5b94ad2cc8ccb3ebbe66fc1fb31`.
 | C7 Timeline | Original conversation dates survive today's thread replay, startup-ready, heartbeat, metadata writes and reload | Isolated real encrypted server/socket/CLI-client test: Yesterday and 2 days ago remained distinct |
 | C8 Continue old conversation | A confirmed new user message promotes only its conversation; old snapshots do not undo it | Complete App: 2 days ago → Today; yesterday unchanged; ACK-only and delayed-snapshot regressions |
 
-18 App suites: **262 tests passed**. Server route suite: **4 tests passed**.
+18 App suites: **269 tests passed**. Server route suite: **4 tests passed**.
+Rebased onto `c2af5a12` (including the newer mobile-effort fixes) before the final run.
 App and server full TypeScript checks passed. Independent code review passed;
 independent static screenshot review passed all three requested comparisons.
 
