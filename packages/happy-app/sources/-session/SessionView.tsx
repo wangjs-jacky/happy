@@ -20,6 +20,7 @@ import { layout } from '@/components/layout';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { GoalBoardTrigger } from '@/components/goalBoard/GoalBoardTrigger';
+import { SessionWorkspaceLink } from '@/components/goalBoard/SessionWorkspaceLink';
 import { GoalBoardButton } from '@/components/goalBoard/GoalBoardButton';
 import { useGoalBoard } from '@/hooks/useGoalBoard';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -1196,6 +1197,11 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
     ) : null;
     const readingWidthControl = dreamskin && desktopMainWidth >= 920 && !showDesktopRightPanel && showChip
         ? <DesktopReadingWidthControl /> : null;
+    const workspaceLink = showChip ? <SessionWorkspaceLink id={sessionId} metadata={session?.metadata} embedded={props.embedded} focused={isFocused}
+        compact={!isTablet || compactSessionHeader || !!props.embedded} floating={!showSessionHeader} beforeNavigate={() => {
+            // Save the imperative textarea before the destination composer renders.
+            sessionComposerHandleRef.current?.flushDraft();
+        }} /> : null;
     const goalParentAction = showChip && goalBoard.parentSessionId ? (
         <GoalBoardButton testID="goal-board-return-parent" label={t('goalBoard.returnToParent')}
             variant={showSessionHeader ? "toolbar" : "chip"} onPress={() => navigateToTaskSession(goalBoard.parentSessionId!)}>
@@ -1208,6 +1214,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
             {readingWidthControl}
             {dreamskinHeaderActions}
             {goalParentAction}
+            {workspaceLink}
             {moreButton}
             {showChip && !props.projectTaskContext && <View ref={goalTriggerAnchor}><GoalBoardTrigger completed={goalBoard.snapshot?.tasks.filter(task => task.status === 'done').length ?? 0}
                 total={goalBoard.snapshot?.tasks.length ?? 0} open={goalBoardOpen} onPress={toggleGoalBoard} /></View>}
@@ -1219,6 +1226,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
             {readingWidthControl}
             {dreamskinHeaderActions}
             {goalParentAction}
+            {workspaceLink}
             {moreButton}
             {showChip && !props.projectTaskContext && <View ref={goalTriggerAnchor}><GoalBoardTrigger completed={goalBoard.snapshot?.tasks.filter(task => task.status === 'done').length ?? 0}
                 total={goalBoard.snapshot?.tasks.length ?? 0} open={goalBoardOpen} onPress={toggleGoalBoard} /></View>}
@@ -1287,7 +1295,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
                         contentMaxWidth={props.fullWidth ? desktopMainWidth || undefined : undefined}
                         compactRightSlot={compactSessionHeader}
                         titleSlot={headerTitleSlot}
-                        rightSlot={props.embedded ? undefined : (diffViewOpen || !!fileViewPath) ? overlayHeaderRightSlot : defaultHeaderRightSlot}
+                        rightSlot={props.embedded ? workspaceLink : (diffViewOpen || !!fileViewPath) ? overlayHeaderRightSlot : defaultHeaderRightSlot}
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
@@ -1296,9 +1304,9 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: showSessionHeader ? safeArea.top + headerHeight + fileHeaderTopInset : 0 }}>
-                {!showSessionHeader && goalParentAction && <View testID="goal-board-parent-floating-action" pointerEvents="box-none"
-                    style={{ position: 'absolute', top: safeArea.top + 8, right: safeArea.right + 8, zIndex: 2 }}>
-                    {goalParentAction}
+                {!showSessionHeader && (goalParentAction || workspaceLink) && <View testID="goal-board-parent-floating-action" pointerEvents="box-none"
+                    style={{ position: 'absolute', top: safeArea.top + 8, right: safeArea.right + 8, zIndex: 2, flexDirection: 'row', gap: 4 }}>
+                    {goalParentAction}{workspaceLink}
                 </View>}
                 {canRenderCachedSession && (sessionResolution === 'retrying' || sessionResolution === 'error') && (
                     <View testID={sessionResolution === 'error' ? 'session-load-error-cached' : 'session-retrying-cached'}
@@ -1619,6 +1627,7 @@ function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
 // the whole loaded screen on every keystroke).
 type ChatComposerHandle = {
     getMessage: () => string;
+    flushDraft: () => void;
     clearMessage: () => void;
     setMessage: (text: string) => void;
 };
@@ -1655,7 +1664,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
         setMessage(text);
     }, []);
 
-    const { clearDraft, updateDraft } = useDraft(sessionId, message, applyDraft);
+    const { clearDraft, updateDraft, flushDraft } = useDraft(sessionId, message, applyDraft);
 
     const handleChangeText = React.useCallback((text: string) => {
         prediction.onTextChange(text);
@@ -1667,6 +1676,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
 
     React.useImperativeHandle(composerHandleRef, () => ({
         getMessage: () => inputHandleRef.current?.getText() ?? '',
+        flushDraft: () => flushDraft(inputHandleRef.current?.getText()),
         clearMessage: () => {
             inputHandleRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setMessage('');
@@ -1678,7 +1688,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
             inputHandleRef.current?.focus();
             setMessage(text);
         },
-    }), [clearDraft, updateDraft]);
+    }), [clearDraft, updateDraft, flushDraft]);
 
     return (
         <MessageComposer
