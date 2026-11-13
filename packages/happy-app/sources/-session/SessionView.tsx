@@ -542,7 +542,10 @@ function DesktopReadingWidthControl() {
     </View>;
 }
 
-type SessionViewProps = { id: string; fileOpenRequest?: { path: string; requestId: string }; embedded?: boolean; projectTaskContext?: boolean; fullWidth?: boolean; emptyState?: React.ReactNode | ((appendDraft: (text: string) => void) => React.ReactNode) };
+type SessionViewProps = { id: string; fileOpenRequest?: { path: string; requestId: string }; embedded?: boolean; projectTaskContext?: boolean; fullWidth?: boolean; emptyState?: React.ReactNode | ((appendDraft: (text: string) => void) => React.ReactNode);
+    /** Let an embedded workspace combine its navigation with the session identity. */
+    renderEmbeddedHeader?: (slots: { identity: React.ReactNode; actions: React.ReactNode }) => React.ReactNode;
+};
 
 export const SessionView = React.memo((props: SessionViewProps) => (
     <SubagentInspectorProvider sessionId={props.id}>
@@ -570,7 +573,9 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
     const safeArea = useSafeAreaInsets();
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
-    const showSessionHeader = !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web');
+    const hasEmbeddedHeader = !!props.embedded && !!props.renderEmbeddedHeader;
+    const [embeddedHeaderHeight, setEmbeddedHeaderHeight] = React.useState(48);
+    const showSessionHeader = !hasEmbeddedHeader && !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web');
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
     const { width: windowWidth } = useWindowDimensions();
@@ -1074,8 +1079,8 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
     const sessionHeaderChip = showChip ? (
         <SessionHeaderChip
             agentLabel={agentLabel}
-            compact={compactSessionHeader}
-            condensed={constrainedDrawerHeader}
+            compact={hasEmbeddedHeader || compactSessionHeader}
+            condensed={constrainedDrawerHeader || (hasEmbeddedHeader && (desktopMainWidth || windowWidth) < 360)}
             machineName={machineName}
             online={sessionOnline}
             open={infoPanelOpen}
@@ -1197,7 +1202,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
     const readingWidthControl = dreamskin && desktopMainWidth >= 920 && !showDesktopRightPanel && showChip
         ? <DesktopReadingWidthControl /> : null;
     const workspaceLink = showChip ? <SessionWorkspaceLink id={sessionId} metadata={session?.metadata} embedded={props.embedded} focused={isFocused}
-        compact={!isTablet || compactSessionHeader || !!props.embedded} floating={!showSessionHeader} beforeNavigate={() => {
+        compact={!isTablet || compactSessionHeader || !!props.embedded} floating={!showSessionHeader && !hasEmbeddedHeader} beforeNavigate={() => {
             // Save the imperative textarea before the destination composer renders.
             sessionComposerHandleRef.current?.flushDraft();
         }} /> : null;
@@ -1253,6 +1258,9 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
 
     const mainContent = (
         <>
+            {hasEmbeddedHeader && <View testID="session-embedded-header" style={{ zIndex: 1000 }} onLayout={event => setEmbeddedHeaderHeight(event.nativeEvent.layout.height)}>
+                {props.renderEmbeddedHeader!({ identity: sessionHeaderChip, actions: workspaceLink })}
+            </View>}
             {/* Status bar shadow for landscape mode */}
             {isLandscape && deviceType === 'phone' && (
                 <View style={{
@@ -1303,7 +1311,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: showSessionHeader ? safeArea.top + headerHeight + fileHeaderTopInset : 0 }}>
-                {!showSessionHeader && (goalParentAction || workspaceLink) && <View testID="goal-board-parent-floating-action" pointerEvents="box-none"
+                {!showSessionHeader && !hasEmbeddedHeader && (goalParentAction || workspaceLink) && <View testID="goal-board-parent-floating-action" pointerEvents="box-none"
                     style={{ position: 'absolute', top: safeArea.top + 8, right: safeArea.right + 8, zIndex: 2, flexDirection: 'row', gap: 4 }}>
                     {goalParentAction}{workspaceLink}
                 </View>}
@@ -1374,7 +1382,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
                     session={session}
                     machineName={machineName}
                     online={sessionOnline}
-                    top={safeArea.top + headerHeight}
+                    top={hasEmbeddedHeader ? embeddedHeaderHeight : safeArea.top + headerHeight}
                     canCopySessionId={CAN_COPY_SESSION_ID}
                     onClose={() => setInfoPanelOpen(false)}
                     onShareSession={shareSession}
