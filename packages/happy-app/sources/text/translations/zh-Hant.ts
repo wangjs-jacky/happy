@@ -19,6 +19,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHant: TranslationStructure = {
     personalAgent: {
+        waitingForApproval: "等待你確認",
+        waitingForApprovalDescription: "助理已暫停。請檢查下方操作，選擇允許本次或拒絕後繼續。",
+        allowOnce: "允許本次",
+        denyAction: "拒絕",
+        approvalFailed: "確認提交失敗，請重試。",
         defaultName: "Paws",
         editProfile: "修改助理",
         name: "名稱",

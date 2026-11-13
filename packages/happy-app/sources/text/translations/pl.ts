@@ -28,6 +28,11 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  */
 export const pl: TranslationStructure = {
     personalAgent: {
+        waitingForApproval: "Oczekiwanie na potwierdzenie",
+        waitingForApprovalDescription: "Asystent jest wstrzymany. Sprawdź działanie i zezwól jednorazowo lub odrzuć.",
+        allowOnce: "Zezwól jednorazowo",
+        denyAction: "Odrzuć",
+        approvalFailed: "Nie udało się wysłać decyzji. Spróbuj ponownie.",
         defaultName: "Paws",
         editProfile: "Edytuj asystenta",
         name: "Nazwa",

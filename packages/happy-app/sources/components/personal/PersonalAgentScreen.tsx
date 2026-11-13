@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import { useNavigation } from 'expo-router';
@@ -8,6 +8,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { MessageView } from '@/components/MessageView';
+import { PermissionFooter } from '@/components/tools/PermissionFooter';
 import { useDraft } from '@/hooks/useDraft';
 import { sync } from '@/sync/sync';
 import { machineResumeSession, machineSpawnNewSession, sessionAbort } from '@/sync/ops';
@@ -116,6 +117,11 @@ function PersonalConversation({ id, name }: { id: string; name: string }) {
     const insets = useSafeAreaInsets();
     const list = React.useRef<FlatList<Message>>(null);
     const following = React.useRef(true);
+    // Live agent state remains available when the tool's message is outside
+    // the loaded history window. Keep the action visible above the composer.
+    const pendingPermissions = Object.entries(session?.agentState?.requests ?? {})
+        .filter(([requestId]) => !session?.agentState?.completedRequests?.[requestId]);
+    const awaitingPermission = pendingPermissions.length > 0;
 
     React.useEffect(() => {
         if (!focused) return;
@@ -149,7 +155,7 @@ function PersonalConversation({ id, name }: { id: string; name: string }) {
         && isPersonalAgentConversation(storage.getState().sessions[id] ?? {});
     const send = async () => {
         const submitted = textRef.current.trim();
-        if (!submitted || sendingRef.current || !session?.active || resolution !== 'ready' || !isCurrent()) return;
+        if (!submitted || sendingRef.current || !session?.active || awaitingPermission || resolution !== 'ready' || !isCurrent()) return;
         const submittingOwner = ownerRef.current;
         const submissionIsCurrent = () => !!submittingOwner && sync.isSessionRouteOwner(submittingOwner);
         sendingRef.current = true; setSending(true); setError(null);
@@ -188,11 +194,23 @@ function PersonalConversation({ id, name }: { id: string; name: string }) {
             </>}
             ListHeaderComponent={<>
                 {visiblePreviews.map(preview => <View key={`${preview.turnId}:${preview.itemId}`} style={[styles.bubble, styles.assistant]}><Text selectable style={styles.text}>{preview.text}</Text></View>)}
-                {session.thinking && !visiblePreviews.length && <View style={styles.thinking}><ActivityIndicator size="small" color={theme.colors.textSecondary} /><Text style={styles.hint}>{t('personalAgent.thinking')}</Text></View>}
+                {session.thinking && !awaitingPermission && !visiblePreviews.length && <View style={styles.thinking} testID="personal-thinking"><ActivityIndicator size="small" color={theme.colors.textSecondary} /><Text style={styles.hint}>{t('personalAgent.thinking')}</Text></View>}
             </>}
             renderItem={({ item, index }) => <PersonalChatMessage message={item} sessionId={id} metadata={session.metadata} showTime={!chatMessages[index + 1] || item.createdAt - chatMessages[index + 1].createdAt > 5 * 60_000} />}
         />
         <View style={[styles.composeArea, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            {pendingPermissions.length > 0 && <View style={styles.permissionPanel} testID="personal-pending-permission">
+                <Text accessibilityRole="header" style={styles.permissionTitle}>{t('personalAgent.waitingForApproval')}</Text>
+                <Text style={styles.permissionDescription}>{t('personalAgent.waitingForApprovalDescription')}</Text>
+                <ScrollView style={styles.permissionRequests} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {pendingPermissions.map(([requestId, request]) => <View key={requestId} style={styles.permissionRequest}>
+                        <Text style={styles.text}>{request.tool}</Text>
+                        <Text selectable style={styles.permissionCommand} testID="personal-pending-command">{typeof request.arguments?.command === 'string'
+                            ? request.arguments.command : JSON.stringify(request.arguments, null, 2)}</Text>
+                        <PermissionFooter permission={{ id: requestId, status: 'pending' }} sessionId={id} toolName={request.tool} toolInput={request.arguments} metadata={session.metadata} />
+                    </View>)}
+                </ScrollView>
+            </View>}
             {!isAtLatest && <Pressable accessibilityRole="button" onPress={() => { void sync.jumpToLatestMessages(id).catch(() => setError(t('personalAgent.loadFailed'))); }} style={styles.reconnect}><Text style={styles.hint}>{t('session.scrollToBottom')}</Text></Pressable>}
             {!session.active && <Pressable accessibilityRole="button" disabled={resuming} onPress={() => void reconnect()} style={styles.reconnect} testID="personal-reconnect"><Text style={styles.hint}>{resuming ? t('personalAgent.connecting') : t('personalAgent.reconnect')}</Text></Pressable>}
             {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
@@ -206,7 +224,7 @@ function PersonalConversation({ id, name }: { id: string; name: string }) {
                     }}
                 />
                 {session.thinking ? <Pressable accessibilityRole="button" accessibilityLabel={t('personalAgent.stop')} onPress={() => { void sessionAbort(id).catch(() => setError(t('personalAgent.sendFailed'))); }} style={styles.send}><Feather name="square" size={16} color={theme.colors.button.composer.tint} /></Pressable>
-                    : <Pressable accessibilityRole="button" accessibilityLabel={t('personalAgent.send')} disabled={!text.trim() || sending || !session.active} onPress={() => void send()} testID="personal-message-send" style={[styles.send, (!text.trim() || sending || !session.active) && styles.disabled]}><Feather name="arrow-up" size={20} color={theme.colors.button.composer.tint} /></Pressable>}
+                    : <Pressable accessibilityRole="button" accessibilityLabel={t('personalAgent.send')} disabled={!text.trim() || sending || !session.active || awaitingPermission} onPress={() => void send()} testID="personal-message-send" style={[styles.send, (!text.trim() || sending || !session.active || awaitingPermission) && styles.disabled]}><Feather name="arrow-up" size={20} color={theme.colors.button.composer.tint} /></Pressable>}
             </View>
         </View>
     </KeyboardAvoidingView>;
@@ -253,6 +271,12 @@ const styles = StyleSheet.create(theme => ({
     emptyTitle: { color: theme.colors.text, fontSize: 26, fontWeight: '600', textAlign: 'center' },
     hint: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 22, textAlign: 'center', maxWidth: 440 },
     composeArea: { paddingHorizontal: 24, paddingTop: 12, gap: 8 },
+    permissionPanel: { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, gap: 6 },
+    permissionTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+    permissionDescription: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 },
+    permissionRequests: { maxHeight: 180, flexGrow: 0 },
+    permissionRequest: { gap: 6, paddingTop: 6 },
+    permissionCommand: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
     composer: { backgroundColor: theme.colors.input.background, borderColor: theme.colors.divider, borderWidth: StyleSheet.hairlineWidth, borderRadius: 28, flexDirection: 'row', alignItems: 'flex-end', gap: 12, padding: 10 },
     composeInput: { flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, paddingHorizontal: 10, paddingVertical: 8, minHeight: 40, maxHeight: 160 },
     send: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.button.composer.background, alignItems: 'center', justifyContent: 'center' },

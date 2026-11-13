@@ -17,6 +17,11 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const pt: TranslationStructure = {
     personalAgent: {
+        waitingForApproval: "Aguardando sua aprovação",
+        waitingForApprovalDescription: "O assistente está pausado. Revise a ação e permita uma vez ou recuse.",
+        allowOnce: "Permitir uma vez",
+        denyAction: "Recusar",
+        approvalFailed: "Não foi possível enviar sua decisão. Tente novamente.",
         defaultName: "Paws",
         editProfile: "Editar assistente",
         name: "Nome",

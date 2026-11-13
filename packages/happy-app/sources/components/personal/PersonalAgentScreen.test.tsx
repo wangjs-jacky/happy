@@ -38,6 +38,7 @@ vi.mock('@/utils/responsive', () => ({ useIsTablet: () => true }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/markdown/MarkdownView', () => ({ MarkdownView: 'MarkdownView' }));
 vi.mock('@/components/MessageView', () => ({ MessageView: 'MessageView' }));
+vi.mock('@/components/tools/PermissionFooter', () => ({ PermissionFooter: 'PermissionFooter' }));
 vi.mock('./PersonalAvatar', () => ({ PersonalAvatar: 'PersonalAvatar' }));
 vi.mock('@/components/DesktopDialogFrame', () => ({ DesktopDialogFrame: ({ children }: any) => children }));
 vi.mock('expo-image-picker', () => ({ launchImageLibraryAsync: mocks.picker }));
@@ -98,6 +99,46 @@ describe('Personal independent chat', () => {
         await act(async () => { rejectSend(new Error('network')); });
         expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('my request');
         expect(tree.root.findByProps({ accessibilityRole: 'alert' }).children).toContain('personalAgent.sendFailed');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('keeps the current approval above the composer even when its tool message is not loaded', async () => {
+        const session = mocks.sessions.personal;
+        session.thinking = true;
+        session.agentState = { requests: {
+            'pending-command': { tool: 'run_command', arguments: { command: 'ps -p 54421' }, createdAt: 1 },
+        } };
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        const banner = tree.root.findByProps({ testID: 'personal-pending-permission' });
+        expect(banner.findByProps({ testID: 'personal-pending-command' }).children).toContain('ps -p 54421');
+        expect(banner.findByType('PermissionFooter').props).toMatchObject({
+            sessionId: 'personal', toolName: 'run_command', metadata: session.metadata,
+            permission: { id: 'pending-command', status: 'pending' },
+        });
+        expect(tree.root.findAllByProps({ testID: 'personal-thinking' })).toHaveLength(0);
+        await act(async () => {
+            tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('another request');
+            await tree.root.findByProps({ testID: 'personal-message-input' }).props.onKeyPress({ nativeEvent: { key: 'Enter' }, preventDefault() {} });
+        });
+        expect(mocks.send).not.toHaveBeenCalled();
+
+        session.agentState = { requests: {}, completedRequests: { 'pending-command': { status: 'approved' } } };
+        await act(async () => { tree.update(<PersonalAgentScreen />); });
+        expect(tree.root.findAllByProps({ testID: 'personal-pending-permission' })).toHaveLength(0);
+        expect(tree.root.findAllByProps({ testID: 'personal-thinking' }).length).toBeGreaterThan(0);
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('another request');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('does not resurrect an already completed permission from a stale requests entry', async () => {
+        mocks.sessions.personal.agentState = {
+            requests: { old: { tool: 'run_command', arguments: { command: 'pwd' }, createdAt: 1 } },
+            completedRequests: { old: { status: 'approved' } },
+        };
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        expect(tree.root.findAllByProps({ testID: 'personal-pending-permission' })).toHaveLength(0);
         await act(async () => { tree.unmount(); });
     });
 
