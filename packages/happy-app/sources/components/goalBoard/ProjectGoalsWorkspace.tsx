@@ -19,19 +19,19 @@ import { useReducedTransparency } from '@/hooks/useReducedTransparency';
 import { useDesktopWorkspaceLayout } from '@/hooks/useDesktopWorkspaceLayout';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { getSessionName } from '@/utils/sessionUtils';
-import { sync } from '@/sync/sync';
 import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
 import { machineStartGoalAuthor, type DirectoryEntry } from '@/sync/ops';
-import { loadProjectTaskHistory, launchProjectGoalTask, projectGoalRequest, projectTaskFiles, taskApproval, taskCanExecute, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, ProjectGoalLaunchError, type ProjectHistoryCursor, isReadOnlyProjectPreview, type ProjectHistoryCandidate } from '@/sync/projectGoals';
+import { loadProjectScopeHistory, loadProjectTaskHistory, launchProjectGoalTask, projectGoalRequest, projectTaskFiles, taskApproval, taskCanExecute, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, ProjectGoalLaunchError, type ProjectHistoryCursor, isReadOnlyProjectPreview, type ProjectHistoryCandidate } from '@/sync/projectGoals';
 import { SessionView } from '@/-session/SessionView';
 import { SessionFileWorkspaceProvider } from '@/components/fileWorkspace/SessionFileWorkspaceProvider';
-import { FileWorkspace, FileWorkspaceResizeHandle } from '@/components/fileWorkspace/FileWorkspace';
+import { FileWorkspace } from '@/components/fileWorkspace/FileWorkspace';
 import { useFileWorkspace } from '@/components/fileWorkspace/context';
-import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
-import { getProjectChatWidth, getProjectChatMaximumWidth, canSplitProjectFile, projectPanelGap } from './projectWorkspaceLayout';
+import { ProjectArchiveTree } from './ProjectArchiveTree';
+import { getProjectCatalogWidth, projectPanelGap } from './projectWorkspaceLayout';
 import { ProjectOverviewWorkspace } from './ProjectOverviewWorkspace';
 import { ProjectDetailsPanel } from './ProjectDetailsPanel';
 import { ProjectConversationHeader } from './ProjectConversationHeader';
+import { useProjectConversation } from './useProjectConversation';
 import { ProjectConversationEmptyState } from './ProjectConversationEmptyState';
 import { ProjectTaskSwitcher } from './ProjectTaskSwitcher';
 import { ProjectTaskDetails } from './ProjectTaskDetails';
@@ -42,7 +42,11 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 import { GoalBoardCard } from './GoalBoardCard';
 import { RunningTaskBorder } from './RunningTaskBorder';
-import { ProjectGallery, ProjectGalleryLoading } from './ProjectGallery';
+import { ProjectGalleryLoading } from './ProjectGallery';
+import { ProjectLibrary } from './ProjectLibrary';
+import { ProjectFeatureLibrary } from './ProjectFeatureLibrary';
+import { ProjectSavedFile } from './ProjectSavedFile';
+import type { ProjectLibraryEntry } from '@/sync/projectLibrary';
 import { canCreateProjectConversation, canConfirmProjectDeliverable, openProjectGoalConversation } from '@/sync/projectGoals';
 import { getProjectPreviewMachineId } from '@/sync/projectGoals';
 import { selectProjectMachine } from './projectMachine';
@@ -153,6 +157,7 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
     const { navigate } = navigation;
     const data = useProjectData(machineId, params.feature);
     const readOnly = isReadOnlyProjectPreview();
+    const [savedFile, setSavedFile] = React.useState<ProjectLibraryEntry | null>(null);
     const scope = JSON.stringify([accountKey(), machineId, params.project, params.feature]);
     const [catalogState, updateCatalogState] = React.useState(() => ({ scope, query: catalogStates.get(scope)?.query ?? '', status: catalogStates.get(scope)?.status ?? 'all' as TaskStatusFilter }));
     const currentCatalog = catalogState.scope === scope ? catalogState : { scope, query: catalogStates.get(scope)?.query ?? '', status: catalogStates.get(scope)?.status ?? 'all' as TaskStatusFilter };
@@ -243,6 +248,39 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
         } catch (error) { if (alive.current && scopeRef.current === requestedScope) setActionError(error instanceof Error ? error.message : String(error)); }
         finally { cardOpening.current = false; if (alive.current) setBusy(false); }
     };
+    const globalAttempt = React.useRef<{ scope: string; id: string } | undefined>(undefined);
+    const openGlobalConversation = async () => {
+        if (cardOpening.current || busy || !feature) return;
+        cardOpening.current = true; setBusy(true); setActionError(null);
+        const owner = accountKey(), requestedLocation = latestLocation.current, requestedNavigation = navigationEpoch.current;
+        const current = () => alive.current && focused.current && accountKey() === owner && latestLocation.current === requestedLocation && navigationEpoch.current === requestedNavigation;
+        try {
+            const key = projectCacheKey('history', machineId, feature.featurePath);
+            const cached = readProjectCache(key, projectHistorySchema)?.value.sessions ?? [];
+            const fresh = data.offline ? [] : await loadProjectScopeHistory(machineId, feature.featurePath);
+            const sessions = [...new Map([...cached, ...fresh].map(session => [session.sessionId, session])).values()]
+                .filter(session => {
+                    const metadata = storage.getState().sessions[session.sessionId]?.metadata;
+                    return session.directory === feature.featurePath && !isProjectSessionDeleted(session.sessionId) && (!metadata || (metadata.machineId === machineId && (!metadata.goalBoard || (!metadata.goalBoard.taskId && metadata.goalBoard.featurePath === feature.featurePath))));
+                })
+                .sort((a, b) => b.updatedAt - a.updatedAt || b.sessionId.localeCompare(a.sessionId));
+            if (!current()) return;
+            let id = sessions[0]?.sessionId;
+            if (!id) {
+                if (data.offline || !canCreateProjectConversation()) { go({ task: undefined }); return; }
+                if (globalAttempt.current?.scope !== key) globalAttempt.current = { scope: key, id: requestId() };
+                const result = await machineStartGoalAuthor(machineId, { scopePath: feature.featurePath, requestId: globalAttempt.current.id, agent });
+                if (result.type !== 'success') throw new Error(result.type === 'error' ? result.errorMessage : t('projectGoals.sessionUnavailable'));
+                id = result.sessionId;
+                if (!current()) return;
+                sessions.unshift({ sessionId: id, title: feature.title, directory: feature.featurePath, updatedAt: Date.now(), executed: false });
+            }
+            writeProjectCache(key, { sessions });
+            globalAttempt.current = undefined;
+            go({ task: undefined, conversation: id });
+        } catch (error) { if (current()) setActionError(error instanceof Error ? error.message : String(error)); }
+        finally { cardOpening.current = false; if (alive.current) setBusy(false); }
+    };
     const cardAction = useContinueProjectTask({ machineId, featurePath: params.feature, agent, sessions: data.board?.sessions,
         onOpened: (task, conversation) => go({ task, conversation, view: 'chat' }) });
     const tasks = feature?.tasks ?? [];
@@ -306,21 +344,24 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
         {(data.error || actionError || cardAction.error) && <View style={styles.errorBar} accessibilityRole="alert"><Text style={styles.error}>{data.error || actionError || cardAction.error}</Text></View>}
         {!machineId && data.status === 'offline' ? <Empty text={t('projectGoals.noMachine')} /> : !scopeDesktop && params.author ? <View style={[styles.author, { backgroundColor: photo && !reduced ? 'transparent' : surface }]}><Text style={[styles.meta, { padding: 12 }]}>{t('projectGoals.authoringHint')}</Text><SessionView key={params.author} id={params.author} embedded fullWidth /></View>
             : task && feature ? <TaskWorkspace key={JSON.stringify([machineId, feature.featurePath, task.id])} machineId={machineId} featurePath={feature.featurePath} task={task}
-                editDelivery={setDeliveryTasks} openCardConversation={openCardConversation} featureTitle={feature.title} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
-                allTasks={tasks} conversationId={params.conversation} agent={agent} offline={data.offline}
+                editDelivery={setDeliveryTasks} openCardConversation={openCardConversation} featureTitle={feature.title} catalogScrollPosition={scrollPosition} onCatalogScroll={offset => { scrollPosition.current = offset; catalogStates.set(scope, { query, status: statusFilter, scroll: offset }); }} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+                openGlobalConversation={() => { void openGlobalConversation(); }} globalBusy={busy} allTasks={tasks} conversationId={params.conversation} agent={agent} offline={data.offline}
                 mobileView={params.view} readerPath={params.file} changeView={view => navigate({ view })} openReader={file => navigate({ file, view: 'reader' })} closeReader={navigation.back}
-                refresh={data.refresh} selectTask={id => go({ task: id })} selectConversation={id => navigate({ conversation: id, ...(mobile ? { view: 'chat' } : {}) })} />
+                refresh={data.refresh} selectTask={id => go({ task: id })} selectConversation={id => navigate({ conversation: id, ...(mobile ? { view: id ? 'chat' : 'details' } : {}) })} />
             : <ScopeCatalog enabled={scopeDesktop} scopePath={params.feature ?? project?.projectPath} machineId={machineId} title={feature?.title ?? project?.title ?? ''} connecting={data.status === 'connecting'} conversationId={params.conversation ?? params.author} agent={agent} offline={data.offline} revision={JSON.stringify([feature?.revision, (selectedMachine?.daemonState as { goalProjectRevision?: string } | null)?.goalProjectRevision, scopeRefresh])} surface={surface} selectConversation={id => navigate({ conversation: id, author: undefined })}><ScrollView ref={catalogScroll} onContentSizeChange={() => catalogScroll.current?.scrollTo({ y: scrollPosition.current, animated: false })} onScroll={event => { scrollPosition.current = event.nativeEvent.contentOffset.y; catalogStates.set(scope, { query, status: statusFilter, scroll: scrollPosition.current }); }} scrollEventThrottle={100} style={[styles.catalog, { backgroundColor: surface }]} contentContainerStyle={[styles.catalogContent, mobile && styles.mobileCatalog]}>
                 <CatalogHeading title={feature ? feature.title : params.feature ? t('projectGoals.loadingTasks') : project ? project.title : t('projectGoals.allProjects')} subtitle={feature ? `${tasks.length} ${t('projectGoals.tasks')}` : project ? project.summary || t('projectGoals.subprojects') : t('projectGoals.galleryDescription')} query={query} setQuery={setQuery} />
                 {feature && <Button variant="toolbar" label={t('projectGoals.batchDelivery')} disabled={readOnly || data.offline || !tasks.length} onPress={() => setDeliveryTasks(tasks)} testID="project-batch-delivery"><Text style={styles.link}>{t('projectGoals.batchDelivery')}</Text></Button>}
                 {params.task && feature && !task && <Text style={styles.error}>{t('projectGoals.taskMissing')}</Text>}
                 {!data.contentLoaded && (data.status === 'loading' || data.status === 'connecting') ? <ProjectLoading kind={scopeDesktop ? params.feature ? 'tasks' : params.project ? 'features' : 'projects' : 'projects'} /> : feature ? <TaskCards onDelivery={target => setDeliveryTasks([target])} tasks={tasks} query={query} status={statusFilter} setStatus={setStatusFilter} onSelect={id => go({ task: id })} mobile={mobile} actionLabel={target => { const cached = readProjectCache(projectCacheKey('history', machineId, feature!.featurePath, target.id), projectHistorySchema); const known = data.board?.sessions[target.id] ?? cached?.value.sessions; return t(known ? known.length ? 'projectGoals.continueChat' : 'projectGoals.openChat' : 'projectGoals.chooseChat'); }} onAction={target => { if (mobile) void cardAction.continueTask(target); else void openCardConversation(target); }} offline={data.offline} busy={busy || cardAction.busy} hideExecution />
-                    : project ? <View style={styles.grid}>{[...(project.direct ? [project.direct] : []), ...project.features].filter(entry => entry.title.toLowerCase().includes(query.toLowerCase())).map(entry => <CatalogCard key={entry.featurePath} title={entry.featurePath === project.projectPath ? t('projectGoals.tasks') : entry.title} subtitle={entry.summary || t('projectGoals.showTasks')} onPress={() => chooseFeature(entry)} />)}</View>
-                        : <><View style={styles.libraryHeading}><Text style={styles.sectionTitle}>{t('projectGoals.projectLibrary')}</Text><Text style={styles.meta}>{data.loaded ? data.projects.length : '—'}</Text></View><ProjectGallery projects={data.projects.filter(project => (project.title + (project.summary || '')).toLowerCase().includes(query.toLowerCase()))} onSelect={chooseProject} /></>}
+                    : project ? <ProjectFeatureLibrary machineId={machineId} entries={[...(project.direct ? [project.direct] : []), ...project.features]} query={query} projectPath={project.projectPath} onSelect={chooseFeature} />
+                        : <ProjectLibrary key={machineId} machineId={machineId} projects={data.projects} loaded={data.loaded} query={query} onSelect={chooseProject} onOpenItem={item => {
+                            if (item.kind === 'file') setSavedFile(item);
+                            else go({ project: item.parentProjectPath, feature: item.projectPath, task: undefined });
+                        }} />}
                 {data.status === 'offline' && <Empty text={t('projectGoals.offlineArchive')} />}
-                {data.status === 'ready' && !data.projects.length && <Empty text={t('projectGoals.emptyProjects')} />}
                 {feature && !tasks.length && <Empty text={t('projectGoals.emptyTasks')} />}
             </ScrollView></ScopeCatalog>}
+        {savedFile && <ProjectSavedFile key={savedFile.projectPath} machineId={machineId} item={savedFile} onClose={() => setSavedFile(null)} />}
         {feature && !!deliveryTasks?.length && <ProjectDeliveryEditor key={JSON.stringify([accountKey(), machineId, feature.featurePath])} machineId={machineId} featurePath={feature.featurePath} tasks={deliveryTasks} onClose={() => setDeliveryTasks(null)} onSaved={data.refresh} onDiscuss={target => { setDeliveryTasks(null); if (mobile) void cardAction.continueTask(target); else void openCardConversation(target); }} />}
         {feature && featureFilesOpen && <ProjectFeatureFiles key={JSON.stringify([accountKey(), machineId, feature.featurePath])} machineId={machineId} featurePath={feature.featurePath} title={feature.title} onClose={() => setFeatureFilesOpen(false)} />}
     </View></ProjectSurfaces.Provider>;
@@ -332,7 +373,7 @@ function ScopeCatalog({ scopePath, children, enabled, ...props }: Omit<React.Com
 function ProjectLoading({ kind }: { kind: 'projects' | 'features' | 'tasks' }) {
     return <View testID="project-loading" accessibilityLabel={t('projectGoals.loadingArchive')} accessibilityState={{ busy: true }} style={{ gap: 20 }}>
         <Text style={styles.meta}>{t('projectGoals.loadingArchive')}</Text>
-        {kind === 'projects' ? <ProjectGalleryLoading /> : <View style={styles.grid} testID={`project-${kind}-loading`}>{Array.from({ length: 6 }, (_, i) => <View key={i} style={kind === 'tasks' ? styles.taskCard : styles.catalogCard}><View style={[styles.taskCardContent, styles.loadingCard, kind === 'tasks' ? { minHeight: 230 } : { minHeight: 100 }]}><View style={[styles.skeletonLine, { width: '30%' }]} /><View style={[styles.skeletonLine, { width: '75%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} /><View style={[styles.skeletonLine, { width: '65%' }]} /></View></View>)}</View>}
+        {kind !== 'tasks' ? <ProjectGalleryLoading compact={kind === 'projects'} /> : <View style={styles.grid} testID="project-tasks-loading">{Array.from({ length: 6 }, (_, i) => <View key={i} style={styles.taskCard}><View style={[styles.taskCardContent, styles.loadingCard, { minHeight: 230 }]}><View style={[styles.skeletonLine, { width: '30%' }]} /><View style={[styles.skeletonLine, { width: '75%' }]} /><View style={[styles.skeletonLine, { width: '90%' }]} /><View style={[styles.skeletonLine, { width: '65%' }]} /></View></View>)}</View>}
     </View>;
 }
 
@@ -343,10 +384,6 @@ function CatalogHeading({ title, subtitle, query, setQuery }: { title: string; s
 }
 
 type TaskStatusFilter = 'all' | GoalTask['status'];
-function CatalogCard({ title, subtitle, onPress }: { title: string; subtitle: string; onPress: () => void }) {
-    const { theme } = useUnistyles();
-    return <GoalBoardCard style={styles.catalogCard}><Button variant="card" label={title} onPress={onPress}><View style={styles.catalogCardContent}><View style={styles.cardBody}><Ionicons name="folder-outline" size={24} color={theme.colors.textLink} /><Text numberOfLines={2} style={styles.cardTitle}>{title}</Text><Text numberOfLines={2} style={styles.meta}>{subtitle}</Text></View><Ionicons name="chevron-forward" size={15} color={theme.colors.textSecondary} /></View></Button></GoalBoardCard>;
-}
 function ApprovalTag({ task }: { task: GoalTask }) {
     const state = taskApproval(task);
     const label = state === 'accepted' ? 'accepted' : state === 'changed' ? 'changed' : state !== 'noDeliverables' ? 'notReviewed'
@@ -378,7 +415,7 @@ export function TaskCards({ onDelivery, tasks, query, status, setStatus, selecte
     </View>;
 }
 
-type TaskWorkspaceProps = { editDelivery: (tasks: GoalTask[]) => void; openCardConversation: (task: GoalTask) => Promise<void>; mobileView?: string; readerPath?: string; changeView: (view: string) => void; openReader: (file: string) => void; closeReader: () => void; featureTitle: string; query: string; setQuery: (value: string) => void; statusFilter: TaskStatusFilter; setStatusFilter: (value: TaskStatusFilter) => void; machineId: string; featurePath: string; task: GoalTask; allTasks: GoalTask[]; conversationId?: string; agent: 'codex' | 'claude'; offline: boolean; refresh: () => Promise<void>; selectTask: (id: string) => void; selectConversation: (id: string) => void; };
+type TaskWorkspaceProps = { openGlobalConversation: () => void; globalBusy: boolean; catalogScrollPosition: React.MutableRefObject<number>; onCatalogScroll: (offset: number) => void; editDelivery: (tasks: GoalTask[]) => void; openCardConversation: (task: GoalTask) => Promise<void>; mobileView?: string; readerPath?: string; changeView: (view: string) => void; openReader: (file: string) => void; closeReader: () => void; featureTitle: string; query: string; setQuery: (value: string) => void; statusFilter: TaskStatusFilter; setStatusFilter: (value: TaskStatusFilter) => void; machineId: string; featurePath: string; task: GoalTask; allTasks: GoalTask[]; conversationId?: string; agent: 'codex' | 'claude'; offline: boolean; refresh: () => Promise<void>; selectTask: (id: string) => void; selectConversation: (id?: string) => void; };
 function TaskWorkspace(props: TaskWorkspaceProps) {
     const { machineId, featurePath, task } = props;
     const binding = React.useMemo(() => projectTaskFiles(machineId, featurePath, task), [machineId, featurePath, task.id, task.indexPath]);
@@ -426,19 +463,12 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     const history = React.useMemo(() => {
         return mergeProjectTaskHistory([...taskHistory.sessions, ...localHistory], Object.values(storage.getState().sessions), { machineId, featurePath, taskId: task.id, directory: workspace.root });
     }, [taskHistory.sessions, localHistory, historyFromStore, deletionRevision, machineId, featurePath, task.id, workspace.root]);
-    const [conversationRetry, retryConversation] = React.useReducer(value => value + 1, 0);
     const conversationId = props.conversationId && !isProjectSessionDeleted(props.conversationId) ? props.conversationId : undefined;
-    const conversation = storage(state => props.conversationId ? state.sessions[props.conversationId] : undefined);
-    const conversationVerified = !!conversation?.metadata && conversation.metadata.machineId === machineId
-        && (projectSessionMatchesTask(conversation.metadata, machineId, featurePath, task.id, workspace.root) || (!conversation.metadata.goalBoard && history.some(value => value.sessionId === props.conversationId)));
-    const conversationRejected = !!props.conversationId && (isProjectSessionDeleted(props.conversationId) || (!!conversation?.metadata && !conversationVerified));
-    React.useEffect(() => {
-        let active = true;
-        if (conversationId && !offline) void sync.ensureSessionHydrated(conversationId).then(ready => {
-            if (active && !ready) setError(t('projectGoals.sessionUnavailable'));
-        }).catch(error => { if (active) setError(error instanceof Error ? error.message : String(error)); });
-        return () => { active = false; };
-    }, [conversationId, conversationRetry, offline]);
+    const conversationState = useProjectConversation(props.conversationId, history.some(value => value.sessionId === props.conversationId), metadata =>
+        metadata.machineId === machineId && (projectSessionMatchesTask(metadata, machineId, featurePath, task.id, workspace.root)
+            || (!metadata.goalBoard && history.some(value => value.sessionId === props.conversationId))));
+    const conversationVerified = conversationState.verified;
+    const conversationRejected = conversationState.rejected;
     const start = async (target: GoalTask, mode: 'chat' | 'execute', keepFileVisible = false, forceNew = false) => {
         if (opening.current) return;
         if (target.id !== task.id) { if (mode === 'chat' && desktop) void props.openCardConversation(target); else selectTask(target.id); return; }
@@ -492,28 +522,31 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
     const wide = !mobile;
     const rightWidth = wide ? Math.min(rightExpandedWidth || 340, Math.max(280, rowWidth * 0.3)) : undefined;
     const fileOpen = workspace.enabled && workspace.snapshot.open;
+    const maximized = fileOpen && workspace.maximized;
+    React.useEffect(() => { if (!fileOpen && workspace.maximized) workspace.setMaximized(false); }, [fileOpen, workspace.maximized, workspace.setMaximized]);
     const showChat = !!conversationId;
-    const splitFile = wide && showChat && fileOpen && tab === 'files' && canSplitProjectFile(rowWidth, rightWidth ?? 0, 0);
-    const chatWidth = getProjectChatWidth(workspace.chatWidthCustomized ? workspace.chatWidth : undefined, rowWidth, rightWidth ?? 0);
-    const showTaskFiles = () => { if (mobile) props.changeView('files'); else { setTab('files'); if (!wide) setCompactTab('details'); } };
+    const centerOpen = showChat || fileOpen;
+    const catalogWidth = getProjectCatalogWidth(rowWidth, rightWidth ?? 0);
+    const showTaskFiles = () => { if (mobile) props.changeView('files'); else { setTab('files'); if (fileOpen) setCompactTab('file'); } };
     const emptyConversation = <ProjectConversationEmptyState task={task} onStart={() => { void start(task, 'chat'); }} startLabel={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || (!history.length && (offline || !canCreateProjectConversation()))} onFiles={showTaskFiles} />;
-    const changeTab = (value: string) => { setTab(value); if (value === 'details' && showChat) setCompactTab('chat'); };
+    const changeTab = (value: string) => { setTab(value); if (value === 'details' && showChat) setCompactTab('chat'); else if (value === 'files' && fileOpen) setCompactTab('file'); };
     const canExecute = !readOnly && taskCanExecute(task) && !executionAttempted && !history.some(session => session.executed);
     const details = <ProjectDetailsPanel style={[{ backgroundColor: surface }, wide ? { width: rightWidth, marginLeft: projectPanelGap } : { flex: 1 }]} testID="project-task-panel" tab={tab} onTab={changeTab} showTabs={!mobile}
         header={mobile ? <><ProjectTaskStatus status={task.status} /><ApprovalTag task={task} /></> : <><ProjectTaskSwitcher tasks={allTasks} selectedId={task.id} onSelect={selectTask} /><View style={{ flex: 1 }} /><ProjectTaskStatus status={task.status} /></>} footer={<>{readOnly && <Text style={styles.meta}>{t(canCreateProjectConversation() ? 'projectGoals.previewChatHint' : 'projectGoals.readOnlyArchive')}</Text>}<Button variant="primary" label={t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')} disabled={busy || (!history.length && (offline || !canCreateProjectConversation()))} onPress={() => { void start(task, 'chat'); }} testID="project-task-open-chat"><Ionicons name="chatbubble-outline" size={16} color={theme.colors.text} /><Text style={styles.body}>{t(history.length ? 'projectGoals.continueChat' : 'projectGoals.openChat')}</Text></Button>
             {!mobile && canExecute && <Button variant="primary" label={t('projectGoals.execute')} disabled={busy || offline} onPress={() => { void start(task, 'execute'); }} testID="project-task-execute"><Ionicons name="play" size={16} color={theme.colors.textLink} /><Text style={styles.link}>{t('projectGoals.execute')}</Text></Button>}{busy && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}</>}>
-        {!mobile && tab === 'files' ? <WorkspaceDirectoryTree sessionId={conversationId ?? ''} rootPath={workspace.root} listDirectory={listDirectory} cacheKey={directoryCacheKey} revision={directoryRevision} onOpenFile={path => { void openFile(path); }} />
+        {!mobile && tab === 'files' ? <ProjectArchiveTree machineId={machineId} scopePath={featurePath} taskId={task.id} sessionId={conversationId ?? ''} rootPath={workspace.root} listDirectory={listDirectory} cacheKey={directoryCacheKey} revision={directoryRevision} onOpenFile={path => { void openFile(path); }} />
             : <ScrollView style={styles.detailScroll}><ProjectTaskDetails task={task} number={allTasks.indexOf(task) + 1} approval={<ApprovalTag task={task} />} editDisabled={busy || (!history.length && (!canCreateProjectConversation() || offline))} onEdit={() => { void start(task, 'chat'); }} onDelivery={() => props.editDelivery([task])} deliveryDisabled={readOnly || offline || busy}>
                 {task.artifacts.filter(artifact => artifact.relation === 'output').map(artifact => <Deliverable key={artifact.id} {...{ artifact, task, machineId, featurePath, refresh }} openFile={openFile} offline={offline} />)}
             </ProjectTaskDetails></ScrollView>}
-        {(error || conversationRejected) && <Text accessibilityRole="alert" style={[styles.error, { padding: 12 }]}>{error || t('projectGoals.sessionUnavailable')}</Text>}
+        {error && <Text accessibilityRole="alert" style={[styles.error, { padding: 12 }]}>{error}</Text>}
         {!readOnly && task.execution?.state === 'uncertain' && <Text style={[styles.meta, { paddingHorizontal: 14, paddingVertical: 6 }]}>{t('projectGoals.executionUncertain')}</Text>}
     </ProjectDetailsPanel>;
-    const chat = <View testID="project-task-chat" style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && !workspace.maximized && splitFile ? { flexGrow: 0, flexShrink: 0, flexBasis: chatWidth, width: chatWidth, minWidth: 310 } : {}, wide && fileOpen && !splitFile && compactTab === 'file' && { display: 'none' }]}>
-        <ProjectConversationHeader testIDPrefix="project-task" sessions={history} selectedId={conversationId} onSelect={selectConversation} onNew={canCreateProjectConversation() ? () => { void start(task, 'chat', false, true); } : undefined} onRefresh={() => { void taskHistory.read(); }} loading={taskHistory.loading} error={taskHistory.error} onRetry={() => { void taskHistory.read(); }} onMore={taskHistory.nextCursor ? () => { void taskHistory.read(taskHistory.nextCursor); } : undefined} busy={busy} offline={offline} mobile={mobile} />
-        {conversationId && !conversationVerified ? <View style={styles.empty} testID="project-conversation-loading">{!error && !conversationRejected && !offline && <ActivityIndicator color={theme.colors.textSecondary} />}<Text style={styles.meta}>{error || t(conversationRejected ? 'projectGoals.sessionUnavailable' : offline ? 'projectGoals.offlineArchive' : 'common.loading')}</Text>{error && !offline && <Button label={t('common.retry')} onPress={() => { setError(null); retryConversation(); }}><Text style={styles.link}>{t('common.retry')}</Text></Button>}</View> : conversationId ? <SafeAreaInsetsContext.Provider value={mobile ? { ...safeArea, top: 0, bottom: 0 } : safeArea}><SessionView key={conversationId} id={conversationId} embedded fullWidth projectTaskContext={mobile} emptyState={desktop || mobile ? appendDraft => <ProjectConversationEmptyState task={task} scrollable={false} onDraft={appendDraft} onFiles={showTaskFiles} /> : undefined} /></SafeAreaInsetsContext.Provider> : desktop || mobile ? emptyConversation : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t('projectGoals.emptyChatHint')}</Text><Button label={t('projectGoals.openChat')} disabled={busy || offline || !canCreateProjectConversation()} onPress={() => { void start(task, 'chat'); }}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button></View>}
+    const chat = <View testID="project-task-chat" style={[styles.chat, { backgroundColor: surface }, wide && fileOpen && compactTab === 'file' && { display: 'none' }]}>
+        <ProjectConversationHeader onGlobal={mobile ? undefined : props.openGlobalConversation} onClose={() => { setError(null); selectConversation(undefined); }} manage={!readOnly && conversationVerified} testIDPrefix="project-task" sessions={history} selectedId={conversationId} onSelect={id => { setError(null); selectConversation(id); }} onNew={canCreateProjectConversation() ? () => { void start(task, 'chat', false, true); } : undefined} onRefresh={() => { void taskHistory.read(); }} loading={taskHistory.loading} error={taskHistory.error} onRetry={() => { void taskHistory.read(); }} onMore={taskHistory.nextCursor ? () => { void taskHistory.read(taskHistory.nextCursor); } : undefined} busy={busy || props.globalBusy} offline={offline} mobile={mobile} />
+        {conversationId && !conversationVerified ? <View style={styles.empty} testID="project-conversation-loading">{!conversationState.error && !conversationRejected && !offline && <ActivityIndicator color={theme.colors.textSecondary} />}<Text style={styles.meta}>{conversationState.error || t(conversationRejected ? 'projectGoals.sessionUnavailable' : offline ? 'projectGoals.offlineArchive' : 'common.loading')}</Text>{conversationState.error && <Button label={t('common.retry')} onPress={conversationState.retry}><Text style={styles.link}>{t('common.retry')}</Text></Button>}</View> : conversationId ? <SafeAreaInsetsContext.Provider value={mobile ? { ...safeArea, top: 0, bottom: 0 } : safeArea}><SessionView key={conversationId} id={conversationId} embedded fullWidth projectTaskContext={mobile} emptyState={desktop || mobile ? appendDraft => <ProjectConversationEmptyState task={task} scrollable={false} onDraft={appendDraft} onFiles={showTaskFiles} /> : undefined} /></SafeAreaInsetsContext.Provider> : desktop || mobile ? emptyConversation : <View style={styles.empty}><Text style={styles.cardTitle}>{t('projectGoals.emptyChat')}</Text><Text style={styles.meta}>{t('projectGoals.emptyChatHint')}</Text><Button label={t('projectGoals.openChat')} disabled={busy || offline || !canCreateProjectConversation()} onPress={() => { void start(task, 'chat'); }}><Text style={styles.link}>{t('projectGoals.openChat')}</Text></Button></View>}
     </View>;
-    const catalog = <ScrollView style={[styles.catalog, { backgroundColor: surface, borderRadius: 13 }]} contentContainerStyle={styles.taskCatalogContent}>
+    const catalogScroll = React.useRef<ScrollView>(null);
+    const catalog = <ScrollView ref={catalogScroll} onContentSizeChange={() => catalogScroll.current?.scrollTo({ y: props.catalogScrollPosition.current, animated: false })} onScroll={event => props.onCatalogScroll(event.nativeEvent.contentOffset.y)} scrollEventThrottle={100} style={[styles.catalog, { backgroundColor: surface, borderRadius: 13 }]} contentContainerStyle={styles.taskCatalogContent}>
         <CatalogHeading title={props.featureTitle} subtitle={`${allTasks.length} ${t('projectGoals.tasks')}`} query={props.query} setQuery={props.setQuery} />
         <Button variant="toolbar" label={t('projectGoals.batchDelivery')} disabled={readOnly || offline} onPress={() => props.editDelivery(allTasks)}><Text style={styles.link}>{t('projectGoals.batchDelivery')}</Text></Button>
         <TaskCards onDelivery={target => props.editDelivery([target])} tasks={allTasks} query={props.query} status={props.statusFilter} setStatus={props.setStatusFilter} selectedId={task.id} onSelect={selectTask} onAction={(task, mode) => { void start(task, mode); }} busy={busy} offline={offline} hideExecution={executionAttempted} />
@@ -530,21 +563,21 @@ function TaskWorkspaceContent(props: TaskWorkspaceProps) {
         ]} /></View>
         <View style={[styles.mobileView, mobileView !== 'chat' && styles.hidden]}>{chat}</View>
         <View style={[styles.mobileView, mobileView !== 'details' && styles.hidden]}>{details}</View>
-        <View style={[styles.mobileView, mobileView !== 'files' && styles.hidden]}><WorkspaceDirectoryTree sessionId="" rootPath={workspace.root} listDirectory={listDirectory} cacheKey={directoryCacheKey} revision={directoryRevision} onOpenFile={path => { void openFile(path); }} /></View>
+        <View style={[styles.mobileView, mobileView !== 'files' && styles.hidden]}><ProjectArchiveTree machineId={machineId} scopePath={featurePath} taskId={task.id} sessionId="" rootPath={workspace.root} listDirectory={listDirectory} cacheKey={directoryCacheKey} revision={directoryRevision} onOpenFile={path => { void openFile(path); }} /></View>
     </View>;
     return <View style={styles.taskArea}>
         {!wide && <View style={styles.compactTabs}><PanelTabs activeTab={compactTab} onTabChange={setCompactTab} testIDPrefix="project-workspace" tabs={[{ key: 'tasks', label: t('projectGoals.tasks'), icon: 'grid-outline' }, ...(showChat ? [{ key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' as const }] : []), ...(fileOpen ? [{ key: 'file', label: t('projectGoals.files'), icon: 'document-outline' as const }] : []), { key: 'details', label: t('projectGoals.details'), icon: 'reader-outline' }]} /></View>}
         <View style={[styles.workspaceRow, !wide && { flexDirection: 'column' }]} onLayout={event => setRowWidth(Math.round(event.nativeEvent.layout.width))}>
             {wide ? <>
 
-                <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-                    {fileOpen && showChat && !splitFile && !workspace.maximized && compactTab === 'file' && <View style={{ height: 44, flexShrink: 0, paddingBottom: 6 }}><PanelTabs activeTab={compactTab === 'file' ? 'file' : 'chat'} onTabChange={setCompactTab} testIDPrefix="project-center" tabs={[{ key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' }, { key: 'file', label: t('projectGoals.files'), icon: 'document-outline' }]} /></View>}
+                <View testID="project-task-catalog" style={[{ minWidth: 0, minHeight: 0 }, centerOpen ? { width: catalogWidth, flexBasis: catalogWidth, flexGrow: 0, flexShrink: 0, marginRight: projectPanelGap } : { flex: 1 }, maximized && { display: 'none' }]}>{catalog}</View>
+                {centerOpen && <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                    {fileOpen && showChat && !maximized && <View style={{ height: 44, flexShrink: 0, paddingBottom: 6 }}><PanelTabs activeTab={compactTab === 'file' ? 'file' : 'chat'} onTabChange={setCompactTab} testIDPrefix="project-center" tabs={[{ key: 'chat', label: t('projectGoals.discussion'), icon: 'chatbubble-outline' }, { key: 'file', label: t('projectGoals.files'), icon: 'document-outline' }]} /></View>}
                     <View style={styles.workspaceRow}>
-                        {!workspace.maximized && showChat && chat}
-                        {!workspace.maximized && !showChat && !fileOpen && catalog}
-                        {fileOpen && <>{!workspace.maximized && showChat && splitFile && <FileWorkspaceResizeHandle width={chatWidth} maximumWidth={getProjectChatMaximumWidth(rowWidth, rightWidth ?? 0)} />}<View style={{ flex: 1, minWidth: 0, minHeight: 0, ...(showChat && !splitFile && !workspace.maximized && compactTab !== 'file' ? { display: 'none' as const } : {}) }}><FileWorkspace framed readingSurface="inherited" sessionId={conversationId ?? ''} fileTreeExpanded={tab === 'files'} onToggleFileTree={() => changeTab(tab === 'files' ? 'details' : 'files')} /></View></>}
+                        {!maximized && showChat && chat}
+                        {fileOpen && <View style={{ flex: 1, minWidth: 0, minHeight: 0, ...(showChat && !maximized && compactTab !== 'file' ? { display: 'none' as const } : {}) }}><FileWorkspace framed readingSurface="inherited" sessionId={conversationId ?? ''} fileTreeExpanded={tab === 'files'} onToggleFileTree={() => changeTab(tab === 'files' ? 'details' : 'files')} /></View>}
                     </View>
-                </View>
+                </View>}
                 {details}
             </> : compactTab === 'details' ? details : compactTab === 'chat' ? chat : compactTab === 'file' ? <FileWorkspace framed readingSurface="inherited" sessionId={conversationId ?? ''} /> : catalog}
         </View>
@@ -593,14 +626,11 @@ const styles = StyleSheet.create(theme => ({
     line: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     machineBackdrop: { position: 'absolute', inset: 0, zIndex: 20 },
     machineMenu: { position: 'absolute', top: 56, right: 16, width: 310, maxHeight: 320, padding: 8, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, zIndex: 21 },
-    catalog: { flex: 1, minWidth: 0 }, catalogContent: { paddingHorizontal: 32, paddingTop: 28, paddingBottom: 36, gap: 24 },
+    catalog: { flex: 1, minWidth: 0 }, catalogContent: { paddingHorizontal: 22, paddingTop: 28, paddingBottom: 36, gap: 24 },
     catalogHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
     heading: { fontSize: 28, lineHeight: 38, color: theme.colors.text, ...Typography.default('semiBold') },
-    libraryHeading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 12 },
     search: { minWidth: 180, maxWidth: 320, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 13 },
     grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: 14 },
-    catalogCard: { flexGrow: 1, flexBasis: 280, maxWidth: 440 },
-    catalogCardContent: { padding: 18, flexDirection: 'row', alignItems: 'center', gap: 16 },
     loadingCard: { borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, gap: 18 },
     skeletonLine: { height: 10, borderRadius: 5, backgroundColor: theme.colors.surfaceSelected },
     taskBoard: { gap: 20 }, taskFilters: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
@@ -622,7 +652,7 @@ const styles = StyleSheet.create(theme => ({
     taskArea: { flex: 1, minHeight: 0, minWidth: 0, padding: 10 }, workspaceRow: { flex: 1, minHeight: 0, flexDirection: 'row' },
     taskPanel: { minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, panelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 48, padding: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     tabs: { flexDirection: 'row', minHeight: 48, paddingHorizontal: 12, paddingVertical: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
-    detailScroll: { flex: 1, minHeight: 0 }, sectionTitle: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
+    detailScroll: { flex: 1, minHeight: 0 },
     deliverable: { gap: 9, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, padding: 10 },
     footer: { padding: 12, gap: 8, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
     chat: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0, borderRadius: 13, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }, historyHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 48, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },

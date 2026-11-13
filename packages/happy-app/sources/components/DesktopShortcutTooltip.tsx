@@ -1,3 +1,4 @@
+import { ComposerTooltipHost } from './ComposerTooltipHost';
 import * as React from 'react';
 import { Text, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
@@ -5,20 +6,24 @@ import { Typography } from '@/constants/Typography';
 
 export const DesktopShortcutTooltip = React.memo(function DesktopShortcutTooltip({
     align = 'left',
+    anchorRelative = false,
     compact = false,
     label,
     multiline = false,
     placement = 'below',
     shortcut,
+    showCaret = true,
     testID,
     visible,
 }: {
     align?: 'center' | 'left' | 'right';
+    anchorRelative?: boolean;
     compact?: boolean;
     label: string;
     multiline?: boolean;
     placement?: 'above' | 'below';
     shortcut?: string;
+    showCaret?: boolean;
     testID: string;
     visible: boolean;
 }) {
@@ -30,6 +35,7 @@ export const DesktopShortcutTooltip = React.memo(function DesktopShortcutTooltip
             style={[
                 styles.tooltip,
                 placement === 'above' ? styles.placementAbove : styles.placementBelow,
+                anchorRelative && placement === 'above' && styles.anchorAbove,
                 compact && styles.tooltipCompact,
                 multiline && styles.tooltipMultiline,
                 align === 'center'
@@ -47,7 +53,7 @@ export const DesktopShortcutTooltip = React.memo(function DesktopShortcutTooltip
                 {label}
             </Text>
             {shortcut ? <Text numberOfLines={1} style={styles.shortcut}>{shortcut}</Text> : null}
-            {compact ? (
+            {compact && showCaret ? (
                 <View
                     style={[
                         styles.caret,
@@ -58,6 +64,16 @@ export const DesktopShortcutTooltip = React.memo(function DesktopShortcutTooltip
             ) : null}
         </View>
     );
+});
+
+/** Input actions share a centered, arrowless hint above their own hit area. */
+export const ComposerTooltip = React.memo(function ComposerTooltip(props: {
+    label: string;
+    shortcut?: string;
+    testID: string;
+    visible: boolean;
+}) {
+    return <ComposerTooltipHost visible={props.visible}><DesktopShortcutTooltip {...props} align="center" placement="above" anchorRelative compact showCaret={false} /></ComposerTooltipHost>;
 });
 
 const styles = StyleSheet.create((theme) => ({
@@ -77,6 +93,10 @@ const styles = StyleSheet.create((theme) => ({
     },
     placementAbove: {
         bottom: 42,
+    },
+    anchorAbove: {
+        bottom: '100%',
+        marginBottom: 8,
     },
     placementBelow: {
         top: 36,

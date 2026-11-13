@@ -1,3 +1,6 @@
+import { SessionComposerPermissionSelector } from './SessionComposerPermissionSelector';
+import { getAgentPermissionModeForTaskLevel, getTaskPermissionLevelForAgentMode } from '@/utils/taskPermissionModes';
+import { ComposerTooltip } from './DesktopShortcutTooltip';
 import { SessionComposerModeSelector } from './SessionComposerModeSelector';
 import React from 'react';
 import {
@@ -173,6 +176,7 @@ export function PickerContent({
 }) {
     const { theme } = useUnistyles();
     const [search, setSearch] = React.useState('');
+    const [hoveredOption, setHoveredOption] = React.useState<string | null>(null);
     const shouldShowSearch = !embedded || items.length + (fixedItems?.length ?? 0) > 4;
 
     const filtered = React.useMemo(() => {
@@ -190,13 +194,15 @@ export function PickerContent({
                 accessibilityState={{ checked: isSelected, disabled: item.dimmed }}
                 aria-checked={isSelected}
                 accessibilityLabel={item.subtitle ? `${item.label}, ${item.subtitle}` : item.label}
-                style={(p) => [
+                style={(p: { pressed: boolean; hovered?: boolean }) => [
                     pickerStyles.option,
                     embedded && pickerStyles.embeddedOption,
-                    p.pressed && pickerStyles.optionPressed,
+                    (p.pressed || hoveredOption === item.key) && pickerStyles.optionPressed,
                     item.dimmed && { opacity: 0.45 },
                 ]}
                 onPress={() => onSelect(item.key)}
+                onHoverIn={() => setHoveredOption(item.key)}
+                onHoverOut={() => setHoveredOption(null)}
             >
                 <Octicons
                     name={isSelected ? 'check-circle-fill' : 'circle'}
@@ -505,7 +511,7 @@ export function PathPickerContent({
                         <Pressable
                             onPress={() => { browseRequest.current += 1; setBrowsing(false); }}
                             hitSlop={8}
-                            style={(p) => [pickerStyles.crumbBack, p.pressed && pickerStyles.optionPressed]}
+                            style={(p: { pressed: boolean; hovered?: boolean }) => [pickerStyles.crumbBack, (p.pressed || p.hovered) && pickerStyles.optionPressed]}
                             accessibilityLabel={t('directoryPicker.closeBrowser')}
                         >
                             <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
@@ -524,7 +530,7 @@ export function PathPickerContent({
                                         {i > 0 && (
                                             <Ionicons name="chevron-forward" size={12} color={theme.colors.textSecondary} style={pickerStyles.crumbSep} />
                                         )}
-                                        <Pressable testID={`path-picker-crumb-${c.path}`} disabled={browseLoading || !canBrowse} onPress={() => !isLast && loadDir(c.path)} hitSlop={6}>
+                                        <Pressable testID={`path-picker-crumb-${c.path}`} disabled={isLast || browseLoading || !canBrowse} onPress={() => loadDir(c.path)} hitSlop={6} style={(p: { pressed: boolean; hovered?: boolean }) => [{ borderRadius: 6, paddingHorizontal: 3 }, (p.pressed || p.hovered) && pickerStyles.optionPressed]}>
                                             <Text
                                                 style={[
                                                     pickerStyles.crumbText,
@@ -565,10 +571,10 @@ export function PathPickerContent({
                                     key={`${dir.name}:${dir.path}`}
                                     testID={`path-picker-directory-${dir.path}`}
                                     disabled={browseLoading || !canBrowse}
-                                    style={(p) => [
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [
                                         pickerStyles.option,
                                         embedded && pickerStyles.embeddedOption,
-                                        p.pressed && pickerStyles.optionPressed,
+                                        (p.pressed || p.hovered) && pickerStyles.optionPressed,
                                     ]}
                                     onPress={() => loadDir(dir.path)}
                                 >
@@ -600,10 +606,10 @@ export function PathPickerContent({
                             onPress={() => selectFolder(browsePath)}
                             accessibilityRole="button"
                             accessibilityLabel={t('directoryPicker.selectCurrent', { name: browsePath })}
-                            style={(p) => [
+                            style={(p: { pressed: boolean; hovered?: boolean }) => [
                                 pickerStyles.selectButton,
                                 { backgroundColor: theme.colors.button.primary.background },
-                                p.pressed && pickerStyles.optionPressed,
+                                (p.pressed || p.hovered) && pickerStyles.optionPressed,
                             ]}
                         >
                             <Ionicons name="checkmark" size={16} color={theme.colors.button.primary.tint} />
@@ -621,6 +627,7 @@ export function PathPickerContent({
                             disabled={!canBrowse}
                             accessibilityRole="button"
                             accessibilityLabel="Select project path"
+                            style={(p: { pressed: boolean; hovered?: boolean }) => [(p.pressed || p.hovered) && pickerStyles.optionPressed]}
                         >
                             {pathInputRow}
                         </Pressable>
@@ -639,10 +646,10 @@ export function PathPickerContent({
                             onPress={startBrowsing}
                             accessibilityRole="button"
                             accessibilityLabel={t('directoryPicker.browse')}
-                            style={(p) => [
+                            style={(p: { pressed: boolean; hovered?: boolean }) => [
                                 pickerStyles.option,
                                 embedded && pickerStyles.embeddedOption,
-                                p.pressed && pickerStyles.optionPressed,
+                                (p.pressed || p.hovered) && pickerStyles.optionPressed,
                             ]}
                         >
                             <Ionicons name="folder-open-outline" size={16} color={theme.colors.button.primary.background} />
@@ -666,10 +673,10 @@ export function PathPickerContent({
                             return (
                                 <Pressable
                                     key={item.key}
-                                    style={(p) => [
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [
                                         pickerStyles.option,
                                         embedded && pickerStyles.embeddedOption,
-                                        p.pressed && pickerStyles.optionPressed,
+                                        (p.pressed || p.hovered) && pickerStyles.optionPressed,
                                     ]}
                                     onPress={() => handleSuggestionPress(item)}
                                 >
@@ -816,6 +823,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const [modelIndex, setModelIndex] = React.useState(0);
         const [effortIndex, setEffortIndex] = React.useState(0);
         const [fastMode, setFastMode] = React.useState(false);
+        const [hoveredComposerControl, setHoveredComposerControl] = React.useState<'machine' | 'path' | 'permission' | null>(null);
         const [activePicker, setActivePicker] = React.useState<PickerType | null>(null);
         const activePickerRef = React.useRef<PickerType | null>(null);
         const previousPickerRef = React.useRef<PickerType | null>(null);
@@ -1430,9 +1438,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                         onPress={dismissPicker}
                         accessibilityRole="button"
                         accessibilityLabel={t('devTools.close')}
-                        style={({ pressed }) => [
+                        style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
                             isAndroid ? styles.androidPickerClose : styles.webPickerClose,
-                            pressed && styles.configRowPressed,
+                            (pressed || hovered) && styles.configRowPressed,
                         ]}
                     >
                         <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
@@ -1479,14 +1487,17 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 accessibilityState={{ expanded: activePicker === 'machine' }}
                                 aria-expanded={activePicker === 'machine'}
                                 onPress={(event) => togglePicker('machine', event)}
-                                style={(p) => [styles.composerConfigChip, p.pressed && styles.composerConfigChipPressed]}
+                                onHoverIn={() => setHoveredComposerControl('machine')}
+                                onHoverOut={() => setHoveredComposerControl(null)}
+                                style={(p: { pressed: boolean; hovered?: boolean }) => [styles.composerConfigChip, (p.pressed || hoveredComposerControl === 'machine') && styles.composerConfigChipPressed]}
                             >
                                 <View style={[styles.composerStatusDot, {
                                     backgroundColor: isOffline ? theme.colors.status.disconnected : theme.colors.status.connected,
                                 }]} />
                                 <Text style={styles.composerConfigChipText} numberOfLines={1}>{machineName}</Text>
                                 <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
-                            </Pressable>
+                            <ComposerTooltip testID="composer-machine-tooltip" label={t('devTools.machine')} visible={isWeb && hoveredComposerControl === 'machine' && activePicker !== 'machine'} />
+                                </Pressable>
 
                             {!isOffline && configExperience.showPath && (
                                 <Pressable
@@ -1497,17 +1508,35 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     accessibilityState={{ expanded: activePicker === 'path' }}
                                     aria-expanded={activePicker === 'path'}
                                     onPress={(event) => togglePicker('path', event)}
-                                    style={(p) => [styles.composerConfigChip, p.pressed && styles.composerConfigChipPressed]}
+                                onHoverIn={() => setHoveredComposerControl('path')}
+                                onHoverOut={() => setHoveredComposerControl(null)}
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [styles.composerConfigChip, (p.pressed || hoveredComposerControl === 'path') && styles.composerConfigChipPressed]}
                                 >
                                     <Ionicons name="folder-outline" size={14} color={theme.colors.textSecondary} />
                                     <Text style={styles.composerConfigChipText} numberOfLines={1}>{pathName}</Text>
                                     <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
+                                <ComposerTooltip testID="composer-path-tooltip" label={'Project'} visible={isWeb && hoveredComposerControl === 'path' && activePicker !== 'path'} />
                                 </Pressable>
                             )}
 
             </View>;
             const permissionControl = <>{
-!isOffline && showPermission && (
+!isOffline && showPermission && (selectedAgent === 'codex' ? (
+                                <SessionComposerPermissionSelector
+                                    online supported supportsAutomatic
+                                    level={getTaskPermissionLevelForAgentMode(selectedAgent, currentPermission?.key)}
+                                    currentMode={currentPermission?.key}
+                                    unavailableReason={null}
+                                    onLevelChange={async level => {
+                                        const mode = getAgentPermissionModeForTaskLevel(selectedAgent, level);
+                                        const index = permissionModes.findIndex(option => option.key === mode);
+                                        if (index < 0 || !mode) return false;
+                                        setPermissionIndex(index);
+                                        draft.setPermissionMode(mode);
+                                        return true;
+                                    }}
+                                />
+                            ) : (
                                 <Pressable
                                     ref={(node) => capturePickerTrigger('permission', node)}
                                     testID="session-config-permission-trigger"
@@ -1516,7 +1545,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     accessibilityState={{ expanded: activePicker === 'permission' }}
                                     aria-expanded={activePicker === 'permission'}
                                     onPress={(event) => togglePicker('permission', event)}
-                                    style={(p) => [styles.composerConfigCompactTrigger, p.pressed && styles.composerConfigChipPressed]}
+                                onHoverIn={() => setHoveredComposerControl('permission')}
+                                onHoverOut={() => setHoveredComposerControl(null)}
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [styles.composerConfigCompactTrigger, (p.pressed || hoveredComposerControl === 'permission') && styles.composerConfigCompactPressed]}
                                 >
                                     <Ionicons
                                         name={permissionStyle?.icon ?? 'shield-outline'}
@@ -1524,9 +1555,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         color={permissionStyle?.color ?? theme.colors.textSecondary}
                                     />
                                     <Text style={styles.composerConfigCompactText} numberOfLines={1}>{currentPermission?.name}</Text>
-                                    <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
+                                <ComposerTooltip testID="composer-permission-tooltip" label={t('agentInput.taskPermission.title')} visible={isWeb && hoveredComposerControl === 'permission' && activePicker !== 'permission'} />
                                 </Pressable>
-                            )
+                            ))
             }</>;
             const modelControl = <>{
 !isOffline && !configExperience.isAskMode && (
@@ -1540,6 +1571,14 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     fastMode={fastMode}
                                     supportsFast={supportsFast}
                                     onFastModeChange={setFastMode}
+                                    onReset={unifiedModels.some(option => option.key === 'codex::gpt-6.1-sol') ? () => {
+                                        draft.setAgentType('codex');
+                                        draft.setModelMode('gpt-6.1-sol');
+                                        draft.setEffortLevel('medium');
+                                        setFastMode(false);
+                                        const modelIndex = modelModes.findIndex(mode => mode.key === 'gpt-6.1-sol');
+                                        if (selectedAgent === 'codex' && modelIndex >= 0) setModelIndex(modelIndex);
+                                    } : undefined}
                                     onModelChange={(key) => {
                                         const separator = key.indexOf('::');
                                         if (separator < 0) return;
@@ -1599,10 +1638,10 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     accessibilityLabel={`${t('devTools.machine')}: ${machineName}`}
                                     accessibilityState={{ expanded: activePicker === 'machine' }}
                                     aria-expanded={activePicker === 'machine'}
-                                    style={(p) => [
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [
                                         styles.configRow,
                                         { flex: 1 },
-                                        p.pressed && styles.configRowPressed,
+                                        (p.pressed || p.hovered) && styles.configRowPressed,
                                     ]}
                                     onPress={(event) => togglePicker('machine', event)}
                                 >
@@ -1616,7 +1655,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Pressable
                                         onPress={toggleConfig}
                                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                        style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapseToggle, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <Ionicons name="chevron-up" size={16} color={theme.colors.textSecondary} />
                                     </Pressable>
@@ -1644,7 +1683,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <>
                                         <Pressable
                                             testID="session-config-path-trigger"
-                                            style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                            style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configRow, (p.pressed || p.hovered) && styles.configRowPressed]}
                                             onPress={(event) => togglePicker('path', event)}
                                         >
                                             <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
@@ -1668,7 +1707,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                 accessibilityLabel={`${t('agents.title')}: ${agent.label}`}
                                                 accessibilityState={{ expanded: activePicker === 'agent' }}
                                                 aria-expanded={activePicker === 'agent'}
-                                                style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                                style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configInlineField, (p.pressed || p.hovered) && styles.configRowPressed]}
                                             >
                                                 <RNImage
                                                     source={agentIcons[agent.key]}
@@ -1690,7 +1729,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                         accessibilityLabel={currentModel.name}
                                                         accessibilityState={{ expanded: activePicker === 'model' }}
                                                         testID="session-config-model-trigger"
-                                                        style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configInlineField, (p.pressed || p.hovered) && styles.configRowPressed]}
                                                     >
                                                         <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                             {currentModel.name}
@@ -1703,7 +1742,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                             {showEffort && (
                                                 <>
                                                     <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                                    <Pressable onPress={(event) => togglePicker('effort', event)} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                                    <Pressable onPress={(event) => togglePicker('effort', event)} style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configInlineField, (p.pressed || p.hovered) && styles.configRowPressed]}>
                                                         <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                             {currentEffort?.name}
                                                         </Text>
@@ -1720,7 +1759,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                         accessibilityState={{ checked: fastMode }}
                                                         testID="session-config-fast-toggle"
                                                         onPress={() => setFastMode((enabled) => !enabled)}
-                                                        style={(p) => [styles.configFastToggle, p.pressed && styles.configRowPressed]}
+                                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configFastToggle, (p.pressed || p.hovered) && styles.configRowPressed]}
                                                     >
                                                         <Ionicons name="flash-outline" size={14} color={fastMode ? theme.colors.accent : theme.colors.textSecondary} />
                                                     </Pressable>
@@ -1735,7 +1774,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
 
                                 {showPermission && (
                                     <Pressable
-                                        style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configRow, (p.pressed || p.hovered) && styles.configRowPressed]}
                                         onPress={(event) => togglePicker('permission', event)}
                                     >
                                         <Ionicons
@@ -1755,7 +1794,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <>
                                         <Pressable
                                             testID="session-config-worktree-trigger"
-                                            style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                            style={(p: { pressed: boolean; hovered?: boolean }) => [styles.configRow, (p.pressed || p.hovered) && styles.configRowPressed]}
                                             onPress={(event) => togglePicker('worktree', event)}
                                         >
                                             <MaterialCommunityIcons name="tree" size={15} color={theme.colors.textSecondary} />
@@ -1773,7 +1812,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                         <>
                             <View style={styles.configRowWithToggle}>
                                 <Pressable
-                                    style={(p) => [styles.collapsedRow, { flex: 1 }, p.pressed && styles.configRowPressed]}
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedRow, { flex: 1 }, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     onPress={(event) => togglePicker(configExperience.isAskMode ? 'machine' : 'path', event)}
                                 >
                                     <Ionicons
@@ -1788,7 +1827,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 <Pressable
                                     onPress={toggleConfig}
                                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapseToggle, (p.pressed || p.hovered) && styles.configRowPressed]}
                                 >
                                     <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
                                 </Pressable>
@@ -1799,7 +1838,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 <Pressable
                                     onPress={(event) => togglePicker('machine', event)}
                                     hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                    style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                 >
                                     <Ionicons name="desktop-outline" size={14} color={isOffline ? theme.colors.status.disconnected : theme.colors.textSecondary} />
                                 </Pressable>
@@ -1808,7 +1847,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Pressable
                                         onPress={(event) => togglePicker('agent', event)}
                                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <RNImage
                                             source={agentIcons[agent.key]}
@@ -1826,7 +1865,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         accessibilityState={{ expanded: activePicker === 'model' }}
                                         testID="session-config-model-trigger"
                                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <Ionicons name="hardware-chip-outline" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
@@ -1836,7 +1875,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Pressable
                                         onPress={(event) => togglePicker('effort', event)}
                                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <Ionicons name="speedometer-outline" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
@@ -1846,7 +1885,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Pressable
                                         onPress={(event) => togglePicker('permission', event)}
                                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <Ionicons
                                             name={permissionStyle?.icon ?? 'shield-outline'}
@@ -1860,7 +1899,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Pressable
                                         onPress={(event) => togglePicker('worktree', event)}
                                         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                        style={(p: { pressed: boolean; hovered?: boolean }) => [styles.collapsedIconButton, (p.pressed || p.hovered) && styles.configRowPressed]}
                                     >
                                         <MaterialCommunityIcons name="tree" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
@@ -2013,6 +2052,9 @@ const styles = StyleSheet.create((theme) => ({
         gap: 4,
         paddingHorizontal: 7,
         borderRadius: 9,
+    },
+    composerConfigCompactPressed: {
+        backgroundColor: theme.colors.surfaceSelected,
     },
     composerFastToggle: {
         width: 32,

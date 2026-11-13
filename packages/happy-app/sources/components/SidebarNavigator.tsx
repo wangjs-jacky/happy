@@ -422,7 +422,6 @@ const PersistentHeader = React.memo(({ globalBar = false }: { globalBar?: boolea
                 {globalBar ? <Feather name="arrow-right" size={18} color={theme.colors.header.tint} /> : <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />}
             </Pressable>
             <DesktopShortcutTooltip
-                align="right"
                 label={t('desktopWorkspace.forward')}
                 testID="desktop-navigation-forward-tooltip"
                 visible={forwardTooltipVisible}

@@ -18,6 +18,7 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { ModeOption } from '@/components/modelModeOptions';
 import { hapticsLight } from '@/components/haptics';
+import { ComposerTooltip } from './DesktopShortcutTooltip';
 
 export type SessionComposerModeSelectorConfig = {
     online: boolean;
@@ -26,6 +27,7 @@ export type SessionComposerModeSelectorConfig = {
     modelOptions: ModeOption[];
     effort: ModeOption | null;
     effortOptions: ModeOption[];
+    onReset?: () => void;
     onModelChange: (key: string) => void;
     onEffortChange: (key: string) => void;
     fastMode?: boolean;
@@ -90,7 +92,9 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
         animation.start();
         return () => animation.stop();
     }, [open, shimmer]);
+    const [triggerHovered, setTriggerHovered] = React.useState(false);
     const [modelHovered, setModelHovered] = React.useState(false);
+    const [resetHovered, setResetHovered] = React.useState(false);
     const [fastHovered, setFastHovered] = React.useState(false);
     const [knobHovered, setKnobHovered] = React.useState(false);
     const [modelsOpen, setModelsOpen] = React.useState(false);
@@ -109,8 +113,10 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     const close = React.useCallback(() => {
         dragIndex.current = null;
         setPreviewFraction(null);
+        setTriggerHovered(false);
         setModelHovered(false);
         setFastHovered(false);
+        setResetHovered(false);
         setKnobHovered(false);
         setOpen(false);
         setModelsOpen(false);
@@ -163,9 +169,17 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     };
     const placement = getModePanelPlacement(width, height, anchor);
     const levels = props.effortOptions.filter((option) => option.key !== 'default').map((option) => ({
-        ...option, name: ['max', 'ultra'].includes(option.key.toLowerCase()) ? `${option.key[0].toUpperCase()}${option.key.slice(1).toLowerCase()}` : ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(option.key.toLowerCase()) ? option.key.toLowerCase() : option.name,
+        ...option, name: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(option.key.toLowerCase()) ? `${option.key[0].toUpperCase()}${option.key.slice(1).toLowerCase()}` : option.name,
     }));
-    const defaultOption = levels.find((option) => option.key === 'medium') ?? levels[0];
+    const defaultOption = levels.find((option) => option.key === 'medium');
+    const defaultModel = props.modelOptions.find(option => /^(?:codex::)?gpt[-_ ]?6\.1[-_ ]sol$/i.test(option.key));
+    const reset = () => {
+        if (props.onReset) { props.onReset(); setPendingEffort(null); setPreviewFraction(null); return; }
+        if (defaultModel && defaultModel.key !== props.model?.key) props.onModelChange(defaultModel.key);
+        if (defaultOption) { setPendingEffort(defaultOption.key); props.onEffortChange(defaultOption.key); }
+        if (props.fastMode) props.onFastModeChange?.(false);
+    };
+    const canReset = Boolean(props.onReset || (defaultModel && defaultOption));
     const effectiveEffort = pendingEffort ? levels.find((level) => level.key === pendingEffort) ?? props.effort : props.effort?.key === 'default' ? defaultOption : levels.find((level) => level.key === props.effort?.key) ?? props.effort;
     const selectedIndex = levels.findIndex((option) => option.key === effectiveEffort?.key);
     const effortIndex = previewFraction === null ? selectedIndex : Math.round(previewFraction * Math.max(0, levels.length - 1));
@@ -224,10 +238,13 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                 aria-expanded={open}
                 disabled={!enabled}
                 onPress={toggle}
+                onHoverIn={() => setTriggerHovered(true)}
+                onHoverOut={() => setTriggerHovered(false)}
                 style={({ pressed }) => [
                     styles.trigger,
                     !enabled && styles.disabled,
-                    (open || pressed) && styles.selected,
+                    (open || pressed || triggerHovered) && styles.selected,
+                    hoverTransition,
                 ]}
             >
                 {props.supportsFast ? (
@@ -249,6 +266,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                     />
                 ) : null}
             </Pressable>
+            <ComposerTooltip testID="session-composer-mode-tooltip" label={t('agentInput.effort.select')} visible={Platform.OS === 'web' && triggerHovered && !open && Boolean(enabled)} />
             <Modal
                 visible={open}
                 transparent
@@ -280,7 +298,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                 setModelsOpen(false);
                                                 setSearch('');
                                             }}
-                                            style={styles.iconButton}
+                                            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, (pressed || hovered) && styles.pressed]}
                                         >
                                             <Ionicons
                                                 name="chevron-back"
@@ -293,7 +311,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                             accessibilityRole="button"
                                             accessibilityLabel={t('devTools.close')}
                                             onPress={close}
-                                            style={styles.iconButton}
+                                            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, (pressed || hovered) && styles.pressed]}
                                         >
                                             <Ionicons
                                                 name="close"
@@ -356,9 +374,9 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                         setModelsOpen(false);
                                                         setSearch('');
                                                     }}
-                                                    style={({ pressed }) => [
-                                                        styles.option,
-                                                        pressed && styles.pressed,
+                                                    style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
+                                                        styles.option, hoverTransition,
+                                                        (pressed || hovered) && styles.pressed,
                                                     ]}
                                                 >
                                                     <View style={styles.grow}>
@@ -407,6 +425,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                             : theme.colors.textSecondary
                                                     }
                                                 />
+                                                <ComposerTooltip testID="composer-fast-tooltip" label={props.fastMode ? t('agentInput.effort.fastOn') : t('agentInput.effort.fastOff')} visible={Platform.OS === 'web' && fastHovered && !!props.supportsFast} />
                                             </Pressable>
                                         ) : (
                                             <View style={styles.iconButton} />
@@ -414,6 +433,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                         <View style={styles.centerSlot}>
                                         <Pressable
                                             testID="session-composer-open-models"
+                                            accessibilityLabel={t('agentInput.model.title')}
                                             accessibilityRole="button"
                                             accessibilityState={{ disabled: props.modelOptions.length < 2 }}
                                             disabled={props.modelOptions.length < 2}
@@ -431,21 +451,27 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                 {formatComposerModelName(props.model?.name ?? t('agentInput.model.title'))}
                                                 {props.modelOptions.length > 1 ? '  ›' : ''}
                                             </Text>
+                                            <ComposerTooltip testID="composer-model-list-tooltip" label={t('agentInput.model.title')} visible={Platform.OS === 'web' && modelHovered && props.modelOptions.length > 1} />
                                         </Pressable>
                                         </View>
                                         <Pressable
                                             testID="session-composer-effort-reset"
                                             accessibilityRole="button"
-                                            accessibilityLabel={defaultOption ? t('common.reset') : t('devTools.close')}
-                                            accessibilityHint={defaultOption?.name}
-                                            onPress={() => defaultOption ? props.onEffortChange(defaultOption.key) : close()}
-                                            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                                            accessibilityLabel={t('common.reset')}
+                                            accessibilityState={{ disabled: !canReset }}
+                                            disabled={!canReset}
+                                            accessibilityHint={canReset ? defaultOption?.name : t('settingsAccount.notAvailable')}
+                                            onPress={reset}
+                                            onHoverIn={() => setResetHovered(true)}
+                                            onHoverOut={() => setResetHovered(false)}
+                                            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, !canReset && styles.disabled, canReset && (pressed || hovered) && styles.pressed]}
                                         >
                                             <Ionicons
-                                                name={defaultOption ? 'refresh-outline' : 'close'}
+                                                name="refresh-outline"
                                                 size={20}
                                                 color={theme.colors.textSecondary}
                                             />
+                                            <ComposerTooltip testID="composer-reset-tooltip" label={t('common.reset')} visible={Platform.OS === 'web' && resetHovered && canReset} />
                                         </Pressable>
                                     </View>
                                     {levels.length > 0 ? (
@@ -490,7 +516,9 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                         >
                                             {effortFraction > 0 ? (
                                                 <View pointerEvents="none" style={[styles.fill, slideTransition, {
-                                                    width: 16 + Math.max(0, trackWidth - 32) * effortFraction,
+                                                    width: Platform.OS === 'web'
+                                                        ? `calc(${effortFraction * 100}% + ${16 - 32 * effortFraction}px)` as any
+                                                        : 16 + Math.max(0, trackWidth - 32) * effortFraction,
                                                 }]}>
                                                     {isUltra ? (
                                                         <LinearGradient
@@ -510,7 +538,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                                     key: particle,
                                                                     'data-effort-particle': particle,
                                                                     style: {
-                                                                        position: 'absolute', width: trackWidth, height: 3,
+                                                                        position: 'absolute', width: '100%', height: 3,
                                                                         top: 4 + ((particle * 17 + 5) % 24), left: 0,
                                                                         pointerEvents: 'none',
                                                                         opacity: particle < particleCount ? 0.48 + (particle % 4) * 0.14 : 0,
@@ -602,7 +630,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     triggerEffort: { color: theme.colors.textSecondary, ...Typography.default() },
     disabled: { opacity: 0.58 },
-    pressed: { backgroundColor: theme.colors.surfacePressed },
+    pressed: { backgroundColor: theme.colors.surfaceSelected },
     modalRoot: { flex: 1 },
     backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
     panel: {
@@ -610,7 +638,7 @@ const styles = StyleSheet.create((theme) => ({
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
         backgroundColor: theme.colors.input.background,
-        overflow: 'hidden',
+        overflow: Platform.OS === 'web' ? 'visible' : 'hidden',
         shadowColor: theme.colors.shadow.color,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: theme.colors.shadow.opacity,
@@ -622,7 +650,7 @@ const styles = StyleSheet.create((theme) => ({
     iconButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
     centerSlot: { flex: 1, alignItems: 'center', minWidth: 0 },
     center: { alignItems: 'center', maxWidth: '100%', borderRadius: 10, paddingVertical: 4, paddingHorizontal: 12 },
-    centerHover: { backgroundColor: theme.colors.surfacePressed },
+    centerHover: { backgroundColor: theme.colors.surfaceSelected, shadowColor: theme.colors.shadow.color, shadowOffset: { width: 0, height: 2 }, shadowOpacity: theme.colors.shadow.opacity, shadowRadius: 6, elevation: 2 },
     levelTitle: {
         color: theme.colors.text,
         fontSize: 18,

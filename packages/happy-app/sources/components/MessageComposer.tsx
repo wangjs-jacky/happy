@@ -1,6 +1,8 @@
+import { ComposerActionIcon } from './ComposerActionIcon';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import * as React from 'react';
 import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable } from 'react-native';
+import { ComposerTooltip } from './DesktopShortcutTooltip';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
@@ -148,7 +150,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         borderRadius: Platform.select({ default: 16, android: 20 }),
         borderWidth: 1,
         borderColor: theme.dark ? theme.colors.divider : '#C9C9CE',
-        overflow: 'hidden',
+        overflow: Platform.OS === 'web' ? 'visible' : 'hidden',
         paddingVertical: 2,
         paddingBottom: 8,
         paddingHorizontal: 8,
@@ -199,7 +201,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         alignItems: 'center',
         flex: 1,
         minWidth: 0,
-        overflow: 'hidden',
+        overflow: Platform.OS === 'web' ? 'visible' : 'hidden',
     },
     machineLabel: {
         flexDirection: 'row',
@@ -230,25 +232,29 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flexShrink: 0,
         marginLeft: 8,
     },
+    sendButtonHovered: {
+        shadowColor: theme.colors.shadow.color,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: theme.colors.shadow.opacity,
+        shadowRadius: 5,
+        elevation: 2,
+    },
     sendButtonActive: {
-        backgroundColor: theme.colors.button.primary.background,
+        backgroundColor: theme.colors.button.composer.background,
     },
     sendButtonInactive: {
-        backgroundColor: theme.colors.button.primary.disabled,
-    },
-    sendButtonIcon: {
-        color: theme.colors.button.primary.tint,
+        backgroundColor: theme.colors.button.composer.disabled,
     },
     abortConfirmationLabel: {
-        color: theme.colors.button.primary.tint,
+        color: theme.colors.button.composer.tint,
         fontSize: 12,
         lineHeight: 16,
         ...Typography.default('semiBold'),
     },
     imagePickerButton: {
-        width: 40,
-        height: 40,
-        borderRadius: Platform.select({ default: 20, android: 22 }),
+        width: Platform.select({ web: 32, default: 40 }),
+        height: Platform.select({ web: 32, default: 40 }),
+        borderRadius: Platform.select({ web: 16, default: 20, android: 22 }),
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 4,
@@ -492,6 +498,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const { width: screenWidth } = useWindowDimensions();
+    const [hoveredAction, setHoveredAction] = React.useState<'attach' | 'send' | null>(null);
     const [directoryInvalid, setDirectoryInvalid] = React.useState(false);
     const isSendBlocked = (props.blockSend ?? false)
         || directoryInvalid
@@ -963,19 +970,22 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             props.onPickImages?.();
                                         }}
                                         hitSlop={8}
+                                        onHoverIn={() => setHoveredAction('attach')}
+                                        onHoverOut={() => setHoveredAction(null)}
                                         style={(p) => [
                                             styles.imagePickerButton,
                                             (props.selectedImages?.length ?? 0) > 0 && styles.imagePickerButtonActive,
-                                            p.pressed && { opacity: 0.7 },
+                                            (p.pressed || hoveredAction === 'attach') && { backgroundColor: theme.colors.surfaceSelected },
                                         ]}
                                     >
                                         <Ionicons
                                             name="add"
-                                            size={24}
+                                            size={Platform.OS === 'web' ? 20 : 24}
                                             color={(props.selectedImages?.length ?? 0) > 0
                                                 ? theme.colors.radio.active
                                                 : theme.colors.button.secondary.tint}
                                         />
+                                        <ComposerTooltip testID="composer-attach-tooltip" label={t('imageUpload.chooseSourceTitle')} visible={Platform.OS === 'web' && hoveredAction === 'attach'} />
                                     </Pressable>
                                 )}
 
@@ -1011,6 +1021,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                     ref={shakerRef}
                                     style={[
                                         styles.sendButton,
+                                        hoveredAction === 'send' && styles.sendButtonHovered,
                                         (isAbortAction || isAbortConfirmationArmed || canPressSendButton || props.isSending)
                                             ? styles.sendButtonActive
                                             : styles.sendButtonInactive
@@ -1025,12 +1036,14 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             ? t('keyboardShortcuts.stopRunningAgent')
                                             : (props.sendLabel ?? t('keyboardShortcuts.sendMessage'))}
                                         accessibilityHint={(isAbortAction || isAbortConfirmationArmed) ? undefined : props.sendHint}
+                                        onHoverIn={() => setHoveredAction('send')}
+                                        onHoverOut={() => setHoveredAction(null)}
                                         style={(p) => ({
                                             width: '100%',
                                             height: '100%',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            opacity: p.pressed ? 0.7 : 1,
+                                            opacity: p.pressed ? 0.75 : 1,
                                         })}
                                         hitSlop={Platform.OS === 'web'
                                             ? { top: 5, bottom: 10, left: 0, right: 0 }
@@ -1048,27 +1061,14 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             || (!isAbortAction && !isAbortConfirmationArmed && props.isSending) ? (
                                             <ActivityIndicator
                                                 size="small"
-                                                color={theme.colors.button.primary.tint}
+                                                color={theme.colors.button.composer.tint}
                                             />
                                         ) : isAbortConfirmationArmed ? (
                                             <Text style={styles.abortConfirmationLabel}>Esc</Text>
-                                        ) : isAbortAction ? (
-                                            <Octicons
-                                                name="square-fill"
-                                                size={12}
-                                                color={theme.colors.button.primary.tint}
-                                            />
                                         ) : (
-                                            <Octicons
-                                                name="arrow-up"
-                                                size={16}
-                                                color={theme.colors.button.primary.tint}
-                                                style={[
-                                                    styles.sendButtonIcon,
-                                                    { marginTop: Platform.OS === 'web' ? 2 : 0 }
-                                                ]}
-                                            />
+                                            <ComposerActionIcon size={Platform.OS === 'web' ? 20 : 24} stop={isAbortAction} color={theme.colors.button.composer.tint} />
                                         )}
+                                        <ComposerTooltip testID="composer-send-tooltip" label={(isAbortAction || isAbortConfirmationArmed) ? t('agentInput.stop') : (props.sendLabel ?? t('keyboardShortcuts.sendMessage'))} visible={Platform.OS === 'web' && hoveredAction === 'send'} />
                                     </Pressable>
                                 </Shaker>
                                 </View>
@@ -1086,6 +1086,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
 
 // Git Status Button Component
 function GitStatusButton({ sessionId, onPress }: { sessionId?: string, onPress?: () => void }) {
+    const [hovered, setHovered] = React.useState(false);
     const hasMeaningfulGitStatus = useHasMeaningfulGitStatus(sessionId || '');
     const styles = stylesheet;
     const { theme } = useUnistyles();
@@ -1105,8 +1106,11 @@ function GitStatusButton({ sessionId, onPress }: { sessionId?: string, onPress?:
                 height: 32,
                 opacity: p.pressed ? 0.7 : 1,
                 flex: 1,
-                overflow: 'hidden',
+                overflow: Platform.OS === 'web' ? 'visible' : 'hidden',
+                backgroundColor: hovered ? theme.colors.surfaceSelected : 'transparent',
             })}
+            onHoverIn={() => setHovered(true)}
+            onHoverOut={() => setHovered(false)}
             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
             onPress={() => {
                 hapticsLight();
@@ -1122,6 +1126,7 @@ function GitStatusButton({ sessionId, onPress }: { sessionId?: string, onPress?:
                     color={theme.colors.button.secondary.tint}
                 />
             )}
+            <ComposerTooltip testID="composer-git-tooltip" label="Git" visible={Platform.OS === 'web' && hovered} />
         </Pressable>
     );
 }

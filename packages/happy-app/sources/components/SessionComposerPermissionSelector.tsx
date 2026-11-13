@@ -1,10 +1,12 @@
 import * as React from 'react';
 import { Modal, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { PermissionModeIcon } from './PermissionModeIcon';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { hapticsLight } from '@/components/haptics';
+import { ComposerTooltip } from './DesktopShortcutTooltip';
 import type { SessionTaskPermissionController } from '@/hooks/useSessionTaskPermission';
 import type { TaskPermissionLevel } from '@/utils/taskPermissionModes';
 
@@ -12,23 +14,26 @@ export type SessionComposerPermissionSelectorConfig = SessionTaskPermissionContr
     compact?: boolean;
 };
 
-const LEVELS: TaskPermissionLevel[] = ['confirm', 'full-access'];
+const LEVELS: TaskPermissionLevel[] = ['confirm', 'automatic', 'full-access'];
 
 function labelForLevel(level: TaskPermissionLevel | null): string {
     if (level === 'full-access') {
-        return t('agentInput.codexPermissionMode.badgeYolo').toUpperCase();
+        return t('agentInput.taskPermission.fullAccess');
     }
+    if (level === 'automatic') return t('agentInput.taskPermission.automatic');
     return t('agentInput.taskPermission.confirm');
 }
 
 function shortLabelForLevel(level: TaskPermissionLevel | null): string {
     if (level === 'full-access') {
-        return t('agentInput.codexPermissionMode.badgeYolo').toUpperCase();
+        return t('agentInput.taskPermission.fullAccessShort');
     }
+    if (level === 'automatic') return t('agentInput.taskPermission.automatic');
     return t('agentInput.taskPermission.confirmShort');
 }
 
 function descriptionForLevel(level: TaskPermissionLevel): string {
+    if (level === 'automatic') return t('agentInput.taskPermission.automaticDescription');
     return level === 'full-access'
         ? t('agentInput.taskPermission.fullAccessDescription')
         : t('agentInput.taskPermission.confirmDescription');
@@ -40,17 +45,20 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
     const { theme } = useUnistyles();
     const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
     const [open, setOpen] = React.useState(false);
+    const [hovered, setHovered] = React.useState(false);
+    const [hoveredLevel, setHoveredLevel] = React.useState<TaskPermissionLevel | null>(null);
     const [selecting, setSelecting] = React.useState(false);
     const triggerRef = React.useRef<any>(null);
     const firstOptionRef = React.useRef<any>(null);
     const wasOpenRef = React.useRef(false);
     const [anchor, setAnchor] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
     const enabled = props.online && props.supported && !selecting;
+    const legacyLabel = props.currentMode === 'read-only' ? t('agentInput.codexPermissionMode.readOnly') : t('agentInput.codexPermissionMode.default');
     const currentFullLabel = props.supported
-        ? labelForLevel(props.level)
+        ? (props.supportsAutomatic && props.level === null ? legacyLabel : labelForLevel(props.level))
         : t('agentInput.taskPermission.unavailable');
     const currentTriggerLabel = props.supported
-        ? shortLabelForLevel(props.level)
+        ? (props.supportsAutomatic && props.level === null ? legacyLabel : shortLabelForLevel(props.level))
         : t('agentInput.taskPermission.unavailable');
 
     React.useEffect(() => {
@@ -93,6 +101,7 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
     const openPicker = React.useCallback(() => {
         if (!enabled) return;
         hapticsLight();
+        setHoveredLevel(null);
         const node = triggerRef.current;
         if (node && typeof node.measureInWindow === 'function') {
             node.measureInWindow((x: number, y: number, width: number, height: number) => {
@@ -122,7 +131,7 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
         }
     }, [enabled, props.level, props.onLevelChange]);
 
-    const dialogWidth = Math.min(390, Math.max(0, viewportWidth - 32));
+    const dialogWidth = Math.min(336, Math.max(0, viewportWidth - 32));
 
     return (
         <View
@@ -139,30 +148,31 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
                 accessibilityState={{ disabled: !enabled, expanded: open }}
                 aria-expanded={open}
                 disabled={!enabled}
-                onPress={openPicker}
+                onPress={() => { setHovered(false); openPicker(); }}
+                onHoverIn={() => setHovered(true)}
+                onHoverOut={() => setHovered(false)}
                 hitSlop={6}
                 style={({ pressed }) => [
                     styles.trigger,
                     !enabled && styles.triggerDisabled,
-                    pressed && styles.triggerPressed,
+                    (pressed || hovered) && styles.triggerPressed,
                 ]}
             >
-                <Ionicons
-                    name={props.level === 'full-access' ? 'play-forward' : 'shield-checkmark-outline'}
-                    size={14}
-                    color={props.level === 'full-access' ? theme.colors.warning : theme.colors.textSecondary}
+                <PermissionModeIcon
+                    level={props.level}
+                    size={16}
+                    color={props.level === 'full-access' ? theme.colors.permission.fullAccess : theme.colors.textSecondary}
                 />
                 <Text
                     testID="session-composer-permission-trigger-label"
-                    style={[styles.triggerText, props.compact && styles.triggerTextCompact]}
+                    style={[styles.triggerText, props.compact && styles.triggerTextCompact, props.level === 'full-access' && { color: theme.colors.permission.fullAccess }]}
                     numberOfLines={1}
                 >
                     {currentTriggerLabel}
                 </Text>
-                {enabled && !props.compact ? (
-                    <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={11} color={theme.colors.textSecondary} />
-                ) : null}
+
             </Pressable>
+            <ComposerTooltip testID="session-composer-permission-tooltip" label={t('agentInput.taskPermission.title')} visible={Platform.OS === 'web' && hovered && !open} />
             {props.online && props.unavailableReason ? (
                 <Text testID="session-composer-permission-disabled-reason" style={styles.disabledReason} numberOfLines={1}>
                     {props.unavailableReason}
@@ -172,12 +182,12 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
             <Modal
                 visible={open}
                 transparent
-                animationType="fade"
+                animationType={Platform.OS === 'web' ? 'none' : 'fade'}
                 statusBarTranslucent
                 onRequestClose={() => setOpen(false)}
             >
                 <View style={styles.modalRoot}>
-                    <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)} />
+                    <Pressable testID="session-composer-permission-scrim" style={styles.modalBackdrop} onPress={() => setOpen(false)} />
                     <View
                         role="dialog"
                         accessibilityLabel={t('agentInput.taskPermission.title')}
@@ -187,17 +197,16 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
                             anchor
                                 ? {
                                     position: 'absolute',
-                                    right: Math.max(8, viewportWidth - (anchor.x + anchor.width)),
+                                    left: Math.max(8, Math.min(anchor.x, viewportWidth - dialogWidth - 8)),
                                     bottom: Math.max(8, viewportHeight - anchor.y + 8),
                                 }
                                 : styles.pickerSurfaceFallback,
                             { width: dialogWidth, maxHeight: Math.max(0, viewportHeight - 64) },
                         ]}
                     >
-                        <Text style={styles.pickerTitle}>{t('agentInput.taskPermission.title')}</Text>
-                        <Text style={styles.pickerHint}>{t('agentInput.taskPermission.changesNextMessages')}</Text>
+                        <Text style={styles.pickerTitle}>{t('agentInput.taskPermission.pickerTitle')}</Text>
                         <View accessibilityRole="radiogroup">
-                            {LEVELS.map((level) => {
+                            {LEVELS.filter(level => level !== 'automatic' || props.supportsAutomatic).map((level) => {
                                 const selected = level === props.level;
                                 const label = labelForLevel(level);
                                 const description = descriptionForLevel(level);
@@ -211,20 +220,28 @@ export const SessionComposerPermissionSelector = React.memo(function SessionComp
                                         aria-checked={selected}
                                         accessibilityLabel={`${label}. ${description}`}
                                         onPress={() => void selectLevel(level)}
-                                        style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+                                        {...(Platform.OS === 'web' ? { onKeyDown: (event: React.KeyboardEvent) => {
+                                            if (event.key === ' ' && !event.repeat) {
+                                                event.preventDefault();
+                                                void selectLevel(level);
+                                            }
+                                        } } : {})}
+                                        onHoverIn={() => setHoveredLevel(level)}
+                                        onHoverOut={() => setHoveredLevel(null)}
+                                        style={({ pressed }) => [styles.option, (pressed || hoveredLevel === level) && styles.optionPressed]}
                                     >
-                                        <Ionicons
-                                            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                                            size={18}
-                                            color={selected ? theme.colors.button.primary.background : theme.colors.textSecondary}
-                                        />
+                                        <PermissionModeIcon level={level} color={level === 'full-access' ? theme.colors.permission.fullAccess : theme.colors.textSecondary} />
                                         <View style={styles.optionCopy}>
-                                            <Text style={styles.optionLabel}>{label}</Text>
-                                            <Text style={styles.optionDescription}>{description}</Text>
+                                            <Text style={[styles.optionLabel, level === 'full-access' && { color: theme.colors.permission.fullAccess }]}>{label}</Text>
+                                            <Text style={[styles.optionDescription, level === 'full-access' && { color: theme.colors.permission.fullAccess }]}>{description}</Text>
+                                        </View>
+                                        <View style={styles.checkmark}>
+                                            {selected && <Ionicons name="checkmark" size={18} color={level === 'full-access' ? theme.colors.permission.fullAccess : theme.colors.text} />}
                                         </View>
                                     </Pressable>
                                 );
                             })}
+
                         </View>
                     </View>
                 </View>
@@ -237,7 +254,7 @@ const styles = StyleSheet.create((theme) => ({
     container: {
         minWidth: 0,
         flexShrink: 1,
-        alignItems: 'flex-end',
+        alignItems: 'flex-start',
         marginLeft: 2,
     },
     trigger: {
@@ -245,17 +262,17 @@ const styles = StyleSheet.create((theme) => ({
         width: '100%',
         height: 32,
         paddingHorizontal: 7,
-        borderRadius: 9,
+        borderRadius: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'flex-end',
+        justifyContent: 'flex-start',
         gap: 4,
     },
     triggerDisabled: {
         opacity: 0.58,
     },
     triggerPressed: {
-        backgroundColor: theme.colors.surfaceHigh,
+        backgroundColor: theme.colors.surfacePressed,
     },
     triggerText: {
         minWidth: 0,
@@ -285,11 +302,11 @@ const styles = StyleSheet.create((theme) => ({
         bottom: 0,
     },
     pickerSurface: {
-        padding: 12,
+        padding: 8,
         borderRadius: 16,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.input.background,
+        backgroundColor: theme.colors.surface,
         overflow: 'hidden',
         shadowColor: theme.colors.shadow.color,
         shadowOffset: { width: 0, height: 4 },
@@ -302,28 +319,25 @@ const styles = StyleSheet.create((theme) => ({
         marginTop: 120,
     },
     pickerTitle: {
-        color: theme.colors.text,
-        fontSize: 15,
-        ...Typography.default('semiBold'),
-    },
-    pickerHint: {
-        marginTop: 2,
-        marginBottom: 8,
         color: theme.colors.textSecondary,
         fontSize: 12,
+        paddingHorizontal: 8,
+        paddingTop: 3,
+        paddingBottom: 7,
         ...Typography.default(),
     },
+    checkmark: { width: 18, alignSelf: 'center' },
     option: {
-        minHeight: 58,
+        minHeight: 52,
         paddingHorizontal: 8,
         paddingVertical: 8,
         borderRadius: 12,
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 9,
+        alignItems: 'center',
+        gap: 10,
     },
     optionPressed: {
-        backgroundColor: theme.colors.surfaceHigh,
+        backgroundColor: theme.colors.surfacePressed,
     },
     optionCopy: {
         flex: 1,
