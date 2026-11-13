@@ -73,8 +73,9 @@ import { SessionHistoryList } from './SessionHistoryList';
 import { SessionListRecovery } from './SessionListRecovery';
 import { isSidebarGroupExpanded, setSidebarGroupExpanded } from '@/utils/sidebarGroupExpansion';
 
-const AGENT_TYPES = ['codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
+const AGENT_TYPES = ['personal', 'codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
 const AGENT_LABEL_KEYS = {
+    personal: 'agentInput.agent.personal',
     codex: 'agentInput.agent.codex',
     claude: 'agentInput.agent.claude',
     opencode: 'agentInput.agent.opencode',

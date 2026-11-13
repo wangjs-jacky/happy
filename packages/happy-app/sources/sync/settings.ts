@@ -82,7 +82,7 @@ export const AgentLauncherListSchema = z.array(z.object({
         prompt: z.string(),
     })).default([]),
     // 空间预设的默认引擎 / 模型 / 思考强度（进入该 Agent 新建会话时套用）。
-    agentType: z.enum(['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw']).optional(),
+    agentType: z.enum(['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw', 'personal']).optional(),
     runtime: z.enum(['relationship-advisor']).optional(),
     permissionMode: z.string().optional(),
     modelMode: z.string().optional(),

@@ -1488,6 +1488,7 @@ failedContinueTask: "Continuar tarefa pendente",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'MODELO',

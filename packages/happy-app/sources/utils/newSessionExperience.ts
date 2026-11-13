@@ -40,7 +40,7 @@ export function getSessionConfigExperience(agentType: NewSessionAgentType): Sess
         showPath: !isAskMode,
         showModeDetails: true,
         showPermission: !isAskMode,
-        showWorktree: !isAskMode,
+        showWorktree: !isAskMode && agentType !== 'personal',
     };
 }
 

@@ -1672,6 +1672,7 @@ failedContinueTask: "继续未完成的任务",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: '模型',

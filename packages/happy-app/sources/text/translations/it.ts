@@ -1487,6 +1487,7 @@ failedContinueTask: "Continua il lavoro in sospeso",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'MODELLO',

@@ -1490,6 +1490,7 @@ failedContinueTask: "未完了の作業を続ける",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'モデル',

@@ -1544,6 +1544,7 @@ failedContinueTask: "繼續未完成的工作",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: '模型',

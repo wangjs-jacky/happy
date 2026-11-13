@@ -1787,6 +1787,7 @@ failedContinueTask: "Continue unfinished task",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'MODEL',

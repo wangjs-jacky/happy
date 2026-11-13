@@ -1489,6 +1489,7 @@ failedContinueTask: "Continua la tasca pendent",
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'MODEL',

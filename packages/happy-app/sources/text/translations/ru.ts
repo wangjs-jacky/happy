@@ -1505,6 +1505,7 @@ failedContinueTask: "Продолжить незавершённую задач�
             gemini: 'Gemini',
             opencode: 'OpenCode',
             openclaw: 'OpenClaw',
+            personal: 'Paws Personal',
         },
         model: {
             title: 'МОДЕЛЬ',
