@@ -31,6 +31,13 @@ App to capture the defects. Home and hover share one original Before frame.
 | C3 Activity Center | [Before](interaction-regressions/modal-before.png) | [After](interaction-regressions/modal-after.png) |
 | C4 Hover | [Before](interaction-regressions/hover-before.png) | [After](interaction-regressions/hover-after.png) |
 
+[Verified-state video (17 seconds)](interaction-regressions/verified-states.mp4)
+
+This is a sequence of verified real App states, not a continuous timing recording.
+H.264 / yuv420p / 1440×900 / 30 fps; full decode and all-state contact sheet checked;
+also delivered through Paws. The modal Before includes discovery loading, while
+After is a stable empty state; sidebar alpha was independently read from the DOM.
+
 ## Why recency required server support
 
 Presence and metadata writes advance both `activeAt` and the database's
