@@ -18,6 +18,7 @@ import { AuthCredentials } from '@/auth/tokenStorage';
 import { Encryption } from '@/sync/encryption/encryption';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { storage } from './storage';
+import { isRetiredSession } from './retiredSessions';
 import { ApiEphemeralUpdateSchema, ApiMessage, ApiUpdateContainerSchema, type ApiSessionSnapshot, type ApiUpdate } from './apiTypes';
 import type { ApiEphemeralActivityUpdate } from './apiTypes';
 import { Session, Machine } from './storageTypes';
@@ -1675,7 +1676,8 @@ class Sync {
         if (this.sendAbortControllers.size > 0) {
             return true;
         }
-        for (const messages of this.pendingOutbox.values()) {
+        for (const [sessionId, messages] of this.pendingOutbox) {
+            if (isRetiredSession(storage.getState().sessions[sessionId] ?? {})) continue;
             if (messages.length > 0) {
                 return true;
             }
@@ -1769,6 +1771,7 @@ class Sync {
         const now = Date.now();
         const sessionIds: string[] = [];
         for (const [sessionId, pending] of this.pendingOutbox) {
+            if (isRetiredSession(storage.getState().sessions[sessionId] ?? {})) continue;
             if (pending.length === 0) {
                 continue;
             }
@@ -1857,6 +1860,7 @@ class Sync {
     private failedCodexRecovery = new FailedCodexSessionRecovery();
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
+        if (isRetiredSession(storage.getState().sessions[sessionId] ?? {})) throw new Error('personal-agent-retired');
         const userSentAt = Date.now();
         options = { ...options, userSentAt };
         const recoveryOwner = this.encryption;
@@ -1935,6 +1939,9 @@ class Sync {
 
     private async sendMessageWithContext(sessionId: string, text: string, options: SendMessageOptions | undefined,
         snapshots: { session: Session | undefined; settings: ReturnType<typeof storage.getState>['settings'] }): Promise<LocalMessageQueueReceipt> {
+        if (isRetiredSession(snapshots.session ?? {}) || isRetiredSession(storage.getState().sessions[sessionId] ?? {})) {
+            throw new Error('personal-agent-retired');
+        }
         const isCurrent = options?.isCurrent ?? (() => true);
         if (!isCurrent()) throw new Error('local-message-session-unavailable');
         const userSentAt = options?.userSentAt ?? Date.now();
@@ -3964,6 +3971,8 @@ class Sync {
     };
 
     private flushOutbox = async (sessionId: string) => {
+        // Retain pending bytes, but never deliver them to a retired runtime.
+        if (isRetiredSession(storage.getState().sessions[sessionId] ?? {})) return;
         const pending = this.pendingOutbox.get(sessionId);
         if (!pending || pending.length === 0) {
             if (!this.hasPendingOutboxMessages()) {
