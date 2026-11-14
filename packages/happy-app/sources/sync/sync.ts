@@ -30,6 +30,8 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
+import { sessionPrompt, type SessionPromptPage } from './sessionPromptIndex';
+import { HistoryProjectionCache } from './historyProjectionCache';
 import {
     applySettings,
     mergeServerSettings,
@@ -353,6 +355,7 @@ export type LocalMessageQueueReceipt = {
 };
 
 type SessionMessageCacheGeneration = {
+    projection?: { encryption: object; cache: HistoryProjectionCache };
     localMessageIds?: Map<string, string>;
     // Receipt provenance outlives the optimistic display overlay so a
     // same-generation projection retry can recover exactly what was accepted.
@@ -831,6 +834,96 @@ class Sync {
         return state?.messages.find(message => this.getMessageWireId(id, message.id) === wireId)?.id ?? null;
     };
 
+    /** Read the prompt directory without moving or replaying the conversation window. */
+    public readSessionPromptPage = async (id: string, beforeSeq = SEQ_BACKWARD_INITIAL_SENTINEL,
+        stillWanted: () => boolean = () => true): Promise<SessionPromptPage> => {
+        const owner = this.captureHistoryOwner(id);
+        const encryption = this.encryption.getSessionEncryption(id);
+        const assertCurrent = () => {
+            if (!encryption || !owner.isCurrent() || !stillWanted()
+                || this.encryption.getSessionEncryption(id) !== encryption) throw new Error('history-navigation-cancelled');
+        };
+        assertCurrent();
+        const detached = encryption!.createDetached();
+        const prompts: SessionPromptPage['prompts'] = [];
+        const tail = beforeSeq === SEQ_BACKWARD_INITIAL_SENTINEL ? await owner.history?.readWindow(id, { limit: 1 }) : null;
+        assertCurrent();
+        let cursor = tail?.isAtLatest && tail.newestSeq !== null ? tail.newestSeq + 1 : beforeSeq;
+        let hasMore = true;
+        // One explicit directory action scans a bounded batch, yielding at page
+        // boundaries. Tool-dense pages must not replace the visible transcript.
+        for (let pages = 0; pages < 10 && hasMore && prompts.length < 20; pages++) {
+            let page = await owner.history?.readOlderPage(id, cursor, 100);
+            assertCurrent();
+            if (!page) {
+                const response = await apiSocket.request(`/v3/sessions/${id}/messages?before_seq=${cursor}&limit=100`);
+                assertCurrent();
+                if (!response.ok) throw new Error(`History directory failed: ${response.status}`);
+                const data = await response.json() as V3GetSessionMessagesResponse;
+                assertCurrent();
+                page = { ...data, direction: 'older', boundary: cursor };
+                await owner.history?.commitPage(id, page);
+                assertCurrent();
+            }
+            const decrypted = await detached.decryptMessages(page.messages);
+            assertCurrent();
+            if (decrypted.length !== page.messages.length || decrypted.some(message => !message || message.content === null)) {
+                throw new Error('history-window-decrypt-failed');
+            }
+            decrypted.forEach((message, index) => {
+                const normalized = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
+                const prompt = sessionPrompt(page!.messages[index], normalized ?? null);
+                if (prompt) prompts.push(prompt);
+            });
+            hasMore = page.hasMore;
+            const next = Math.min(cursor, ...page.messages.map(message => message.seq));
+            if (hasMore && next >= cursor) throw new Error('history-directory-cursor-stalled');
+            cursor = next;
+        }
+        return { prompts, beforeSeq: cursor, hasMore };
+    };
+
+    /** Seek by wire sequence; never walk every intervening page or enlarge the memory cap. */
+    public jumpToSessionPrompt = async (id: string, target: { id: string; seq: number },
+        stillWanted: () => boolean = () => true): Promise<void> => {
+        const owner = this.captureHistoryOwner(id);
+        const route = this.sessionRouteOwnership.current();
+        const current = () => owner.isCurrent() && stillWanted()
+            && this.sessionRouteOwnership.current() === route;
+        const assertCurrent = () => { if (!current()) throw new Error('history-navigation-cancelled'); };
+        assertCurrent();
+        const pending = this.historyWindowLoads.get(id);
+        if (pending) await pending.catch(() => undefined);
+        assertCurrent();
+        if (this.historyWindows.get(id)?.messages.some(message => message.id === target.id)) return;
+        let window = await owner.history?.readWindow(id, { anchorSeq: target.seq, limit: 100 });
+        assertCurrent();
+        if (!window?.messages.some(message => message.id === target.id)) {
+            const pages: HistoryPage[] = [];
+            for (const direction of ['older', 'newer'] as const) {
+                const boundary = direction === 'older' ? target.seq + 1 : target.seq;
+                const response = await apiSocket.request(`/v3/sessions/${id}/messages?${direction === 'older' ? 'before_seq' : 'after_seq'}=${boundary}&limit=50`);
+                assertCurrent();
+                if (!response.ok) throw new Error(`History target failed: ${response.status}`);
+                const data = await response.json() as V3GetSessionMessagesResponse;
+                assertCurrent();
+                const page = { ...data, direction, boundary };
+                pages.push(page);
+                await owner.history?.commitPage(id, page);
+                assertCurrent();
+            }
+            const messages = [...new Map(pages.flatMap(page => page.messages).map(message => [message.id, message])).values()]
+                .sort((a, b) => a.seq - b.seq);
+            window = { messages, oldestSeq: messages[0]?.seq ?? null, newestSeq: messages.at(-1)?.seq ?? null,
+                hasMoreOlder: pages[0].hasMore, hasMoreNewer: pages[1].hasMore, isAtLatest: !pages[1].hasMore };
+        }
+        if (!window.messages.some(message => message.id === target.id)) throw new Error('history-target-unavailable');
+        const lease = this.sessionMessageLoadGate.currentLease(id) ?? this.sessionMessageLoadGate.enter(id);
+        const applied = await this.applyHistoryWindow(id, window, this.sessionMessageLoadGate.begin(lease),
+            { anchorSeq: target.seq, isCurrent: current });
+        if (!applied) throw new Error('history-navigation-cancelled');
+    };
+
     private retireObservedLocalMessages(sessionId: string, messages: readonly NormalizedMessage[]): void {
         const pending = this.sessionMessageCacheGenerations.get(sessionId)?.pendingLocalMessages;
         if (!pending) return;
@@ -847,27 +940,43 @@ class Sync {
     }
 
     private applyHistoryWindow = async (id: string, window: HistoryWindow, operation: SessionMessageLoadOperation,
-        options: { retainCurrentWebRows?: boolean; retainCurrentRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean; protectedRange?: HistoryViewportRange; viewport?: HistoryViewportReader } = {}): Promise<boolean> => {
+        options: { retainCurrentWebRows?: boolean; retainCurrentRows?: boolean; anchorSeq?: number; direction?: 'older' | 'newer'; compact?: boolean; protectedRange?: HistoryViewportRange; viewport?: HistoryViewportReader; isCurrent?: () => boolean } = {}): Promise<boolean> => {
         const owner = this.captureHistoryOwner(id, operation);
         const encryption = this.encryption.getSessionEncryption(id);
         if (!encryption) return false;
         const retainCurrentRows = options.retainCurrentRows === true
             || (Platform.OS === 'web' && options.retainCurrentWebRows === true);
+        const cacheGeneration = this.sessionMessageCacheGenerations.get(id) ?? {};
+        this.sessionMessageCacheGenerations.set(id, cacheGeneration);
+        if (cacheGeneration.projection?.encryption !== encryption) {
+            cacheGeneration.projection = { encryption, cache: new HistoryProjectionCache() };
+        }
+        const projectionCache = cacheGeneration.projection.cache;
         const normalized: NormalizedMessage[] = [];
         const normalizedWireIds = new Map<NormalizedMessage, string>();
         let pending = window.messages;
         while (true) {
             if (pending.length > 0) {
-                const decrypted = await encryption.createDetached().decryptMessages(pending);
-                if (!owner.isCurrent() || this.encryption.getSessionEncryption(id) !== encryption) return false;
-                if (decrypted.length !== pending.length || decrypted.some(message => !message || message.content === null)) {
+                // IndexedDB hits should also reuse normalization of unchanged
+                // overlapping wire records. Never cache mutable reducer state.
+                const values = pending.map(message => projectionCache.get(message));
+                const misses = pending.filter((_message, index) => values[index] === undefined);
+                const decrypted = misses.length ? await encryption.createDetached().decryptMessages(misses) : [];
+                if (!owner.isCurrent() || options.isCurrent?.() === false || this.encryption.getSessionEncryption(id) !== encryption
+                    || this.sessionMessageCacheGenerations.get(id) !== cacheGeneration) return false;
+                if (decrypted.length !== misses.length || decrypted.some(message => !message || message.content === null)) {
                     throw new Error('history-window-decrypt-failed');
                 }
-                normalized.push(...decrypted.flatMap(message => {
-                    const value = message && normalizeRawMessage(message.id, message.localId, message.createdAt, message.content);
-                    if (value && message) normalizedWireIds.set(value, message.id);
-                    return value ? [value] : [];
-                }));
+                let missingIndex = 0;
+                pending.forEach((wire, index) => {
+                    let value = values[index];
+                    if (value === undefined) {
+                        const message = decrypted[missingIndex++];
+                        value = message ? normalizeRawMessage(message.id, message.localId, message.createdAt, message.content) : null;
+                        projectionCache.set(wire, value);
+                    }
+                    if (value) { normalized.push(value); normalizedWireIds.set(value, wire.id); }
+                });
             }
             if (!retainCurrentRows) break;
             const current = this.historyWindows.get(id);
@@ -891,6 +1000,7 @@ class Sync {
             window = retained;
             pending = window.messages.filter(message => !knownSeqs.has(message.seq));
         }
+        if (!owner.isCurrent() || options.isCurrent?.() === false) return false;
         // A capacity deferral must leave the current projection and live queue
         // untouched. Sample the viewport after every asynchronous decrypt.
         if (Platform.OS === 'web') window = boundHistoryWindow(window, { ...options,
@@ -907,6 +1017,7 @@ class Sync {
         ]));
         this.retireObservedLocalMessages(id, normalized);
         const retainedIds = new Set(window.messages.map(message => message.id));
+        projectionCache.retain(retainedIds);
         for (let i = normalized.length - 1; i >= 0; i--) {
             if (!retainedIds.has(normalizedWireIds.get(normalized[i])!)) normalized.splice(i, 1);
         }

@@ -962,6 +962,75 @@ describe('message visibility synchronization', () => {
         expect(mocks.state.sessionMessages.archive.messages.length).toBeLessThanOrEqual(500);
     }, 20000);
 
+    it('reads a stable prompt directory without replacing the visible history window', async () => {
+        Platform.OS = 'web'; globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('directory', async rows => rows.map(row => ({ ...row, content: {
+            role: 'user', content: { type: 'text', text: `prompt-${row.seq}` },
+        } })));
+        const history = await openLocalHistory('directory-account');
+        await history!.commitPage('directory', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 250 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('directory');
+        await syncForTest.applyHistoryWindow('directory', await history!.readWindow('directory', { limit: 25 }),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const visible = mocks.state.sessionMessages.directory;
+        const first = await sync.readSessionPromptPage('directory');
+        const second = await sync.readSessionPromptPage('directory', first.beforeSeq);
+        expect(first.prompts).toHaveLength(100);
+        expect(second.prompts).toHaveLength(100);
+        expect(new Set([...first.prompts, ...second.prompts].map(prompt => prompt.id)).size).toBe(200);
+        expect(mocks.state.sessionMessages.directory).toBe(visible);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        await sync.jumpToSessionPrompt('directory', { id: 'message-25', seq: 25 });
+        expect(syncForTest.historyWindows.get('directory').messages.some((row: ApiMessage) => row.seq === 25)).toBe(true);
+        expect(syncForTest.historyWindows.get('directory').messages.length).toBeLessThanOrEqual(100);
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+        history!.close();
+    });
+
+    it('does not move history when a prompt jump is cancelled during the target read', async () => {
+        Platform.OS = 'web'; globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
+        installSession('cancel-prompt');
+        const history = await openLocalHistory('cancel-directory-account');
+        await history!.commitPage('cancel-prompt', { direction: 'older', boundary: 2147483647,
+            messages: Array.from({ length: 250 }, (_, i) => apiMessage(i + 1)), hasMore: false });
+        syncForTest.localHistory = history;
+        const lease = syncForTest.sessionMessageLoadGate.enter('cancel-prompt');
+        await syncForTest.applyHistoryWindow('cancel-prompt', await history!.readWindow('cancel-prompt', { limit: 25 }),
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const visible = mocks.state.sessionMessages['cancel-prompt'];
+        let wanted = true;
+        const original = history!.readWindow.bind(history);
+        vi.spyOn(history!, 'readWindow').mockImplementation(async (...args) => { wanted = false; return original(...args); });
+        await expect(sync.jumpToSessionPrompt('cancel-prompt', { id: 'message-25', seq: 25 }, () => wanted)).rejects.toThrow('cancelled');
+        expect(mocks.state.sessionMessages['cancel-prompt']).toBe(visible);
+        history!.close();
+    });
+
+    it('only decrypts new history records across overlapping cached projections', async () => {
+        Platform.OS = 'web'; const encryption = installSession('overlap');
+        const lease = syncForTest.sessionMessageLoadGate.enter('overlap');
+        const project = (first: number, last: number) => syncForTest.applyHistoryWindow('overlap', {
+            messages: Array.from({ length: last - first + 1 }, (_, i) => apiMessage(first + i)),
+            oldestSeq: first, newestSeq: last, hasMoreOlder: first > 1, hasMoreNewer: false, isAtLatest: true,
+        }, syncForTest.sessionMessageLoadGate.begin(lease));
+        await project(101, 200);
+        encryption.decryptMessages.mockClear();
+        await project(1, 200);
+        expect(encryption.decryptMessages).toHaveBeenCalledTimes(1);
+        expect(encryption.decryptMessages.mock.calls[0][0]).toHaveLength(100);
+        expect(mocks.state.sessionMessages.overlap.messages).toHaveLength(200);
+        encryption.decryptMessages.mockClear();
+        await project(1, 200);
+        expect(encryption.decryptMessages).not.toHaveBeenCalled();
+        syncForTest.releaseSessionMessageCache('overlap');
+        const nextLease = syncForTest.sessionMessageLoadGate.enter('overlap');
+        await syncForTest.applyHistoryWindow('overlap', { messages: [apiMessage(1)], oldestSeq: 1, newestSeq: 1,
+            hasMoreOlder: false, hasMoreNewer: false, isAtLatest: true }, syncForTest.sessionMessageLoadGate.begin(nextLease));
+        expect(encryption.decryptMessages).toHaveBeenCalledTimes(1);
+    });
+
     it('bounds a large Web projection and keeps both evicted boundaries reloadable', async () => {
         Platform.OS = 'web';
         installSession('bounded-web');

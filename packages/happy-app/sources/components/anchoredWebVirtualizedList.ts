@@ -23,6 +23,74 @@ export function createAnchoredWebVirtualizedList(Base: any): any {
                 readAnchorOffset: () => this._scrollRef?.getScrollableNode?.()?.scrollTop ?? this._scrollMetrics.offset };
         }
 
+        private seekRevision = 0;
+
+        // RN Web's imperative methods only move the DOM scroller. They leave
+        // its render mask at the old viewport until a scroll event arrives.
+        // A restored/no-op offset need not emit that event, so first commit a
+        // bounded destination mask. This also gives the browser actual cells
+        // to scroll into instead of clamping against the old sparse content.
+        scrollToOffset(options: { offset: number; animated?: boolean }): void {
+            const retainingHistoryAnchor = this.props.scrollCoordinator?.history
+                || (this.pendingLayoutAnchor && this.props.scrollCoordinator?.canReconcileLayout(this.pendingLayoutAnchor.transaction));
+            if (this.props.inverted || this.props.horizontal || options.animated !== false || retainingHistoryAnchor
+                || !Number.isFinite(options.offset) || !this.props.getItemCount(this.props.data)) {
+                this.seekRevision++;
+                super.scrollToOffset(options);
+                return;
+            }
+            const node = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
+            const visibleLength = node?.clientHeight || this._scrollMetrics.visibleLength;
+            if (!visibleLength) { this.seekRevision++; super.scrollToOffset(options); return; }
+            const revision = ++this.seekRevision;
+            const offset = Math.max(0, options.offset);
+            this._scrollMetrics = { ...this._scrollMetrics, offset, visibleLength,
+                contentLength: Math.max(this._scrollMetrics.contentLength, node?.scrollHeight ?? 0), velocity: 0 };
+            this.setState((state: any, props: any) => {
+                const cells = this._adjustCellsAroundViewport(props, state.cellsAroundViewport);
+                const renderMask = Base._createRenderMask(props, cells, this._getNonViewportRenderRegions(props));
+                return { cellsAroundViewport: cells, renderMask };
+            }, () => {
+                if (revision !== this.seekRevision) return;
+                super.scrollToOffset({ ...options, offset });
+                // Keep the vendor metrics consistent even for a browser clamp
+                // or an already-restored offset that emits no scroll event.
+                if (node) {
+                    this._scrollMetrics = { ...this._scrollMetrics, offset: node.scrollTop };
+                    this.props.onAnchorOffsetChange?.(node.scrollTop);
+                }
+            });
+        }
+
+        scrollToIndex(options: { index: number; animated?: boolean; viewPosition?: number; viewOffset?: number }): void {
+            if (this.props.inverted || this.props.horizontal || options.animated !== false
+                || options.index < 0 || options.index >= this.props.getItemCount(this.props.data)) {
+                this.seekRevision++;
+                super.scrollToIndex(options);
+                return;
+            }
+            const frame = this.__getFrameMetricsApprox(Math.floor(options.index), this.props);
+            const node = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
+            const visibleLength = node?.clientHeight || this._scrollMetrics.visibleLength;
+            const offset = Math.max(0, this._getOffsetApprox(options.index, this.props)
+                - (options.viewPosition ?? 0) * (visibleLength - frame.length)) - (options.viewOffset ?? 0);
+            this.scrollToOffset({ offset, animated: false });
+        }
+
+        scrollToEnd(options?: { animated?: boolean }): void {
+            if (this.props.inverted || this.props.horizontal || options?.animated !== false) {
+                this.seekRevision++;
+                super.scrollToEnd(options);
+                return;
+            }
+            const last = this.props.getItemCount(this.props.data) - 1;
+            if (last < 0) return;
+            const frame = this.__getFrameMetricsApprox(last, this.props);
+            const node = this._scrollRef?.getScrollableNode?.() as HTMLElement | undefined;
+            this.scrollToOffset({ offset: Math.max(0, frame.offset + frame.length + this._footerLength
+                - (node?.clientHeight || this._scrollMetrics.visibleLength)), animated: false });
+        }
+
         static getDerivedStateFromProps(props: any, previous: any): any {
             const base = Base.getDerivedStateFromProps(props, previous);
             const old = previous.anchorProps;

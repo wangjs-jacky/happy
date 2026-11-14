@@ -1606,6 +1606,50 @@ describe('ConversationTranscript older history pagination', () => {
         act(() => renderer.unmount());
     });
 
+    it('captures the reading position after jumping to an already mounted directory target', async () => {
+        vi.useFakeTimers();
+        grouped.renderRows = true;
+        const targetMessage = userMessage('target');
+        grouped.items = [{ type: 'message', id: targetMessage.id, message: targetMessage }];
+        const node = document.createElement('div');
+        const row = document.createElement('div');
+        node.appendChild(row); document.body.appendChild(node);
+        Object.defineProperties(node, { clientHeight: { value: 800 }, scrollHeight: { value: 2000 } });
+        node.getBoundingClientRect = () => ({ top: 0, height: 800 } as DOMRect);
+        row.getBoundingClientRect = () => ({ top: 300 - node.scrollTop, height: 100 } as DOMRect);
+        const save = vi.fn();
+        const reading = { key: 'mounted-target', read: async () => null, save,
+            wireId: (id: string) => id, wireSeq: () => 1 };
+        const prompt = { id: 'target', seq: 1, text: 'target', createdAt: 1 };
+        const navigation = { key: reading.key,
+            readPage: vi.fn(async () => ({ prompts: [prompt], beforeSeq: 1, hasMore: false })),
+            loadTarget: vi.fn(async () => {}) };
+        const scrollToOffset = vi.fn(({ offset }: { offset: number }) => { node.scrollTop = offset; });
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null}
+            sessionId="mounted-target" messages={[targetMessage]} reading={reading}
+            promptNavigation={navigation} isAtLatest={false} />, {
+            createNodeMock: (element: any) => element.type === 'FlatList'
+                ? { getScrollableNode: () => node, scrollToOffset, scrollToIndex: vi.fn() }
+                : element.type === 'View' ? (element.props.style ? node : row) : null,
+        }); });
+        const list = () => byId(renderer, 'conversation-transcript-list');
+        row.dataset.transcriptKey = list().props.data[0].renderKey;
+        await act(async () => { vi.advanceTimersByTime(300); });
+        save.mockClear(); scrollToOffset.mockClear();
+        await act(async () => byId(renderer, 'conversation-anchors-button').props.onPress());
+        const sheet = renderer.root.findByType('BaseModal').props.children.props;
+        await act(async () => { await sheet.onSelect(sheet.anchors[0]); sheet.onClose(); });
+        expect(navigation.loadTarget).toHaveBeenCalledOnce();
+        expect(scrollToOffset).toHaveBeenCalledWith({ offset: 284, animated: false });
+        // No wheel, row mount or layout event follows this already-mounted seek.
+        // Settling alone must release the pending target and persist the new position.
+        await act(async () => { vi.advanceTimersByTime(300); });
+        expect(list().props.scrollCoordinator.canCapture()).toBe(true);
+        expect(save).toHaveBeenCalledWith(expect.objectContaining({ anchorId: 'target', offset: 16, followLatest: false }));
+        act(() => renderer.unmount()); node.remove();
+    });
+
     it('closes the anchor sheet on session changes', async () => {
         let renderer: any;
         const render = (sessionId: string) => <ConversationTranscript metadata={null} sessionId={sessionId} messages={[userMessage('u1')]} />;

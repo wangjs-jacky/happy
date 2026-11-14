@@ -261,7 +261,11 @@ export function useTranscriptReading(options: {
             const shouldCapture = deferredCapture.current;
             deferredCapture.current = false;
             if (shouldCapture && !pending.current) void capture();
-            if (!current.current.inverted && following.current && !pending.current) void layout();
+            // Disk restoration can resolve after every mounted row has already
+            // reported layout. Do not wait for the reader to scroll or a child
+            // to resize before mounting/aligning the persisted target.
+            if (current.current.externallyScheduled
+                || (!current.current.inverted && following.current && !pending.current)) void layout();
         }).catch(() => {
             if (owner !== generation.current) return;
             ready.current = true;
@@ -285,7 +289,7 @@ export function useTranscriptReading(options: {
         register(id, node, depth) { nodes.current.set(node, { id, depth }); return () => { nodes.current.delete(node); }; },
         layout() { void layout(); },
     }), [layout]);
-    return {
+    return React.useMemo(() => ({
         markers: options.adapter ? markers : null, layout, capture,
         // The Web mask translates before its native scroll event is delivered.
         adjustOffset(y: number) { offset.current = y; },
@@ -324,5 +328,5 @@ export function useTranscriptReading(options: {
         },
         jumpLatest() { latestIntent.current += 1; pending.current = null; following.current = true; userScrolling.current = false; cancelFollowLatest();
             if (latest.current) { latest.current.followLatest = true; persist(); } },
-    };
+    }), [Boolean(options.adapter), markers, layout, capture, cancelFollowLatest, persist]);
 }
