@@ -1,15 +1,78 @@
 import { markProjectSessionDeleted } from './projectSessionLinks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GoalTask } from '@slopus/happy-wire';
+import { AbortController as NativeAbortController } from 'abort-controller';
+import { FileWorkspaceController } from '@/components/fileWorkspace/controller';
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), launch: vi.fn(), previewChat: vi.fn(), account: { key: 'test', generation: 0, serverUrl: 'http://fixture' } }));
 vi.mock('./apiSocket', () => ({ apiSocket: { machineRPC: mocks.rpc } }));
 vi.mock('./ops', () => ({ machineStartGoalTask: mocks.launch, machineStartGoalPreviewChat: mocks.previewChat }));
 vi.mock('@/auth/accountRuntime', () => ({ assertAccountRuntime: () => {}, getRuntimeAccountSelection: () => mocks.account }));
 vi.mock('@/text', () => ({ t: (value: string) => value }));
-import { projectTaskFiles, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId, taskApproval, canConfirmProjectDeliverable, projectGoalRequest, projectSessionMatchesTask } from './projectGoals';
+import { projectTaskFiles, projectScopeFiles, projectFeatureFiles, projectSavedFileBinding, projectTaskExecutionAttempted, markProjectTaskExecutionAttempt, clearUndispatchedProjectTaskAttempt, launchProjectGoalTask, ProjectGoalLaunchError, openProjectGoalConversation, loadGoalProjects, getProjectPreviewMachineId, taskApproval, canConfirmProjectDeliverable, projectGoalRequest, projectSessionMatchesTask } from './projectGoals';
 const task: GoalTask = { id: 'task', title: 'Task', indexPath: '/archive/task/index.md', status: 'pending', goal: 'Goal', expectedDeliverables: [], artifacts: [], dependencies: [], execution: { state: 'never' } };
 beforeEach(() => { mocks.rpc.mockReset(); mocks.launch.mockReset(); mocks.previewChat.mockReset(); mocks.account.generation++; });
-afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; });
+afterEach(() => { delete (globalThis as any).__HAPPY_CONFIG__; vi.unstubAllGlobals(); });
+
+describe('native archive file reads', () => {
+    // React Native installs abort-controller 3.x in setUpXHR; its signals have
+    // aborted, but neither throwIfAborted() nor reason. Use that real runtime
+    // implementation rather than Node's newer AbortSignal in these regressions.
+    const nativeAbort = () => new NativeAbortController();
+    const signal = (abort: NativeAbortController) => abort.signal as unknown as AbortSignal;
+    const response = (bytes: Buffer, offset = 0, size = bytes.length) => ({ success: true, content: bytes.toString('base64'), size, revision: 'file-r1', offset, transferId: 'file-transfer' });
+
+    it.each(['task', 'scope', 'feature', 'saved'] as const)('opens a UTF-8 %s file through the real controller with the native AbortSignal', async kind => {
+        vi.stubGlobal('AbortController', NativeAbortController);
+        const content = '# 我真是大明星\n转录正文 🎙️\n';
+        mocks.rpc.mockResolvedValue(response(Buffer.from(content)));
+        const binding = kind === 'task' ? projectTaskFiles('machine', '/archive', task)
+            : kind === 'scope' ? projectScopeFiles('machine', '/archive/task')
+            : kind === 'feature' ? projectFeatureFiles('machine', '/archive/task')
+            : projectSavedFileBinding('machine', '/archive', '/archive/task', task.id);
+        const controller = new FileWorkspaceController({ root: binding.root, read: binding.readText, write: binding.writeText });
+        try {
+            expect((signal(nativeAbort()) as any).throwIfAborted).toBeUndefined();
+            await controller.open('/archive/task/evidence/asr/01 我真是大明星.md');
+            expect(controller.getSnapshot().documents['/archive/task/evidence/asr/01 我真是大明星.md']).toMatchObject({ phase: 'ready', content, error: null, fileRevision: 'file-r1' });
+            expect(mocks.rpc).toHaveBeenCalledTimes(1);
+            const method = kind === 'scope' ? 'goalScopeReadFile' : kind === 'feature' ? 'goalFeatureReadFile' : 'goalTaskReadFile';
+            expect(mocks.rpc.mock.calls[0][1]).toBe(method);
+        } finally { controller.dispose(); }
+    });
+
+    it('reads multiple chunks even when a UTF-8 character straddles a chunk boundary', async () => {
+        const bytes = Buffer.from('中文转录 🎙️');
+        mocks.rpc.mockResolvedValueOnce(response(bytes.subarray(0, 2), 0, bytes.length))
+            .mockResolvedValueOnce(response(bytes.subarray(2), 2, bytes.length));
+        const result = await projectTaskFiles('machine', '/archive', task).readText('/archive/task/transcript.md', signal(nativeAbort()));
+        expect(result.content).toBe('中文转录 🎙️');
+        expect(mocks.rpc.mock.calls[1][2]).toMatchObject({ offset: 2, revision: 'file-r1', transferId: 'file-transfer' });
+    });
+
+    it('reads empty files with a native signal', async () => {
+        mocks.rpc.mockResolvedValue(response(Buffer.alloc(0)));
+        await expect(projectTaskFiles('machine', '/archive', task).readText('/archive/task/empty.md', signal(nativeAbort()))).resolves.toMatchObject({ content: '' });
+    });
+
+    it('does not send any RPC for an already cancelled native read', async () => {
+        const abort = nativeAbort(); abort.abort();
+        await expect(projectTaskFiles('machine', '/archive', task).readBytes('/archive/task/text.md', signal(abort))).rejects.toMatchObject({ name: 'AbortError' });
+        expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('stops after an in-flight native read is cancelled without requesting later chunks', async () => {
+        const abort = nativeAbort();
+        mocks.rpc.mockImplementation(async () => { abort.abort(); return response(Buffer.from('first'), 0, 100); });
+        await expect(projectTaskFiles('machine', '/archive', task).readText('/archive/task/text.md', signal(abort))).rejects.toMatchObject({ name: 'AbortError' });
+        expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves a modern AbortSignal cancellation reason', async () => {
+        const abort = new AbortController(); const reason = new Error('Reader closed'); abort.abort(reason);
+        await expect(projectTaskFiles('machine', '/archive', task).readBytes('/archive/task/text.md', abort.signal)).rejects.toBe(reason);
+        expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+});
 describe('actual archive preview transport', () => {
     it('uses the configured archive owner only in the read-only preview', () => {
         (globalThis as any).__HAPPY_CONFIG__ = { goalProjectReadOnly: true, goalProjectMachineId: 'actual-machine' };
