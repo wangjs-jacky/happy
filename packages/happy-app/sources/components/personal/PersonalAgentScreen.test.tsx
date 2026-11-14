@@ -11,24 +11,26 @@ const mocks = vi.hoisted(() => ({
     settings: { personalAgentName: 'Paws', personalAgentAvatar: null as string | null, personalAgentConversationId: 'personal' as string | null },
     sessions: {} as Record<string, any>, focused: true,
     applySettings: vi.fn(), spawn: vi.fn(), resume: vi.fn(), send: vi.fn(), close: vi.fn(), draft: vi.fn(),
-    picker: vi.fn(), manipulate: vi.fn(),
+    picker: vi.fn(), manipulate: vi.fn(), clipboard: vi.fn(), abort: vi.fn(), scroll: vi.fn(), jump: vi.fn(),
+    paging: { isAtLatest: true },
+    machines: [] as any[],
     owner: { sessionId: 'personal', ownerEpoch: 1, phase: 'opening' },
     setCurrent: vi.fn(), leave: vi.fn(),
 }));
 vi.mock('react-native', async () => {
     const R = await import('react');
     return { Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default }, View: 'View', Text: 'Text', Image: 'Image', TextInput: 'TextInput', ScrollView: 'ScrollView',
-        ActivityIndicator: 'ActivityIndicator', KeyboardAvoidingView: 'KeyboardAvoidingView',
+        ActivityIndicator: 'ActivityIndicator', KeyboardAvoidingView: 'KeyboardAvoidingView', useWindowDimensions: () => ({ width: 1440, height: 900 }),
         Pressable: ({ children, ...props }: any) => R.createElement('Pressable', props, typeof children === 'function' ? children({ pressed: false }) : children),
         FlatList: R.forwardRef(({ data, renderItem, ListFooterComponent, ListHeaderComponent, ...props }: any, ref: any) => {
-            R.useImperativeHandle(ref, () => ({ scrollToOffset() {} }));
+            R.useImperativeHandle(ref, () => ({ scrollToOffset: mocks.scroll }));
             return R.createElement('FlatList', props, ListHeaderComponent, data.map((item: any, index: number) => R.createElement(R.Fragment, { key: item.id }, renderItem({ item, index }))), ListFooterComponent);
         }),
     };
 });
 vi.mock('react-native-unistyles', async () => {
     const { appThemes } = await import('@/themePacks');
-    return { StyleSheet: { hairlineWidth: 1, create: (fn: any) => fn(appThemes.ginghamDark) }, useUnistyles: () => ({ theme: appThemes.ginghamDark }) };
+    return { StyleSheet: { hairlineWidth: 1, absoluteFillObject: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, create: (fn: any) => fn(appThemes.ginghamDark) }, useUnistyles: () => ({ theme: appThemes.ginghamDark }) };
 });
 vi.mock('@expo/vector-icons', () => ({ Feather: 'Feather' }));
 vi.mock('expo-router', () => ({ useNavigation: () => ({ dispatch: vi.fn() }) }));
@@ -39,6 +41,9 @@ vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/markdown/MarkdownView', () => ({ MarkdownView: 'MarkdownView' }));
 vi.mock('@/components/MessageView', () => ({ MessageView: 'MessageView' }));
 vi.mock('@/components/tools/PermissionFooter', () => ({ PermissionFooter: 'PermissionFooter' }));
+vi.mock('@/components/MultiTextInput', () => ({ MultiTextInput: 'MultiTextInput' }));
+vi.mock('./PersonalComputerPanel', () => ({ PersonalComputerPanel: 'PersonalComputerPanel' }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: mocks.clipboard }));
 vi.mock('./PersonalAvatar', () => ({ PersonalAvatar: 'PersonalAvatar' }));
 vi.mock('@/components/DesktopDialogFrame', () => ({ DesktopDialogFrame: ({ children }: any) => children }));
 vi.mock('expo-image-picker', () => ({ launchImageLibraryAsync: mocks.picker }));
@@ -50,10 +55,10 @@ vi.mock('@/sync/storage', () => ({
     useSetting: (key: keyof typeof mocks.settings) => mocks.settings[key],
     useLocalSettingMutable: (key: keyof typeof mocks.settings) => [mocks.settings[key], (value: any) => { (mocks.settings as any)[key] = value; mocks.applySettings({ [key]: value }); }],
     useIsDataReady: () => true,
-    useAllMachines: () => [],
+    useAllMachines: () => mocks.machines,
     usePersonalAgentConversations: () => Object.values(mocks.sessions).filter((s: any) => s.metadata.flavor === 'personal'),
     useSession: (id: string) => mocks.sessions[id] ?? null,
-    useSessionMessages: () => ({ isLoaded: true, hasMoreOlder: false, isAtLatest: true, messages: [
+    useSessionMessages: () => ({ isLoaded: true, hasMoreOlder: false, ...mocks.paging, messages: [
         { id: 'answer', kind: 'agent-text', text: 'Hello', createdAt: 2, localId: null },
         { id: 'prompt', kind: 'user-text', text: 'Hi', createdAt: 1, localId: null },
     ] }),
@@ -63,14 +68,18 @@ vi.mock('@/sync/sync', () => ({ sync: {
     beginSessionRoute: () => mocks.owner, isSessionRouteOwner: () => mocks.focused,
     openSession: () => Promise.resolve('ready'), promoteSessionRoute: vi.fn(), leaveSessionRoute: mocks.leave,
     sessionRouteBecameInteractive: vi.fn(), sendMessage: mocks.send,
-    applySettings: mocks.applySettings,
+    applySettings: mocks.applySettings, jumpToLatestMessages: mocks.jump,
 } }));
-vi.mock('@/sync/ops', () => ({ machineSpawnNewSession: mocks.spawn, machineResumeSession: mocks.resume, sessionAbort: vi.fn() }));
+vi.mock('@/sync/ops', () => ({ machineSpawnNewSession: mocks.spawn, machineResumeSession: mocks.resume, sessionAbort: mocks.abort }));
 
 describe('Personal independent chat', () => {
     beforeEach(() => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
         vi.clearAllMocks(); mocks.focused = true;
+        mocks.paging = { isAtLatest: true };
+        mocks.machines = [];
+        mocks.spawn.mockReset();
+        mocks.abort.mockResolvedValue(undefined); mocks.jump.mockResolvedValue(undefined); mocks.clipboard.mockResolvedValue(undefined);
         mocks.settings = { personalAgentName: 'Paws', personalAgentAvatar: null, personalAgentConversationId: 'personal' };
         mocks.sessions = { personal: { id: 'personal', createdAt: 1, active: true, metadata: { flavor: 'personal', path: '/personal' } } };
     });
@@ -119,7 +128,7 @@ describe('Personal independent chat', () => {
         expect(tree.root.findAllByProps({ testID: 'personal-thinking' })).toHaveLength(0);
         await act(async () => {
             tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('another request');
-            await tree.root.findByProps({ testID: 'personal-message-input' }).props.onKeyPress({ nativeEvent: { key: 'Enter' }, preventDefault() {} });
+            await tree.root.findByProps({ testID: 'personal-message-input' }).props.onKeyPress({ key: 'Enter', shiftKey: false });
         });
         expect(mocks.send).not.toHaveBeenCalled();
 
@@ -139,6 +148,274 @@ describe('Personal independent chat', () => {
         let tree: any;
         await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
         expect(tree.root.findAllByProps({ testID: 'personal-pending-permission' })).toHaveLength(0);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('sends on web Enter, preserves Shift+Enter and keeps newly edited text after an older send is accepted', async () => {
+        let resolveSend!: () => void;
+        mocks.send.mockReturnValue(new Promise<void>(resolve => { resolveSend = resolve; }));
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('first draft'); });
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.onKeyPress({ key: 'Enter', shiftKey: true })).toBe(false);
+        expect(mocks.send).not.toHaveBeenCalled();
+        await act(async () => { expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.onKeyPress({ key: 'Enter', shiftKey: false })).toBe(true); });
+        expect(mocks.send).toHaveBeenCalledTimes(1);
+        await act(async () => { tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('next draft'); resolveSend(); });
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('next draft');
+        expect(mocks.draft).not.toHaveBeenCalledWith();
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('describes a locally queued message as awaiting delivery instead of ready', async () => {
+        mocks.sessions.personal.hasPendingLocalMessages = true;
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        expect(tree.root.findByProps({ testID: 'personal-status' }).children).toContain('personalAgent.queued');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('does not enqueue a new request if execution begins after the send handler was rendered', async () => {
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('keep this draft'); });
+        const staleSend = tree.root.findByProps({ testID: 'personal-message-send' }).props.onPress;
+        mocks.sessions.personal.agentState = { turnStatus: { status: 'running' } };
+        await act(async () => { await staleSend(); });
+        expect(mocks.send).not.toHaveBeenCalled();
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('keep this draft');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('coalesces repeated stop clicks, preserves the draft and waits for the actual completed state', async () => {
+        mocks.sessions.personal.thinking = true;
+        let resolveAbort!: () => void;
+        mocks.abort.mockReturnValue(new Promise<void>(resolve => { resolveAbort = resolve; }));
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-message-input' }).props.onChangeText('after stopping'); });
+        const stop = tree.root.findByProps({ testID: 'personal-stop' });
+        await act(async () => { stop.props.onPress(); stop.props.onPress(); });
+        expect(mocks.abort).toHaveBeenCalledTimes(1);
+        expect(mocks.abort).toHaveBeenCalledWith('personal');
+        await act(async () => { resolveAbort(); });
+        expect(tree.root.findByProps({ testID: 'personal-stop' }).props.disabled).toBe(true);
+        expect(tree.root.findByProps({ testID: 'personal-status' }).children).toContain('personalAgent.stopping');
+        mocks.sessions.personal.thinking = false;
+        await act(async () => { tree.update(<PersonalAgentScreen />); });
+        expect(tree.root.findAllByProps({ testID: 'personal-stop' })).toHaveLength(0);
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('after stopping');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('allows retry after abort RPC failure and keeps its failure distinct from a send failure', async () => {
+        mocks.sessions.personal.thinking = true;
+        mocks.abort.mockRejectedValueOnce(new Error('disconnected'));
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { await tree.root.findByProps({ testID: 'personal-stop' }).props.onPress(); });
+        expect(tree.root.findByProps({ accessibilityRole: 'alert' }).children).toContain('personalAgent.stopFailed');
+        expect(tree.root.findByProps({ testID: 'personal-stop' }).props.disabled).toBe(false);
+        await act(async () => { await tree.root.findByProps({ testID: 'personal-stop' }).props.onPress(); });
+        expect(mocks.abort).toHaveBeenCalledTimes(2);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('leaves a reader in place on content growth and scrolls only after their explicit latest action', async () => {
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-conversation-messages' }).props.onScroll({ nativeEvent: { contentOffset: { y: 240 } } }); });
+        mocks.scroll.mockClear();
+        await act(async () => { tree.root.findByProps({ testID: 'personal-conversation-messages' }).props.onContentSizeChange(); });
+        expect(mocks.scroll).not.toHaveBeenCalled();
+        expect(tree.root.findByProps({ testID: 'personal-jump-to-latest' })).toBeTruthy();
+        await act(async () => { await tree.root.findByProps({ testID: 'personal-jump-to-latest' }).props.onPress(); });
+        expect(mocks.scroll).toHaveBeenCalledWith({ offset: 0, animated: true });
+        expect(mocks.jump).not.toHaveBeenCalled();
+        expect(tree.root.findAllByProps({ testID: 'personal-jump-to-latest' })).toHaveLength(0);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('only mounts the computer for a supported Docker conversation while its screen is focused', async () => {
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        expect(tree.root.findAllByProps({ testID: 'personal-open-computer' })).toHaveLength(0);
+        Object.assign(mocks.sessions.personal.metadata, { personalComputer: true, personalExecutionTarget: 'docker' });
+        await act(async () => { tree.update(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-open-computer' }).props.onPress(); });
+        expect(tree.root.findByType('PersonalComputerPanel').props.sessionId).toBe('personal');
+        mocks.focused = false;
+        await act(async () => { tree.update(<PersonalAgentScreen />); });
+        expect(tree.root.findAllByType('PersonalComputerPanel')).toHaveLength(0);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('expands and restores the same computer panel without changing its conversation or mounting a replacement', async () => {
+        Object.assign(mocks.sessions.personal.metadata, { personalComputer: true, personalExecutionTarget: 'docker' });
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-open-computer' }).props.onPress(); });
+        const originalPanel = tree.root.findByType('PersonalComputerPanel');
+        expect(originalPanel.props.sessionId).toBe('personal');
+        expect(originalPanel.props.expanded).toBe(false);
+        expect(originalPanel.parent.props.style).toMatchObject({ width: '54%' });
+        await act(async () => { originalPanel.props.onToggleExpand(); });
+        const expandedPanel = tree.root.findByType('PersonalComputerPanel');
+        expect(expandedPanel).toBe(originalPanel);
+        expect(expandedPanel.props).toMatchObject({ sessionId: 'personal', expanded: true });
+        expect(expandedPanel.parent.props.style).toMatchObject({ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 });
+        expect(expandedPanel.parent.props.style.width).toBeUndefined();
+        await act(async () => { expandedPanel.props.onToggleExpand(); });
+        const restoredPanel = tree.root.findByType('PersonalComputerPanel');
+        expect(restoredPanel).toBe(originalPanel);
+        expect(restoredPanel.props).toMatchObject({ sessionId: 'personal', expanded: false });
+        expect(restoredPanel.parent.props.style).toMatchObject({ width: '54%' });
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('opens computer setup without replacing the existing local conversation and cancels without spawning', async () => {
+        const existing = mocks.sessions.personal;
+        existing.draft = 'saved local draft';
+        mocks.machines = [{ id: 'device', active: true, metadata: { happyHomeDir: '/fixture/home/.happy/', cliAvailability: { personal: true, personalComputer: true } } }];
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('saved local draft');
+        await act(async () => { tree.root.findByProps({ testID: 'personal-new-computer' }).props.onPress(); });
+        expect(tree.root.findAllByProps({ testID: 'personal-message-input' })).toHaveLength(0);
+        expect(tree.root.findByProps({ testID: 'personal-target-docker' }).props.accessibilityState.checked).toBe(true);
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(mocks.sessions.personal).toBe(existing);
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        await act(async () => { tree.root.findByProps({ testID: 'personal-cancel-create' }).props.onPress(); });
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('saved local draft');
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        await act(async () => { tree.unmount(); });
+    });
+
+    it.each([undefined, false])('cannot start a Docker conversation on a machine whose computer capability is %s', async personalComputer => {
+        mocks.machines = [{ id: 'old-device', active: true, metadata: { happyHomeDir: '/fixture/.happy', cliAvailability: { personal: true, personalComputer } } }];
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-new-computer' }).props.onPress(); });
+        const start = tree.root.findByProps({ testID: 'personal-start-conversation' });
+        expect(start.props.disabled).toBe(true);
+        // A stale/programmatic callback must not bypass the capability guard.
+        await act(async () => { await start.props.onPress(); });
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('explicitly starts Docker on a capable machine, stores the new identity and retains the local thread', async () => {
+        const existing = mocks.sessions.personal;
+        mocks.machines = [{ id: 'docker-device', active: true, metadata: { happyHomeDir: '/fixture/home/.happy/', cliAvailability: { personal: true, personalComputer: true } } }];
+        mocks.spawn.mockImplementation(async () => {
+            mocks.sessions['new-computer'] = { id: 'new-computer', createdAt: 2, active: true, metadata: { flavor: 'personal', path: '/fixture/home/.happy/personal-agent/workspace', personalExecutionTarget: 'docker', personalComputer: true } };
+            return { type: 'success', sessionId: 'new-computer' };
+        });
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-new-computer' }).props.onPress(); });
+        const start = tree.root.findByProps({ testID: 'personal-start-conversation' });
+        expect(start.props.disabled).toBe(false);
+        await act(async () => { start.props.onPress(); start.props.onPress(); });
+        expect(mocks.spawn).toHaveBeenCalledTimes(1);
+        expect(mocks.spawn).toHaveBeenCalledWith({ machineId: 'docker-device', directory: '/fixture/home/.happy/personal-agent/workspace', agent: 'personal', approvedNewDirectoryCreation: true, environmentVariables: { PAWS_PERSONAL_EXECUTION_TARGET: 'docker' } });
+        expect(mocks.settings.personalAgentConversationId).toBe('new-computer');
+        expect(mocks.applySettings).toHaveBeenCalledWith({ personalAgentConversationId: 'new-computer' });
+        expect(mocks.sessions.personal).toBe(existing);
+        expect(tree.root.findByProps({ testID: 'personal-open-computer' })).toBeTruthy();
+        expect(tree.root.findAllByProps({ testID: 'personal-cancel-create' })).toHaveLength(0);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('does not pretend to cancel a creation that has already been dispatched', async () => {
+        mocks.machines = [{ id: 'docker-device', active: true, metadata: { happyHomeDir: '/fixture/.happy', cliAvailability: { personal: true, personalComputer: true } } }];
+        let resolveSpawn!: (result: unknown) => void;
+        mocks.spawn.mockReturnValue(new Promise(resolve => { resolveSpawn = resolve; }));
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-new-computer' }).props.onPress(); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-start-conversation' }).props.onPress(); });
+        const cancel = tree.root.findByProps({ testID: 'personal-cancel-create' });
+        expect(cancel.props.disabled).toBe(true);
+        await act(async () => { cancel.props.onPress(); });
+        expect(tree.root.findAllByProps({ testID: 'personal-message-input' })).toHaveLength(0);
+        expect(tree.root.findByProps({ testID: 'personal-cancel-create' })).toBeTruthy();
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(mocks.spawn).toHaveBeenCalledTimes(1);
+        mocks.sessions['new-computer'] = { id: 'new-computer', createdAt: 2, active: true, metadata: { flavor: 'personal', path: '/fixture/.happy/personal-agent/workspace', personalExecutionTarget: 'docker', personalComputer: true } };
+        await act(async () => { resolveSpawn({ type: 'success', sessionId: 'new-computer' }); });
+        expect(mocks.settings.personalAgentConversationId).toBe('new-computer');
+        expect(tree.root.findAllByProps({ testID: 'personal-cancel-create' })).toHaveLength(0);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('switches from the existing local thread to Docker and back through Personal history without spawning', async () => {
+        const local = mocks.sessions.personal;
+        local.draft = 'local saved draft';
+        const docker = { id: 'cloud', createdAt: 20, active: true, draft: 'cloud saved draft', metadata: { flavor: 'personal', path: '/cloud/workspace', personalExecutionTarget: 'docker', personalComputer: true } };
+        mocks.sessions.cloud = docker;
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-conversations' }).props.onPress(); });
+        const picker = tree.root.findByProps({ testID: 'personal-conversation-picker' });
+        expect(picker.findAllByType('Pressable').map((item: any) => item.props.testID)).toEqual(['personal-select-cloud', 'personal-select-personal']);
+        expect(picker.findByProps({ testID: 'personal-select-personal' }).props.accessibilityState.checked).toBe(true);
+        await act(async () => { tree.root.findByProps({ testID: 'personal-select-cloud' }).props.onPress(); });
+        expect(mocks.settings.personalAgentConversationId).toBe('cloud');
+        expect(tree.root.findAllByProps({ testID: 'personal-conversation-picker' })).toHaveLength(0);
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('cloud saved draft');
+        await act(async () => { tree.root.findByProps({ testID: 'personal-open-computer' }).props.onPress(); });
+        expect(tree.root.findByType('PersonalComputerPanel').props.sessionId).toBe('cloud');
+        await act(async () => { tree.root.findByProps({ testID: 'personal-conversations' }).props.onPress(); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-select-personal' }).props.onPress(); });
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(tree.root.findAllByType('PersonalComputerPanel')).toHaveLength(0);
+        expect(tree.root.findAllByProps({ testID: 'personal-conversation-picker' })).toHaveLength(0);
+        expect(tree.root.findByProps({ testID: 'personal-message-input' }).props.value).toBe('local saved draft');
+        expect(mocks.sessions.personal).toBe(local);
+        expect(mocks.sessions.cloud).toBe(docker);
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('cannot switch Personal history while a new computer conversation is being created', async () => {
+        mocks.sessions.cloud = { id: 'cloud', createdAt: 20, active: true, metadata: { flavor: 'personal', path: '/cloud', personalExecutionTarget: 'docker', personalComputer: true } };
+        mocks.machines = [{ id: 'docker-device', active: true, metadata: { happyHomeDir: '/fixture/.happy', cliAvailability: { personal: true, personalComputer: true } } }];
+        let resolveSpawn!: (value: unknown) => void;
+        mocks.spawn.mockReturnValue(new Promise(resolve => { resolveSpawn = resolve; }));
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-conversations' }).props.onPress(); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-new-computer' }).props.onPress(); });
+        await act(async () => { tree.root.findByProps({ testID: 'personal-start-conversation' }).props.onPress(); });
+        expect(tree.root.findByProps({ testID: 'personal-conversations' }).props.disabled).toBe(true);
+        await act(async () => { tree.root.findByProps({ testID: 'personal-select-cloud' }).props.onPress(); });
+        expect(mocks.settings.personalAgentConversationId).toBe('personal');
+        expect(tree.root.findByProps({ testID: 'personal-cancel-create' })).toBeTruthy();
+        await act(async () => { resolveSpawn({ type: 'error', errorMessage: 'fixture failure' }); });
+        expect(tree.root.findByProps({ testID: 'personal-conversations' }).props.disabled).toBe(false);
+        await act(async () => { tree.unmount(); });
+    });
+
+    it('starts the initial ordinary Personal conversation with an explicit local execution target', async () => {
+        mocks.settings.personalAgentConversationId = null;
+        mocks.sessions = {};
+        mocks.machines = [{ id: 'local-device', active: true, metadata: { happyHomeDir: '/fixture/.happy', cliAvailability: { personal: true } } }];
+        mocks.spawn.mockImplementation(async () => {
+            mocks.sessions['new-local'] = { id: 'new-local', createdAt: 1, active: true, metadata: { flavor: 'personal', path: '/fixture/.happy/personal-agent/workspace' } };
+            return { type: 'success', sessionId: 'new-local' };
+        });
+        let tree: any;
+        await act(async () => { tree = TestRenderer.create(<PersonalAgentScreen />); });
+        expect(tree.root.findByProps({ testID: 'personal-target-local' }).props.accessibilityState.checked).toBe(true);
+        await act(async () => { tree.root.findByProps({ testID: 'personal-start-conversation' }).props.onPress(); });
+        expect(mocks.spawn).toHaveBeenCalledWith({ machineId: 'local-device', directory: '/fixture/.happy/personal-agent/workspace', agent: 'personal', approvedNewDirectoryCreation: true, environmentVariables: { PAWS_PERSONAL_EXECUTION_TARGET: 'local' } });
+        expect(mocks.settings.personalAgentConversationId).toBe('new-local');
         await act(async () => { tree.unmount(); });
     });
 

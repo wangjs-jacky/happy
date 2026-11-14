@@ -13,7 +13,7 @@ import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSch
 import { decodeBase64, decryptBlob, encryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
 import { requestAttachmentUpload, uploadEncryptedBlob, uploadMediaFile } from './attachmentUpload';
 import { openAttachmentDownload } from './attachmentDownload';
-import { detectHonorMotionPhoto, SessionTextDeltaSchema, SESSION_STREAM_MAX_CIPHERTEXT_LENGTH, type SessionTextDelta, type MotionPhotoVideo } from '@slopus/happy-wire';
+import { detectHonorMotionPhoto, SessionTextDeltaSchema, PersonalComputerFrameSchema, SESSION_STREAM_MAX_CIPHERTEXT_LENGTH, type SessionTextDelta, type MotionPhotoVideo, type PersonalComputerFrame } from '@slopus/happy-wire';
 import { backoff, delay } from '@/utils/time';
 import { configuration } from '@/configuration';
 import { RawJSONLines } from '@/claude/types';
@@ -757,6 +757,14 @@ export class ApiSessionClient extends EventEmitter {
     sendSessionTextDelta(event: SessionTextDelta): void {
         if (!this.socket.connected || !SessionTextDeltaSchema.safeParse(event).success) return;
         const ciphertext = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, event));
+        if (ciphertext.length > SESSION_STREAM_MAX_CIPHERTEXT_LENGTH) return;
+        this.socket.volatile.emit('session-stream', { sid: this.sessionId, content: { t: 'encrypted', c: ciphertext } });
+    }
+
+    /** Live computer frames share the encrypted transient lane, never the outbox. */
+    sendPersonalComputerFrame(frame: PersonalComputerFrame): void {
+        if (!this.socket.connected || !PersonalComputerFrameSchema.safeParse(frame).success) return;
+        const ciphertext = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, frame));
         if (ciphertext.length > SESSION_STREAM_MAX_CIPHERTEXT_LENGTH) return;
         this.socket.volatile.emit('session-stream', { sid: this.sessionId, content: { t: 'encrypted', c: ciphertext } });
     }

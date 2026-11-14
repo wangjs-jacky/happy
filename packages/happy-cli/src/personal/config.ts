@@ -6,18 +6,31 @@ import { configuration } from '@/configuration';
 import { resolveDeepSeekApiKey } from '@/deepseek/deepseekCredentials';
 import { DEEPSEEK_DEFAULT_BASE_URL, DEEPSEEK_FAST_MODEL } from '@/deepseek/deepseekClient';
 
+export const PersonalExecutionTargetSchema = z.enum(['local', 'docker']);
+export type PersonalExecutionTarget = z.infer<typeof PersonalExecutionTargetSchema>;
+
 const ConfigSchema = z.object({
     baseUrl: z.string().url().optional(),
     model: z.string().min(1).optional(),
     apiKeyEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
     maxSteps: z.number().int().min(1).max(64).default(16),
+    executionTarget: PersonalExecutionTargetSchema.optional(),
 }).strict();
 
 export function personalHome(): string {
     return process.env.PAWS_PERSONAL_HOME || join(configuration.happyHomeDir, 'personal-agent');
 }
 
-export function loadPersonalConfig() {
+export interface PersonalConfig {
+    baseUrl: string;
+    apiKey?: string;
+    model: string;
+    maxSteps: number;
+    /** Omitted by older SDK callers; omission always means local. */
+    executionTarget?: PersonalExecutionTarget;
+}
+
+export function loadPersonalConfig(): PersonalConfig {
     const path = join(personalHome(), 'config.json');
     const saved = ConfigSchema.parse(existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {});
     const baseUrl = process.env.PAWS_PERSONAL_BASE_URL || saved.baseUrl || DEEPSEEK_DEFAULT_BASE_URL;
@@ -36,7 +49,6 @@ export function loadPersonalConfig() {
         baseUrl: baseUrl.replace(/\/+$/, ''), apiKey: apiKey || undefined,
         model: process.env.PAWS_PERSONAL_MODEL || saved.model || DEEPSEEK_FAST_MODEL,
         maxSteps: saved.maxSteps,
+        executionTarget: PersonalExecutionTargetSchema.parse(process.env.PAWS_PERSONAL_EXECUTION_TARGET || saved.executionTarget || 'local'),
     };
 }
-
-export type PersonalConfig = ReturnType<typeof loadPersonalConfig>;

@@ -6,6 +6,8 @@ import { ApplicationSessionMetadataSchema, GoalBoardBindingSchema, GoalBoardSnap
 //
 
 export const MetadataSchema = z.object({
+    personalExecutionTarget: z.enum(['local', 'docker']).optional(),
+    personalComputer: z.boolean().optional(),
     application: ApplicationSessionMetadataSchema.optional(),
     goalBoard: GoalBoardBindingSchema.optional(),
     goalBoardSnapshot: GoalBoardSnapshotSchema.optional(),
@@ -212,6 +214,7 @@ export const MachineMetadataSchema = z.object({
     shutdownSource: z.enum(['happy-app', 'happy-cli', 'os-signal', 'unknown']).optional(),
     cliAvailability: z.object({
         personal: z.boolean().optional(),
+        personalComputer: z.boolean().optional(),
         ask: z.boolean().optional(),
         claude: z.boolean(),
         codex: z.boolean(),

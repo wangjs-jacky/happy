@@ -671,6 +671,7 @@ export class ApiMachineClient {
             const prevResume = this.lastKnownResumeSupport;
             const cliAvailabilityChanged = !prev
                 || prev.personal !== newAvailability.personal
+                || prev.personalComputer !== newAvailability.personalComputer
                 || prev.ask !== newAvailability.ask
                 || prev.claude !== newAvailability.claude
                 || prev.codex !== newAvailability.codex

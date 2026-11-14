@@ -69,6 +69,7 @@
     "scripts",
     "tools/archives",
     "tools/licenses",
+    "tools/personal-computer",
     "package.json"
   ],
   "scripts": {

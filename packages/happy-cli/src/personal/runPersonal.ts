@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createEnvelope } from '@slopus/happy-wire';
+import { createEnvelope, PersonalComputerRequestSchema } from '@slopus/happy-wire';
 import { ApiClient } from '@/api/api';
 import type { UserMessage, Session } from '@/api/types';
 import { decodeBase64, encodeBase64, decrypt } from '@/api/encryption';
@@ -19,6 +19,7 @@ import { loadPersonalConfig, personalHome } from './config';
 import { listPersonalSkills } from './skills';
 import { PersonalEngine } from './engine';
 import { personalPermissionMode, type PersonalPermissionMode } from './tools';
+import { PersonalComputer } from './computer';
 
 class PersonalPermissionHandler extends BasePermissionHandler {
     protected getLogPrefix(): string { return '[personal]'; }
@@ -38,9 +39,16 @@ class PersonalPermissionHandler extends BasePermissionHandler {
 }
 
 export async function runPersonal(opts: { credentials: Credentials; startedBy?: 'daemon' | 'terminal'; resume?: string }): Promise<void> {
-    const config = loadPersonalConfig();
+    let config = loadPersonalConfig();
     const home = personalHome();
     const saved = opts.resume && !process.env.HAPPY_RECONNECT_SESSION_ID ? readPersistedSessions()[opts.resume] : undefined;
+    // A resumed thread keeps its original execution boundary. Old threads were
+    // local; a newly edited machine config must never silently migrate them.
+    const reconnectMetadata = opts.resume && process.env.HAPPY_RECONNECT_METADATA_JSON
+        ? JSON.parse(process.env.HAPPY_RECONNECT_METADATA_JSON) as { personalExecutionTarget?: 'local' | 'docker' }
+        : saved?.metadata;
+    const executionTarget = opts.resume ? reconnectMetadata?.personalExecutionTarget ?? 'local' : config.executionTarget ?? 'local';
+    config = { ...config, executionTarget };
     if (opts.resume && !process.env.HAPPY_RECONNECT_SESSION_ID) {
         if (saved?.metadata.flavor !== 'personal') throw new Error('No saved Personal session exists on this machine');
         process.chdir(saved.metadata.path);
@@ -67,6 +75,8 @@ export async function runPersonal(opts: { credentials: Credentials; startedBy?: 
         { code: 'default', value: 'Confirm actions' }, { code: 'read-only', value: 'Read only' }, { code: 'yolo', value: 'Full access' },
     ];
     metadata.slashCommands = ['skills', 'status'];
+    metadata.personalExecutionTarget = executionTarget;
+    metadata.personalComputer = executionTarget === 'docker';
     metadata.summary = { text: 'Paws Personal', updatedAt: Date.now() };
     const reconnectId = process.env.HAPPY_RECONNECT_SESSION_ID || (saved ? opts.resume : undefined);
     let response: Session | null;
@@ -106,7 +116,11 @@ export async function runPersonal(opts: { credentials: Credentials; startedBy?: 
     }
     const permission = new PersonalPermissionHandler(session);
     permission.reset('Previous Personal execution stopped');
-    const engine = new PersonalEngine({ home, cwd, sessionId: response.id, config, approve: (...args) => permission.approve(...args) });
+    const computer = executionTarget === 'docker' ? new PersonalComputer({ home,
+        onFrame: frame => session.sendPersonalComputerFrame(frame) }) : undefined;
+    if (computer) session.rpcHandlerManager.registerHandler('personal-computer', async input =>
+        computer.request(PersonalComputerRequestSchema.parse(input)));
+    const engine = new PersonalEngine({ home, cwd, sessionId: response.id, config, computer, approve: (...args) => permission.approve(...args) });
     const queue: UserMessage[] = [];
     let active: AbortController | null = null;
     let stopped = false;
@@ -173,6 +187,7 @@ export async function runPersonal(opts: { credentials: Credentials; startedBy?: 
         active?.abort();
         permission.abortAll();
         await drainPromise;
+        await computer?.dispose();
         await session.updateMetadataAndAwait(current => ({ ...current, lifecycleState: 'archived', lifecycleStateSince: Date.now(), archivedBy: 'cli' }));
         session.sendSessionDeath();
         await session.flush();

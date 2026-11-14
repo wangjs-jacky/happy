@@ -28,6 +28,19 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  */
 export const pl: TranslationStructure = {
     personalAgent: {
+        queued: 'Waiting for delivery…',
+        computer: projectGoalsBase.personalAgent.computer,
+        ready: "Ready",
+        offline: "Device offline",
+        sending: "Sending…",
+        stopping: "Stopping…",
+        stopFailed: "Could not stop. Please try again.",
+        copyFailed: "Could not copy. Please try again.",
+        inputHint: "Enter to send · Shift + Enter for a new line",
+        activity: ({ count }: { count: number }) => `${count} ${count === 1 ? 'action' : 'actions'}`,
+        activityComplete: "Completed · View details",
+        activityFailed: "An action failed · View details",
+        activityCancelled: "Stopped · View details",
         waitingForApproval: "Oczekiwanie na potwierdzenie",
         waitingForApprovalDescription: "Asystent jest wstrzymany. Sprawdź działanie i zezwól jednorazowo lub odrzuć.",
         allowOnce: "Zezwól jednorazowo",

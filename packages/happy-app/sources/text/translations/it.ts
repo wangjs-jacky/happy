@@ -17,6 +17,19 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  */
 export const it: TranslationStructure = {
     personalAgent: {
+        queued: 'Waiting for delivery…',
+        computer: projectGoalsBase.personalAgent.computer,
+        ready: "Ready",
+        offline: "Device offline",
+        sending: "Sending…",
+        stopping: "Stopping…",
+        stopFailed: "Could not stop. Please try again.",
+        copyFailed: "Could not copy. Please try again.",
+        inputHint: "Enter to send · Shift + Enter for a new line",
+        activity: ({ count }: { count: number }) => `${count} ${count === 1 ? 'action' : 'actions'}`,
+        activityComplete: "Completed · View details",
+        activityFailed: "An action failed · View details",
+        activityCancelled: "Stopped · View details",
         waitingForApproval: "In attesa della tua approvazione",
         waitingForApprovalDescription: "L’assistente è in pausa. Controlla l’azione e consenti una volta oppure rifiuta.",
         allowOnce: "Consenti una volta",

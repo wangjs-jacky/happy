@@ -138,6 +138,7 @@ export const MachineMetadataSchema = z.object({
   happyLibDir: z.string(),
   cliAvailability: z.object({
     personal: z.boolean().optional(),
+        personalComputer: z.boolean().optional(),
     ask: z.boolean().optional(),
     claude: z.boolean(),
     codex: z.boolean(),
@@ -366,6 +367,8 @@ export const MessageContentSchema = z.union([UserMessageSchema, AgentMessageSche
 export type MessageContent = z.infer<typeof MessageContentSchema>
 
 export type Metadata = {
+  personalExecutionTarget?: 'local' | 'docker',
+  personalComputer?: boolean,
   codexAsyncQuestionResponses?: Record<string, AsyncQuestionResponse>;
   goalBoard?: GoalBoardBinding;
   goalBoardSnapshot?: GoalBoardSnapshot;

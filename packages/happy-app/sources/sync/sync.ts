@@ -11,6 +11,7 @@ import { refreshNativeUpdateStatus } from './nativeUpdate';
 import type { PluginCatalogResponse } from '@slopus/happy-wire';
 import { SessionStreamEnvelopeSchema } from '@slopus/happy-wire';
 import { sessionTextStream } from './sessionTextStream';
+import { personalComputerStream } from './personalComputerStream';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
 import { playWebSessionEventSound, startWebSoundAlerts } from '@/sync/webSoundAlerts';
@@ -4562,6 +4563,8 @@ class Sync {
     }
 
     private stopTextStreamStatus: (() => void) | undefined;
+    private sessionStreamDecryptions = 0;
+    private sessionStreamGeneration = 0;
 
     private handleSessionTextStream = async (data: unknown): Promise<void> => {
         const parsed = SessionStreamEnvelopeSchema.safeParse(data);
@@ -4571,10 +4574,23 @@ class Sync {
         const credentials = this.credentials;
         const encryption = this.encryption.getSessionEncryption(sid);
         if (!route || route.phase !== 'interactive' || route.sessionId !== sid || !encryption) return;
-        await sessionTextStream.receive(parsed.data, value => encryption.decryptRaw(value), () =>
-            this.credentials === credentials && this.sessionRouteOwnership.owns(route)
+        if (this.sessionStreamDecryptions >= 8) return;
+        this.sessionStreamDecryptions++;
+        const computerGeneration = personalComputerStream.generation();
+        const connectionGeneration = this.sessionStreamGeneration;
+        const current = () => this.sessionStreamGeneration === connectionGeneration && this.credentials === credentials && this.sessionRouteOwnership.owns(route)
             && this.sessionRouteOwnership.current()?.phase === 'interactive'
-            && this.encryption.getSessionEncryption(sid) === encryption);
+            && this.encryption.getSessionEncryption(sid) === encryption;
+        try {
+            const decoded = await encryption.decryptRaw(parsed.data.content.c);
+            if (!current()) return;
+            if (decoded?.type === 'personal-computer-frame') {
+                if (personalComputerStream.generation() === computerGeneration) personalComputerStream.receive(sid, decoded);
+                return;
+            }
+            await sessionTextStream.receive(parsed.data, async () => decoded, current);
+        } catch { /* Transient data must never advance a cursor or log plaintext. */ }
+        finally { this.sessionStreamDecryptions--; }
     };
 
     private subscribeToUpdates = () => {
@@ -4584,7 +4600,7 @@ class Sync {
         apiSocket.onMessage('session-stream', this.handleSessionTextStream);
         this.stopTextStreamStatus?.();
         this.stopTextStreamStatus = apiSocket.onStatusChange(status => {
-            if (status !== 'connected') sessionTextStream.interrupt();
+            if (status !== 'connected') { this.sessionStreamGeneration++; sessionTextStream.interrupt(); personalComputerStream.interrupt(); }
         });
 
         // Subscribe to connection state changes

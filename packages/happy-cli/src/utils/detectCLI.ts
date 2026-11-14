@@ -5,6 +5,8 @@ import { join } from 'path';
 
 export interface CLIAvailability {
   personal?: boolean;
+  /** Runtime protocol capability; Docker readiness is checked on explicit start. */
+  personalComputer?: boolean;
   ask: boolean;
   claude: boolean;
   codex: boolean;
@@ -48,7 +50,7 @@ function detectPosix(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { personal: true, ask: true, claude, codex, gemini, opencode, openclaw, detectedAt: Date.now() };
+  return { personal: true, personalComputer: ['darwin', 'linux'].includes(os.platform()), ask: true, claude, codex, gemini, opencode, openclaw, detectedAt: Date.now() };
 }
 
 function detectWindows(): CLIAvailability {

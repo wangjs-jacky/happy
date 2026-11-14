@@ -4,6 +4,8 @@ Paws 可以实现独立 personal agent。现有 App/Web、端到端加密消息�
 
 第一版是按用户消息执行任务的个人助理。周期调度、外部消息渠道、邮箱身份和语音通话是独立集成，导入工作流不会自动获得这些能力。
 
+隔离执行模式、chrome-use 浏览器与人工接管见 [Personal 隔离电脑](personal-computer.md)。旧本机模式保留原边界；隔离模式不会把 Docker 失败回退为宿主执行。
+
 ## 架构
 
 ```mermaid
