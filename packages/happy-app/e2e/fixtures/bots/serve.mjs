@@ -35,6 +35,7 @@ async function main() {
     const webUrl = `http://localhost:${config.expoPort}`;
     const serverUrl = `http://localhost:${config.serverPort}`;
     const envDirectory = path.join(root, 'environments/data/envs', environment);
+    await fs.chmod(envDirectory, 0o700);
     const runtimeOrigin = 'http://127.0.0.1:3490';
     const parentOrigins = `${webUrl},http://127.0.0.1:${config.expoPort},${serverUrl}`;
     gateway = createGateway(configFromEnv({ ...privateEnv, PAWS_BOTS_PUBLIC_ORIGIN: runtimeOrigin, PAWS_BOTS_ALLOWED_PARENT_ORIGINS: parentOrigins })).server;
@@ -52,6 +53,7 @@ async function main() {
         const credentialsFile = path.join(output, `credentials-${label}.json`);
         if (!reuse) {
             await seedEnvironment(environment, { startDaemon: false });
+            await fs.chmod(path.join(envDirectory, 'cli/home/access.key'), 0o600);
             await fs.writeFile(authUrlFile, getEnvironmentConfig(environment).authenticatedWebUrl, { mode: 0o600 });
             await fs.copyFile(path.join(envDirectory, 'cli/home/access.key'), credentialsFile);
             await fs.chmod(credentialsFile, 0o600);
