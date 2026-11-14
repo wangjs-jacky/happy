@@ -2,7 +2,8 @@
 
 Validated on 2026-11-14 against native Rakazo revision
 `c71c0c6bb6f00e511ece8fa6a919d282c129bbd3`, with the real local GPT gateway.
-Paws changes include current main's composer context picker (`e11f5744`).
+Paws changes retain main's composer context picker (`e11f5744`) and session-entry
+position fix (`f14c5ef3`).
 
 ## Environment
 
@@ -44,7 +45,10 @@ Mobile playback has not been confirmed.
 
 ## Automated and independent checks
 
-- Final merged App regression selection: 180 tests; full App typecheck and Web export.
+- Initial merged App regression selection: 180 tests; full App typecheck and Web export.
+- After integrating `f14c5ef3`: 343 session-entry/Bots/retirement regressions and
+  full App typecheck passed. This includes the message-visibility case that failed
+  once in the previous head's merged CI; current-head CI is tracked separately in the PR.
 - Gateway/loader/stack: 24 tests; server Bots route/gateway: 7 tests.
 - CLI retirement: 51 tests, CLI build/typecheck, built-command retirement and
   byte-preservation checks. App retirement also has a separate 262-test report;
