@@ -69,3 +69,18 @@ Rakazo services and local GPT gateway. It starts no daemon or computer. Provide
 the private `gateway.env` path in `PAWS_BOTS_QA_GATEWAY_ENV` when starting it via
 `pnpm exec tsx`; credentials and authenticated URLs are saved only in ignored
 private files. Browser acceptance must use the authorized Ego workflow.
+
+## Production ingress
+
+The existing main-only Web deployment configures the dedicated Bots origin at
+`https://47.115.228.20:8445`, forwarding to the Mini's private Tailnet ingress.
+It reuses the production-web environment's existing verified SSH identity. The
+configurator reads the current Caddyfile and its adapted configuration, requires
+the existing IP certificate and an unclaimed port, and preserves all other sites.
+The native gateway must be running before release activation. Computers remain
+explicitly disabled; this ingress does not enable a sandbox provider.
+
+Each deployment uses a run/attempt-specific backup. A later Web failure restores
+the Web, Bots, then MCP configuration in reverse preparation order. A transport
+failure with an unknown remote outcome requires reading the effective remote
+configuration before retrying; the tests do not claim distributed transactions.
