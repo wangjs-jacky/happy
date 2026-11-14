@@ -2,7 +2,7 @@ import { hostNavigate, sessionStore } from "../paws/runtime";
 import { t } from "@lingui/core/macro";
 import { useEffect, useRef, useState } from "react";
 import { authClient } from "./auth";
-import { endCallBeforeSignOut, forgetSignedInUser, sessionChangedUnderPage } from "./call-session";
+import { endCallBeforeSignOut, forgetSignedInUser, isCallSessionDisposed, sessionChangedUnderPage } from "./call-session";
 import { clearComposerDrafts } from "./composer-draft";
 import { clearSpaceSelection } from "./rpc";
 
@@ -16,14 +16,17 @@ let logOutFailed = false;
  * answer or queued request from this session survives in the page.
  */
 export async function signOut(destination: string): Promise<void> {
+  if (isCallSessionDisposed()) return;
   // Hang up while the session still exists, so the server-side hang-up is authorized.
   await endCallBeforeSignOut();
+  if (isCallSessionDisposed()) return;
   // The account changed while hanging up: signing out now would sign out the other account.
   if (sessionChangedUnderPage()) {
     window.location.reload();
     return;
   }
   const result = await authClient.signOut().catch(() => null);
+  if (isCallSessionDisposed()) return;
   if (result && !result.error) {
     forgetSignedInUser();
     clearSpaceSelection();

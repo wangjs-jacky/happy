@@ -10,6 +10,7 @@ import { DesktopUpdatesProvider } from "../components/DesktopUpdates";
 import { I18nBootstrap } from "../components/I18nBootstrap";
 import { webLogoAvatarActivity } from "../lib/logo-avatar-activity";
 import { queryClient } from "../lib/query";
+import { disposeCallSession } from "../lib/call-session";
 import { setHostNavigate, localStore } from "./runtime";
 import type { HostOptions } from "./runtime";
 import "../styles.css";
@@ -44,5 +45,5 @@ export function renderEmbedded(element: HTMLElement, options: HostOptions) {
       </I18nBootstrap>
     </PawsPortalContext.Provider>,
   );
-  return () => { root.unmount(); void queryClient.cancelQueries(); queryClient.clear(); };
+  return () => { disposeCallSession(); root.unmount(); void queryClient.cancelQueries(); queryClient.clear(); };
 }

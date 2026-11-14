@@ -229,7 +229,7 @@ export async function ensureBotNetwork(botId: string, owner: string) {
     try {
       await connectPublicProxy(docker, computerNetworkNameFor(botId), owner, await inspectSupervisorContainer());
     } catch (error) {
-      await created?.remove().catch(() => undefined);
+      if (created) await removeUnusedComputerNetwork(computerNetworkNameFor(botId)).catch(() => undefined);
       throw error;
     }
     return created;

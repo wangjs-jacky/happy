@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   speak: vi.fn(),
   reload: vi.fn(),
   assign: vi.fn(),
+  pickUp: vi.fn(),
+  stopSpeech: vi.fn(),
 }));
 
 vi.mock("@lingui/core/macro", () => ({ t: (parts: TemplateStringsArray) => parts.join("") }));
@@ -37,7 +39,7 @@ vi.mock("@rakazo/core", async (importOriginal) => ({
   ...(await importOriginal<typeof CoreModule>()),
   runThreadSubscription: vi.fn(async () => undefined),
 }));
-vi.mock("./call-pickup.js", () => ({ pickUp: vi.fn(async () => undefined) }));
+vi.mock("./call-pickup.js", () => ({ pickUp: mocks.pickUp }));
 vi.mock("./dictation.js", () => ({
   dictation: { listen: mocks.listen, stop: mocks.stop, subscribe: () => () => undefined },
   usesServerDictation: () => false,
@@ -45,7 +47,7 @@ vi.mock("./dictation.js", () => ({
 vi.mock("./tts.js", () => ({
   speaker: {
     speak: mocks.speak,
-    stop: vi.fn(),
+    stop: mocks.stopSpeech,
     unlock: vi.fn(),
     isSpeaking: () => false,
     subscribe: () => () => undefined,
@@ -93,6 +95,7 @@ beforeEach(() => {
   mocks.endCall.mockResolvedValue({ ok: true });
   mocks.listen.mockResolvedValue(undefined);
   mocks.speak.mockResolvedValue(undefined);
+  mocks.pickUp.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -100,6 +103,7 @@ afterEach(() => {
   listeners = [];
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
   localStorage.clear();
 });
@@ -134,6 +138,66 @@ function expectEndedHereOnly(calls: Awaited<ReturnType<typeof load>>["calls"]) {
   expect(mocks.stop).toHaveBeenCalledWith("cancel");
   expect(mocks.endCall).not.toHaveBeenCalled();
 }
+
+it("keeps embedded account mounts out of the shared cookie signout channel", async () => {
+  vi.stubEnv("PAWS_EMBEDDED", "true");
+  const first = await load();
+  const subscribe = vi.spyOn(first.channel, "subscribe");
+  first.calls.syncCallIdentity("embedded-user-a");
+  (await import("../paws/runtime")).disconnect();
+  const second = await load();
+  expect(second.channel).toBe(first.channel);
+  second.calls.syncCallIdentity("embedded-user-b");
+  const stopListening = second.channel.setup();
+  try {
+    storageEvent("better-auth.message", JSON.stringify({ event: "session", data: { trigger: "signout" },
+      clientId: "another-mount", timestamp: Date.now() }));
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(mocks.reload).not.toHaveBeenCalled();
+    expect(mocks.assign).not.toHaveBeenCalled();
+  } finally { stopListening(); }
+});
+
+it("aborts a ringing call on host disposal and ignores its late pickup", async () => {
+  let finishPickup!: () => void;
+  let signal!: AbortSignal;
+  mocks.pickUp.mockImplementationOnce((current: AbortSignal) => {
+    signal = current;
+    return new Promise<void>(resolve => { finishPickup = resolve; });
+  });
+  const { calls } = await load();
+  calls.syncCallIdentity("user-a");
+  calls.startCall({ botId: "bot-a", botName: "Ada" });
+  expect(signal.aborted).toBe(false);
+  mocks.stop.mockClear(); mocks.stopSpeech.mockClear();
+  calls.disposeCallSession();
+  expect(signal.aborted).toBe(true);
+  expect(calls.getSnapshot()).toBeNull();
+  expect(mocks.stop).toHaveBeenCalledWith("cancel");
+  expect(mocks.stopSpeech).toHaveBeenCalledOnce();
+  finishPickup(); await Promise.resolve();
+  expect(mocks.listen).not.toHaveBeenCalled();
+  expect(mocks.endCall).not.toHaveBeenCalled();
+  calls.startCall({ botId: "late-bot", botName: "Late" });
+  expect(calls.getSnapshot()).toBeNull();
+});
+
+it("stops an active microphone and cancels a pending logout when the host leaves", async () => {
+  const { calls, signOut } = await load();
+  const finishSend = await inCallWithPendingSend(calls);
+  const signedOut = signOut("/");
+  await Promise.resolve();
+  mocks.stop.mockClear(); mocks.stopSpeech.mockClear();
+  calls.disposeCallSession();
+  expect(calls.getSnapshot()).toBeNull();
+  expect(mocks.stop).toHaveBeenCalledWith("cancel");
+  expect(mocks.stopSpeech).toHaveBeenCalledOnce();
+  finishSend(); await signedOut;
+  expect(mocks.endCall).not.toHaveBeenCalled();
+  expect(mocks.signOut).not.toHaveBeenCalled();
+  expect(mocks.reload).not.toHaveBeenCalled();
+  expect(mocks.assign).not.toHaveBeenCalled();
+});
 
 it("ends the call and stops the mic on sign-out, hanging up first, then leaves the page", async () => {
   const { calls, signOut } = await load();

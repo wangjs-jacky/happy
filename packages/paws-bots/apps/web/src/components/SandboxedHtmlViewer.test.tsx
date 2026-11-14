@@ -57,6 +57,38 @@ it("loads the shell from the network so it does not inherit the app's CSP", asyn
   await view.cleanup();
 });
 
+it("loads an embedded shell from its bound gateway without changing the opaque frame", async () => {
+  vi.resetModules();
+  vi.stubEnv("PAWS_EMBEDDED", "true");
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+    sessionKey: "s".repeat(43), spaceId: "space-a", accountKey: "embedded-viewer-account",
+    expiresAt: Date.now() + 60_000, locale: "en", appearance: "light",
+  })));
+  const container = document.createElement("div");
+  document.body.append(container);
+  const runtime = await import("../paws/runtime");
+  await runtime.connect(container, { runtimeUrl: "https://bots.test/", ticket: "t".repeat(43),
+    expiresAt: Date.now() + 60_000, onAuthenticated() {}, onFailure() {} });
+  const { SandboxedHtmlViewer: EmbeddedViewer } = await import("./SandboxedHtmlViewer");
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<EmbeddedViewer title="Embedded notes" html="<p>Notes</p>" />));
+    const frame = container.querySelector("iframe");
+    expect(frame?.getAttribute("src")).toBe("https://bots.test/html-viewer.html");
+    expect(frame?.hasAttribute("srcdoc")).toBe(false);
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame?.getAttribute("referrerpolicy")).toBe("no-referrer");
+  } finally {
+    await act(async () => root.unmount());
+    runtime.disconnect();
+    container.remove();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  }
+});
+
 it("posts the guarded preview once the shell loads, and again on change or reload", async () => {
   const view = await render('<img src="https://example.invalid/pixel.png">');
   expect(view.postMessage).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { listenWindow } from "../paws/runtime";
+import { hostViewerUrl, listenWindow } from "../paws/runtime";
 import { useLingui } from "@lingui/react/macro";
 import { useExternalLinkOpener } from "@rakazo/chat-ui/web";
 import type { MessageBlock } from "@rakazo/contracts";
@@ -173,7 +173,7 @@ export function McpAppCard({ block, target }: { block: AppBlock; target: Artifac
           <iframe
             ref={frame}
             title={block.server}
-            src={MCP_APP_VIEWER_PATH}
+            src={hostViewerUrl(MCP_APP_VIEWER_PATH)}
             sandbox="allow-scripts allow-forms"
             referrerPolicy="no-referrer"
             onLoad={() =>

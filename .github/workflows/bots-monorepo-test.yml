@@ -46,5 +46,7 @@ jobs:
           node --test integrations/rakazo/egress/public-proxy.test.mjs
           pnpm --filter @rakazo/sandbox-supervisor check
           pnpm --filter @rakazo/sandbox-supervisor exec vitest run --root ../../.. infra/sandboxes/supervisor/src/proxy-egress.test.ts infra/sandboxes/supervisor/src/computer-spec.test.ts
+      - name: Check embedded viewers and account/media cleanup
+        run: pnpm --filter @rakazo/web exec vitest run --root ../.. apps/web/src/lib/session-change.test.tsx apps/web/src/components/SandboxedHtmlViewer.test.tsx apps/web/src/components/McpAppCard.test.tsx
       - name: Check isolated chrome-use compatibility offline
         run: python3 packages/paws-bots/infra/sandboxes/computer/test_page_browser.py

@@ -1,4 +1,4 @@
-import { listenWindow } from "../paws/runtime";
+import { hostViewerUrl, listenWindow } from "../paws/runtime";
 import { HTML_VIEWER_PATH } from "@rakazo/contracts/content-security-policy";
 import { useEffect, useRef, useState } from "react";
 
@@ -68,7 +68,7 @@ export function SandboxedHtmlViewer({
     <iframe
       ref={frame}
       title={title}
-      src={HTML_VIEWER_PATH}
+      src={hostViewerUrl(HTML_VIEWER_PATH)}
       onLoad={() => setLoads((count) => count + 1)}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"

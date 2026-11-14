@@ -14,6 +14,14 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 export const embedded = Boolean(import.meta.env.PAWS_EMBEDDED);
 
 export function hostRuntimeOrigin() { return embedded && active ? active.origin : window.location.origin; }
+/** Viewer shells remain network documents under their original CSP. Only these
+ * public, self-contained shells may be loaded from the mounted Bots gateway. */
+export function hostViewerUrl(path: "/html-viewer.html" | "/mcp-app-viewer.html"): string {
+  if (path !== "/html-viewer.html" && path !== "/mcp-app-viewer.html") throw new Error("Unsupported Bots viewer");
+  if (!embedded) return path;
+  if (!active || active.controller.signal.aborted || Date.now() >= active.expiresAt) throw new Error("Bots session ended");
+  return `${active.origin}${path}`;
+}
 export function hostRoot(): HTMLElement { if (!embedded) return document.documentElement; if (!active) throw new Error("Bots mount is unavailable"); return active.root; }
 export function hostNavigate(path: string) { if (!embedded) { window.location.assign(path); return; } if (!active) return; if (path.startsWith("/") && !path.startsWith("//")) navigate?.(path); else window.location.assign(path); }
 export function setHostNavigate(handler: (path: string) => void) { navigate = handler; }

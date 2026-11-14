@@ -1,5 +1,6 @@
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { lingui } from "@lingui/vite-plugin";
 import { defineConfig } from "vitest/config";
@@ -24,6 +25,9 @@ const mutatesSharedState =
   /vi\.(mock|doMock|stubGlobal|stubEnv|resetModules|useFakeTimers|spyOn)\(|globalThis\.\w+ *=[^=]|(globalThis|global|window)\[[^\]]+\] *=[^=]|process\.env(\.\w+|\[[^\]]+\]) *=[^=]|delete process\.env|defineProperty\((globalThis|global|window|document|navigator|process)|process\.chdir|@vitest-environment/;
 // Package scripts run from their own folder, so paths resolve from the repo root, not the cwd.
 const root = path.dirname(fileURLToPath(import.meta.url));
+const webRequire = createRequire(path.join(root, "apps/web/package.json"));
+const lucidePackage = webRequire.resolve("lucide-react/package.json");
+const lucideEsm = path.resolve(path.dirname(lucidePackage), JSON.parse(readFileSync(lucidePackage, "utf8")).module);
 const isolated = include
   .flatMap((pattern) => globSync(pattern, { cwd: root }))
   .filter(
@@ -38,6 +42,11 @@ export default defineConfig({
   plugins: [lingui({ configPath: path.join(root, "lingui.config.ts") })],
   resolve: {
     alias: [
+      // Lucide's Node export uses a nested peer React; test the Web ESM export.
+      { find: /^lucide-react$/, replacement: lucideEsm },
+      // UI workspace tests use the same React copy as their Web renderer.
+      { find: "react", replacement: path.join(root, "apps/web/node_modules/react") },
+      { find: "react-dom", replacement: path.join(root, "apps/web/node_modules/react-dom") },
       {
         // The published dist keeps JSX inside .js files, which vite cannot parse;
         // tests load the package's shipped TypeScript source instead.
@@ -76,7 +85,7 @@ export default defineConfig({
   test: {
     // Load the markdown renderer's shipped TypeScript source through vite so
     // react-native can be mocked in node tests.
-    server: { deps: { inline: [/react-native-markdown-display/] } },
+    server: { deps: { inline: [/react-native-markdown-display/, /lucide-react/, /@base-ui\/react/] } },
     environment: "node",
     setupFiles: ["./packages/testkit/src/pin-test-env.ts"],
     testTimeout: 30_000,

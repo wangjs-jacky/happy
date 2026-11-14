@@ -83,3 +83,28 @@ test('quote portal positions remain correct inside an offset transformed host', 
     assert(edge.left + button.width / 2 <= 600 - 8);
     assert(edge.top >= 8 && edge.top + button.height <= 80 - 8);
 });
+
+test('embedded HTML and MCP shells stay on the bound Bots runtime without a credential URL', async () => {
+    const { runtime } = await fixture();
+    for (const path of ['/html-viewer.html', '/mcp-app-viewer.html']) {
+        const url = new URL(runtime.hostViewerUrl(path));
+        assert.equal(url.origin, 'https://bots.test');
+        assert.equal(url.pathname, path);
+        assert.equal(url.search, ''); assert.equal(url.hash, '');
+        assert.equal(url.username, ''); assert.equal(url.password, '');
+    }
+    for (const path of ['/rpc/bootstrap', '//evil.test/html-viewer.html', '/html-viewer.html?ticket=secret', '/html-viewer.html/extra']) {
+        assert.throws(() => runtime.hostViewerUrl(path), /Unsupported Bots viewer/);
+    }
+    runtime.disconnect();
+    assert.throws(() => runtime.hostViewerUrl('/html-viewer.html'), /Bots session ended/);
+});
+
+test('standalone viewer paths retain their native same-origin routing', async () => {
+    globalThis.window = { location: { origin: 'https://native-bots.test' } };
+    const nativeSource = source.replace('export const embedded = Boolean(true)', 'export const embedded = Boolean(false)');
+    assert.notEqual(nativeSource, source);
+    const runtime = await import(`data:text/javascript;base64,${Buffer.from(nativeSource + '\n//' + crypto.randomUUID()).toString('base64')}`);
+    assert.equal(runtime.hostViewerUrl('/html-viewer.html'), '/html-viewer.html');
+    assert.equal(runtime.hostViewerUrl('/mcp-app-viewer.html'), '/mcp-app-viewer.html');
+});

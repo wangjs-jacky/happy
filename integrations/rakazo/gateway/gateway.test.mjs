@@ -474,3 +474,58 @@ test('embedded mount CORS is allowlisted and tickets/leases remain parent bound'
   assert.equal(response.status, 200); assert.equal(response.headers.get('access-control-allow-origin'), 'https://paws.test');
   assert.deepEqual(seen, ['native=alice']);
 });
+
+test('embedded screen probes expose native capability status only to allowed parents', async (t) => {
+  const seen = [];
+  const f = await fixture(t, (req, res) => {
+    seen.push({ cookie: req.headers.cookie, authorization: req.headers.authorization, path: req.url });
+    // Native validation remains authoritative, including an expired/refused screen.
+    res.writeHead(410, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+    res.end('{"error":"expired screen"}');
+  });
+  const path = '/novnc/session/view/1794660000000.test-capability/?probe=1';
+  for (const method of ['GET', 'HEAD']) {
+    const response = await fetch(f.base + path, { method, headers: { origin: 'https://paws.test',
+      cookie: 'host=secret', authorization: 'Bearer host-secret' } });
+    assert.equal(response.status, 410);
+    assert.equal(response.headers.get('access-control-allow-origin'), 'https://paws.test');
+    assert.equal(response.headers.get('access-control-allow-credentials'), null);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  for (const [path, origin] of [['/novnc/arbitrary/probe', 'https://paws.test'],
+    ['/novnc/session/view/1794660000000.test-capability/?probe=1', 'https://evil.test']]) {
+    const response = await fetch(f.base + path, { headers: { origin } });
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+  }
+  const preflight = method => fetch(f.base + path, { method: 'OPTIONS', headers: {
+    origin: 'https://paws.test', 'access-control-request-method': method } });
+  assert.equal((await preflight('HEAD')).status, 204);
+  assert.equal((await preflight('POST')).status, 403);
+  assert(seen.length >= 2);
+  assert(seen.every(request => request.cookie === undefined && request.authorization === undefined));
+});
+
+test('only exact static viewer shells allow configured Paws ancestors and retain other CSP directives', async (t) => {
+  const nativePolicy = "default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-ancestors 'self'";
+  const f = await fixture(t, (_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html', 'content-security-policy': nativePolicy, 'x-frame-options': 'SAMEORIGIN' });
+    res.end('<!doctype html><html><body>native sandbox viewer</body></html>');
+  });
+  for (const path of ['/html-viewer.html', '/mcp-app-viewer.html']) {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await fetch(f.base + path, { method });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('x-frame-options'), null);
+      const policy = response.headers.get('content-security-policy');
+      assert.match(policy, /default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'/);
+      assert.match(policy, /frame-ancestors 'self' https:\/\/paws\.test/);
+      assert(!policy.includes('*'));
+      if (method === 'GET') assert.match(await response.text(), /native sandbox viewer/);
+    }
+  }
+  for (const path of ['/other.html', '/nested/html-viewer.html', '/html-viewer.html/extra']) {
+    const response = await fetch(f.base + path);
+    assert.equal(response.headers.get('content-security-policy'), nativePolicy);
+    assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN');
+  }
+});

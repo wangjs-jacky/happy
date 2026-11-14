@@ -1,4 +1,4 @@
-import { scopedStorageKey } from "../paws/runtime";
+import { embedded, scopedStorageKey } from "../paws/runtime";
 import { listenWindow } from "../paws/runtime";
 import { localStore } from "../paws/runtime";
 import { t } from "@lingui/core/macro";
@@ -92,6 +92,7 @@ const callSends = createCallSendTracker();
 const hangUps = new Set<Promise<void>>();
 /** Bumped when the session ends: a hang-up still queued then would run signed out or as someone else. */
 let sessionEpoch = 0;
+let disposed = false;
 let transcribe: boolean | undefined;
 let thread: ThreadSnapshot | null = null;
 let feed: {
@@ -328,6 +329,19 @@ function endCallSignedOut(): void {
   dropCall();
 }
 
+/** The host is removing this bundle; release media without sending old-account RPCs. */
+export function disposeCallSession(): void {
+  if (disposed) return;
+  disposed = true;
+  leaving = true;
+  identity = null;
+  endCallSignedOut();
+}
+
+export function isCallSessionDisposed(): boolean {
+  return disposed;
+}
+
 /**
  * The session changed under this page: end the call here, then load a fresh page so nothing
  * from the old session, such as a pending call start or a queued request, survives.
@@ -372,6 +386,8 @@ export function syncCallIdentity(userId: string | null): void {
   if (previous === userId) return;
   identity = userId;
   publishSignedInUser(userId);
+  // Paws leases are mount/account bound; cookie-wide signout is a separate identity.
+  if (embedded) return;
   if (typeof previous === "string") reloadForNewSession();
   else if (userId !== null) watchOtherTabs();
 }

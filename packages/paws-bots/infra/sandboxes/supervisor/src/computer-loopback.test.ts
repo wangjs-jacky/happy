@@ -449,6 +449,85 @@ describe("provisioning network rollback", () => {
     });
   }
 
+  function proxyFixture(atLimit = false) {
+    const { container } = fixture();
+    vi.stubEnv("SANDBOX_SCREEN_NETWORK", "isolated");
+    vi.stubEnv("SANDBOX_COMPUTER_EGRESS", "proxy");
+    vi.stubEnv("HOSTNAME", "supervisor");
+    const members = new Set<string>();
+    let exists = false, guestExists = false, running = false;
+    let labels: Record<string, string> = {};
+    const supervisor = { Id: "supervisor", Config: { Labels: { "com.docker.compose.project": "qa" } }, Mounts: [] };
+    const network = {
+      inspect: vi.fn(async () => ({ Internal: true, EnableIPv6: false,
+        Options: { "com.docker.network.bridge.gateway_mode_ipv4": "isolated" }, Labels: labels,
+        Containers: Object.fromEntries([...members].map(id => [id, {}])) })),
+      connect: vi.fn(async ({ Container }: { Container: string }) => { members.add(Container); }),
+      disconnect: vi.fn(async ({ Container }: { Container: string }) => { members.delete(Container); }),
+      remove: vi.fn(async () => {
+        if (members.size) throw new Error("active endpoints");
+        exists = false;
+      }),
+    };
+    mocks.docker.getContainer.mockImplementation(id => id === "supervisor"
+      ? { inspect: async () => supervisor } : container);
+    mocks.docker.getNetwork.mockReturnValue(network);
+    mocks.docker.createNetwork.mockImplementation(async (options: { Labels: Record<string, string> }) => {
+      if (exists) throw new Error("network already exists");
+      exists = true; labels = options.Labels;
+      return network;
+    });
+    mocks.docker.listContainers.mockImplementation(async (options?: { filters?: { label?: string[]; network?: string[] } }) => {
+      if (options?.filters?.network) return [...members].map(Id => ({ Id }));
+      const filters = options?.filters?.label ?? [];
+      if (filters.some(label => label.startsWith("rakazo.botId="))) return [];
+      if (filters.includes("com.docker.compose.service=computer-egress")) return [{ Id: "proxy" }];
+      if (filters.includes("com.docker.compose.service=web")) return [{ Id: "web" }];
+      return atLimit ? [{ Id: "at-cap", Labels: { "rakazo.managed": "true", "rakazo.spaceId": "space" } }] : [];
+    });
+    mocks.docker.createContainer.mockImplementation(async () => { guestExists = true; return container; });
+    container.start.mockImplementation(async () => { running = true; members.add(container.id); });
+    container.remove.mockImplementation(async () => {
+      if (running) throw new Error("cannot remove running guest");
+      guestExists = false; members.delete(container.id);
+    });
+    return { container, network, members, exists: () => exists, guestExists: () => guestExists,
+      markRunning: () => { running = true; members.add(container.id); } };
+  }
+
+  it("does not allocate a proxy network when the space is at its cap", async () => {
+    proxyFixture(true);
+    vi.stubEnv("SANDBOX_MAX_COMPUTERS_PER_SPACE", "1");
+    expect((await provision()).status).toBe(429);
+    expect(mocks.docker.createNetwork).not.toHaveBeenCalled();
+  });
+
+  it("does not allocate a proxy network when home validation fails", async () => {
+    proxyFixture();
+    mocks.assertHomeWritable.mockRejectedValue(new Error("home refused"));
+    expect((await provision()).status).toBe(500);
+    expect(mocks.docker.createNetwork).not.toHaveBeenCalled();
+  });
+
+  it.each(["create", "start"])("reclaims a proxy-only network after a guest %s failure", async phase => {
+    const f = proxyFixture();
+    if (phase === "create") mocks.docker.createContainer.mockRejectedValue(new Error("create refused"));
+    else f.container.start.mockRejectedValue(new Error("start refused"));
+    expect((await provision()).status).toBe(500);
+    expect(f.guestExists()).toBe(false);
+    expect(f.exists()).toBe(false);
+    expect(f.members.size).toBe(0);
+  });
+
+  it("preserves a running guest and its proxy after a lost start response", async () => {
+    const f = proxyFixture();
+    f.container.start.mockImplementation(async () => { f.markRunning(); throw new Error("start response lost"); });
+    expect((await provision()).status).toBe(500);
+    expect(f.exists()).toBe(true);
+    expect(f.members).toEqual(new Set(["proxy", f.container.id]));
+    expect(f.network.remove).not.toHaveBeenCalled();
+  });
+
   it.each(["1.44", "1.45"])(
     "provisions named-volume homes only with subpath support (%s)",
     async (apiVersion) => {

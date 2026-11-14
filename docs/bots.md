@@ -126,3 +126,19 @@ supervisor `proxy-egress.test.ts` and `computer-spec.test.ts`, and a real Docker
 network check of direct host/LAN/metadata/peer denial, public HTTPS with TLS
 verification, and denied direct access after proxy disconnection. Browser UI
 acceptance follows the repository's Ego rules separately.
+
+
+### Monorepo activation order
+
+Prepare the source services and upgrade the gateway before activating the Web
+bundle. The embedded client requires the gateway's stable `accountKey`, restricted
+CORS for sealed computer probes, and the exact HTML/MCP viewer-shell ancestor
+policy. These gateway changes remain compatible with the previous iframe client.
+Keep the original deployment available for rollback. A successful frontend build
+alone does not activate source API/worker services or enable computers.
+
+The HTML/MCP viewer shells stay on the Bots gateway origin. Only their two exact
+public shell paths may be framed by configured Paws parent origins; their own
+script/network CSP, opaque sandboxes and source-window message checks remain in
+force. They are deliberately not copied under `/assets/`, whose production route
+redirects immutable files to OSS.

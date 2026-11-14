@@ -136,7 +136,8 @@ export function createGateway(config, dependencies = {}) {
       // can read replies; each private request must still carry its own bound lease.
       const caller = req.headers.origin;
       const embeddedCaller = config.parentOrigins.includes(caller);
-      const browserRoute = url.pathname === '/__paws/redeem' || /^\/(api|rpc)(?:\/|$)/.test(pathname);
+      const screenProbe = ['GET', 'HEAD', 'OPTIONS'].includes(req.method) && Boolean(sealedScreenPath(requestPath));
+      const browserRoute = screenProbe || url.pathname === '/__paws/redeem' || /^\/(api|rpc)(?:\/|$)/.test(pathname);
       if (embeddedCaller && browserRoute) {
         res.setHeader('access-control-allow-origin', caller);
         res.setHeader('vary', 'Origin');
@@ -146,8 +147,9 @@ export function createGateway(config, dependencies = {}) {
         if (!embeddedCaller || !browserRoute) return json(res, 403, { error: 'Invalid origin' });
         const allowedHeaders = new Set(['content-type', 'x-paws-rakazo-session', 'x-rakazo-space-id', 'x-rakazo-client-build', 'x-request-id', 'x-rakazo-correlation-id', 'x-rakazo-signup-surface', 'last-event-id', 'traceparent']);
         const requested = String(req.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(value => value.trim()).filter(Boolean);
-        if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(req.headers['access-control-request-method']) || requested.some(value => !allowedHeaders.has(value))) return json(res, 403, { error: 'Invalid preflight' });
-        res.writeHead(204, { 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE', 'access-control-allow-headers': requested.join(', '), 'cache-control': 'no-store' });
+        const allowedMethods = screenProbe ? ['GET', 'HEAD'] : ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+        if (!allowedMethods.includes(req.headers['access-control-request-method']) || requested.some(value => !allowedHeaders.has(value))) return json(res, 403, { error: 'Invalid preflight' });
+        res.writeHead(204, { 'access-control-allow-methods': allowedMethods.join(','), 'access-control-allow-headers': requested.join(', '), 'cache-control': 'no-store' });
         return res.end();
       }
       if (url.pathname === '/__paws/bootstrap') {
@@ -203,6 +205,22 @@ export function createGateway(config, dependencies = {}) {
       if (privateRoute) unwatchLease = state.watchLease(req.headers['x-paws-rakazo-session'], () => { upstream.destroy(); res.destroy(); });
       upstream.once('response', (response) => {
         const headers = responseHeaders(response);
+        // These static viewer shells accept content only from their embedding parent.
+        // Allow configured Paws hosts while retaining their native script/network CSP.
+        if (['GET', 'HEAD'].includes(req.method) && ['/html-viewer.html', '/mcp-app-viewer.html'].includes(url.pathname)) {
+          const ancestors = `frame-ancestors 'self' ${config.parentOrigins.join(' ')}`;
+          const rewrite = value => {
+            const policy = String(value ?? '');
+            let replaced = false;
+            const result = policy.replace(/(^|[;,])\s*frame-ancestors(?:\s+[^;,]*)?(?=[;,]|$)/gi, (_match, prefix) => {
+              replaced = true; return `${prefix} ${ancestors}`;
+            });
+            return replaced ? result : `${policy}${policy ? '; ' : ''}${ancestors}`;
+          };
+          const policy = headers['content-security-policy'];
+          headers['content-security-policy'] = Array.isArray(policy) ? policy.map(rewrite) : rewrite(policy);
+          delete headers['x-frame-options'];
+        }
         if (privateRoute || pathname.startsWith('/novnc/')) headers['cache-control'] = 'no-store';
         const html = String(headers['content-type'] ?? '').includes('text/html');
         if (!html || req.method === 'HEAD') {

@@ -185,11 +185,11 @@ app.post("/computers", async (c) => {
         assertVolumeSubpathSupport((await docker.version()).ApiVersion);
       }
       const computerUser = runtimeInfo ? COMPUTER_USER : hostComputerUser(hostUid, hostGid);
-      // Validate the proxy topology even for a running/resumed guest. A stale
-      // open bridge may never be accepted merely because its image matches.
-      if (computerEgressMode === "proxy") await ensureBotNetwork(body.botId, networkOwner);
       const existing = await findBotContainer(body.botId, body.spaceId);
       if (existing) {
+        // Validate a reused guest before accepting it; new guests allocate only
+        // after space admission and home validation succeed below.
+        if (computerEgressMode === "proxy") await ensureBotNetwork(body.botId, networkOwner);
         const info = await existing.inspect();
         const desired = await docker.getImage(COMPUTER_IMAGE).inspect();
         const controlPublishOk = controlPortPublicationMatches(
@@ -360,7 +360,11 @@ app.post("/computers", async (c) => {
           // Never force removal: a lost start response may hide a running computer.
           // Docker also refuses network removal while any endpoint is attached.
           await container?.remove().catch(() => undefined);
-          await createdNetwork?.remove().catch(() => undefined);
+          if (computerEgressMode === "proxy") {
+            // Disconnect only screen/proxy peers. A guest that actually started
+            // still owns the bridge and prevents cleanup after a lost response.
+            await removeUnusedComputerNetwork(computerNetworkNameFor(body.botId)).catch(() => undefined);
+          } else await createdNetwork?.remove().catch(() => undefined);
           throw error;
         }
         return c.json({

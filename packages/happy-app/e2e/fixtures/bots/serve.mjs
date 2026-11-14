@@ -14,6 +14,8 @@ const { createEnvironment, getEnvironmentConfig, setEnvironmentTemplate, startEn
 const gatewayFile = process.env.PAWS_BOTS_QA_GATEWAY_ENV;
 if (!gatewayFile) throw new Error('Provide the private runtime gateway.env using PAWS_BOTS_QA_GATEWAY_ENV');
 const privateEnv = parseEnv(await fs.readFile(gatewayFile, 'utf8'));
+const sandboxProvider = process.env.PAWS_BOTS_QA_SANDBOX_PROVIDER ?? 'none';
+if (!['none', 'docker'].includes(sandboxProvider)) throw new Error('Unsupported QA sandbox provider');
 if (process.env.PAWS_BOTS_QA_API_URL) privateEnv.RAKAZO_API_URL = process.env.PAWS_BOTS_QA_API_URL;
 if (process.env.PAWS_BOTS_QA_WEB_URL) { privateEnv.RAKAZO_WEB_URL = process.env.PAWS_BOTS_QA_WEB_URL; privateEnv.RAKAZO_AUTH_ORIGIN = process.env.PAWS_BOTS_QA_WEB_URL; }
 delete process.env.TSX_TSCONFIG_PATH;
@@ -70,7 +72,7 @@ async function main() {
     const runtime = { environment, pid: process.pid, webUrl, serverUrl, runtimeOrigin, accounts,
         boundaries: { app: 'full Paws App', server: 'isolated PGlite and synthetic accounts',
             bots: 'pinned native Rakazo Web/API/worker/PostgreSQL', model: 'real local GPT gateway',
-            sandboxProvider: 'none', productionDeployment: false } };
+            sandboxProvider, productionDeployment: false } };
     controller = createServer((request, response) => {
         response.setHeader('Content-Type', 'application/json');
         if (request.method === 'GET' && request.url === '/runtime') return response.end(JSON.stringify(runtime));
