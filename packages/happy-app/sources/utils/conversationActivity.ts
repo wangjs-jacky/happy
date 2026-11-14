@@ -91,8 +91,8 @@ function getToolFailure(message: ToolCallMessage): ToolCall['failure'] | null {
         .filter((child) => child.kind === 'agent-text' && child.isThinking)
         .map((child) => child.kind === 'agent-text' ? child.text : '')
         .join('');
-    const failure = selectToolFailure([tool.result, commandOutput, tool.failure?.detail, tool.failure?.summary], tool.failure?.summary ?? 'The tool reported a failure.');
-    return { ...tool.failure, ...failure };
+    const failure = selectToolFailure([tool.result, commandOutput, tool.failure?.detail, tool.failure?.summary], tool.failure?.summary ?? '');
+    return failure.summary ? { ...tool.failure, ...failure } : null;
 }
 
 export function getSkillNamesFromTool(tool: Pick<ToolCall, 'name' | 'input'>): string[] {
