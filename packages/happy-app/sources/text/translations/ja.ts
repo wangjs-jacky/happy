@@ -1128,6 +1128,8 @@ export const ja: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "ひとつのアイデアから",
+        emptyHint: "やりたいことを伝えたり、気になることを聞いてみましょう。",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",

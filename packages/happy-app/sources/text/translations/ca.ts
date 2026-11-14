@@ -1127,6 +1127,8 @@ export const ca: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "Comença amb una idea",
+        emptyHint: "Descriu què vols fer o planteja una pregunta.",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",

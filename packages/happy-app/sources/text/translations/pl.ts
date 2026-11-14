@@ -1144,6 +1144,8 @@ export const pl: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "Zacznij od pomysłu",
+        emptyHint: "Opisz, co chcesz zrobić, lub zadaj pytanie.",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",

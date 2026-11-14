@@ -1193,6 +1193,8 @@ export const zhHant: TranslationStructure = {
     },
 
     session: {
+        emptyTitle: "從一個想法開始",
+        emptyHint: "描述你想完成的事，或直接提出一個問題。",
         continueFresh: "Start a fresh session here",
         continueOpen: "Open continued session",
         continueCreating: "Creating new session…",
