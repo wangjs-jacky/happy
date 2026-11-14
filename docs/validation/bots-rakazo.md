@@ -48,7 +48,11 @@ Mobile playback has not been confirmed.
 - Initial merged App regression selection: 180 tests; full App typecheck and Web export.
 - After integrating `f14c5ef3`: 343 session-entry/Bots/retirement regressions and
   full App typecheck passed. This includes the message-visibility case that failed
-  once in the previous head's merged CI; current-head CI is tracked separately in the PR.
+  in merged CI; the test now awaits the scheduled verification task before
+  asserting its unchanged latest-message contract, rather than applying a default
+  1s budget to the whole async operation. The original complete local App suite
+  passed 4674 tests; the adjusted 194-test visibility suite and full typecheck
+  passed. Current-head CI is tracked separately in the PR.
 - Gateway/loader/stack: 24 tests; server Bots route/gateway: 7 tests.
 - CLI retirement: 51 tests, CLI build/typecheck, built-command retirement and
   byte-preservation checks. App retirement also has a separate 262-test report;
