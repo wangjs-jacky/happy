@@ -173,10 +173,19 @@ describe('OTA native runtime isolation', () => {
 
         expect(previewWorkflow).not.toContain('github.event.inputs.channel');
         expect(previewWorkflow).toContain('--variant preview --channel preview');
+        const { classifyOtaImpact } = require('../../../../scripts/classify-ota-impact.cjs');
         for (const workflow of [previewWorkflow, productionWorkflow]) {
-            expect(workflow).toContain('packages/happy-app/expo-project.json|\\');
-            expect(workflow).toContain('packages/happy-app/google-services.json|\\');
-            expect(workflow).toContain('packages/happy-app/ota-ios-runtime-versions.json|\\');
+            expect(workflow).toContain('run: node scripts/classify-ota-impact.cjs');
+            expect(workflow).toContain("needs.classify-ota-compatibility.outputs.ota-compatible == 'true'");
+        }
+        for (const path of [
+            'packages/happy-app/expo-project.json',
+            'packages/happy-app/google-services.json',
+            'packages/happy-app/ota-ios-runtime-versions.json',
+        ]) {
+            expect(classifyOtaImpact([path], 'push')).toMatchObject({
+                otaCompatible: false, reason: 'native-sensitive', native: [path],
+            });
         }
         expect(previewWorkflow).toContain('patches/fix-expo-camera-scanner-transitions.cjs');
         expect(previewWorkflow).toContain('scripts/postinstall.cjs');
