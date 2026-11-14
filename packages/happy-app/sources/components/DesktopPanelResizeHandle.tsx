@@ -19,6 +19,7 @@ export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHa
 }) {
     const { theme } = useUnistyles();
     const [focused, setFocused] = React.useState(false);
+    const [hovered, setHovered] = React.useState(false);
     const {
         beginPanelResize,
         continuePanelResize,
@@ -75,6 +76,8 @@ export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHa
                 'aria-valuetext': `${currentWidth} px`,
                 onBlur: () => { setFocused(false); if (side === 'left') setLeftSidebarFocused(false); },
                 onFocus: () => { setFocused(true); if (side === 'left') setLeftSidebarFocused(true); },
+                onPointerEnter: () => setHovered(true),
+                onPointerLeave: () => setHovered(false),
                 onKeyDown: handleKeyDown,
                 tabIndex: 0,
             } as any) : {})}
@@ -90,13 +93,16 @@ export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHa
             testID={`desktop-${side}-panel-resize-handle`}
         >
             <View
+                pointerEvents="none"
                 style={[
                     styles.line,
+                    Platform.OS === 'web' && styles.webGrip,
                     {
                         backgroundColor: resizingSide === side || focused
                             ? theme.colors.textLink
                             : theme.colors.divider,
                     },
+                    Platform.OS === 'web' && { opacity: hovered || focused || resizingSide === side ? 1 : 0 },
                 ]}
             />
         </View>
@@ -116,5 +122,10 @@ const styles = StyleSheet.create(() => ({
     line: {
         width: 1,
         height: '100%',
+    },
+    webGrip: {
+        width: 2,
+        height: 32,
+        borderRadius: 1,
     },
 }));
