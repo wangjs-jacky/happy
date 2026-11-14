@@ -20,10 +20,13 @@ stack and [gateway setup](../integrations/rakazo/gateway/README.md) for the priv
 authenticated bridge.
 
 Each authenticated Paws account maps to a separate native Rakazo account and
-space. The iframe gets a short-lived, single-use launch ticket. The Paws bearer
-token never goes to Rakazo or into the iframe URL. The gateway holds native
+space. The Web host mounts the source in `packages/paws-bots/apps/web` directly in its
+document, with a private React root, scoped CSS and MemoryRouter. The mount gets
+a short-lived, single-use launch ticket. The Paws bearer
+token never goes to Rakazo or into the DOM/asset URL. The gateway holds native
 sessions privately in memory and validates the account before reusing one.
-Changing accounts disposes of the previous frame.
+Changing accounts disposes of the previous mount, aborts its requests and revokes
+its lease; saved drafts and internal routes are isolated per native space.
 
 The runtime needs a dedicated root HTTPS origin, separate from the Paws origin.
 Its native API/Web listeners remain private. Only the gateway may be exposed by
@@ -38,14 +41,17 @@ does not download or run GPT model weights on the host.
 
 ## Supported boundaries
 
-- Web embedding requires a secure context and Service Worker support. If browser
-  isolation cannot start, Bots fails closed and provides an explicit retry.
+- Web uses no application iframe and installs no Service Worker. It calls the
+  private gateway through exact-origin CORS with its own bound lease. Missing
+  release assets or failed authorization fail closed with an explicit retry.
 - Android/iOS WebView code has not passed device acceptance. Web verification
   does not establish native compatibility or offline support.
-- Computer provisioning remains disabled (`SANDBOX_PROVIDER=none`). No Docker
-  socket, sandbox supervisor or host-shell fallback is enabled by the core stack.
-  Native computer browser tooling requires a separate authorized configuration.
-- The bridge uses native SSE and browser messages, with one-shot expiry/timeouts;
+- The core-only stack keeps computers disabled. The explicitly selected
+  `compose.monorepo.yml` overlay enables a private Docker supervisor and isolated
+  Linux desktop with Chromium/chrome-use. Its Docker socket stays in the
+  supervisor; no host-shell fallback is added. Desktop screens use sealed noVNC
+  capabilities; the application UI itself is mounted directly.
+- The Web bridge uses native SSE and bounded fetch, with one-shot expiry/timeouts;
   it adds no business-state polling. This statement concerns the Bots bridge,
   not every existing Paws or upstream background process.
 - Third-party integration screens are upstream UI. OAuth/provider authorization
@@ -55,7 +61,7 @@ does not download or run GPT model weights on the host.
 ## Verification
 
 ```sh
-node --test integrations/rakazo/gateway/*.test.mjs integrations/rakazo/stack.test.mjs
+node --test scripts/bots-runtime.test.mjs integrations/rakazo/gateway/*.test.mjs integrations/rakazo/stack.test.mjs
 pnpm --filter happy-server-self-host exec vitest run sources/bots
 pnpm --filter happy-app exec vitest run sources/components/bots \
   sources/components/SidebarView.test.tsx \
@@ -77,10 +83,46 @@ The existing main-only Web deployment configures the dedicated Bots origin at
 It reuses the production-web environment's existing verified SSH identity. The
 configurator reads the current Caddyfile and its adapted configuration, requires
 the existing IP certificate and an unclaimed port, and preserves all other sites.
-The native gateway must be running before release activation. Computers remain
-explicitly disabled; this ingress does not enable a sandbox provider.
+The native gateway must be running before release activation. The ingress itself does not enable a sandbox provider; that choice belongs to
+the explicit computer overlay.
 
 Each deployment uses a run/attempt-specific backup. A later Web failure restores
 the Web, Bots, then MCP configuration in reverse preparation order. A transport
 failure with an unknown remote outcome requires reading the effective remote
 configuration before retrying; the tests do not claim distributed transactions.
+
+## Source builds
+
+See [`packages/paws-bots`](../packages/paws-bots/README.md) for workspace boundaries
+and build commands. Web release HTML pins immutable Bots JS/CSS in `/assets/bots/`;
+Expo development serves the generated files under `/bots-assets/`. Never reuse
+production gateway ports for fixtures; the default QA gateway is loopback 3492.
+
+
+### Source QA computer network isolation
+
+The source Compose overlay uses `SANDBOX_COMPUTER_EGRESS=proxy`. Each computer
+has an IPv4-only Docker `internal` bridge with `gateway_mode_ipv4=isolated`:
+there is no default route and no bridge address on the Docker host. A separate
+unprivileged `computer-egress` service supplies HTTP/HTTPS proxy access to public
+IPv4 destinations on ports 80 and 443. It receives no application credentials,
+Docker socket or user-data mounts, and kernel IP forwarding is disabled.
+
+The proxy checks every DNS answer, rejects non-public addresses (including
+loopback, LAN, Docker host and cloud metadata), and connects to the checked IP
+without resolving again. Chromium receives the same explicit proxy setting as
+command-line HTTP clients. Direct networking, IPv6 and non-HTTP protocols remain
+unavailable; stopping the proxy does not add a direct route. A missing proxy or
+an existing network with incompatible settings prevents computer provisioning.
+Use a Docker daemon that supports isolated gateway mode; an unsupported daemon
+must fail provisioning. Do not fall back to `auto` or `open`.
+
+The upstream `restricted` host-firewall script requires a supported Linux Docker
+host and does not support Docker Desktop. Screen access isolation alone does
+not establish an outbound network boundary.
+
+Checks: `node --test integrations/rakazo/egress/public-proxy.test.mjs`, the
+supervisor `proxy-egress.test.ts` and `computer-spec.test.ts`, and a real Docker
+network check of direct host/LAN/metadata/peer denial, public HTTPS with TLS
+verification, and denied direct access after proxy disconnection. Browser UI
+acceptance follows the repository's Ego rules separately.
