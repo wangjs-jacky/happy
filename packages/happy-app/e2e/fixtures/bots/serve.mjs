@@ -76,7 +76,7 @@ async function main() {
     await new Promise(resolve => controller.listen(0, '127.0.0.1', resolve));
     runtime.controllerUrl = `http://127.0.0.1:${controller.address().port}`;
     await fs.writeFile(path.join(output, 'runtime.json'), JSON.stringify(runtime, null, 2), { mode: 0o600 });
-    await startEnvironmentWeb(environment, { warmBundle: true });
+    await startEnvironmentWeb(environment, { warmBundle: true, queryAuthOnly: true });
     await import('../goal-board/repair-router-types.mjs');
     log(JSON.stringify({ ready: true, webUrl, serverUrl, controllerUrl: runtime.controllerUrl, runtimeFile: path.join(output, 'runtime.json') }));
 }
