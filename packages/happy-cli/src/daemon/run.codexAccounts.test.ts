@@ -292,6 +292,48 @@ describe('real daemon Codex spawn paths', () => {
     expect(state.spawned).toHaveLength(1);
     expect(state.api.attachCodexSession).not.toHaveBeenCalledWith('launch-2', expect.anything());
   });
+  it('restores an offline modern completed worker with its original thread', async () => {
+    state.tmux = false;
+    const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    const home = state.spawned[0].CODEX_HOME;
+    const metadata = { hostPid: 987601, flavor: 'codex', startedBy: 'daemon', path: sourceHome,
+      codexThreadId: 'thread-source', capabilities: { codexCredentialRecovery: true } };
+    const encryption = { encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const, seq: 0, metadataVersion: 1, agentStateVersion: 1 };
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption); await first;
+    await mkdir(join(home, 'sessions')); await writeFile(join(home, 'sessions', 'rollout-thread-source.jsonl'), 'source-native-thread');
+    state.children[0].emit('exit', 0);
+    await vi.waitFor(async () => { await expect(stat(home)).rejects.toThrow(); });
+    const encrypted = (value: unknown) => encodeBase64(encrypt(encryption.encryptionKey, 'legacy', value));
+    vi.mocked(axios.get).mockResolvedValue({ data: { sessions: [{ id: 'paws-session', active: false, metadata: encrypted(metadata), seq: 200, metadataVersion: 2,
+      agentState: encrypted({ turnStatus: { status: 'completed', updatedAt: 1, turnId: 'old-turn' } }) }] } });
+    const resumed = state.handlers.resumeSession('paws-session', { codexSessionGrant: 'b'.repeat(43), expectedWorkerPid: 987601 });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(2));
+    expect(state.workerArgs[1]).toContain('thread-source');
+    expect(state.spawned[1].HAPPY_RECONNECT_SESSION_ID).toBe('paws-session');
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption);
+    await expect(resumed).resolves.toEqual({ type: 'success', sessionId: 'paws-session' });
+  });
+
+  it.each([true, false])('does not replace a modern worker that reconnects during recovery (initially active=%s)', async active => {
+    state.tmux = false;
+    const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });
+    await vi.waitFor(() => expect(state.spawned).toHaveLength(1));
+    const home = state.spawned[0].CODEX_HOME;
+    const metadata = { hostPid: 987601, flavor: 'codex', startedBy: 'daemon', path: sourceHome,
+      codexThreadId: 'thread-source', capabilities: { codexCredentialRecovery: true } };
+    const encryption = { encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const, seq: 0, metadataVersion: 1, agentStateVersion: 1 };
+    state.control.onHappySessionWebhook('paws-session', metadata, encryption); await first;
+    await mkdir(join(home, 'sessions')); await writeFile(join(home, 'sessions', 'rollout-thread-source.jsonl'), 'source-native-thread');
+    const encrypted = (value: unknown) => encodeBase64(encrypt(encryption.encryptionKey, 'legacy', value));
+    const snapshot = (active: boolean) => ({ data: { sessions: [{ id: 'paws-session', active, metadata: encrypted(metadata), seq: 200, metadataVersion: 2,
+      agentState: encrypted({ turnStatus: { status: 'completed', updatedAt: 1, turnId: 'old-turn' } }) }] } });
+    vi.mocked(axios.get).mockResolvedValueOnce(snapshot(active)).mockResolvedValue(snapshot(true));
+    await expect(state.handlers.resumeSession('paws-session', { codexSessionGrant: 'b'.repeat(43), expectedWorkerPid: 987601 }))
+      .resolves.toEqual({ type: 'success', sessionId: 'paws-session' });
+    expect(state.children[0].kill).not.toHaveBeenCalled();
+    expect(state.spawned).toHaveLength(1);
+  });
   it('deduplicates the same failed-turn recovery after the first replacement has finished starting', async () => {
     state.tmux = false;
     const first = state.handlers.spawnSession({ directory: sourceHome, agent: 'codex', codexSessionGrant: 'a'.repeat(43) });

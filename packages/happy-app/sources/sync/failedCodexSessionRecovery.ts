@@ -10,7 +10,10 @@ export class FailedCodexSessionRecovery {
         const turn = session?.agentState?.turnStatus;
         if (!session || metadata?.flavor !== 'codex' || !metadata.codexAccountProfileId
             || !metadata.codexThreadId || !turn || turn.status === 'running') return;
-        if (turn.status !== 'failed' && (metadata.capabilities?.codexCredentialRecovery === true || !metadata.hostPid)) return;
+        // A capability describes the old worker, not whether it is still alive.
+        // Offline terminal sessions need their executor back before accepting input.
+        if (turn.status !== 'failed' && (!metadata.hostPid
+            || (session.active !== false && metadata.capabilities?.codexCredentialRecovery === true))) return;
         const key = `${metadata.hostPid ?? ''}:${turn.status}:${turn.turnId ?? ''}:${turn.updatedAt}`;
         const current = this.attempts.get(session.id);
         if (current?.owner === owner && current.key === key) return current.pending;
