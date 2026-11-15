@@ -84,7 +84,9 @@ export function scanText(value: string, location: string): SecretFinding[] {
 function isSmallTextAttachment(attachment: ResolvedAttachment): boolean {
     if (attachment.size > 1024 * 1024) return false;
     if (attachment.mimeType.startsWith('text/')) return true;
-    return ['.env', '.json', '.md', '.svg', '.toml', '.txt', '.yaml', '.yml'].includes(extname(attachment.name).toLowerCase());
+    if (attachment.mimeType === 'application/octet-stream') return true;
+    return ['.env', '.json', '.key', '.md', '.pem', '.svg', '.toml', '.txt', '.yaml', '.yml']
+        .includes(extname(attachment.name).toLowerCase());
 }
 
 export async function scanShareExport(

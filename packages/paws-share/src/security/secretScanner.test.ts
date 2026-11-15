@@ -71,4 +71,26 @@ describe('secretScanner', () => {
         ]));
         expect(JSON.stringify(findings)).not.toContain('examplelongcredentialvalue123456789');
     });
+
+    it('scans small extensionless attachments before they can be exported', async () => {
+        const home = await createTemporaryDirectory('paws-share-security-extensionless-');
+        temporaryDirectories.push(home);
+        const attachmentPath = join(home, 'identity');
+        const secret = `-----BEGIN PRIVATE KEY-----\nexample\n-----END PRIVATE KEY-----`;
+        await writeFile(attachmentPath, secret);
+
+        const findings = await scanShareExport(snapshot('Safe message'), [{
+            attachmentId: '22222222-2222-4222-8222-222222222222',
+            path: attachmentPath,
+            name: 'identity',
+            mimeType: 'application/octet-stream',
+            kind: 'file',
+            size: Buffer.byteLength(secret),
+            sha256: 'b'.repeat(64),
+        }]);
+
+        expect(findings).toEqual(expect.arrayContaining([
+            expect.objectContaining({ rule: 'private-key', severity: 'block', location: 'attachment:identity' }),
+        ]));
+    });
 });

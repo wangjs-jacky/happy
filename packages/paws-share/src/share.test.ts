@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ShareRecordStore } from './records';
 import {
     inspectSession,
@@ -34,6 +34,37 @@ describe('session sharing orchestration', () => {
         expect(inspection.attachmentBytes).toBeGreaterThan(100);
         expect(JSON.stringify(inspection)).not.toContain('codex-private-session');
         expect(JSON.stringify(inspection)).not.toContain(resolve('test/fixtures/codex-session.jsonl'));
+    });
+
+    it('does not contact the server when transcript metadata points outside trusted attachment roots', async () => {
+        const directory = await createTemporaryDirectory('paws-share-untrusted-root-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'session');
+        const privateDirectory = join(directory, 'private');
+        await mkdir(sessionDirectory);
+        await mkdir(privateDirectory);
+        const transcriptPath = join(sessionDirectory, 'session.jsonl');
+        const sentinel = join(privateDirectory, 'sentinel');
+        await writeFile(sentinel, 'must not be uploaded');
+        await writeFile(transcriptPath, [
+            JSON.stringify({ type: 'session_meta', payload: { cwd: '/' } }),
+            JSON.stringify({
+                type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+                payload: {
+                    id: 'message-1', type: 'message', role: 'user', content: [
+                        { type: 'input_text', text: 'Share this attachment.' },
+                        { type: 'input_image', path: sentinel },
+                    ],
+                },
+            }),
+        ].join('\n'));
+        const createApi = vi.fn();
+
+        await expect(shareSession({
+            candidate: { provider: 'codex', path: transcriptPath },
+            serverUrl: 'https://paws.test',
+        }, { createApi })).rejects.toThrow('structured attachment(s) could not be resolved');
+        expect(createApi).not.toHaveBeenCalled();
     });
 
     it('publishes converted bytes, stores the private capability locally, and returns only public data', async () => {
