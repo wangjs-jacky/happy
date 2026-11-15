@@ -64,7 +64,9 @@ jobs:
       # Bots owns a separate source-workspace CI with its own test selection.
       # Running every upstream Bots package here invokes unrelated DB/live suites
       # and the integration root has no tests under apps/web/src/paws.
-      - run: pnpm -r --filter '!{./packages/paws-bots/**}' --workspace-concurrency=4 --if-present test -- --run
+      # Keep package suites sequential so their own workers and subprocesses
+      # do not contend with the App's timing-sensitive integration tests.
+      - run: pnpm -r --filter '!{./packages/paws-bots/**}' --workspace-concurrency=1 --if-present test -- --run
 
   unit:
     strategy:
