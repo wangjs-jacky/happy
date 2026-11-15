@@ -78,7 +78,7 @@ function ensureWorker(): Worker {
     w.on('error', (err) => {
         // eslint-disable-next-line no-console
         console.error('[happy-worker] error:', err)
-        const message = (err instanceof Error && err.message) || 'Happy worker crashed'
+        const message = err instanceof Error && err.message || 'Happy worker crashed'
         failPending(message)
         latestState = {
             ...latestState,

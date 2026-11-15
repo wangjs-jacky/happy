@@ -655,8 +655,7 @@ describe('interactive preview persisted integration', () => {
         await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>race</h1>') }]);
         harness.cloudflare.holdDeploymentCreates = true;
         const publication = harness.service.publish(accountA, sessionA, previewId);
-        // The rejection is expected below, after the recovery interleaving.
-        void publication.catch(() => {});
+        const publicationRejected = expect(publication).rejects.toThrow(/fenced|publish/i);
         await eventually(() => harness.cloudflare.createRequests.length === 1, 'the delayed publisher create');
         await harness.database.interactivePreview.update({ where: { id: previewId }, data: { updatedAt: after(clockStart, -16 * 60 * 1000), publicationReconcileNextAttemptAt: new Date(clockStart) } });
         harness.cloudflare.holdMetadataLookups = true;
@@ -668,7 +667,7 @@ describe('interactive preview persisted integration', () => {
         harness.cloudflare.holdMetadataLookups = false;
         harness.cloudflare.releaseOneMetadataLookup();
 
-        await expect(publication).rejects.toThrow(/fenced|publish/i);
+        await publicationRejected;
         await recovery;
         expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'ready', cloudflareDeploymentId: 'dpl_1' });
         expect(harness.cloudflare.deleteRequests).toEqual([]);
