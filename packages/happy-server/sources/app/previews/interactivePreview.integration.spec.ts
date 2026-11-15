@@ -465,7 +465,7 @@ class PreviewHarness {
             if (!upload) throw new Error(`Missing upload descriptor for ${asset.id}`);
             const form = new FormData();
             for (const [key, value] of Object.entries(upload.formFields)) form.set(key, value);
-            form.set('file', new Blob([asset.bytes], { type: asset.mimeType }), `${asset.id}.bin`);
+            form.set('file', new Blob([Uint8Array.from(asset.bytes)], { type: asset.mimeType }), `${asset.id}.bin`);
             const direct = await fetch(upload.uploadUrl, { method: upload.method, body: form as any });
             expect(direct.status).toBe(204);
             const completed = await this.app.inject({
@@ -655,6 +655,8 @@ describe('interactive preview persisted integration', () => {
         await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>race</h1>') }]);
         harness.cloudflare.holdDeploymentCreates = true;
         const publication = harness.service.publish(accountA, sessionA, previewId);
+        // The rejection is expected below, after the recovery interleaving.
+        void publication.catch(() => {});
         await eventually(() => harness.cloudflare.createRequests.length === 1, 'the delayed publisher create');
         await harness.database.interactivePreview.update({ where: { id: previewId }, data: { updatedAt: after(clockStart, -16 * 60 * 1000), publicationReconcileNextAttemptAt: new Date(clockStart) } });
         harness.cloudflare.holdMetadataLookups = true;

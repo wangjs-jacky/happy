@@ -20,3 +20,5 @@ Build prerequisite: baseline attachment BlobPart and axios mock params require t
 
 
 Verification: 10 targeted suites / 143 tests passed. Regression failures were observed before both config isolation and inference-boundary fixes. CLI typecheck passed; native Codex 0.166.0 accepted a sanitized fixture configuration, exposed the official provider and 12 models without the gateway alias. No model inference or production operations were sent. Independent review passed after adding review/compact/goal/sample guards and authoritative model-state updates. Full CLI bundling is verified separately before commit.
+
+CI follow-up: the first PR run passed 13 jobs but failed workspace typecheck on existing unknown worker errors. A no-bail local workspace typecheck also identified typed-array fixture/upload incompatibilities. Narrow error/byte handling corrections are isolated in a follow-up commit; recursive workspace typecheck now passes and paws-share has 46 passing tests.
