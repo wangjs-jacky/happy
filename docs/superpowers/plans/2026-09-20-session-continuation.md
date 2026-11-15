@@ -1,5 +1,7 @@
 # Session Continuation Implementation Plan
 
+> 历史流程说明：本文保留当时的合并文案确认要求。后续 Happy/Paws 发布按根目录 [CLAUDE.md](../../../CLAUDE.md#已授权发布不重复确认合并文案) 执行：用户已明确授权发布时不再重复确认文案；原检查与业务验收要求不变。
+
 **Goal:** Replace unrecoverable provider execution with a fresh session while preserving the readable conversation.
 **Architecture:** Account-aware spawn plus encrypted continuation edges; original session-scoped message rendering composed into one transcript. No initial message.
 **Tech Stack:** Expo React Native/Web, Zustand, existing encrypted metadata CAS and RPC, Vitest, Ego.

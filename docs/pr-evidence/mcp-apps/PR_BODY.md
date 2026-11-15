@@ -1,3 +1,5 @@
+> 历史 PR 正文：下方复选框保留当时的记录，不代表当前门禁或新批准。后续 Happy/Paws 发布遵循 [CLAUDE.md](../../../CLAUDE.md#已授权发布不重复确认合并文案)：用户已明确授权发布时，Agent 拟定准确文案并完成必要检查后直接执行，不再二次确认。
+
 ## Summary
 
 - Ship the complete Paws MCP Apps stack across Session Protocol, Codex transport, replay, Web, and native hosts.

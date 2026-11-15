@@ -60,5 +60,5 @@ State mobile playback as confirmed only after the reviewer can open the same fil
 - [ ] Relevant automated tests passed.
 - [ ] Typecheck passed, or the PR explains why it is not applicable.
 - [ ] Every CI check triggered for the current head passed.
-- [ ] The exact merge message was shown to and approved by the maintainer.
+- [ ] 本次合并/发布在用户明确授权范围内；合并标题与正文准确反映改动。用户已要求发布时，Agent 拟定文案并在必要检查通过后直接执行，无需再次确认文案或是否继续发布；不冒记逐字批准或人工验收。
 - [ ] The merge does not bypass branch protection.
