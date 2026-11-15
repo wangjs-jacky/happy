@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Session } from './storageTypes';
 import { FailedCodexSessionRecovery } from './failedCodexSessionRecovery';
 
-const session = (updatedAt = 1) => ({ id: 'original', metadata: { flavor: 'codex', machineId: 'machine', hostPid: 1234,
+const session = (updatedAt = 1) => ({ id: 'original', active: true, metadata: { flavor: 'codex', machineId: 'machine', hostPid: 1234,
     codexThreadId: 'original-thread', codexAccountProfileId: 'original-account', capabilities: { codexCredentialRecovery: true } },
     agentState: { turnStatus: { status: 'failed', updatedAt, turnId: 'turn' } },
 }) as Session;
@@ -48,6 +48,33 @@ describe('failed account session recovery before delivery', () => {
         value.metadata!.capabilities = {};
         const resume = vi.fn(async () => ({ type: 'success' as const, sessionId: 'original' }));
         await new FailedCodexSessionRecovery().ensure(value, {}, resume);
+        expect(resume).toHaveBeenCalledTimes(1);
+    });
+
+
+    it.each(['completed', 'cancelled'])('restores an offline modern %s worker before delivering', async status => {
+        const value = session(); value.active = false;
+        value.agentState!.turnStatus!.status = status as 'completed';
+        let finish!: (result: { type: 'success'; sessionId: string }) => void;
+        const resume = vi.fn(() => new Promise<{ type: 'success'; sessionId: string }>(resolve => { finish = resolve; }));
+        const recovery = new FailedCodexSessionRecovery(); const owner = {}; const deliver = vi.fn();
+        const send = async () => { await recovery.ensure(value, owner, resume); deliver(); };
+        const first = send(); const second = send();
+        expect(resume).toHaveBeenCalledTimes(1);
+        expect(deliver).not.toHaveBeenCalled();
+        finish({ type: 'success', sessionId: 'original' });
+        await Promise.all([first, second]);
+        expect(deliver).toHaveBeenCalledTimes(2);
+    });
+
+    it('rechecks an unchanged completed turn when its worker becomes offline', async () => {
+        const value = session(); value.agentState!.turnStatus!.status = 'completed';
+        const recovery = new FailedCodexSessionRecovery(); const owner = {};
+        const resume = vi.fn(async () => ({ type: 'success' as const, sessionId: 'original' }));
+        await recovery.ensure(value, owner, resume);
+        expect(resume).not.toHaveBeenCalled();
+        value.active = false;
+        await recovery.ensure(value, owner, resume);
         expect(resume).toHaveBeenCalledTimes(1);
     });
 

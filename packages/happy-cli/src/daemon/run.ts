@@ -907,7 +907,7 @@ export async function startDaemon(): Promise<void> {
         if (options?.expectedWorkerPid && serverSnapshot
             && (serverSnapshot.metadata.hostPid !== options.expectedWorkerPid
               || serverSnapshot.agentState?.turnStatus?.status === 'running'
-              || serverSnapshot.metadata.capabilities?.codexCredentialRecovery === true)) {
+              || (serverSnapshot.active && serverSnapshot.metadata.capabilities?.codexCredentialRecovery === true))) {
           return { type: 'success', sessionId: happySessionId };
         }
         if (options?.expectedFailedTurn || options?.expectedWorkerPid) {
@@ -991,7 +991,7 @@ export async function startDaemon(): Promise<void> {
           if (options?.expectedFailedTurn
             ? turn?.status === 'running' || (latest.active && (turn?.status !== 'failed' || failedTurnKey(turn) !== failedTurnKey(options.expectedFailedTurn)))
             : latest.metadata.hostPid !== options.expectedWorkerPid || turn?.status === 'running'
-              || latest.metadata.capabilities?.codexCredentialRecovery === true) {
+              || (latest.active && latest.metadata.capabilities?.codexCredentialRecovery === true)) {
             recoverySuperseded = true;
             // 返回错误使未使用的新凭证目录被清理，不把它关联到正在工作的原会话。
             return { type: 'error', errorMessage: 'Recovery was superseded by a newer turn.' };

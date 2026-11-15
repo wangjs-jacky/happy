@@ -173,14 +173,20 @@ describe('OTA native runtime isolation', () => {
 
         expect(previewWorkflow).not.toContain('github.event.inputs.channel');
         expect(previewWorkflow).toContain('--variant preview --channel preview');
-        for (const workflow of [previewWorkflow, productionWorkflow]) {
-            expect(workflow).toContain('node scripts/classify-ota-impact.cjs');
-        }
-        // Native compatibility is centralized in the same classifier both workflows run.
         const { classifyOtaImpact } = require(fileURLToPath(new URL('../../../../scripts/classify-ota-impact.cjs', import.meta.url)));
-        for (const file of ['packages/happy-app/expo-project.json', 'packages/happy-app/google-services.json',
-            'packages/happy-app/ota-ios-runtime-versions.json']) {
-            expect(classifyOtaImpact([file])).toMatchObject({ otaCompatible: false, reason: 'native-sensitive', native: [file] });
+        for (const workflow of [previewWorkflow, productionWorkflow]) {
+            expect(workflow).toContain('run: node scripts/classify-ota-impact.cjs');
+            expect(workflow).toContain("needs.classify-ota-compatibility.outputs.ota-compatible == 'true'");
+        }
+        for (const path of [
+            'packages/happy-app/expo-project.json',
+            'packages/happy-app/google-services.json',
+            'packages/happy-app/ota-ios-runtime-versions.json',
+        ]) {
+            expect(classifyOtaImpact([path], 'push')).toMatchObject({
+                otaCompatible: false, reason: 'native-sensitive', native: [path],
+            });
+
         }
         expect(previewWorkflow).toContain('patches/fix-expo-camera-scanner-transitions.cjs');
         expect(previewWorkflow).toContain('scripts/postinstall.cjs');
