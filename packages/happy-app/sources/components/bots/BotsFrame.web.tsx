@@ -67,6 +67,7 @@ export function BotsFrame(props: BotsFrameProps) {
         if (!host) return;
         let cancelled = false;
         let dispose: (() => void) | undefined;
+        let releaseAssets: (() => void) | undefined;
         let entry = document.querySelector<HTMLMetaElement>('meta[name="paws-bots-entry"]')?.content;
         let css = document.querySelector<HTMLMetaElement>('meta[name="paws-bots-style"]')?.content;
         const fail = () => { if (!cancelled) props.onFailure(); };
@@ -79,12 +80,14 @@ export function BotsFrame(props: BotsFrameProps) {
             }
             if (!entry || !css) throw new Error('Bots workspace assets are missing');
             if (cancelled) return;
-            const runtime = await loadBotsAssets(entry, css);
+            const assets = loadBotsAssets(entry, css);
+            releaseAssets = assets.dispose;
+            const runtime = await assets.ready;
             if (cancelled) return;
             if (Date.now() >= props.expiresAt) throw new Error('Bots launch expired');
             dispose = runtime.mount(host, { ...props, theme: colors });
         })().catch(fail);
-        return () => { cancelled = true; dispose?.(); };
+        return () => { cancelled = true; dispose?.(); releaseAssets?.(); };
     }, [props.runtimeUrl, props.ticket, props.expiresAt, props.onAuthenticated, props.onFailure]);
     React.useEffect(() => {
         for (const [name, value] of Object.entries(colors)) element.current?.style.setProperty(name, value);

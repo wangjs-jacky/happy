@@ -493,7 +493,7 @@ jobs:
             echo '| Field | Value |'
             echo '| --- | --- |'
             echo "| Origin | $PAWS_WEB_ORIGIN |"
-            echo "| Bots runtime | https://47.115.228.20:8445 (computers disabled) |"
+            echo "| Bots runtime | https://47.115.228.20:8445 (native gateway; provider managed by runtime overlay) |"
             echo "| Commit | \`$GITHUB_SHA\` |"
             echo "| Static storage | \`oss://$PAWS_WEB_OSS_BUCKET/web/releases/$GITHUB_SHA/\` |"
             echo '| Server Web files | Removed after verification |'

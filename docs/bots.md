@@ -26,7 +26,13 @@ a short-lived, single-use launch ticket. The Paws bearer
 token never goes to Rakazo or into the DOM/asset URL. The gateway holds native
 sessions privately in memory and validates the account before reusing one.
 Changing accounts disposes of the previous mount, aborts its requests and revokes
-its lease; saved drafts and internal routes are isolated per native space.
+its lease; saved drafts and internal routes are isolated per account and native space.
+
+The host loads scoped CSS and the workspace script in parallel. It reuses the
+versioned stylesheet on return; each mount executes a fresh library instance so
+authentication, calls and preference state never cross account lifecycles.
+Immutable script URLs use the browser HTTP cache. Leaving Bots still unmounts
+the UI and releases its resources.
 
 The runtime needs a dedicated root HTTPS origin, separate from the Paws origin.
 Its native API/Web listeners remain private. Only the gateway may be exposed by
