@@ -1,7 +1,7 @@
 import { useLingui } from "@lingui/react/macro";
 import type { Bot, Group, ThreadSnapshot } from "@rakazo/contracts";
 import { BotAvatar, Button, GroupAvatar } from "@rakazo/ui-web";
-import { Gift, Menu, Phone } from "lucide-react";
+import { Gift, Menu, Monitor, Phone } from "lucide-react";
 import { useState } from "react";
 import { IconTooltip } from "../../components/IconTooltip";
 import { InviteDialog } from "../../components/InviteDialog";
@@ -22,6 +22,7 @@ export function ChatHeader({
   onOpenNavigation,
   onTogglePanel,
   onCall,
+  onOpenComputer,
 }: {
   inGroup: boolean;
   active: Bot | undefined;
@@ -35,14 +36,15 @@ export function ChatHeader({
   onOpenNavigation: () => void;
   onTogglePanel: () => void;
   onCall: (bot: Bot) => void;
+  onOpenComputer?: () => void;
 }) {
   const { t } = useLingui();
   const referral = useBilling().status?.referral;
   const [inviteOpen, setInviteOpen] = useState(false);
   const macChrome = windowChromeKind(desktopBridge()) === "darwin";
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-2 px-3 py-[13px] md:px-[22px] [&_button]:pointer-events-auto">
-      <div className="flex items-center">
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-2 border-b border-sidebar-border bg-background px-3 py-3 md:px-5 [&_button]:pointer-events-auto">
+      <div className="flex items-center md:hidden">
         {macChrome ? <WindowChrome className="md:hidden" /> : null}
         <Button
           variant="floating"
@@ -59,7 +61,7 @@ export function ChatHeader({
         data-testid="bot-settings-trigger"
         aria-expanded={panelOpen}
         onClick={onTogglePanel}
-        className="app-no-drag h-auto min-w-0 gap-2 py-1 ps-1 pe-3.5"
+        className="app-no-drag h-auto min-w-0 shrink gap-2 rounded-lg py-1 ps-1 pe-3.5"
       >
         {inGroup ? (
           <GroupAvatar members={activeSnapshot?.members ?? activeGroup?.members ?? []} size={26} />
@@ -80,7 +82,20 @@ export function ChatHeader({
           </span>
         </span>
       </Button>
-      <div className="flex items-center justify-self-end gap-2">
+      <div className="ms-auto flex shrink-0 items-center gap-2">
+        {!inGroup && active && onOpenComputer ? (
+          <IconTooltip label={t`Team Computer`}>
+            <Button
+              variant="floating"
+              size="icon-lg"
+              aria-label={t`Team Computer`}
+              onClick={onOpenComputer}
+              className="app-no-drag"
+            >
+              <Monitor strokeWidth={1.6} className="size-[18px]" />
+            </Button>
+          </IconTooltip>
+        ) : null}
         {phoneCallsEnabled && !inGroup && active ? (
           <IconTooltip label={inCall ? t`Open call` : t`Call`}>
             <Button

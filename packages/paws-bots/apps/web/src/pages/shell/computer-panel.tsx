@@ -2,7 +2,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import type { Bot, ComputerStatus } from "@rakazo/contracts";
 import { BotAvatar, Button } from "@rakazo/ui-web";
-import { HardDrive, Maximize2, X } from "lucide-react";
+import { HardDrive, Maximize2, Monitor, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { ComputersUnavailableHint } from "../../components/ComputersUnavailableHint";
 import { screenFrames, screenIframeSandbox } from "../../lib/computer-screen";
@@ -180,11 +180,22 @@ function ComputerPreview({
                   onOpenComputerSettings={onOpenComputerSettings}
                 />
               ) : (
-                (computerBooting ??
-                computerPlaceholder(
-                  computer?.state,
-                  booting,
-                  computerLabel(computer?.mode, bot.name),
+                (computerBooting ?? (
+                  <div role="status" className="flex flex-col items-center gap-3">
+                    <Monitor size={28} strokeWidth={1.4} aria-hidden />
+                    <span>
+                      {computerPlaceholder(
+                        computer?.state,
+                        booting,
+                        computerLabel(computer?.mode, bot.name),
+                      )}
+                    </span>
+                    {computer?.state === "running" ? (
+                      <Button variant="outline" size="sm" onClick={onOpen}>
+                        <Trans>Retry screen</Trans>
+                      </Button>
+                    ) : null}
+                  </div>
                 ))
               ))}
           </div>

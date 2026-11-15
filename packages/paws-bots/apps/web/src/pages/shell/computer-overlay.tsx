@@ -2,7 +2,7 @@ import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import type { Bot, ComputerReleaseReason, ComputerStatus, TaughtSkill } from "@rakazo/contracts";
 import { BotAvatar, Button } from "@rakazo/ui-web";
-import { X } from "lucide-react";
+import { Monitor, RefreshCw, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { TeachCaptureOverlay } from "../../components/teach/TeachCaptureOverlay";
 import { TeachComputerOverlayControl } from "../../components/teach/TeachComputerOverlay";
@@ -70,7 +70,12 @@ export function ComputerOverlay({
   onClose,
 }: ComputerOverlayProps) {
   return (
-    <div className="fixed inset-0 z-30 bg-background">
+    <div
+      role="dialog"
+      aria-label={computerLabel(computer?.mode, bot.name)}
+      aria-modal="true"
+      className="fixed inset-0 z-30 bg-background"
+    >
       <div
         data-testid="computer-viewport"
         className="fixed inset-x-0 top-0 flex flex-col bg-background pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
@@ -81,7 +86,7 @@ export function ComputerOverlay({
       >
         <div
           data-testid="computer-chrome"
-          className="app-no-drag flex items-center justify-between gap-4 border-b border-sidebar-border px-[18px] py-3.5"
+          className="app-no-drag flex flex-wrap items-center justify-between gap-3 border-b border-sidebar-border px-[18px] py-3.5"
           style={
             windowChromeKind(desktopBridge()) === "darwin"
               ? { paddingLeft: DARWIN_WINDOW_CONTROLS_WIDTH_PX + 18 }
@@ -118,7 +123,21 @@ export function ComputerOverlay({
               </span>
             ) : null}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
+            {computer?.state === "running" && !recordingSkill ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={booting}
+                onClick={onStart}
+                aria-label={t`Retry screen`}
+              >
+                <RefreshCw size={14} aria-hidden />
+                <span className="hidden sm:inline">
+                  <Trans>Retry screen</Trans>
+                </span>
+              </Button>
+            ) : null}
             {composerRunning ? (
               <Button
                 type="button"
@@ -144,13 +163,13 @@ export function ComputerOverlay({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={booting}
+                disabled={booting || !embeddedScreenUrl}
                 onClick={() => void onTakeControl()}
               >
                 <Trans>Take control</Trans>
               </Button>
             ) : null}
-            {!recordingSkill ? (
+            {!recordingSkill && embeddedScreenUrl && !computerScreenError ? (
               <TeachComputerOverlayControl
                 key={bot.id}
                 botId={bot.id}
@@ -178,7 +197,7 @@ export function ComputerOverlay({
             {sendError}
           </div>
         ) : null}
-        <div className="relative min-h-0 flex-1 bg-background">
+        <div className="relative min-h-0 flex-1 bg-muted/30">
           {computer?.kind === "desktop" ? (
             <DesktopKindEmptyState className="grid h-full place-items-center px-8 text-center text-body text-muted-foreground/80" />
           ) : computer?.state === "running" && embeddedScreenUrl && !computerScreenError ? (
@@ -225,7 +244,19 @@ export function ComputerOverlay({
                     </Button>
                   </div>
                 ) : (
-                  computerLabel(computer?.mode, bot.name)
+                  <div
+                    role="status"
+                    className="flex max-w-sm flex-col items-center gap-3 px-6 text-center"
+                  >
+                    <Monitor size={32} strokeWidth={1.4} aria-hidden />
+                    <p className="font-medium text-foreground">
+                      <Trans>Connecting…</Trans>
+                    </p>
+                    <Button variant="outline" size="sm" disabled={booting} onClick={onStart}>
+                      <RefreshCw size={14} aria-hidden />
+                      <Trans>Retry screen</Trans>
+                    </Button>
+                  </div>
                 ))}
             </div>
           )}
