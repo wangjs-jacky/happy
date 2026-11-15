@@ -84,5 +84,9 @@
             "fflate@0.8.3": "packages/paws-bots/patches/fflate@0.8.3.patch"
         }
     },
-    "packageManager": "pnpm@10.11.0"
+    "packageManager": "pnpm@10.11.0",
+    "devDependencies": {
+        "@prisma/client": "6.19.2",
+        "prisma": "6.19.2"
+    }
 }

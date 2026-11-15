@@ -148,3 +148,9 @@ public shell paths may be framed by configured Paws parent origins; their own
 script/network CSP, opaque sandboxes and source-window message checks remain in
 force. They are deliberately not copied under `/assets/`, whose production route
 redirects immutable files to OSS.
+
+The root development dependencies pin the primary Server's Prisma 6 CLI and
+client together. With the hoisted linker, a package-local Prisma 6 CLI and a
+root-level client otherwise trigger Prisma's implicit package installation from
+inside postinstall. Bots DB keeps its explicitly declared Prisma 7 toolchain and
+separate generated output; do not use a global Prisma override to merge them.
