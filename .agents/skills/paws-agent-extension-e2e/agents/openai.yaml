@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paws Agent Extension E2E"
+  short_description: "Validate Paws SDK extensions through deterministic browser E2E"
+  default_prompt: "Use $paws-agent-extension-e2e to validate this Paws Agent SDK extension end to end."
