@@ -529,3 +529,21 @@ test('only exact static viewer shells allow configured Paws ancestors and retain
     assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN');
   }
 });
+
+test('opaque screen module reads retain CORS without granting private RPC access', async (t) => {
+  const f = await fixture(t, (req, res) => {
+    assert.equal(req.headers.cookie, undefined);
+    res.writeHead(200, { 'content-type': 'text/javascript', 'access-control-allow-origin': '*' });
+    res.end('export const ready = true;');
+  });
+  const path = '/novnc/session/control/1794660000000.test-capability/core/input/keyboard.js';
+  const response = await fetch(f.base + path, { headers: { origin: 'null' } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('access-control-allow-origin'), 'null');
+  for (const path of ['/novnc/arbitrary/file.js', '/rpc/bootstrap']) {
+    const denied = await fetch(f.base + path, { headers: { origin: 'null' } });
+    assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  }
+  const post = await fetch(f.base + path, { method: 'POST', headers: { origin: 'null' } });
+  assert.equal(post.headers.get('access-control-allow-origin'), null);
+});

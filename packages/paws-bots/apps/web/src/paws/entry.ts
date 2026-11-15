@@ -18,5 +18,5 @@ export function mount(element: HTMLElement, options: HostOptions): () => void {
     if (cancelled) return;
     unmount = renderEmbedded(element, options);
   }).catch((error) => { console.error("Bots mount failed", error instanceof Error ? error.message : "Unknown error"); if (!cancelled) { disconnect(); options.onFailure(); } });
-  return () => { cancelled = true; unmount?.(); disconnect(); element.replaceChildren(); };
+  return () => { if (cancelled) return; cancelled = true; unmount?.(); disconnect(); element.replaceChildren(); };
 }

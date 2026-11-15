@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useUnistyles } from 'react-native-unistyles';
+import { loadBotsAssets } from './botsAssets.web';
 
 type HostOptions = Omit<BotsFrameProps, 'expiresAt'> & { expiresAt: number; theme: Record<string, string> };
 declare global {
@@ -68,20 +69,7 @@ export function BotsFrame(props: BotsFrameProps) {
         let dispose: (() => void) | undefined;
         let entry = document.querySelector<HTMLMetaElement>('meta[name="paws-bots-entry"]')?.content;
         let css = document.querySelector<HTMLMetaElement>('meta[name="paws-bots-style"]')?.content;
-        const script = document.createElement('script');
-        const style = document.createElement('link');
-        style.rel = 'stylesheet'; script.async = true;
         const fail = () => { if (!cancelled) props.onFailure(); };
-        style.onerror = fail; script.onerror = fail;
-        style.onload = () => { if (!cancelled) document.head.appendChild(script); };
-        script.onload = () => {
-            if (cancelled) return;
-            try {
-                const runtime = window.PawsBots;
-                if (!runtime || Date.now() >= props.expiresAt) throw new Error('Bots runtime unavailable');
-                dispose = runtime.mount(host, { ...props, theme: colors });
-            } catch { fail(); }
-        };
         void (async () => {
             // Expo dev serves generated public assets; release HTML pins immutable names.
             if ((!entry || !css) && __DEV__) {
@@ -91,10 +79,12 @@ export function BotsFrame(props: BotsFrameProps) {
             }
             if (!entry || !css) throw new Error('Bots workspace assets are missing');
             if (cancelled) return;
-            style.href = css; script.src = entry;
-            document.head.appendChild(style);
+            const runtime = await loadBotsAssets(entry, css);
+            if (cancelled) return;
+            if (Date.now() >= props.expiresAt) throw new Error('Bots launch expired');
+            dispose = runtime.mount(host, { ...props, theme: colors });
         })().catch(fail);
-        return () => { cancelled = true; dispose?.(); script.remove(); style.remove(); };
+        return () => { cancelled = true; dispose?.(); };
     }, [props.runtimeUrl, props.ticket, props.expiresAt, props.onAuthenticated, props.onFailure]);
     React.useEffect(() => {
         for (const [name, value] of Object.entries(colors)) element.current?.style.setProperty(name, value);

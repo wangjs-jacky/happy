@@ -50,7 +50,7 @@ describe('Bots workspace mount boundary', () => {
         expect(mountRuntime).toHaveBeenCalledTimes(1);
         expect(dispose).not.toHaveBeenCalled();
         await act(async () => tree.unmount()); tree = null;
-        expect(dispose).toHaveBeenCalledOnce(); expect(style.remove).toHaveBeenCalledOnce(); expect(script.remove).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce(); expect(style.remove).not.toHaveBeenCalled(); expect(script.remove).not.toHaveBeenCalled();
     });
     it('ignores a late library load after leaving the screen', async () => {
         await mount(); const style = nodes[0];
@@ -65,4 +65,28 @@ describe('Bots workspace mount boundary', () => {
         await act(async () => nodes[1].onload());
         expect(mountRuntime).not.toHaveBeenCalled(); expect(failure).toHaveBeenCalledOnce();
     });
+    it('reuses loaded code on return but creates and disposes each account mount', async () => {
+        await mount();
+        expect(nodes).toHaveLength(2);
+        await act(async () => { nodes[1].onload(); });
+        expect(mountRuntime).not.toHaveBeenCalled();
+        await act(async () => { nodes[0].onload(); });
+        await act(async () => tree.unmount()); tree = null;
+        await mount();
+        expect(nodes).toHaveLength(2);
+        expect(mountRuntime).toHaveBeenCalledTimes(2);
+        expect(dispose).toHaveBeenCalledTimes(1);
+    });
+    it('does not poison retry after a resource fails', async () => {
+        await mount();
+        await act(async () => { nodes[0].onerror(); nodes[1].onload(); });
+        expect(failure).toHaveBeenCalledOnce();
+        expect(mountRuntime).not.toHaveBeenCalled();
+        await act(async () => tree.unmount()); tree = null;
+        await mount();
+        expect(nodes).toHaveLength(4);
+        await act(async () => { nodes[2].onload(); nodes[3].onload(); });
+        expect(mountRuntime).toHaveBeenCalledOnce();
+    });
+
 });

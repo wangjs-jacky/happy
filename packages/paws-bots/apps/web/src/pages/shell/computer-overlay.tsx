@@ -13,6 +13,7 @@ import {
   desktopBridge,
   windowChromeKind,
 } from "../../lib/desktop";
+import { embedded } from "../../paws/runtime";
 import { ComputerReleaseActions } from "./computer-release-actions";
 import { computerLabel, DesktopKindEmptyState } from "./computer-view";
 
@@ -74,8 +75,8 @@ export function ComputerOverlay({
         data-testid="computer-viewport"
         className="fixed inset-x-0 top-0 flex flex-col bg-background pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
         style={{
-          height: computerViewport ? `${computerViewport.height}px` : "100dvh",
-          top: computerViewport ? `${computerViewport.offsetTop}px` : undefined,
+          height: embedded ? "100%" : computerViewport ? `${computerViewport.height}px` : "100dvh",
+          top: embedded ? 0 : computerViewport ? `${computerViewport.offsetTop}px` : undefined,
         }}
       >
         <div

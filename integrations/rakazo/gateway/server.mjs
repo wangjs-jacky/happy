@@ -138,6 +138,12 @@ export function createGateway(config, dependencies = {}) {
       const embeddedCaller = config.parentOrigins.includes(caller);
       const screenProbe = ['GET', 'HEAD', 'OPTIONS'].includes(req.method) && Boolean(sealedScreenPath(requestPath));
       const browserRoute = screenProbe || url.pathname === '/__paws/redeem' || /^\/(api|rpc)(?:\/|$)/.test(pathname);
+      // Sandboxed screen modules use an opaque origin. Limit their CORS to
+      // sealed read-only screen paths; native capability validation still applies.
+      if (screenProbe && caller === 'null' && ['GET', 'HEAD'].includes(req.method)) {
+        res.setHeader('access-control-allow-origin', 'null');
+        res.setHeader('vary', 'Origin');
+      }
       if (embeddedCaller && browserRoute) {
         res.setHeader('access-control-allow-origin', caller);
         res.setHeader('vary', 'Origin');
