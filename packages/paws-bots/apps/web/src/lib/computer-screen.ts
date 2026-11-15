@@ -11,20 +11,36 @@ export interface ComputerScreenResult {
 
 /** Only the latest request for the visible computer may replace its screen or error. */
 export async function loadComputerScreen(options: {
-  load: () => Promise<{ url: string | null }>;
+  load: (signal: AbortSignal) => Promise<{ url: string | null }>;
   isCurrent: () => boolean;
   commit: (result: ComputerScreenResult) => void;
   fallbackError: string;
+  timeoutMs?: number;
 }): Promise<string | null> {
+  const controller = new AbortController();
   let result: ComputerScreenResult;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const screen = await options.load();
+    // One bounded request, never a retry loop. A silent transport must not leave
+    // the user staring at a running computer with no screen or recovery action.
+    const screen = await Promise.race([
+      options.load(controller.signal),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(options.fallbackError)),
+          options.timeoutMs ?? 15000,
+        );
+      }),
+    ]);
     result = { url: screen.url, error: null };
   } catch (error) {
     result = {
       url: null,
       error: errorText(error, options.fallbackError),
     };
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
   }
   if (!options.isCurrent()) return null;
   options.commit(result);
@@ -155,7 +171,10 @@ export function screenFrameMessage(data: unknown): ScreenFrameMessage | null {
   const { rakazoScreen, detail } = data as Record<string, unknown>;
   if (typeof rakazoScreen !== "string" || !SCREEN_FRAME_STATES.has(rakazoScreen)) return null;
   const text = typeof detail === "string" ? detail.trim().slice(0, 200) : "";
-  return { rakazoScreen: rakazoScreen as ScreenFrameState, ...(text ? { detail: text } : {}) };
+  return {
+    rakazoScreen: rakazoScreen as ScreenFrameState,
+    ...(text ? { detail: text } : {}),
+  };
 }
 
 /** Whether a report shows the page got past loading; a page stalled there is still silent. */

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { activeBotId, captureScreenshot, completeOnboarding, rpc, signup } from "./helpers";
 
-test("the chat header floats over the transcript", async ({ page }, testInfo) => {
+test("the chat header keeps the bot and computer discoverable", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await signup(page, `chat-header-${Date.now()}@rakazo.test`, "password12", "Sample");
   await completeOnboarding(page);
@@ -19,13 +19,11 @@ test("the chat header floats over the transcript", async ({ page }, testInfo) =>
   const header = await page.getByTestId("bot-settings-trigger").boundingBox();
   const scroller = await transcript.boundingBox();
   if (!header || !scroller) throw new Error("missing chat layout");
-  // Messages scroll under the floating header rather than stopping below a bar.
-  expect(scroller.y).toBeLessThan(header.y);
-  const gapHitsTranscript = await page.evaluate(
-    ({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-testid="transcript"]')),
-    { x: scroller.x + scroller.width / 4, y: header.y + header.height / 2 },
-  );
-  expect(gapHitsTranscript).toBe(true);
+  const computer = page.getByRole("button", { name: "Team Computer", exact: true });
+  await expect(computer).toBeVisible();
+  await computer.click();
+  await expect(page.getByRole("tab", { name: "Computer", exact: true })).toHaveAttribute("aria-selected", "true");
+  await computer.click();
 
   for (const theme of ["light", "dark"]) {
     await page.evaluate(

@@ -1086,6 +1086,7 @@ function SpaceShell() {
             voiceReady={Boolean(voiceStatus?.ready)}
             inCall={Boolean(active) && call?.botId === active?.id}
             panelOpen={chatPanelOpen}
+            onOpenComputer={() => setPanel(panel === "computer" ? null : "computer")}
             onOpenNavigation={() => setMobileSidebarOpen(true)}
             onTogglePanel={toggleChatPanel}
             onCall={(bot) => {

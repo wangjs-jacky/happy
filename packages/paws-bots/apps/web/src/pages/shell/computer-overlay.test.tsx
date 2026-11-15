@@ -21,7 +21,9 @@ vi.mock("@rakazo/ui-web", () => ({
     <button type="button" {...props} />
   ),
 }));
-vi.mock("../../components/teach/TeachCaptureOverlay", () => ({ TeachCaptureOverlay: () => null }));
+vi.mock("../../components/teach/TeachCaptureOverlay", () => ({
+  TeachCaptureOverlay: () => null,
+}));
 vi.mock("../../components/teach/TeachComputerOverlay", () => ({
   TeachComputerOverlayControl: () => null,
 }));
@@ -65,7 +67,10 @@ async function render(
     root.render(
       <ComputerOverlay
         bot={bot}
-        computer={{ ...computer(state), ...(options.shared ? { shared: true } : {}) }}
+        computer={{
+          ...computer(state),
+          ...(options.shared ? { shared: true } : {}),
+        }}
         computerViewport={null}
         recordingSkill={null}
         teachBusy={false}
@@ -133,4 +138,16 @@ it("says sign-ins are shared while someone in a shared space has control", async
   expect(note()).toBeNull();
   await render("running", vi.fn(), { shared: true });
   expect(note()).toBeNull();
+});
+
+it("gives a running computer without a screen an explicit recovery action", async () => {
+  const retry = await render("running");
+  expect(container.textContent).toContain("Connecting…");
+  const buttons = [...container.querySelectorAll("button")].filter((x) =>
+    x.textContent?.includes("Retry screen"),
+  );
+  expect(buttons.length).toBeGreaterThan(0);
+  await act(async () => buttons.at(-1)?.click());
+  expect(retry).toHaveBeenCalledOnce();
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
 });

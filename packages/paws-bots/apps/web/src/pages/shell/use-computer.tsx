@@ -420,7 +420,7 @@ export function useComputerState({
     const read = request ?? ++screenRequest.current;
     const issuedState = computerRef.current?.botId === id ? computerRef.current.state : undefined;
     return loadComputerScreen({
-      load: () => rpc.computer.screenUrl({ botId: id }),
+      load: (signal) => rpc.computer.screenUrl({ botId: id }, { signal }),
       isCurrent: () =>
         read === screenRequest.current &&
         (activeBotId.current === id || computerBotIdRef.current === id) &&
@@ -645,6 +645,10 @@ export function useComputerControls({
   async function refreshComputerFor(targetBotId: string) {
     if (activeBotId.current === targetBotId) {
       await refreshThread(targetBotId);
+      // The transcript refresh schedules its screen read without awaiting it.
+      // Opening/takeover must finish with a fresh screen, even when the panel
+      // was hidden when the transcript refresh began.
+      await refreshComputerScreen(targetBotId);
       return;
     }
     if (computerBotIdRef.current !== targetBotId) return;
@@ -787,6 +791,9 @@ export function useComputerControls({
   async function openComputer(botId?: string, takeControl = false) {
     const id = botId ?? active?.id;
     if (!id) return false;
+    setScreenLoadError(null);
+    screenAwaitsRetry.current = false;
+    resetScreenReconnect();
     const bot = botsRef.current.find((candidate) => candidate.id === id);
     if (!bot) return false;
     computerBotIdRef.current = id;
