@@ -1,7 +1,6 @@
 import type { MarkdownSpan } from "./parseMarkdown";
 
-// Updated pattern to handle nested markdown and asterisks
-const pattern = /(\*\*(.*?)(?:\*\*|$))|(\*(.*?)(?:\*|$))|(\[([^\]]+)\](?:\((<[^>\r\n]+>|[^)]+)\))?)|(`(.*?)(?:`|$))/g;
+const spanPattern = /(\*\*(.*?)(?:\*\*|$))|(\*(.*?)(?:\*|$))|(\[([^\]]+)\](?:\((<[^>\r\n]+>|[^)]+)\))?)|(`(.*?)(?:`|$))/g;
 
 function pushTextWithAutoLinks(spans: MarkdownSpan[], text: string, styles: MarkdownSpan['styles']) {
     const urlPattern = /https?:\/\/[^\s<]+/g;
@@ -36,11 +35,18 @@ function pushTextWithAutoLinks(spans: MarkdownSpan[], text: string, styles: Mark
     }
 }
 
-export function parseMarkdownSpans(markdown: string, header: boolean) {
+function pushFormattedSpans(spans: MarkdownSpan[], markdown: string, styles: MarkdownSpan['styles'], header: boolean) {
+    for (const span of parseMarkdownSpans(markdown, header)) {
+        spans.push({ ...span, styles: [...new Set([...styles, ...span.styles])] });
+    }
+}
+
+export function parseMarkdownSpans(markdown: string, header: boolean): MarkdownSpan[] {
     const spans: MarkdownSpan[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
-    pattern.lastIndex = 0;
+    // Each recursive emphasis parse owns its cursor, preserving the outer scan.
+    const pattern = new RegExp(spanPattern);
 
     while ((match = pattern.exec(markdown)) !== null) {
         // Capture the text between the end of the last match and the start of this match as plain text
@@ -50,19 +56,9 @@ export function parseMarkdownSpans(markdown: string, header: boolean) {
         }
 
         if (match[1]) {
-            // Bold
-            if (header) {
-                pushTextWithAutoLinks(spans, match[2], []);
-            } else {
-                pushTextWithAutoLinks(spans, match[2], ['bold']);
-            }
+            pushFormattedSpans(spans, match[2], header ? [] : ['bold'], header);
         } else if (match[3]) {
-            // Italic
-            if (header) {
-                pushTextWithAutoLinks(spans, match[4], []);
-            } else {
-                pushTextWithAutoLinks(spans, match[4], ['italic']);
-            }
+            pushFormattedSpans(spans, match[4], header ? [] : ['italic'], header);
         } else if (match[5]) {
             // Link - handle incomplete links (no URL part)
             if (match[7]) {
