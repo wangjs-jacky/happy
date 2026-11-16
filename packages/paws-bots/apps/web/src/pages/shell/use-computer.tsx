@@ -556,6 +556,7 @@ export function useComputerControls({
 }) {
   const { t } = useLingui();
   const {
+    hostVisible,
     computer,
     commitComputer,
     computerCacheRef,
@@ -679,7 +680,7 @@ export function useComputerControls({
   }
 
   useEffect(() => {
-    if (panel !== "computer") {
+    if (!hostVisible || panel !== "computer") {
       autoBooted.current = null;
       return;
     }
@@ -708,7 +709,7 @@ export function useComputerControls({
     return () => {
       cancelled = true;
     };
-  }, [panel, active?.id]);
+  }, [panel, active?.id, hostVisible]);
 
   useEffect(() => {
     setComputerOpen(false);

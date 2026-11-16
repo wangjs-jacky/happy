@@ -683,3 +683,37 @@ it.each([true, false])("reconciles an empty booting read once after running (str
   expect(Boolean(state.screenUrl)).toBe(available);
   expect(state.screenUrlLoadedBotId).toBe("bot-1");
 });
+
+it("cancels hidden panel continuation and reads a fresh screen once on return", async () => {
+  let visible = true;
+  let finish!: (value: { url: null }) => void;
+  const running = { botId: "bot-1", state: "running" } as never;
+  const readScreen = vi.fn(async (): Promise<{ url: string | null }> => ({ url: screenUrlFactory() }));
+  readScreen.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const boot = vi.fn(async () => running);
+  const rpc = { computer: { screenUrl: readScreen, boot, heartbeat: vi.fn(async () => ({})) } } as never;
+  const bot = { id: "bot-1" } as never;
+  const refreshThread = vi.fn(async () => {
+    state.commitComputer(running);
+    return { computer: running } as never;
+  });
+  function Controls() {
+    const actual = useComputerState({ rpc, panel: "computer", activeId: "bot-1", activeBotId: { current: "bot-1" } });
+    // Model the visibility supplied by the retained desktop host.
+    state = { ...actual, hostVisible: visible };
+    state.computerVisible.current = visible;
+    useComputerControls({ rpc, state, panel: "computer", active: bot, bots: [bot], botsRef: { current: [bot] }, activeBotId: { current: "bot-1" }, activeGroupId: { current: undefined }, runStatus: undefined, sandboxProvider: undefined, refreshThread, refreshGroupThread: vi.fn(), onUpgrade: vi.fn() });
+    return null;
+  }
+  await act(async () => root.render(<Controls />));
+  expect(readScreen).toHaveBeenCalledTimes(1);
+  visible = false;
+  await act(async () => root.render(<Controls />));
+  await act(async () => { finish({ url: null }); });
+  expect(boot).not.toHaveBeenCalled();
+  visible = true;
+  await act(async () => root.render(<Controls />));
+  expect(readScreen).toHaveBeenCalledTimes(2);
+  expect(state.screenUrl).not.toBeNull();
+  expect(boot).not.toHaveBeenCalled();
+});
