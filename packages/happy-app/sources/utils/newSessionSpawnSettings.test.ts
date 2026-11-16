@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { resolveNewSessionSpawnSettings } from './newSessionSpawnSettings';
 
 describe('resolveNewSessionSpawnSettings', () => {
+    it('preserves a live default model and its native connection instead of restoring a stale draft', () => {
+        expect(resolveNewSessionSpawnSettings({ draftWorktreeKey: null,
+            resolvedModes: { modelMode: 'deepseek/DeepSeek-V4.1-Flash' },
+            liveSelection: { modelKey: undefined, effortKey: null, worktreeKey: '__none__', fastMode: false,
+                expectedCodexAccountProfileId: null } })).toMatchObject({ modelMode: undefined, expectedCodexAccountProfileId: null });
+    });
     it('uses the live composer selections for every launch setting', () => {
         expect(resolveNewSessionSpawnSettings({
             draftWorktreeKey: null,

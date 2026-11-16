@@ -10,6 +10,7 @@ type LiveNewSessionSelection = {
     effortKey?: string | null;
     worktreeKey: string;
     fastMode: boolean;
+    expectedCodexAccountProfileId?: string | null;
 };
 
 export function resolveNewSessionSpawnSettings(args: {
@@ -21,9 +22,11 @@ export function resolveNewSessionSpawnSettings(args: {
 
     return {
         permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
-        modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
+        modelMode: liveSelection ? liveSelection.modelKey : resolvedModes.modelMode,
         effortLevel: liveSelection ? liveSelection.effortKey : resolvedModes.effortLevel,
         worktreeKey: liveSelection?.worktreeKey ?? draftWorktreeKey,
         fastMode: liveSelection?.fastMode ?? false,
+        ...(liveSelection?.expectedCodexAccountProfileId !== undefined
+            ? { expectedCodexAccountProfileId: liveSelection.expectedCodexAccountProfileId } : {}),
     };
 }
