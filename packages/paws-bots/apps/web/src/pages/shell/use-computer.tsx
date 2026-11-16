@@ -429,13 +429,19 @@ export function useComputerState({
     if (!computerVisible.current) return null;
     const read = request ?? ++screenRequest.current;
     const issuedState = computerRef.current?.botId === id ? computerRef.current.state : undefined;
-    return loadComputerScreen({
+    let crossedIntoRunning = false;
+    const result = await loadComputerScreen({
       load: () => rpc.computer.screenUrl({ botId: id }),
       isCurrent: () =>
         read === screenRequest.current &&
         (activeBotId.current === id || computerBotIdRef.current === id) &&
         computerVisible.current,
       commit: (screen) => {
+        // A booting read may legitimately return no stream. If running arrived
+        // while it was in flight, reconcile that transition once rather than
+        // leave the running desktop on an uninitialised placeholder forever.
+        crossedIntoRunning = !screen.error && !screen.url && issuedState !== "running" &&
+          computerRef.current?.botId === id && computerRef.current.state === "running";
         setScreenUrlLoadedBotId(
           computerRef.current?.botId === id &&
             screenReadLoaded(issuedState, computerRef.current.state)
@@ -462,6 +468,11 @@ export function useComputerState({
       },
       fallbackError: t`Could not connect to the computer screen`,
     });
+    if (crossedIntoRunning && read === screenRequest.current && computerVisible.current &&
+        computerRef.current?.botId === id && computerRef.current.state === "running") {
+      return refreshComputerScreen(id);
+    }
+    return result;
   }
 
   /** A retry the user pressed starts the visible screen's reconnects over. */

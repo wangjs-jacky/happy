@@ -32,7 +32,7 @@ let state: ComputerState;
 let codes = 0;
 let screenUrlFactory: () => string = () =>
   `wuying://desktop?desktop_id=ecd-1&region_id=cn-hangzhou&auth_code=code-${++codes}&view_only=true`;
-const screenUrl = vi.fn(async () => ({ url: screenUrlFactory() }));
+const screenUrl = vi.fn(async (): Promise<{ url: string | null }> => ({ url: screenUrlFactory() }));
 
 /** The hook with the frame the panel draws: gone while an error replaces the screen. */
 function Harness() {
@@ -667,5 +667,19 @@ it("reads the screen explicitly after takeover even when the thread reader omits
   const { readScreen, takeControl } = await renderTakingControl();
   await act(async () => { await takeControl(); });
   expect(readScreen).toHaveBeenCalledWith({ botId: "bot-1" });
+  expect(state.screenUrlLoadedBotId).toBe("bot-1");
+});
+
+it.each([true, false])("reconciles an empty booting read once after running (stream available: %s)", async available => {
+  let finish!: (value: { url: string | null }) => void;
+  screenUrl.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  screenUrl.mockImplementationOnce(async () => ({ url: available ? screenUrlFactory() : null }));
+  await act(async () => state.commitComputer({ botId: "bot-1", state: "booting" } as never));
+  let reading!: Promise<string | null>;
+  await act(async () => { reading = state.refreshComputerScreen("bot-1"); });
+  await act(async () => state.commitComputer({ botId: "bot-1", state: "running" } as never));
+  await act(async () => { finish({ url: null }); await reading; });
+  expect(screenUrl).toHaveBeenCalledTimes(2);
+  expect(Boolean(state.screenUrl)).toBe(available);
   expect(state.screenUrlLoadedBotId).toBe("bot-1");
 });
