@@ -31,3 +31,17 @@ describe('financeChartInteraction', () => {
         expect(arbitrateFinanceChartGesture({ dx: -12, dy: 3 })).toBe('chart');
     });
 });
+
+
+describe('SVG aspect-ratio pointer mapping', () => {
+    it('selects actual candles inside centered wide-card gutters', () => {
+        for (let i = 0; i < 5; i++) {
+            expect(pickFinanceChartPointIndex({ locationX: 160 + 30 + i * 69, layoutWidth: 640, pointCount: 5 })).toBe(i);
+        }
+    });
+    it('scales narrow charts and clamps clicks outside the plot', () => {
+        expect(pickFinanceChartPointIndex({ locationX: 99 * 0.75, layoutWidth: 240, pointCount: 5 })).toBe(1);
+        expect(pickFinanceChartPointIndex({ locationX: 0, layoutWidth: 640, pointCount: 5 })).toBe(0);
+        expect(pickFinanceChartPointIndex({ locationX: 640, layoutWidth: 640, pointCount: 5 })).toBe(4);
+    });
+});
