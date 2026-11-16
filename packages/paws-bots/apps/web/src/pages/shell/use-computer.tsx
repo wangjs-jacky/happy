@@ -1,4 +1,4 @@
-import { listenWindow } from "../../paws/runtime";
+import { embedded, hostRoot, listenWindow, ownsHostKeyboard } from "../../paws/runtime";
 import { Trans, useLingui } from "@lingui/react/macro";
 import type {
   Bot,
@@ -67,6 +67,15 @@ export function useComputerState({
   activeBotId: RefObject<string | undefined>;
 }) {
   const { t } = useLingui();
+  const [hostVisible, setHostVisible] = useState(() => !embedded || hostRoot().dataset.pawsActive !== "false");
+  useEffect(() => {
+    if (!embedded) return;
+    const root = hostRoot();
+    const sync = () => setHostVisible(root.dataset.pawsActive !== "false");
+    root.addEventListener("paws-bots-visibility", sync);
+    sync();
+    return () => root.removeEventListener("paws-bots-visibility", sync);
+  }, []);
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
   const computerRef = useRef<ComputerStatus | null>(null);
   // Last-known computer/screen per bot, so switching back to an already-seen
@@ -84,6 +93,7 @@ export function useComputerState({
   const [computerBotId, setComputerBotId] = useState<string | undefined>();
   const computerOpenRef = useRef(false);
   const computerBotIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => { if (!hostVisible) setComputerOpen(false); }, [hostVisible]);
   const [computerViewport, setComputerViewport] = useState<{
     height: number;
     offsetTop: number;
@@ -375,7 +385,7 @@ export function useComputerState({
   }, [computerOpen]);
   const screenRequest = useRef(0);
   const computerVisible = useRef(false);
-  computerVisible.current = panel === "computer" || computerOpen;
+  computerVisible.current = hostVisible && (panel === "computer" || computerOpen);
   computerOpenRef.current = computerOpen;
   computerBotIdRef.current = computerBotId ?? activeId;
 
@@ -460,6 +470,7 @@ export function useComputerState({
   }
 
   return {
+    hostVisible,
     computer,
     computerRef,
     commitComputer,
@@ -645,6 +656,7 @@ export function useComputerControls({
   async function refreshComputerFor(targetBotId: string) {
     if (activeBotId.current === targetBotId) {
       await refreshThread(targetBotId);
+      await refreshComputerScreen(targetBotId);
       return;
     }
     if (computerBotIdRef.current !== targetBotId) return;
@@ -721,6 +733,7 @@ export function useComputerControls({
   useEffect(() => {
     if (!computerOpen) return;
     function onKey(event: KeyboardEvent) {
+      if (!ownsHostKeyboard(event)) return;
       if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229)
         setComputerOpen(false);
     }
@@ -736,7 +749,7 @@ export function useComputerControls({
     // Only a visible page checks in: a forgotten tab neither keeps the computer awake nor holds
     // control, which lapses about a minute and a half after it was hidden.
     const ping = () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || (embedded && hostRoot().dataset.pawsActive === "false")) return;
       void rpc.computer.heartbeat({ botId: heartbeatBotId }).catch((error) => {
         if (!isRetryableError(error)) window.clearInterval(timer);
       });
@@ -748,9 +761,12 @@ export function useComputerControls({
     ping();
     // Coming back checks in at once, so a short visit elsewhere keeps control.
     document.addEventListener("visibilitychange", ping);
+    const root = embedded ? hostRoot() : null;
+    root?.addEventListener("paws-bots-visibility", ping);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", ping);
+      root?.removeEventListener("paws-bots-visibility", ping);
     };
   }, [panel, computerOpen, computerBot?.id, active?.id, computer?.state, hasControl]);
 

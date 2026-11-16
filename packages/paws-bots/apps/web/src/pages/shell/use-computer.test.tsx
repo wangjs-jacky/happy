@@ -454,13 +454,14 @@ async function renderTakingControl(
   } as never;
   const release = vi.fn(async () => ({ ok: true }));
   const heartbeat = vi.fn(async () => ({ ok: true }));
+  const readScreen = vi.fn(async () => ({ url: null }));
   const rpc = {
     computer: {
       release,
       heartbeat,
       boot: vi.fn(async () => held),
       takeover: vi.fn(takeover),
-      screenUrl: vi.fn(async () => ({ url: null })),
+      screenUrl: readScreen,
     },
   } as never;
   const bot = { id: "bot-1" } as never;
@@ -494,6 +495,7 @@ async function renderTakingControl(
   }
   await act(async () => root.render(<Controls />));
   return {
+    readScreen,
     release,
     heartbeat,
     held,
@@ -658,4 +660,12 @@ it("offers Recover for a computer that failed to boot", async () => {
   await act(async () => state.commitComputer({ state: "error", kind: "browser" } as never));
   const buttons = [...container.querySelectorAll("button")].map((button) => button.textContent);
   expect(buttons).toEqual(["Retry screen", "Recover computer"]);
+});
+
+
+it("reads the screen explicitly after takeover even when the thread reader omits ancillary loads", async () => {
+  const { readScreen, takeControl } = await renderTakingControl();
+  await act(async () => { await takeControl(); });
+  expect(readScreen).toHaveBeenCalledWith({ botId: "bot-1" });
+  expect(state.screenUrlLoadedBotId).toBe("bot-1");
 });
