@@ -54,9 +54,13 @@ export function resolveRunningSessionTurnModes(args: {
     const metadata = session.metadata;
     const flavor = metadata?.flavor;
     const defaults = resolveAgentDefaultConfig(agentDefaultOverrides, flavor);
-    const availableModels = getSuggestedModelModes(flavor, metadata, translate);
+    const availableModels = flavor === 'codex' && !metadata?.models?.length
+        ? (metadata?.currentModelCode && metadata.currentModelCode !== 'default'
+            ? [{ key: metadata.currentModelCode, name: metadata.currentModelCode }]
+            : [])
+        : getSuggestedModelModes(flavor, metadata, translate);
     const modelMode = resolvePreferredOption(availableModels, [
-        session.modelMode,
+        flavor === 'codex' && session.modelMode === 'default' ? metadata?.currentModelCode : session.modelMode,
         metadata?.currentModelCode,
         defaults.modelMode,
     ]);
