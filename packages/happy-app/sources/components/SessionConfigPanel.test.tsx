@@ -261,6 +261,24 @@ describe('SessionConfigPanel composer layout', () => {
         expect(ref.current.getSelection().modelKey).toBe('gpt-5.6-terra');
     });
 
+    it('retains an explicit agent launch entry when no model catalog exists', async () => {
+        mocks.sessionsOverride = [];
+        const ref = React.createRef<any>();
+        await act(async () => {
+            renderer = TestRenderer.create(<SessionConfigPanel ref={ref} layout="composer" collapsible={false} />);
+        });
+        act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
+        const launch = renderer.root.findByProps({ testID: 'session-composer-model-codex::default' });
+        expect(launch.props.accessibilityLabel.toLowerCase()).toContain('codex');
+        expect(launch.props.accessibilityLabel).toContain('agentInput.model.cliAutomatic');
+        expect(launch.props.accessibilityLabel).not.toContain('default model');
+        act(() => launch.props.onPress());
+        expect(mocks.setModelMode).toHaveBeenCalledWith('default');
+        expect(ref.current.getSelection().modelKey).toBeUndefined();
+        expect(ref.current.getSelection().effortKey).toBeNull();
+    });
+
     it('keeps every editable new-session setting in the composer footer', async () => {
         const ref = React.createRef<any>();
         await act(async () => {

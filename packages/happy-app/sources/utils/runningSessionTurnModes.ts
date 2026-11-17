@@ -59,8 +59,12 @@ export function resolveRunningSessionTurnModes(args: {
             ? [{ key: metadata.currentModelCode, name: metadata.currentModelCode }]
             : [])
         : getSuggestedModelModes(flavor, metadata, translate);
-    const modelMode = resolvePreferredOption(availableModels, [
-        flavor === 'codex' && session.modelMode === 'default' ? metadata?.currentModelCode : session.modelMode,
+    // A reset is resolved by native configuration at send time, not necessarily
+    // to the previous thread model. Never label it as a guaranteed model ID.
+    const modelMode = flavor === 'codex' && session.modelMode === 'default'
+        ? { key: 'default', name: translate('agentInput.model.cliAutomatic') }
+        : resolvePreferredOption(availableModels, [
+        session.modelMode,
         metadata?.currentModelCode,
         defaults.modelMode,
     ]);

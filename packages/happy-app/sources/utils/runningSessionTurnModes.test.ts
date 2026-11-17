@@ -34,14 +34,14 @@ describe('resolveRunningSessionTurnModes', () => {
         }
     });
 
-    it('shows the CLI model for a native default without exposing the reset as a choice', async () => {
+    it('labels a native reset honestly without exposing it as a model choice', async () => {
         const { resolveMessageModeMeta } = await import('@/sync/messageMeta');
         const session = { modelMode: 'default', effortLevel: 'medium', metadata: {
             flavor: 'codex', currentModelCode: 'gemini-custom',
             models: [{ code: 'gemini-custom', value: 'Gemini Custom' }],
         } } as any;
         const result = resolveRunningSessionTurnModes({ session, agentDefaultOverrides: {}, translate });
-        expect(result.modelMode?.key).toBe('gemini-custom');
+        expect(result.modelMode).toEqual({ key: 'default', name: 'agentInput.model.cliAutomatic' });
         expect(result.availableModels.map(model => model.key)).toEqual(['gemini-custom']);
         expect(resolveMessageModeMeta(session).model).toBeNull();
     });

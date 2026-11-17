@@ -39,7 +39,6 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Machine, Session } from '@/sync/storageTypes';
 import {
     getHardcodedPermissionModes,
-    DEFAULT_MODEL_LABEL,
     getSuggestedModelModes,
     getEffortLevelsForModel,
     getSupportsWorktree,
@@ -1005,7 +1004,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             : codexAccounts.bindings.find(binding => binding.machineId === selectedMachineId)?.profileId ?? null;
         const getNewSessionModels = React.useCallback((agent: string, metadata: Session['metadata']) =>
             agent === 'codex' && (codexAccountProfileId === undefined || !metadata?.models?.length)
-                ? [{ key: 'default', name: DEFAULT_MODEL_LABEL, description: null }]
+                ? [{ key: 'default', name: t('agentInput.model.cliAutomatic'), description: null }]
                 : getSuggestedModelModes(agent, metadata, t), [codexAccountProfileId]);
         const permissionModes = React.useMemo<PermissionMode[]>(
             () => getHardcodedPermissionModes(selectedAgent, t),
@@ -1029,9 +1028,11 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             const metadata = getLatestSessionModelMetadata({ sessions, selectedMachineId, agent: item.key, codexAccountProfileId });
             const options = getNewSessionModels(item.key, metadata);
             const concrete = options.filter((model) => model.key !== 'default');
-            return concrete.map((model) => ({
-                ...model, key: `${item.key}::${model.key}`,
-            }));
+            // Without a concrete catalog this is an agent launch entry, not
+            // an extra default-model choice beside supported models.
+            return (concrete.length ? concrete : [{
+                key: 'default', name: `${item.label} · ${t('agentInput.model.cliAutomatic')}`,
+            }]).map((model) => ({ ...model, key: `${item.key}::${model.key}` }));
         }), [availableAgents, sessions, selectedMachineId, codexAccountProfileId, getNewSessionModels]);
         const configExperience = React.useMemo(
             () => getSessionConfigExperience(selectedAgent),
