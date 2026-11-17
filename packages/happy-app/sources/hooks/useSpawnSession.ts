@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 import * as React from 'react';
 import { randomUUID } from 'expo-crypto';
 import { Modal } from '@/modal';
@@ -31,6 +32,7 @@ export interface SpawnSessionArgs {
     effortLevel?: string | null;
     fastMode?: boolean;
     expectedCodexAccountProfileId?: string | null;
+    codexConnection?: CodexConnection;
     /** Initial prompt to send into the freshly spawned session. */
     prompt: string;
     /** Image attachments to send with the initial message (claude-only). */
@@ -196,6 +198,8 @@ export function useSpawnSession() {
                     agent,
                     environmentVariables,
                     expectedCodexAccountProfileId: args.expectedCodexAccountProfileId,
+                    codexConnection: args.codexConnection,
+                    ...(args.codexConnection && args.modelMode && args.modelMode !== 'default' ? { model: args.modelMode } : {}),
                     ...(startupTrace ? { traceId: startupTrace.traceId } : {}),
                 });
 

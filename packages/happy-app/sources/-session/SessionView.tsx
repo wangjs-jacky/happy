@@ -1,3 +1,4 @@
+import { useSessionModelConnections } from '@/hooks/useSessionModelConnections';
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
 import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
 import { legacySessionFileHref } from '@/utils/sessionFileNavigation';
@@ -1759,11 +1760,14 @@ function SessionViewLoaded({
         storage.getState().updateSessionFastMode(sessionId, enabled);
     }, [sessionId]);
     const handleRefreshModels = React.useCallback(() => sessionRefreshModels(sessionId), [sessionId]);
+    const connectionRouteCurrent = React.useCallback(() => sync.isSessionRouteOwner(routeOwner), [routeOwner]);
+    const connectionModels = useSessionModelConnections(session, nextTurnModes.availableModels, nextTurnModes.modelMode, handleModelChange, { active: isFocused, isRouteCurrent: connectionRouteCurrent });
     const modeSelector = React.useMemo(() => ({
         unifiedCodex: session.metadata?.flavor === 'codex',
-        online: !isDisconnected,
-        model: nextTurnModes.modelMode,
-        modelOptions: nextTurnModes.availableModels,
+        online: !isDisconnected && !connectionModels.busy,
+        changingModel: connectionModels.busy,
+        model: connectionModels.enabled ? connectionModels.model : nextTurnModes.modelMode,
+        modelOptions: connectionModels.enabled ? connectionModels.options : nextTurnModes.availableModels,
         effort: nextTurnModes.effortLevel,
         effortOptions: nextTurnModes.availableEffortLevels,
         onReset: session.metadata?.flavor === 'codex' && nextTurnModes.availableModels.some(model => model.key === 'gpt-6.1-sol') ? () => {
@@ -1771,13 +1775,13 @@ function SessionViewLoaded({
             storage.getState().updateSessionEffortLevel(sessionId, 'medium');
             storage.getState().updateSessionFastMode(sessionId, false);
         } : undefined,
-        onModelChange: handleModelChange,
-        onRefreshModels: session.metadata?.capabilities?.codexModelCatalogRefresh ? handleRefreshModels : undefined,
+        onModelChange: connectionModels.enabled ? connectionModels.select : handleModelChange,
+        onRefreshModels: connectionModels.enabled ? connectionModels.refresh : session.metadata?.capabilities?.codexModelCatalogRefresh ? handleRefreshModels : undefined,
         onEffortChange: handleEffortChange,
         fastMode: session.fastMode === true,
         supportsFast: nextTurnModes.supportsFast,
         onFastModeChange: handleFastModeChange,
-    }), [handleEffortChange, handleFastModeChange, handleModelChange, handleRefreshModels, isDisconnected, nextTurnModes, session.fastMode, session.metadata?.flavor, session.metadata?.capabilities?.codexModelCatalogRefresh, sessionId]);
+    }), [connectionModels, handleEffortChange, handleFastModeChange, handleModelChange, handleRefreshModels, isDisconnected, nextTurnModes, session.fastMode, session.metadata?.flavor, session.metadata?.capabilities?.codexModelCatalogRefresh, sessionId]);
 
     // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。

@@ -416,6 +416,39 @@ describe('ApiMachineClient socket reconnection', () => {
         expect(refreshCodexAccountQuota).toHaveBeenCalledWith('a'.repeat(43));
     });
 
+    it('exposes native model discovery only on demand and does not accept configuration from the caller', async () => {
+        const listCodexNativeModels = vi.fn().mockResolvedValue({ type: 'success', models: [{ code: 'DeepSeek-V4.1-Flash', value: 'DeepSeek Flash' }] });
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({ spawnSession: vi.fn(), stopSession: vi.fn(), requestShutdown: vi.fn(), listCodexNativeModels });
+        expect(listCodexNativeModels).not.toHaveBeenCalled();
+        const handler = rpcHandlers.get('list-codex-native-models');
+        expect(handler).toBeDefined();
+        await expect(handler?.({})).resolves.toEqual({ type: 'success', models: [{ code: 'DeepSeek-V4.1-Flash', value: 'DeepSeek Flash' }] });
+        expect(listCodexNativeModels).toHaveBeenCalledExactlyOnceWith();
+        for (const params of [null, [], { CODEX_HOME: '/managed' }, { profileId: 'account-a' }]) {
+            await expect(handler?.(params)).resolves.toEqual({ type: 'error', errorMessage: 'Native model discovery does not accept parameters.' });
+        }
+        expect(listCodexNativeModels).toHaveBeenCalledTimes(1);
+    });
+
+    it('publishes native model support for an existing machine when the RPC connects, without reading models', () => {
+        const machine = makeMachine();
+        const listCodexNativeModels = vi.fn();
+        const client = new ApiMachineClient('fake-token', machine);
+        const update = vi.spyOn(client, 'updateMachineMetadata').mockResolvedValue(undefined);
+        vi.spyOn(client, 'updateDaemonState').mockResolvedValue(undefined);
+        client.setRPCHandlers({ spawnSession: vi.fn(), stopSession: vi.fn(), requestShutdown: vi.fn(), listCodexNativeModels });
+        client.connect();
+        try {
+            emitSocketEvent('connect');
+            expect(update).toHaveBeenCalledOnce();
+            expect(update.mock.calls[0][0](machine.metadata)).toEqual({ ...machine.metadata, capabilities: { codexNativeModels: true } });
+            expect(listCodexNativeModels).not.toHaveBeenCalled();
+        } finally {
+            client.shutdown();
+        }
+    });
+
     it('does not log an absolute directory when approval is required', async () => {
         const spawnSession = vi.fn().mockResolvedValue({
             type: 'requestToApproveDirectoryCreation',

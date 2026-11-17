@@ -40,6 +40,7 @@ import { stopDetachedCodexWorker } from './stopDetachedCodexWorker';
 import { encodeBase64, decodeBase64, decrypt, encrypt } from '@/api/encryption';
 import { CODEX_ACCOUNT_UNSET_ENV, withCodexAccountLaunch, type CodexAccountLaunch } from './codexAccountLaunch';
 import { refreshCodexAccountQuota } from './codexQuotaProbe';
+import { listCodexNativeModels } from './codexNativeModels';
 import { collectCodexUsageSnapshot, codexUsageSignature, mergeRecentCodexUsageSnapshot } from '@/codex/codexUsage';
 import { collectRetainedCodexAccountUsage } from '@/codex/codexAccountHistory';
 import { retryPendingCodexProbeCredentials } from './codexQuotaProbeRecovery';
@@ -1326,6 +1327,7 @@ export async function startDaemon(): Promise<void> {
       requestShutdown: () => requestShutdown('happy-app'),
       refreshCodexUsage,
       refreshCodexAccountQuota: refreshBoundCodexAccountQuota,
+      listCodexNativeModels,
       projectGoals: createProjectGoalRuntime({
         serverUrl: configuration.serverUrl, token: credentials.token, machineId,
         legacyKey: credentials.encryption.type === 'legacy' ? credentials.encryption.secret : undefined,

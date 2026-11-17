@@ -199,6 +199,7 @@ export interface DecryptedMessage {
 //
 
 export const MachineMetadataSchema = z.object({
+    capabilities: z.object({ codexNativeModels: z.boolean().optional() }).optional(),
     host: z.string(),
     platform: z.string(),
     happyCliVersion: z.string(),

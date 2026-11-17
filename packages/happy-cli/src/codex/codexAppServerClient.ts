@@ -1065,7 +1065,7 @@ export class CodexAppServerClient {
                 catch (error) { logger.debug('[Codex] Model catalog refresh unavailable after reconnect', error); }
             }
         } catch (error) {
-            await this.disconnectInternal({ preserveThreadState: this._threadId !== null });
+            await this.disconnectInternal({ preserveThreadState: this._threadId !== null, waitForExit: true });
             throw error;
         }
     }
@@ -1077,7 +1077,7 @@ export class CodexAppServerClient {
             this.mcpUiCapability = 'enabled';
         } catch (error) {
             if (!isInvalidInitializeParams(error)) throw error;
-            await this.disconnectInternal({ preserveThreadState: true });
+            await this.disconnectInternal({ preserveThreadState: true, waitForExit: true });
             await this.openTransport(codexCommand);
             await this.initializeConnection(InitializeAttempt.Legacy);
             this.mcpUiCapability = 'legacy';
@@ -1276,7 +1276,7 @@ export class CodexAppServerClient {
         logger.debug('[CodexAppServer] Connected and initialized');
     }
 
-    private async disconnectInternal(opts?: { preserveThreadState?: boolean }): Promise<void> {
+    private async disconnectInternal(opts?: { preserveThreadState?: boolean; waitForExit?: boolean }): Promise<void> {
         this.invalidatePredictions();
         this.clearTextStreams();
         if (!this.connected && !this.process && !this.socket) return;
@@ -1285,6 +1285,17 @@ export class CodexAppServerClient {
         const socket = this.socket;
         const pid = proc?.pid;
         const epoch = this.processEpoch;
+        // Register before signalling: failed initialization must release its process too.
+        const exited = opts?.waitForExit && proc && proc.exitCode === null && proc.signalCode === null
+            ? new Promise<void>((resolve, reject) => {
+                const onExit = () => { clearTimeout(timer); resolve(); };
+                const timer = setTimeout(() => {
+                    proc.removeListener('exit', onExit);
+                    reject(new Error('Codex process did not exit before cleanup'));
+                }, 5_000);
+                proc.once('exit', onExit);
+            })
+            : Promise.resolve();
         logger.debug(`[CodexAppServer] Disconnecting; pid=${pid ?? 'none'} shared=${socket !== null}`);
 
         this.readline?.close();
@@ -1360,23 +1371,13 @@ export class CodexAppServerClient {
         }
         this.sandboxEnabled = false;
 
+        await exited;
         logger.debug('[CodexAppServer] Disconnected');
     }
 
     async disconnect(options?: { waitForExit?: boolean }): Promise<void> {
-        const proc = options?.waitForExit ? this.process : null;
         // Probe credentials must not be read/deleted while their producer can still write.
-        const exited = proc && proc.exitCode === null && proc.signalCode === null
-            ? new Promise<void>((resolve, reject) => {
-                const onExit = () => { clearTimeout(timer); resolve(); };
-                const timer = setTimeout(() => {
-                    proc.removeListener('exit', onExit);
-                    reject(new Error('Codex process did not exit before credential recovery'));
-                }, 5_000);
-                proc.once('exit', onExit);
-            })
-            : Promise.resolve();
-        await Promise.all([this.disconnectInternal(), exited]);
+        await this.disconnectInternal({ waitForExit: options?.waitForExit });
     }
 
     private buildThreadConfig(mcpServers?: Record<string, unknown>): Record<string, unknown> | null {

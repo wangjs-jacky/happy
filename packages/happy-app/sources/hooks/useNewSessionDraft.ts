@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 /**
  * Zustand store for new session draft state, backed by MMKV.
  * Persists the user's last-used configuration (machine, path, model, permissions, etc.)
@@ -14,6 +15,8 @@ import {
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 
 interface NewSessionDraftState {
+    codexConnection: CodexConnection | null;
+    setCodexConnection(connection: CodexConnection | null): void;
     input: string;
     selectedMachineId: string | null;
     selectedPath: string | null;
@@ -40,6 +43,7 @@ interface NewSessionDraftState {
 function persist(state: NewSessionDraftState) {
     saveNewSessionDraft({
         input: state.input,
+        codexConnection: state.codexConnection,
         selectedMachineId: state.selectedMachineId,
         selectedPath: state.selectedPath,
         agentType: state.agentType,
@@ -56,6 +60,8 @@ function persist(state: NewSessionDraftState) {
 const initial = loadNewSessionDraft();
 
 export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => ({
+    codexConnection: initial?.codexConnection ?? null,
+    setCodexConnection: (codexConnection) => { set({ codexConnection }); persist(get()); },
     input: initial?.input ?? '',
     selectedMachineId: initial?.selectedMachineId ?? null,
     selectedPath: initial?.selectedPath ?? null,
@@ -68,7 +74,11 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     worktreeKey: initial?.worktreeKey ?? null,
 
     setInput: (input) => { set({ input }); persist(get()); },
-    setMachineId: (id) => { set({ selectedMachineId: id, selectedPath: null, worktreeKey: null }); persist(get()); },
+    setMachineId: (id) => {
+        const changed = get().selectedMachineId !== id;
+        set({ selectedMachineId: id, selectedPath: null, worktreeKey: null, ...(changed ? { codexConnection: null } : {}) });
+        persist(get());
+    },
     setPath: (path) => { set({ selectedPath: path, worktreeKey: null }); persist(get()); },
     setAgentType: (agent) => { set({ agentType: agent }); persist(get()); },
     setPermissionMode: (mode) => { set({ permissionMode: mode }); persist(get()); },

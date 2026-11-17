@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 type ResolvedNewSessionModes = {
     permissionMode?: string | null;
     modelMode?: string | null;
@@ -11,6 +12,7 @@ type LiveNewSessionSelection = {
     worktreeKey: string;
     fastMode: boolean;
     expectedCodexAccountProfileId?: string | null;
+    codexConnection?: CodexConnection;
 };
 
 export function resolveNewSessionSpawnSettings(args: {
@@ -28,6 +30,7 @@ export function resolveNewSessionSpawnSettings(args: {
         effortLevel: liveSelection ? liveSelection.effortKey ?? 'default' : resolvedModes.effortLevel,
         worktreeKey: liveSelection?.worktreeKey ?? draftWorktreeKey,
         fastMode: liveSelection?.fastMode ?? false,
+        ...(liveSelection?.codexConnection ? { codexConnection: liveSelection.codexConnection } : {}),
         ...(liveSelection?.expectedCodexAccountProfileId !== undefined
             ? { expectedCodexAccountProfileId: liveSelection.expectedCodexAccountProfileId } : {}),
     };

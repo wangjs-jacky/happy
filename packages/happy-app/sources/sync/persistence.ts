@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 import { ArtifactRequests } from '@slopus/happy-wire';
 import { MMKV } from 'react-native-mmkv';
 import { accountStorageId } from '@/auth/accountRuntime';
@@ -27,6 +28,7 @@ export type NewSessionAgentType = 'ask' | 'claude' | 'codex' | 'gemini' | 'openc
 export type NewSessionSessionType = 'simple' | 'worktree';
 
 export interface NewSessionDraft {
+    codexConnection?: CodexConnection | null;
     input: string;
     selectedMachineId: string | null;
     selectedPath: string | null;
@@ -322,6 +324,13 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
         const permissionMode: PermissionModeKey = typeof parsed.permissionMode === 'string'
             ? parsed.permissionMode
             : 'default';
+        const codexConnection: CodexConnection | undefined = parsed.codexConnection?.type === 'native' ? { type: 'native' }
+            : parsed.codexConnection?.type === 'account' && typeof parsed.codexConnection.profileId === 'string'
+                && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(parsed.codexConnection.profileId)
+                ? { type: 'account', profileId: parsed.codexConnection.profileId } : undefined;
+        // A malformed explicit choice must never become a default-connection send.
+        // Keep the original stored bytes available for recovery, as for retired drafts.
+        if (parsed.codexConnection != null && !codexConnection) return null;
         const modelMode: string = typeof parsed.modelMode === 'string' ? parsed.modelMode : 'default';
         const effortLevel: string | null = typeof parsed.effortLevel === 'string' ? parsed.effortLevel : null;
         const sessionType: NewSessionSessionType = parsed.sessionType === 'worktree' ? 'worktree' : 'simple';
@@ -337,6 +346,7 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
             modelMode,
             effortLevel,
             fastMode: parsed.fastMode === true,
+            ...(codexConnection ? { codexConnection } : {}),
             sessionType,
             worktreeKey,
             updatedAt,

@@ -20,6 +20,9 @@ export class CodexAccountError extends Error {
 const fail = (status: number, code: string): never => { throw new CodexAccountError(status, code); };
 const path = (accountId: string, profileId: string) => ['user', accountId, 'codex-accounts', profileId, 'credential'];
 const digest = (grant: string) => createHash('sha256').update(grant).digest('hex');
+// Machine binding versions start at zero and only increase. Reserve exactly
+// -1 for owned fresh-account launches that do not depend on a default binding.
+const EXPLICIT_ACCOUNT_BINDING_VERSION = -1;
 function fingerprint(accountId: string, auth: CodexAuth): string {
     const secret = process.env.HANDY_MASTER_SECRET;
     if (!secret) throw new Error('Missing server encryption configuration');
@@ -125,9 +128,15 @@ export async function createServiceCodexGrant(tx: Tx, accountId: string, machine
 }
 
 export const codexAccountStore = {
-    async list(accountId: string): Promise<ListCodexAccountsResponse> {
+    async list(accountId: string, options: { readOnly?: boolean } = {}): Promise<ListCodexAccountsResponse> {
         return transaction(accountId, async (tx) => {
-            const migration = await migrateLegacy(tx, accountId);
+            let migration: ListCodexAccountsResponse['migration'];
+            if (options.readOnly) {
+                const account = await tx.account.findUniqueOrThrow({ where: { id: accountId }, select: { codexAccountsMigratedAt: true } });
+                migration = account.codexAccountsMigratedAt ? 'completed' : 'none';
+            } else {
+                migration = await migrateLegacy(tx, accountId);
+            }
             const profiles = await tx.codexAccountProfile.findMany({ where: { accountId }, include: { quota: true }, orderBy: { createdAt: 'asc' } });
             const machines = await tx.machine.findMany({ where: { accountId }, orderBy: { createdAt: 'asc' } });
             return { profiles: profiles.map(profileView), bindings: machines.map(bindingView), migration };
@@ -166,11 +175,14 @@ export const codexAccountStore = {
             return { binding: bindingView(await ownedMachine(tx, accountId, machineId)) };
         });
     },
-    async createGrant(accountId: string, machineId: string, sourceSessionId?: string): Promise<CreateCodexGrantResponse> {
+    async createGrant(accountId: string, machineId: string, sourceSessionId?: string, explicitProfileId?: string): Promise<CreateCodexGrantResponse> {
+        if (explicitProfileId !== undefined && sourceSessionId !== undefined) return fail(400, 'invalid-request');
         return transaction(accountId, async (tx) => {
-            await migrateLegacy(tx, accountId);
+            // Compatibility migration writes machine defaults. An explicit launch
+            // must leave all bindings untouched, including an untouched device.
+            if (explicitProfileId === undefined) await migrateLegacy(tx, accountId);
             const machine = await ownedMachine(tx, accountId, machineId);
-            let profileId = machine.defaultCodexAccountProfileId;
+            let profileId = explicitProfileId ?? machine.defaultCodexAccountProfileId;
             if (sourceSessionId) {
                 const session = await tx.session.findFirst({ where: { id: sourceSessionId, accountId } });
                 const source = await tx.codexSessionGrant.findFirst({
@@ -189,10 +201,11 @@ export const codexAccountStore = {
             await tx.codexSessionGrant.create({ data: {
                 accountId, machineId, codexAccountProfileId: profile.id, displayNameSnapshot: profile.displayName,
                 credentialVersion: profile.credentialVersion, lastCredentialVersion: profile.credentialVersion,
-                bindingVersion: machine.codexAccountBindingVersion, digest: digest(grant), expiresAt,
+                bindingVersion: explicitProfileId !== undefined ? EXPLICIT_ACCOUNT_BINDING_VERSION : machine.codexAccountBindingVersion,
+                digest: digest(grant), expiresAt,
                 ...(sourceSessionId ? { sourceSessionId } : {}),
             } });
-            await audit(tx, accountId, 'grant-create', profile.id, machineId, profile.credentialVersion);
+            await audit(tx, accountId, explicitProfileId !== undefined ? 'grant-create-explicit' : 'grant-create', profile.id, machineId, profile.credentialVersion);
             return { grant, expiresAt: expiresAt.toISOString(), profile: { id: profile.id, displayName: profile.displayName, credentialVersion: profile.credentialVersion } };
         });
     },
@@ -215,7 +228,8 @@ export const codexAccountStore = {
                     codexAccountProfileId: profile.id, redeemedAt: { not: null },
                 } });
                 if (!session || !source) return fail(409, 'grant-unavailable');
-            } else if (machine.defaultCodexAccountProfileId !== profile.id || machine.codexAccountBindingVersion !== grant.bindingVersion) {
+            } else if (grant.bindingVersion !== EXPLICIT_ACCOUNT_BINDING_VERSION
+                && (machine.defaultCodexAccountProfileId !== profile.id || machine.codexAccountBindingVersion !== grant.bindingVersion)) {
                 return fail(409, 'grant-unavailable');
             }
             const auth = codexAuthSchema.parse(JSON.parse(decryptString(path(accountId, profile.id), profile.credential)));
@@ -232,6 +246,15 @@ export const codexAccountStore = {
             const session = await tx.session.findFirst({ where: { id: sourceSessionId, accountId } });
             if (!session) return fail(409, 'session-unavailable');
             await ownedMachine(tx, accountId, machineId);
+            if (launch.bindingVersion === EXPLICIT_ACCOUNT_BINDING_VERSION && !launch.sourceSessionId) {
+                // Native sessions have no account launch audit; creation time
+                // still prevents a fresh explicit grant from adopting old work.
+                if (session.createdAt < launch.createdAt) return fail(409, 'session-unavailable');
+                const previous = await tx.codexSessionGrant.findFirst({ where: {
+                    accountId, sourceSessionId, redeemedAt: { not: null }, id: { not: launch.id },
+                } });
+                if (previous) return fail(409, 'session-unavailable');
+            }
             if (launch.serviceAuthority) {
                 // Native spawn registers its account before attaching the turn's session mapping.
                 // Discovery and legacy service grants must never become resumable session grants.
