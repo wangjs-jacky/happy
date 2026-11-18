@@ -30,3 +30,22 @@ it('offers restore for archived sessions', () => { mock.session.metadata.lifecyc
 it('late archive completion cannot close a different conversation', () => { setup(); const old = mock.callbacks.onAfterArchive; setup({ selectedId: 'two' }); act(() => old()); expect(close).not.toHaveBeenCalled(); act(() => mock.callbacks.onAfterDelete()); expect(close).toHaveBeenCalledTimes(1); });
 it('late completion cannot navigate after leaving the workspace', () => { setup(); const old = mock.callbacks.onAfterArchive; act(() => renderer.unmount()); renderer = undefined; old(); expect(close).not.toHaveBeenCalled(); });
 it('read-only previews keep close and history but omit lifecycle mutations', () => { setup({ manage: false }); expect(renderer.root.findAllByProps({ testID: 'test-conversation-actions' })).toHaveLength(0); press('test-close-chat'); expect(close).toHaveBeenCalledTimes(1); });
+it('keeps identity, history, ordinary-chat and management actions in the combined mobile header', () => {
+    const onNew = vi.fn();
+    setup({ mobile: true, onGlobal: undefined, onNew, identity: <TextIdentity />, actions: <OrdinaryChat /> });
+    expect(renderer.root.findAllByType('Identity')).toHaveLength(1);
+    expect(renderer.root.findAllByType('OrdinaryChat')).toHaveLength(1);
+    const history = renderer.root.findAllByType('Button').find((n: any) => n.props.testID === 'test-history');
+    expect(history.props.label).toBe('projectGoals.history');
+    expect(history.findByType('Text').props.children).toBe(1);
+    for (const id of ['test-history', 'test-conversation-actions', 'test-close-chat']) {
+        expect(renderer.root.findAllByType('Button').find((n: any) => n.props.testID === id).props.touchTarget).toBe(true);
+    }
+    press('test-history');
+    expect(renderer.root.findAllByProps({ testID: 'test-history-menu' }).length).toBeGreaterThan(0);
+    press('test-new-chat');
+    expect(onNew).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findAllByType('Modal')).toHaveLength(0);
+});
+function TextIdentity() { return React.createElement('Identity'); }
+function OrdinaryChat() { return React.createElement('OrdinaryChat'); }

@@ -10,11 +10,12 @@ import { GoalBoardButton as Button } from './GoalBoardButton';
 import { ProjectConversationActions } from './ProjectConversationActions';
 
 /** Scope and task conversations share explicit new/history actions without a permanent task column. */
-export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNew, onRefresh, loading, error, onRetry, onMore, busy, offline, mobile = false, testIDPrefix, scope = 'task', onGlobal, onClose, manage = false }: {
+export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNew, onRefresh, loading, error, onRetry, onMore, busy, offline, mobile = false, testIDPrefix, scope = 'task', onGlobal, onClose, manage = false, identity, actions }: {
     sessions: GoalTaskSession[]; selectedId?: string; onSelect: (id: string) => void; onNew?: () => void;
     onRefresh?: () => void; loading?: boolean; error?: string | null; onRetry?: () => void; onMore?: () => void;
     busy?: boolean; offline?: boolean; mobile?: boolean; testIDPrefix: string;
     scope?: 'task' | 'global'; onGlobal?: () => void; onClose?: () => void; manage?: boolean;
+    identity?: React.ReactNode; actions?: React.ReactNode;
 }) {
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
@@ -23,6 +24,7 @@ export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNe
     const [position, setPosition] = React.useState({ x: 12, y: 60 });
     const [headerWidth, setHeaderWidth] = React.useState(0);
     const compact = headerWidth < 560;
+    const combined = mobile && !!identity;
     const selection = React.useRef(selectedId); selection.current = selectedId;
     const mounted = React.useRef(true);
     React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -32,13 +34,14 @@ export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNe
     const menuWidth = Math.min(350, width - 24);
     return <View style={styles.header} onLayout={event => setHeaderWidth(event.nativeEvent.layout.width)} testID={`${testIDPrefix}-conversation-header`}>
         {onGlobal && <Button variant="toolbar" label={t('projectGoals.globalConversation')} disabled={busy} testID={`${testIDPrefix}-global-chat`} onPress={onGlobal}><Ionicons name="compass-outline" size={16} color={theme.colors.textLink} />{!mobile && <Text style={styles.link}>{t(headerWidth < 440 ? 'projectGoals.globalConversationCompact' : 'projectGoals.globalConversation')}</Text>}</Button>}
-        <Button ref={anchor} variant="toolbar" label={historyLabel} expanded={open} disabled={busy} testID={`${testIDPrefix}-history`} onPress={() => {
+        <Button ref={anchor} variant="toolbar" touchTarget={mobile} label={historyLabel} expanded={open} disabled={busy} testID={`${testIDPrefix}-history`} onPress={() => {
             anchor.current?.measureInWindow((x, y, _w, h) => { setPosition({ x, y: y + h + 6 }); setOpen(true); onRefresh?.(); });
-        }}><Ionicons name="time-outline" size={16} color={theme.colors.textSecondary} /><Text numberOfLines={1} style={styles.meta}>{compact ? t(scope === 'global' ? 'projectGoals.globalHistoryCompact' : 'projectGoals.taskHistoryCompact') : historyLabel} · {sessions.length}</Text><Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} /></Button>
-        <View style={{ flex: 1 }} />
+        }}><Ionicons name="time-outline" size={16} color={theme.colors.textSecondary} /><Text numberOfLines={1} style={styles.meta}>{combined ? sessions.length : `${compact ? t(scope === 'global' ? 'projectGoals.globalHistoryCompact' : 'projectGoals.taskHistoryCompact') : historyLabel} · ${sessions.length}`}</Text><Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} /></Button>
+        <View style={styles.identity}>{identity}</View>
+        {actions}
         {!mobile && onNew && <Button variant="toolbar" label={t('projectGoals.newChat')} disabled={busy || offline} testID={`${testIDPrefix}-new-chat`} onPress={create}><Ionicons name="add-outline" size={16} color={theme.colors.textLink} />{!compact && <Text style={styles.link}>{t('projectGoals.newChat')}</Text>}</Button>}
-        {manage && selectedId && onClose && <ProjectConversationActions key={selectedId} id={selectedId} testIDPrefix={testIDPrefix} disabled={busy} onClose={() => { if (mounted.current && selection.current === selectedId) onClose(); }} />}
-        {onClose && <Button variant="toolbar" label={t('projectGoals.closeConversation')} testID={`${testIDPrefix}-close-chat`} onPress={onClose}><Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} /></Button>}
+        {manage && selectedId && onClose && <ProjectConversationActions key={selectedId} id={selectedId} testIDPrefix={testIDPrefix} touchTarget={mobile} disabled={busy} onClose={() => { if (mounted.current && selection.current === selectedId) onClose(); }} />}
+        {onClose && <Button variant="toolbar" touchTarget={mobile} label={t('projectGoals.closeConversation')} testID={`${testIDPrefix}-close-chat`} onPress={onClose}><Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} /></Button>}
         {open && <Modal transparent visible animationType="none" onRequestClose={close}>
             <HistoryEscape onClose={close} />
             <Pressable style={styles.backdrop} accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={close} />
@@ -59,6 +62,7 @@ function HistoryEscape({ onClose }: { onClose: () => void }) { useProjectModalEs
 
 const styles = StyleSheet.create(theme => ({
     header: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider },
+    identity: { flex: 1, minWidth: 0, paddingHorizontal: 4 },
     backdrop: { position: 'absolute', inset: 0 },
     menu: { position: 'absolute', borderRadius: 12, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface, overflow: 'hidden', shadowColor: theme.colors.shadow.color, shadowOpacity: theme.colors.shadow.opacity, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
     list: { flexGrow: 0, padding: 8 }, copy: { flex: 1, minWidth: 0, gap: 8 },

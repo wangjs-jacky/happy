@@ -10,16 +10,16 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 
-export function ProjectConversationActions({ id, onClose, disabled, testIDPrefix }: { id: string; onClose: () => void; disabled?: boolean; testIDPrefix: string }) {
+export function ProjectConversationActions({ id, onClose, disabled, testIDPrefix, touchTarget }: { id: string; onClose: () => void; disabled?: boolean; testIDPrefix: string; touchTarget?: boolean }) {
     const session = useSession(id);
-    return session ? <Actions session={session} onClose={onClose} disabled={disabled} testIDPrefix={testIDPrefix} /> : null;
+    return session ? <Actions session={session} onClose={onClose} disabled={disabled} testIDPrefix={testIDPrefix} touchTarget={touchTarget} /> : null;
 }
-function Actions({ session, onClose, disabled, testIDPrefix }: { session: Session; onClose: () => void; disabled?: boolean; testIDPrefix: string }) {
+function Actions({ session, onClose, disabled, testIDPrefix, touchTarget }: { session: Session; onClose: () => void; disabled?: boolean; testIDPrefix: string; touchTarget?: boolean }) {
     const { theme } = useUnistyles();
     const actions = useSessionQuickActions(session, { onAfterArchive: onClose, onAfterDelete: onClose });
     const archived = isSessionArchived(session);
     const busy = disabled || actions.archivingSession || actions.deletingSession || actions.restoringSession;
-    return <Button variant="toolbar" label={t('sessionSearch.actions.more')} disabled={busy} testID={`${testIDPrefix}-conversation-actions`} onPress={() => Modal.alert(getSessionName(session), undefined, [
+    return <Button variant="toolbar" touchTarget={touchTarget} label={t('sessionSearch.actions.more')} disabled={busy} testID={`${testIDPrefix}-conversation-actions`} onPress={() => Modal.alert(getSessionName(session), undefined, [
         { text: t(archived ? 'sessionInfo.restoreSession' : 'sessionInfo.archiveSession'), onPress: archived ? actions.restoreSession : actions.archiveSession },
         { text: t('sessionInfo.deleteSession'), style: 'destructive', onPress: actions.deleteSession },
         { text: t('common.cancel'), style: 'cancel' },

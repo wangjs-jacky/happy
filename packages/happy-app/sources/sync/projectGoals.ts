@@ -147,6 +147,14 @@ export function projectFeatureFiles(machineId: string, featurePath: string): Fil
 export function projectSavedFileBinding(machineId: string, scopePath: string, rootPath: string, taskId?: string): FileWorkspaceBinding {
     return { ...projectArchiveFiles(machineId, scopePath, rootPath, taskId), readOnly: true };
 }
+function assertFileReadActive(signal?: AbortSignal) {
+    // React Native's AbortSignal has aborted, but no throwIfAborted().
+    if (!signal?.aborted) return;
+    if (signal.reason !== undefined) throw signal.reason;
+    const error = new Error('File transfer aborted');
+    error.name = 'AbortError';
+    throw error;
+}
 function projectArchiveFiles(machineId: string, featurePath: string, root: string, taskId?: string, featureReadOnly = false): FileWorkspaceBinding {
     const input = { featurePath, ...(taskId ? { taskId } : {}) };
     const prefix = featureReadOnly ? 'goalFeature' : taskId ? 'goalTask' : 'goalScope';
@@ -154,9 +162,9 @@ function projectArchiveFiles(machineId: string, featurePath: string, root: strin
         let offset = 0, revision: string | undefined, bytes: Uint8Array | undefined, transferId: string | undefined;
         // This is a finite file transfer, driven by byte offsets, not a task/status polling loop.
         do {
-            signal?.throwIfAborted();
+            assertFileReadActive(signal);
             const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, `${prefix}ReadFile`, { ...input, path, offset, revision, transferId }));
-            signal?.throwIfAborted();
+            assertFileReadActive(signal);
             if (result.offset !== offset || (revision && result.revision !== revision)) throw new Error('File changed during transfer');
             if (!bytes) bytes = new Uint8Array(result.size);
             const chunk = Uint8Array.from(atob(result.content), char => char.charCodeAt(0));

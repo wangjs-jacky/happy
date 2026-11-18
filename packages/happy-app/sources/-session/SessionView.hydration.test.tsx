@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { SessionView } from './SessionView';
+import { Platform } from 'react-native';
 vi.mock('@/components/goalBoard/SessionWorkspaceLink', () => ({ SessionWorkspaceLink: 'SessionWorkspaceLink' }));
 import { SessionRouteAbandonedError, SessionRouteCoordinationError, SessionRouteOwnership } from '@/sync/sessionRouteOwnership';
 
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     ensureSessionHydrated: vi.fn(),
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
+    windowWidth: 390,
     session: null as any,
     sessionListeners: new Set<() => void>(),
     messages: [] as any[],
@@ -46,7 +48,7 @@ vi.mock('react-native', () => ({
     Text: 'Text',
     TextInput: 'TextInput',
     View: 'View',
-    useWindowDimensions: () => ({ width: 390, height: 844 }),
+    useWindowDimensions: () => ({ width: mocks.windowWidth, height: 844 }),
 }));
 vi.mock('react-native-reanimated', () => ({
     default: { View: 'AnimatedView' },
@@ -298,6 +300,7 @@ describe('SessionView deep-link hydration', () => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
             originalConsoleError(...values);
         });
+        mocks.windowWidth = 390;
         mocks.session = null;
         mocks.messages = [];
         mocks.messagesLoaded = false;
@@ -328,6 +331,48 @@ describe('SessionView deep-link hydration', () => {
         vi.useRealTimers();
         consoleErrorSpy.mockRestore();
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it.each([{ platform: 'android', width: 320 }, { platform: 'android', width: 390 }, { platform: 'web', width: 320 }, { platform: 'web', width: 390 }])('combines the embedded workspace header on $platform at $width px without duplicate navigation', async ({ platform, width }) => {
+        mocks.windowWidth = width;
+        const previousPlatform = Platform.OS;
+        (Platform as { OS: string }).OS = platform;
+        mocks.messagesLoaded = true;
+        mocks.session = {
+            id: 'task-chat', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/task', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        const renderHeader = vi.fn(({ identity, actions }) => React.createElement('CombinedHeader', {}, identity, actions));
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="task-chat" embedded renderEmbeddedHeader={renderHeader} />); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+            expect(renderer.root.findAllByType('ChatHeaderView')).toHaveLength(0);
+            expect(renderer.root.findAllByType('CombinedHeader')).toHaveLength(1);
+            expect(renderer.root.findAllByProps({ testID: 'goal-board-parent-floating-action' })).toHaveLength(0);
+            expect(renderer.root.findAllByType('SessionWorkspaceLink')).toHaveLength(1);
+            expect(renderer.root.findByType('SessionWorkspaceLink').props.floating).toBe(false);
+            const chip = renderer.root.findByType('SessionHeaderChip');
+            expect(chip.props.compact).toBe(true);
+            expect(chip.props.condensed).toBe(width < 360);
+            await act(async () => {
+                renderer.root.findByProps({ testID: 'session-embedded-header' }).props.onLayout({ nativeEvent: { layout: { height: 46 } } });
+                chip.props.onPress();
+            });
+            expect(renderer.root.findByType('SessionInfoDropdown').props.top).toBe(46);
+            expect(renderer.root.findByType('SessionInfoDropdown').props.machineName).toBe('test');
+            expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(1);
+
+            // Returning to an ordinary conversation restores its own navigation.
+            await act(async () => { renderer.update(<SessionView id="task-chat" renderEmbeddedHeader={renderHeader} />); });
+            expect(renderer.root.findAllByType('CombinedHeader')).toHaveLength(0);
+            expect(renderer.root.findAllByType('ChatHeaderView')).toHaveLength(1);
+        } finally {
+            act(() => renderer?.unmount());
+            (Platform as { OS: string }).OS = previousPlatform;
+        }
     });
 
     it('keeps the parent route owned when a cold-loaded child replays its mount effects', async () => {
