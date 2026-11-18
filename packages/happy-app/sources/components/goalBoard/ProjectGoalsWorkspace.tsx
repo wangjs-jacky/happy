@@ -53,6 +53,7 @@ import { getProjectPreviewMachineId } from '@/sync/projectGoals';
 import { selectProjectMachine } from './projectMachine';
 import { useProjectNavigation } from './useProjectNavigation';
 import { useTaskCardSelection } from './useTaskCardSelection';
+import { readTaskCardHistory } from './taskCardHistory';
 import { useRememberProjectLocation } from '@/hooks/useRememberProjectLocation';
 import { useProjectData } from './useProjectData';
 import { getDirectoryCache } from '@/components/fileWorkspace/directoryCache';
@@ -219,8 +220,11 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
             const known = merge([...(data.board?.sessions[id] ?? []), ...(readProjectCache(key, projectHistorySchema)?.value.sessions ?? [])]);
             const latest = latestProjectTaskConversation(known, directory);
             if (latest || data.offline) return latest?.sessionId;
-            const page = await loadProjectTaskHistory(machineId, feature.featurePath, id);
-            if (accountKey() !== owner) throw new Error('Project conversation account changed');
+            const page = await readTaskCardHistory(async cursor => {
+                const result = await loadProjectTaskHistory(machineId, feature.featurePath, id, cursor);
+                if (accountKey() !== owner) throw new Error('Project conversation account changed');
+                return result;
+            }, sessions => latestProjectTaskConversation(merge(sessions), directory));
             const sessions = merge(page.sessions);
             writeProjectCache(key, { sessions, nextCursor: page.nextCursor });
             return latestProjectTaskConversation(sessions, directory)?.sessionId;
