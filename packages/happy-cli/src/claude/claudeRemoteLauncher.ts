@@ -409,6 +409,15 @@ export async function claudeRemoteLauncher(session: Session, onProcessorReady?: 
                         sdkToLogConverter.updateSessionId(sessionId);
                         session.onSessionFound(sessionId);
                     },
+                    onModelConnection: (connectionKey) => {
+                        session.modelCatalogConnection = connectionKey ?? null;
+                        session.client.updateMetadata(current => ({ ...current, capabilities: { ...current.capabilities, claudeModelCatalogRefresh: !!connectionKey } }));
+                    },
+                    onModelCatalog: (catalog) => {
+                        session.client.updateMetadata(current => (current.modelsUpdatedAt ?? 0) > catalog.observedAt ? current : ({
+                            ...current, models: catalog.models, modelsUpdatedAt: catalog.observedAt,
+                        }));
+                    },
                     onSDKMetadata: (metadata) => {
                         logger.debug('[remote] SDK metadata received, updating session:', metadata);
                         session.client.updateMetadata((currentMetadata) => ({

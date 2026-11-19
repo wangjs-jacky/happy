@@ -38,6 +38,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useCodexAccounts } from '@/hooks/useCodexAccounts';
+import { useClaudeModelCatalog } from '@/hooks/useClaudeModelCatalog';
 import { useShallow } from 'zustand/react/shallow';
 import type { Machine, Session } from '@/sync/storageTypes';
 import {
@@ -1020,14 +1021,50 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             }),
             [selectedAgent, selectedMachineId, sessions, codexAccountProfileId],
         );
+        const pendingClaudeSelection = React.useRef<{ model: string | null; effort: string | null; machineId: string | null } | null>(null);
+        const claudeCatalogDirectory = worktreeKey && !['__none__', '__new__'].includes(worktreeKey) ? worktreeKey : resolvedSelectedPath;
+        const claudeSelectionScope = JSON.stringify([selectedMachineId, claudeCatalogDirectory]);
+        const verifiedClaudeSelection = React.useRef<{ scope: string; model: ModelMode } | null>(null);
+        const claudeModels = useClaudeModelCatalog({
+            machineId: selectedMachineId,
+            directory: claudeCatalogDirectory,
+            enabled: selectedAgent === 'claude' && !!selectedMachine && isMachineOnline(selectedMachine),
+        });
+        const effectiveModelMetadata = React.useMemo(() => selectedAgent === 'claude' && claudeModels.catalog ? ({
+            ...modelMetadata,
+            path: claudeCatalogDirectory ?? '', host: modelMetadata?.host ?? '', flavor: 'claude',
+            machineId: selectedMachineId ?? undefined,
+            models: claudeModels.catalog.models, modelsUpdatedAt: claudeModels.catalog.observedAt,
+        }) : modelMetadata, [selectedAgent, claudeModels.catalog, modelMetadata, selectedMachineId, claudeCatalogDirectory]);
+        React.useEffect(() => {
+            const pending = pendingClaudeSelection.current;
+            if (selectedAgent !== 'claude' || !claudeModels.catalog || !pending) return;
+            pendingClaudeSelection.current = null;
+            if (pending.machineId === selectedMachineId && claudeModels.catalog.models.some(model => model.code === pending.model)) {
+                draft.setModelMode(pending.model!);
+                draft.setEffortLevel(pending.effort);
+                setSelectedModelKey(pending.model);
+            }
+        }, [selectedAgent, selectedMachineId, claudeModels.catalog, draft.setModelMode, draft.setEffortLevel]);
+        const verifiedChoice = selectedAgent === 'claude' ? claudeModels.catalog?.models.find(model => model.code === draft.modelMode) : null;
+        if (verifiedChoice) verifiedClaudeSelection.current = { scope: claudeSelectionScope, model: { key: verifiedChoice.code, name: verifiedChoice.value } };
         const modelModes = React.useMemo<ModelMode[]>(
-            () => getNewSessionModels(selectedAgent, modelMetadata),
-            [modelMetadata, selectedAgent, getNewSessionModels],
+            () => {
+                const models = getNewSessionModels(selectedAgent, effectiveModelMetadata);
+                // A saved explicit identifier remains the user's choice if discovery fails or a catalog removes it.
+                const verified = verifiedClaudeSelection.current;
+                if (selectedAgent === 'claude' && verified?.scope === claudeSelectionScope && verified.model.key === draft.modelMode
+                    && !models.some(model => model.key === draft.modelMode)) {
+                    return [...models, verified.model];
+                }
+                return models;
+            },
+            [effectiveModelMetadata, selectedAgent, getNewSessionModels, draft.modelMode, claudeSelectionScope],
         );
         // Models belong to the selected execution agent, even when Magpie exposes
         // the same model through several agents. Agent changes are explicit.
         const composerModels = React.useMemo(() => {
-            const concrete = modelModes.filter(model => model.key !== 'default');
+            const concrete = selectedAgent === 'claude' ? modelModes : modelModes.filter(model => model.key !== 'default');
             return (concrete.length ? concrete : modelModes).map(model => ({
                 ...model, key: `${selectedAgent}::${model.key}`,
             }));
@@ -1040,6 +1077,18 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const switchComposerAgent = () => {
             if (!nextCycleAgent) return;
             const nextAgent = nextCycleAgent.key as NewSessionAgentType;
+            if (nextAgent === 'claude') {
+                pendingClaudeSelection.current = { model: draft.modelMode, effort: draft.effortLevel, machineId: selectedMachineId };
+                draft.setAgentType(nextAgent);
+                const fallback = resolveNewSessionModeSelection({ agent: 'claude', permissionMode: 'default', modelMode: null,
+                    effortLevel: draft.effortLevel, agentDefaultOverrides, modelOptions: getNewSessionModels('claude', null) });
+                draft.setModelMode(fallback.modelMode);
+                draft.setPermissionMode(fallback.permissionMode);
+                draft.setEffortLevel(fallback.effortLevel);
+                setSelectedModelKey(fallback.modelMode);
+                setFastMode(false);
+                return;
+            }
             const metadata = getLatestSessionModelMetadata({ sessions, selectedMachineId, agent: nextAgent, codexAccountProfileId });
             const selection = resolveNewSessionModeSelection({
                 agent: nextAgent,
@@ -1070,9 +1119,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 effortLevel: draft.effortLevel,
                 agentDefaultOverrides,
                 modelOptions: modelModes,
-                effortMetadata: modelMetadata,
+                effortMetadata: effectiveModelMetadata,
             })
-        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, modelMetadata, modelModes, selectedAgent]);
+        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, effectiveModelMetadata, modelModes, selectedAgent]);
 
         const currentModel = modelModes.find(model => model.key === (selectedModelKey ?? resolvedModeSelection.modelMode))
             ?? modelModes.find(model => model.key === resolvedModeSelection.modelMode)
@@ -1081,8 +1130,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
 
         const effortLevels = React.useMemo<EffortLevel[]>(
             () => selectedAgent === 'codex' && !modelMetadata?.models?.length ? []
-                : getEffortLevelsForModel(selectedAgent, currentModelKey, modelMetadata),
-            [selectedAgent, currentModelKey, modelMetadata, codexAccountProfileId],
+                : getEffortLevelsForModel(selectedAgent, currentModelKey, effectiveModelMetadata),
+            [selectedAgent, currentModelKey, effectiveModelMetadata, codexAccountProfileId],
         );
 
         const supportsWorktree = configExperience.showWorktree && getSupportsWorktree(selectedAgent);
@@ -1626,6 +1675,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     online={!isOffline}
                                     model={currentModel ? { ...currentModel, key: `${selectedAgent}::${currentModel.key}` } : null}
                                     modelOptions={composerModels}
+                                    refreshScope={JSON.stringify([selectedMachineId, selectedAgent, claudeCatalogDirectory])}
+                                    onRefreshModels={selectedAgent === 'claude' ? claudeModels.refresh : undefined}
                                     effort={showEffort ? currentEffort : null}
                                     effortOptions={showEffort ? effortLevels : []}
                                     fastMode={fastMode}
@@ -1639,10 +1690,14 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         onSwitch: switchComposerAgent,
                                     }}
                                     onModelChange={(key) => {
+                                        pendingClaudeSelection.current = null;
                                         const prefix = `${selectedAgent}::`;
                                         if (!key.startsWith(prefix)) return;
                                         const nextModel = key.slice(prefix.length);
                                         if (!modelModes.some(mode => mode.key === nextModel)) return;
+                                        if (selectedAgent === 'claude') {
+                                            verifiedClaudeSelection.current = { scope: claudeSelectionScope, model: modelModes.find(mode => mode.key === nextModel)! };
+                                        }
                                         setSelectedModelKey(nextModel);
                                         draft.setModelMode(nextModel);
                                         if (!supportsCodexFast(modelMetadata, nextModel)) setFastMode(false);
