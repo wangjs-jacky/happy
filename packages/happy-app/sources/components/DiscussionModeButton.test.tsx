@@ -40,7 +40,8 @@ describe('DiscussionModeButton', () => {
         expect(renderer.root.findAllByType('Ionicons')).toHaveLength(1);
         expect(renderer.root.findByType('Ionicons').props.name).toBe('chatbubbles-outline');
         expect(button().props.children.filter(Boolean)).toHaveLength(2); // icon and conditional tooltip, no text node
-        expect(button().props.accessibilityState).toEqual({ selected: true, disabled: false });
+        expect(button().props['aria-pressed']).toBe(true);
+        expect(button().props.accessibilityState).toEqual({ checked: true, disabled: false });
         expect(tooltip().props).toMatchObject({ label: '仅讨论', visible: false });
         act(() => button().props.onPress());
         expect(toggle).toHaveBeenCalledOnce();
@@ -83,6 +84,8 @@ describe('DiscussionModeButton', () => {
         act(() => button().props.onFocus());
         expect(style()).not.toHaveProperty('cursor');
         expect(renderer.root.findByType('Ionicons').props.size).toBe(24);
+        expect(button().props.accessibilityRole).toBe('switch');
+        expect(button().props.accessibilityState.checked).toBe(false);
         expect(tooltip().props.visible).toBe(false);
     });
 });

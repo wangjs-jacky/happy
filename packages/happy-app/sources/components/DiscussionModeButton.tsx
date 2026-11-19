@@ -20,9 +20,10 @@ export const DiscussionModeButton = React.memo(function DiscussionModeButton({
 
     return <Pressable
         testID="session-discussion-mode"
-        accessibilityRole="button"
+        accessibilityRole={Platform.OS === 'web' ? 'button' : 'switch'}
         accessibilityLabel={t('discussionMode.toggle')}
-        accessibilityState={{ selected: active, disabled }}
+        accessibilityState={{ checked: active, disabled }}
+        aria-pressed={Platform.OS === 'web' ? active : undefined}
         disabled={disabled}
         onPress={onToggle}
         onHoverIn={() => setHovered(true)}

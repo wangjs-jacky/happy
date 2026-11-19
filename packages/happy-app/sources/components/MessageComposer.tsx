@@ -216,6 +216,14 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         minWidth: 0,
         overflow: Platform.OS === 'web' ? 'visible' : 'hidden',
     },
+    actionButtonsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    discussionActionRow: { flexWrap: 'wrap', rowGap: 8 },
+    discussionActionsLeft: { flexBasis: 'auto', flexShrink: 0, maxWidth: '100%' },
+    discussionActionsRight: { maxWidth: '100%', marginLeft: 'auto' },
     machineLabel: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1030,8 +1038,8 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                     <View style={styles.actionButtonsContainer}>
                         <View style={{ flexDirection: 'column', flex: 1, gap: 2 }}>
                             {/* Row 1: Profile (FIRST), Agent, Git Status */}
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <View style={styles.actionButtonsLeft}>
+                            <View style={[styles.actionButtonsRow, isSession && props.discussionMode && styles.discussionActionRow]}>
+                                <View style={[styles.actionButtonsLeft, isSession && props.discussionMode && styles.discussionActionsLeft]}>
 
                                 {/* The same content chooser as typing @. */}
                                 {!props.zenMode && (props.onPickImages || !props.imageAttachmentsOnly) && (
@@ -1086,7 +1094,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 </View>
 
                                 {/* Right cluster: image picker + send (image sits at far right, next to send) */}
-                                <View style={styles.actionButtonsRight}>
+                                <View style={[styles.actionButtonsRight, isSession && props.discussionMode && styles.discussionActionsRight]}>
                                 {/* Inline execution controls are desktop affordances. Narrow Web and native
                                     layouts keep the compact composer and use the existing session menu. */}
                                 {props.trailingControls}
