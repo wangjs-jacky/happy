@@ -1610,6 +1610,7 @@ failedContinueTask: "继续未完成的任务",
     },
 
     agentInput: {
+        switchCodingAgent: '切换编程智能体',
         stop: '停止',
         asyncQuestion: {
             title: '问题', hint: '可以稍后回答，任务仍会继续。',

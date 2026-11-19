@@ -1415,6 +1415,7 @@ failedContinueTask: "Continua la tasca pendent",
     },
 
     agentInput: {
+        switchCodingAgent: 'Canvia l’agent de programació',
         stop: 'Atura',
         asyncQuestion: {
             title: 'Pregunta',

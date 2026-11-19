@@ -1481,6 +1481,7 @@ failedContinueTask: "繼續未完成的工作",
     },
 
     agentInput: {
+        switchCodingAgent: '切換程式設計智能體',
         stop: '停止',
         asyncQuestion: {
             title: '問題', hint: '可以稍後回答，任務仍會繼續。',

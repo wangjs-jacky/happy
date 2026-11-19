@@ -1724,6 +1724,7 @@ failedContinueTask: "Continue unfinished task",
     },
 
     agentInput: {
+        switchCodingAgent: 'Switch coding agent',
         stop: 'Stop',
         asyncQuestion: {
             title: 'Question', hint: 'You can answer later. Work continues.',

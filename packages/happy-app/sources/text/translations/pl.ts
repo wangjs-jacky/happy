@@ -1431,6 +1431,7 @@ failedContinueTask: "Kontynuuj niedokończone zadanie",
     },
 
     agentInput: {
+        switchCodingAgent: 'Zmień agenta programistycznego',
         stop: 'Zatrzymaj',
         asyncQuestion: {
             title: 'Pytanie',

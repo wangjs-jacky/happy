@@ -29,6 +29,7 @@ export type SessionComposerModeSelectorConfig = {
     effort: ModeOption | null;
     effortOptions: ModeOption[];
     onReset?: () => void;
+    agentSwitcher?: { current: string; next: string | null; onSwitch: () => void };
     onModelChange: (key: string) => void;
     onRefreshModels?: () => Promise<void>;
     onEffortChange: (key: string) => void;
@@ -134,7 +135,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     const [anchor, setAnchor] = React.useState<ModePanelAnchor | null>(null);
     const enabled =
         props.online &&
-        (!!props.onRefreshModels || props.modelOptions.length > 1 ||
+        (!!props.agentSwitcher?.next || !!props.onRefreshModels || props.modelOptions.length > 1 ||
             props.effortOptions.length > 1 ||
             (props.supportsFast && !!props.onFastModeChange));
     const close = React.useCallback(() => {
@@ -209,6 +210,16 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
         if (defaultModel && defaultModel.key !== props.model?.key) props.onModelChange(defaultModel.key);
         if (defaultOption) { setPendingEffort(defaultOption.key); props.onEffortChange(defaultOption.key); }
         if (props.fastMode) props.onFastModeChange?.(false);
+    };
+    const agentSwitchHint = props.agentSwitcher ? `${props.agentSwitcher.current}${props.agentSwitcher.next ? ` → ${props.agentSwitcher.next}` : ''}` : '';
+    const canSwitchAgent = Boolean(props.agentSwitcher?.next);
+    const switchAgent = () => {
+        if (!canSwitchAgent) return;
+        finishDrag(false);
+        setPendingEffort(null);
+        setResetHovered(false);
+        hapticsLight();
+        props.agentSwitcher?.onSwitch();
     };
     const canReset = Boolean(props.onReset || (defaultModel && defaultOption));
     const effectiveEffort = pendingEffort ? levels.find((level) => level.key === pendingEffort) ?? props.effort : props.effort?.key === 'default' ? defaultOption : levels.find((level) => level.key === props.effort?.key) ?? props.effort;
@@ -310,6 +321,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                     />
                 ) : null}
                 <Text style={styles.triggerText} numberOfLines={1}>
+                    {!open && props.agentSwitcher ? `${props.agentSwitcher.current} · ` : ''}
                     {open ? t('agentInput.effort.select') : formatComposerModelName(props.model?.name ?? t('agentInput.model.title'))}
                     {!open && effectiveEffort ? <Text style={isUltra ? styles.ultraTitle : styles.triggerEffort}> {effectiveEffort.name}</Text> : null}
                 </Text>
@@ -516,6 +528,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                 </Text>
                                             ) : null}
                                             <Text style={styles.modelLink} numberOfLines={1}>
+                                                {props.agentSwitcher ? `${props.agentSwitcher.current} · ` : ''}
                                                 {formatComposerModelName(props.model?.name ?? t('agentInput.model.title'))}
                                                 {props.modelOptions.length > 1 ? '  ›' : ''}
                                             </Text>
@@ -523,23 +536,23 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                         </Pressable>
                                         </View>
                                         <Pressable
-                                            testID="session-composer-effort-reset"
+                                            testID={props.agentSwitcher ? "session-composer-agent-cycle" : "session-composer-effort-reset"}
                                             accessibilityRole="button"
-                                            accessibilityLabel={t('common.reset')}
-                                            accessibilityState={{ disabled: !canReset }}
-                                            disabled={!canReset}
-                                            accessibilityHint={canReset ? defaultOption?.name : t('settingsAccount.notAvailable')}
-                                            onPress={reset}
+                                            accessibilityLabel={props.agentSwitcher ? t('agentInput.switchCodingAgent') : t('common.reset')}
+                                            accessibilityState={{ disabled: props.agentSwitcher ? !canSwitchAgent : !canReset }}
+                                            disabled={props.agentSwitcher ? !canSwitchAgent : !canReset}
+                                            accessibilityHint={props.agentSwitcher ? agentSwitchHint : canReset ? defaultOption?.name : t('settingsAccount.notAvailable')}
+                                            onPress={props.agentSwitcher ? switchAgent : reset}
                                             onHoverIn={() => setResetHovered(true)}
                                             onHoverOut={() => setResetHovered(false)}
-                                            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, !canReset && styles.disabled, canReset && (pressed || hovered) && styles.pressed]}
+                                            style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, !(props.agentSwitcher ? canSwitchAgent : canReset) && styles.disabled, (props.agentSwitcher ? canSwitchAgent : canReset) && (pressed || hovered) && styles.pressed]}
                                         >
                                             <Ionicons
-                                                name="refresh-outline"
+                                                name={props.agentSwitcher ? "swap-horizontal-outline" : "refresh-outline"}
                                                 size={20}
                                                 color={theme.colors.textSecondary}
                                             />
-                                            <ComposerTooltip testID="composer-reset-tooltip" label={t('common.reset')} visible={Platform.OS === 'web' && resetHovered && canReset} />
+                                            <ComposerTooltip testID="composer-reset-tooltip" label={props.agentSwitcher ? `${t('agentInput.switchCodingAgent')}: ${agentSwitchHint}` : t('common.reset')} visible={Platform.OS === 'web' && resetHovered && (props.agentSwitcher ? canSwitchAgent : canReset)} />
                                         </Pressable>
                                     </View>
                                     {levels.length > 0 ? (

@@ -1431,6 +1431,7 @@ failedContinueTask: "Продолжить незавершённую задач�
     },
 
     agentInput: {
+        switchCodingAgent: 'Сменить агента программирования',
         stop: 'Стоп',
         asyncQuestion: {
             title: 'Вопрос',

@@ -1414,6 +1414,7 @@ failedContinueTask: "Continuar tarefa pendente",
     },
 
     agentInput: {
+        switchCodingAgent: 'Alternar agente de programação',
         stop: 'Parar',
         asyncQuestion: {
             title: 'Pergunta',

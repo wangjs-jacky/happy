@@ -1416,6 +1416,7 @@ failedContinueTask: "未完了の作業を続ける",
     },
 
     agentInput: {
+        switchCodingAgent: 'コーディングエージェントを切り替える',
         stop: '停止',
         asyncQuestion: {
             title: '質問',

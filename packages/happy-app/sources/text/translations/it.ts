@@ -1413,6 +1413,7 @@ failedContinueTask: "Continua il lavoro in sospeso",
     },
 
     agentInput: {
+        switchCodingAgent: 'Cambia agente di programmazione',
         stop: 'Ferma',
         asyncQuestion: {
             title: 'Domanda',

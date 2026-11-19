@@ -1415,6 +1415,7 @@ failedContinueTask: "Continuar tarea pendiente",
     },
 
     agentInput: {
+        switchCodingAgent: 'Cambiar agente de programación',
         stop: 'Detener',
         asyncQuestion: {
             title: 'Pregunta',
