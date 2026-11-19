@@ -56,3 +56,5 @@ E2E使用隔离云端完整Happy server/PGlite与分支Web export、真实账号
 修复源码4cc4576c的定向preview：stamp=1795103886121，Update ID=5ec2c72f-288a-b89b-c358-743e7c9815c3；android/preview/runtime24，不覆盖latest。不可变manifest：https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/24/preview/1795103886121.json 。主包44,084,983字节，SHA-256=4dcbff44a62079a170f570834311cab9e3775dd52dce23c7153fbf60a7d89e25，与manifest一致。新增修复相关109项测试、7项runtime契约、App类型检查、Web/Android导出通过。最初误用了不存在的node test文件路径，随后以真实otaRuntimeConfig.test.ts复验通过；打包暂存的server源码曾被App tsc包含，移出TS扫描后类型检查通过，非产品类型错误。
 
 合成worker/controller已关闭、Ego任务空间已结束，本地合成凭据及请求追踪文件已删除。RackNerd的专用server与gzip资源进程按PID、cwd及进程组核验后停止；阿里云早期失败尝试仍因SSH banner超时无法确认进程/目录清理，未重启机器或更改其他服务，不能声称所有云端临时资源已清理。Ego OPS新增verify-coding-agent-manager、Web E2E本机经验已写回；Ego知识校验通过。没有正式Web部署、CLI发布或真实手机加载验收。
+
+清理补充：RackNerd上核对已无cwd位于专用测试目录的进程后，已删除该专用目录；两条本地测试SSH转发已关闭。阿里云早期目录仍待SSH恢复后清理。
