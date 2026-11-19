@@ -47,6 +47,7 @@ import {
 } from './SessionComposerDirectorySelector';
 import { resolveComposerPrimaryAction } from './composerPrimaryAction';
 import { useComposerAbortConfirmation } from '@/hooks/useComposerAbortConfirmation';
+import { DiscussionModeButton, type DiscussionModeButtonProps } from './DiscussionModeButton';
 
 interface MessageComposerProps {
     // Drives layout differences between the home compose box and the in-session
@@ -112,6 +113,8 @@ interface MessageComposerProps {
     leadingControls?: React.ReactNode;
     trailingControls?: React.ReactNode;
     belowComposer?: React.ReactNode;
+    /** Session discussion toggle; remains available when auxiliary controls are hidden. */
+    discussionMode?: DiscussionModeButtonProps;
     /** Pending contextual content, such as selected-passage annotations. */
     hasContext?: boolean;
     contextContent?: React.ReactNode;
@@ -1028,11 +1031,10 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                         <View style={{ flexDirection: 'column', flex: 1, gap: 2 }}>
                             {/* Row 1: Profile (FIRST), Agent, Git Status */}
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                {props.zenMode && <View style={{ flex: 1 }} />}
-                                {!props.zenMode && <View style={styles.actionButtonsLeft}>
+                                <View style={styles.actionButtonsLeft}>
 
                                 {/* The same content chooser as typing @. */}
-                                {(props.onPickImages || !props.imageAttachmentsOnly) && (
+                                {!props.zenMode && (props.onPickImages || !props.imageAttachmentsOnly) && (
                                     <Pressable
                                         accessibilityRole="button"
                                         accessibilityLabel={t('composerContext.title')}
@@ -1064,7 +1066,9 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 )}
 
 
-                                {isSession && props.permissionSelector && supportsDesktopComposerModeSelector({
+                                {isSession && props.discussionMode && <DiscussionModeButton {...props.discussionMode} />}
+
+                                {!props.zenMode && isSession && !props.discussionMode?.active && props.permissionSelector && supportsDesktopComposerModeSelector({
                                     isWeb: Platform.OS === 'web',
                                     windowWidth: screenWidth,
                                 }) ? (
@@ -1072,14 +1076,14 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 ) : null}
 
 
-                                {props.leadingControls}
+                                {!props.zenMode && props.leadingControls}
 
                                 {/* Git Status Badge (session only) */}
-                                {isSession && (
+                                {!props.zenMode && isSession && (
                                     <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
                                 )}
 
-                                </View>}
+                                </View>
 
                                 {/* Right cluster: image picker + send (image sits at far right, next to send) */}
                                 <View style={styles.actionButtonsRight}>
