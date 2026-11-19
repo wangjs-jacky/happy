@@ -677,7 +677,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
 });
 
 const styles = StyleSheet.create((theme) => ({
-    container: { minWidth: 0, flexShrink: 1, alignItems: 'flex-end' },
+    container: { minWidth: 0, maxWidth: 280, flexShrink: 1, alignItems: 'flex-end' },
     trigger: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -687,7 +687,7 @@ const styles = StyleSheet.create((theme) => ({
         borderRadius: 10,
         paddingHorizontal: 12,
         height: 30,
-        maxWidth: 280,
+        maxWidth: '100%',
     },
     triggerText: {
         minWidth: 0,
@@ -696,7 +696,7 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 13,
         ...Typography.default('semiBold'),
     },
-    compactTrigger: { paddingHorizontal: 6, gap: 4, maxWidth: '100%' },
+    compactTrigger: { paddingHorizontal: 6, gap: 4 },
     triggerEffort: { color: theme.colors.textSecondary, ...Typography.default() },
     disabled: { opacity: 0.58 },
     pressed: { backgroundColor: theme.colors.surfaceSelected },
