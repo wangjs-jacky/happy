@@ -1,3 +1,4 @@
+vi.mock('./codingAgents/CodingAgentIcon', () => ({ CodingAgentIcon: 'CodingAgentIcon' }));
 import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -166,11 +167,12 @@ describe('SessionComposerModeSelector', () => {
         act(() => { renderer = TestRenderer.create(<SessionComposerModeSelector online
             model={modelOptions[0]} modelOptions={modelOptions} effort={effortOptions[0]} effortOptions={effortOptions}
             onModelChange={vi.fn()} onEffortChange={vi.fn()} onReset={onReset}
-            agentSwitcher={{ current: 'Codex', next: 'Claude Code', onSwitch }} />); });
+            agentSwitcher={{ id: 'codex', current: 'Codex', next: 'Claude Code', onSwitch }} />); });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         expect(renderer.root.findAllByProps({ testID: 'session-composer-effort-reset' })).toHaveLength(0);
         const button = renderer.root.findByProps({ testID: 'session-composer-agent-cycle' });
         expect(button.props.accessibilityHint).toBe('Codex → Claude Code');
+        expect(button.findByType('CodingAgentIcon').props.agent).toBe('codex');
         act(() => button.props.onPress());
         expect(onSwitch).toHaveBeenCalledOnce(); expect(onReset).not.toHaveBeenCalled();
         expect(renderer.root.findByProps({ testID: 'session-composer-mode-panel' })).toBeDefined();

@@ -1,4 +1,5 @@
-vi.mock('react-native-svg', () => ({ default: 'Svg', Path: 'Path', Rect: 'Rect', Circle: 'Circle' }));
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('react-native-svg', () => ({ SvgXml: 'SvgXml', default: 'Svg', Path: 'Path', Rect: 'Rect', Circle: 'Circle' }));
 import * as React from 'react';
 import { act } from 'react';
 import { Platform } from 'react-native';
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     sessionsOverride: null as unknown[] | null,
     cliAvailability: { codex: true } as Record<string, boolean>,
     draftStore: null as any,
+    configuredAgents: { mac: ['codex', 'claude'], 'other-mac': ['codex'] } as Record<string, string[]>,
 }));
 
 vi.mock('@/hooks/useCodexAccounts', () => ({ useCodexAccounts: () => mocks.codexAccounts }));
@@ -122,7 +124,7 @@ vi.mock('@/sync/storage', () => {
         useAllMachines: () => machines,
         useLocalSetting: () => null,
         useSessions: () => mocks.sessionsOverride ?? sessions,
-        useSetting: () => settings,
+        useSetting: (name: string) => name === 'codingAgentMachines' ? mocks.configuredAgents : settings,
     };
 });
 vi.mock('@/hooks/useNewSessionDraft', async () => {
@@ -210,6 +212,7 @@ describe('SessionConfigPanel composer layout', () => {
         mocks.sessionsOverride = null;
         for (const key of Object.keys(mocks.cliAvailability)) delete mocks.cliAvailability[key];
         mocks.cliAvailability.codex = true;
+        mocks.configuredAgents = { mac: ['codex', 'claude'], 'other-mac': ['codex'] };
         mocks.draftStore.setState({ input: '', selectedMachineId: 'mac', selectedPath: '~/happy', agentType: 'codex', permissionMode: 'yolo', modelMode: 'gpt-5.6-sol', effortLevel: 'high', fastMode: false, sessionType: 'simple', worktreeKey: null });
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -221,6 +224,13 @@ describe('SessionConfigPanel composer layout', () => {
         renderer = undefined;
         consoleErrorSpy.mockRestore();
         vi.useRealTimers();
+    });
+
+    it('shows configuration instead of a disabled model picker when no agents are enabled', async () => {
+        mocks.configuredAgents = { mac: [] };
+        await act(async () => { renderer = TestRenderer.create(<SessionConfigPanel layout="composer" collapsible={false} />); });
+        expect(renderer.root.findByProps({ testID: 'session-composer-configure-agents' })).toBeDefined();
+        expect(renderer.root.findAllByProps({ testID: 'session-composer-mode-selector' })).toHaveLength(0);
     });
 
     it('cycles only available coding agents, scopes models, and updates the live send settings', async () => {

@@ -3,6 +3,8 @@ import { getAgentPermissionModeForTaskLevel, getTaskPermissionLevelForAgentMode 
 import { ComposerTooltip } from './DesktopShortcutTooltip';
 import { SessionComposerModeSelector } from './SessionComposerModeSelector';
 import React from 'react';
+import { useRouter } from 'expo-router';
+import { enabledCodingAgents } from '@/utils/codingAgentSelection';
 import {
     View,
     Text,
@@ -778,6 +780,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
     function SessionConfigPanel({ layout = 'inline', collapsible = true, onPickerOpenChange, renderComposer }, ref) {
         const { theme } = useUnistyles();
         const viewport = useWindowDimensions();
+        const router = useRouter();
+        const codingAgentMachines = useSetting('codingAgentMachines');
         const isSidebar = layout === 'sidebar';
         const isComposer = layout === 'composer';
 
@@ -986,9 +990,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const availableAgents = React.useMemo(() => {
             const availability = selectedMachine?.metadata?.cliAvailability;
             const codingAgents = getCodingAgentPickerItems(ALL_AGENTS);
-            if (!availability) return codingAgents;
-            return codingAgents.filter(a => availability[a.key]);
-        }, [selectedMachine]);
+            return enabledCodingAgents(codingAgents, selectedMachineId, codingAgentMachines, availability);
+        }, [selectedMachine, selectedMachineId, codingAgentMachines]);
 
         // If current coding agent is not available on this machine, switch to the
         // first available coding agent. Ask mode stays independent of CLI availability.
@@ -1615,7 +1618,15 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             ))
             }</>;
             const modelControl = <>{
-!isOffline && !configExperience.isAskMode && (
+!isOffline && !configExperience.isAskMode && (availableAgents.length === 0 ? (
+                                <Pressable testID="session-composer-configure-agents" accessibilityRole="button"
+                                    accessibilityLabel={t('codingAgents.noneEnabled')}
+                                    onPress={() => router.push({ pathname: '/settings/coding-agents', params: { machineId: selectedMachineId ?? '' } })}
+                                    style={({ pressed }) => [styles.composerConfigCompactTrigger, pressed && styles.composerConfigCompactPressed]}>
+                                    <Ionicons name="settings-outline" size={16} color={theme.colors.textSecondary} />
+                                    <Text style={styles.composerConfigCompactText}>{t('settings.codingAgents')}</Text>
+                                </Pressable>
+                            ) : (
                                 <SessionComposerModeSelector
                                     unifiedCodex={selectedAgent === 'codex'}
                                     online={!isOffline}
@@ -1627,6 +1638,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     supportsFast={supportsFast}
                                     onFastModeChange={setFastMode}
                                     agentSwitcher={{
+                                        id: selectedAgent,
+                                        onManage: () => router.push({ pathname: '/settings/coding-agents', params: { machineId: selectedMachineId ?? '' } }),
                                         current: ALL_AGENTS.find(agent => agent.key === selectedAgent)?.label ?? selectedAgent,
                                         next: nextCycleAgent?.label ?? null,
                                         onSwitch: switchComposerAgent,
@@ -1645,7 +1658,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         if (next >= 0) { setEffortIndex(next); draft.setEffortLevel(effortLevels[next].key); }
                                     }}
                                 />
-                            )
+                            ))
             }</>;
             const pickers = <>
                 {renderActivePickerPopover('machine')}

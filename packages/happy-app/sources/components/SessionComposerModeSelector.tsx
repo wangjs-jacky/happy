@@ -19,6 +19,7 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { ModeOption } from '@/components/modelModeOptions';
 import { hapticsLight } from '@/components/haptics';
+import { CodingAgentIcon } from './codingAgents/CodingAgentIcon';
 import { ComposerTooltip } from './DesktopShortcutTooltip';
 
 export type SessionComposerModeSelectorConfig = {
@@ -29,7 +30,7 @@ export type SessionComposerModeSelectorConfig = {
     effort: ModeOption | null;
     effortOptions: ModeOption[];
     onReset?: () => void;
-    agentSwitcher?: { current: string; next: string | null; onSwitch: () => void };
+    agentSwitcher?: { id?: string; current: string; next: string | null; onSwitch: () => void; onManage?: () => void };
     onModelChange: (key: string) => void;
     onRefreshModels?: () => Promise<void>;
     onEffortChange: (key: string) => void;
@@ -135,7 +136,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     const [anchor, setAnchor] = React.useState<ModePanelAnchor | null>(null);
     const enabled =
         props.online &&
-        (!!props.agentSwitcher?.next || !!props.onRefreshModels || props.modelOptions.length > 1 ||
+        (!!props.agentSwitcher?.onManage || !!props.agentSwitcher?.next || !!props.onRefreshModels || props.modelOptions.length > 1 ||
             props.effortOptions.length > 1 ||
             (props.supportsFast && !!props.onFastModeChange));
     const close = React.useCallback(() => {
@@ -547,14 +548,17 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                             onHoverOut={() => setResetHovered(false)}
                                             style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [styles.iconButton, hoverTransition, !(props.agentSwitcher ? canSwitchAgent : canReset) && styles.disabled, (props.agentSwitcher ? canSwitchAgent : canReset) && (pressed || hovered) && styles.pressed]}
                                         >
-                                            <Ionicons
-                                                name={props.agentSwitcher ? "swap-horizontal-outline" : "refresh-outline"}
-                                                size={20}
-                                                color={theme.colors.textSecondary}
-                                            />
+                                            {props.agentSwitcher?.id ? <CodingAgentIcon agent={props.agentSwitcher.id} size={22} /> : <Ionicons name="refresh-outline" size={20} color={theme.colors.textSecondary} />}
                                             <ComposerTooltip testID="composer-reset-tooltip" label={props.agentSwitcher ? `${t('agentInput.switchCodingAgent')}: ${agentSwitchHint}` : t('common.reset')} visible={Platform.OS === 'web' && resetHovered && (props.agentSwitcher ? canSwitchAgent : canReset)} />
                                         </Pressable>
                                     </View>
+                                    {props.agentSwitcher?.onManage ? <Pressable
+                                        testID="session-composer-agent-manage"
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t('settings.codingAgents')}
+                                        onPress={() => { close(); props.agentSwitcher?.onManage?.(); }}
+                                        style={({ pressed }) => [styles.agentManage, pressed && styles.pressed]}
+                                    ><Ionicons name="settings-outline" size={13} color={theme.colors.textSecondary} /><Text style={styles.description}>{t('settings.codingAgents')}</Text></Pressable> : null}
                                     {levels.length > 0 ? (
                                         <View
                                             ref={trackRef}
@@ -740,6 +744,7 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
     },
     ultraTitle: { color: '#9348ff' },
+    agentManage: { flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', gap: 4, borderRadius: 6, padding: 5 },
     modelLink: { color: theme.colors.textSecondary, fontSize: 13, marginTop: 2, ...Typography.default() },
     track: {
         height: 32,
