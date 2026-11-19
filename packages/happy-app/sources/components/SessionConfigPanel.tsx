@@ -1438,7 +1438,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 permissionKey: currentPermission?.key === 'default' ? undefined : currentPermission?.key,
                 modelKey: currentModelKey === 'default' ? undefined : currentModelKey,
                 effortKey: selectedAgent === 'codex' && !modelMetadata?.models?.length ? null
-                    : normalizeModelEffortKey(selectedAgent, currentModelKey, draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null, effectiveModelMetadata),
+                    : normalizeModelEffortKey(selectedAgent, currentModelKey, draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null, effectiveModelMetadata) ?? null,
                 worktreeKey,
                 fastMode: supportsFast && fastMode,
                 ...(selectedAgent === 'codex' && codexAccountProfileId !== undefined
