@@ -22,12 +22,12 @@ const Context = React.createContext<Monitor | null>(null);
 function colorFor(category: ActivityCategory, colors: ReturnType<typeof useUnistyles>['theme']['colors']) {
     return category === 'attention' ? colors.permission.bypass : category === 'running' ? colors.textLink : category === 'unread' ? colors.success : colors.textSecondary;
 }
-export function ProjectSessionMonitor({ scope, children }: ProjectSessionMonitorProps) {
+export function ProjectSessionMonitor({ scope, knownScopes = [], children }: ProjectSessionMonitorProps) {
     const { width, height } = useWindowDimensions();
     const sessions = storage(s => s.sessions), unread = storage(s => s.unreadSessionIds), connected = storage(s => s.socketStatus === 'connected');
     const machines = storage(s => s.machines);
     const deletionRevision = React.useSyncExternalStore(subscribeProjectSessionDeletions, getProjectSessionDeletionRevision, getProjectSessionDeletionRevision);
-    const rows = React.useMemo(() => buildSessionActivity(Object.values(sessions).filter(s => !isProjectSessionDeleted(s.id)), unread, connected), [sessions, unread, connected, deletionRevision]);
+    const rows = React.useMemo(() => buildSessionActivity(Object.values(sessions), unread, connected).filter(row => !isProjectSessionDeleted(row.session.id)), [sessions, unread, connected, deletionRevision]);
     const [isOpen, setOpen] = React.useState(false), [filterScope, setScope] = React.useState<ActivityScope>(), [category, setCategory] = React.useState<ActivityCategory>('attention'), [query, setQuery] = React.useState('');
     const router = useRouter();
     const trigger = React.useRef<HTMLElement | null>(null);
@@ -45,10 +45,13 @@ export function ProjectSessionMonitor({ scope, children }: ProjectSessionMonitor
     }, [isOpen, close]);
     // A changed catalogue owner must not retain a task-filter belonging to the previous one.
     React.useEffect(() => { setOpen(false); setScope(undefined); setQuery(''); }, [scope?.machineId, scope?.path]);
-    const scoped = filterScope ? rows.filter(row => matchesActivityScope(row, filterScope)) : rows;
+    const scoped = !isOpen ? [] : filterScope ? rows.filter(row => matchesActivityScope(row, filterScope)) : rows;
     const counts = countSessionActivity(scoped), words = copy();
-    const origin = (row: SessionActivity) => scope && matchesActivityScope(row, scope) ? scope.title : (row.session.metadata?.goalBoard?.featurePath ?? row.session.metadata?.path)?.replace(/\\/g, '/').split('/').filter(Boolean).pop() || words.scopeUnknown;
-    const visible = scoped.filter(row => row.category === category && `${getSessionName(row.session)} ${row.session.metadata?.name ?? ''} ${origin(row)} ${row.session.metadata?.path ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+    const origin = (row: SessionActivity) => {
+        const titles = [...knownScopes, ...(scope ? [scope] : [])].filter(owner => matchesActivityScope(row, owner)).sort((a, b) => a.path.length - b.path.length).map(owner => owner.title);
+        return titles.length ? [...new Set(titles)].join(' / ') : (row.session.metadata?.goalBoard?.featurePath ?? row.session.metadata?.path)?.replace(/\\/g, '/').split('/').filter(Boolean).pop() || words.scopeUnknown;
+    };
+    const visible = scoped.filter(row => row.category === category && `${getSessionName(row.session)} ${row.session.metadata?.name ?? ''} ${origin(row)} ${row.session.metadata?.goalBoard?.featurePath ?? ''} ${row.session.metadata?.path ?? ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
     const { theme } = useUnistyles();
     const context = React.useMemo(() => ({ rows, scope, open, close, isOpen }), [rows, scope, open, close, isOpen]);
     return <Context.Provider value={context}>{children}{isOpen && <Modal transparent visible animationType="none" onRequestClose={close}>

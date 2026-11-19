@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isSessionArchived } from '@/utils/sessionLifecycle';
 import type { Session } from '@/sync/storageTypes';
 import { buildSessionActivity, countSessionActivity, matchesActivityScope } from './sessionActivity';
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {} } }) }));
@@ -27,11 +28,13 @@ describe('real session activity', () => {
         expect(countSessionActivity(buildSessionActivity(sessions, new Set(), true))).toEqual({ attention: 0, running: 1, unread: 0, unknown: 1 });
     });
     it('excludes explicit archives and retired workers, deduplicates IDs, but keeps unread auto-archived results', () => {
+        const application = session('app-result', { metadata: { path: '/work', application: { appId: 'test', bindingId: 'binding' } } as any, agentState: { turnStatus: { status: 'completed', updatedAt: 1 } } });
+        expect(isSessionArchived(application)).toBe(true);
         const rows = buildSessionActivity([
             session('archived', { thinking: true, metadata: { path: '/work', lifecycleState: 'archived' } as any }),
             session('retired', { thinking: true, metadata: { path: '/work', flavor: 'personal' } as any }),
             session('dup', { thinking: true }), session('dup', { thinking: true }),
-            session('app-result', { metadata: { path: '/work', application: { id: 'test' } } as any, agentState: { turnStatus: { status: 'completed', updatedAt: 1 } } }),
+            application,
         ], new Set(['archived', 'app-result']), true);
         expect(rows.map(row => row.session.id).sort()).toEqual(['app-result', 'dup']);
     });

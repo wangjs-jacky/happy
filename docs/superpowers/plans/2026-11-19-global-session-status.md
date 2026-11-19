@@ -43,3 +43,11 @@ Interface: ProjectSessionMonitor(scope, children), GlobalSessionEntry, ProjectSe
 Task 1: complete — RED missing module then GREEN; activity + canonical state 25/25.
 Task 2: model/component + project/history regression 202/202 and app typecheck passed. Full isolated App mounted, cross-project running2/current1 verified; actual completion updated unread1 through encrypted server events. Offline fallback regression observed RED→GREEN. No production data used.
 Ruling: Native default exports preserve the existing action and render no monitor; shared integration conservatively triggers existing OTA workflow — no native/runtime changes.
+
+Final review: independent read-only reviewer found four P2 issues and one fixture coverage gap.
+Final: fixed stale task border — transport-loss border test RED→GREEN; existing history association remains intact.
+Final: fixed stale reconnect/cold-cache trust — storage transport presence tests RED→GREEN; disconnect/connecting invalidates online presence, reconnect alone does not restore it, fresh authoritative header does. Durable outcomes remain unchanged.
+Final: fixed authoritative project path/catalogue-title search — bound project-a + Design Library search test RED→GREEN; uses already-loaded catalogue, no per-session requests.
+Final: fixed closed-drawer durable tombstone scan — 200 idle headers test RED→GREEN, only three activity candidates read tombstones. Closed lists skip scope/search processing.
+Final: corrected auto-archive fixture to valid appId/bindingId and asserted real archive precondition.
+Final: all related model/component/history/store regression 226/226 passed; app typecheck passed. No deferred material findings.
