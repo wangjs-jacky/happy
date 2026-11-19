@@ -222,7 +222,9 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         justifyContent: 'space-between',
     },
     discussionActionRow: { flexWrap: 'wrap', rowGap: 8 },
-    discussionActionsLeft: { flexBasis: 'auto', flexShrink: 0, maxWidth: '100%' },
+    // Yoga gives positive `flex` an implicit zero basis, even with flexBasis:auto.
+    // Clear the shorthand so narrow rows wrap before the icon can be clipped.
+    discussionActionsLeft: { flex: 0, flexGrow: 1, flexBasis: 'auto', flexShrink: 0, maxWidth: '100%' },
     discussionActionsRight: { maxWidth: '100%', marginLeft: 'auto' },
     machineLabel: {
         flexDirection: 'row',
