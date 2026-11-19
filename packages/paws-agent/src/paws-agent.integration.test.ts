@@ -889,15 +889,15 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
             await client.messages.send({ sessionId: spawned.sessionId, text: 'fixture lifecycle' });
             await waitFor(async () => {
                 const state = (await client.sessions.get(spawned.sessionId)).agentState as {
-                    turnStatus?: { status?: string };
+                    claudeThinking?: boolean;
                 } | null;
-                return state?.turnStatus?.status === 'running';
+                return state?.claudeThinking === true;
             }, 20_000, 'fixture session to become busy');
             await waitFor(async () => {
                 const state = (await client.sessions.get(spawned.sessionId)).agentState as {
-                    turnStatus?: { status?: string };
+                    claudeThinking?: boolean;
                 } | null;
-                return state?.turnStatus?.status === 'completed';
+                return state?.claudeThinking === false;
             }, 20_000, 'fixture session to become idle');
             await waitFor(async () => {
                 const history = await client.messages.history(spawned.sessionId);
