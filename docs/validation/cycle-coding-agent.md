@@ -46,3 +46,13 @@ App组件/真实Zustand状态/设置持久化/空配置派发门禁/OTA契约定
 E2E使用隔离云端完整Happy server/PGlite与分支Web export、真实账号加密设置和machine RPC。更新器使用产品service和实际子进程，但包管理器仅操作测试沙箱；模型回复为transport stub。正式Web、用户账号、真实Agent安装与当前稳定daemon不参与。用户明确不需要截图，未采集截图/视频。
 
 云端静态服务启动时枚举资源路由（wildcard=false），增量上传新hash文件后不能直接通过旧进程新路由访问；测试环境为新主包增加独立loopback gzip资源端点，HTML仍由同一云端App服务提供。主包内容SHA-256为4466330062a3a14fe1c8794184bc6bd60aa9e26c62e0cb4283be053979beb661。该端点只提供精确测试bundle，不是正式发布方案。
+
+## 云端最终回执
+
+`coding-agent-cloud-cases.json`的10个Case均通过。修复版完整刷新后Codex/Claude/OpenCode开关与云端一致；另一电脑保持Codex默认。三个品牌SVG及轮换顺序通过，同名模型不切执行器，另选模型后实际spawn=claude、首条消息model=shared-model，页面收到CLOUD_AGENT_TRANSPORT_OK并完成。全部禁用并输入文本后发送disabled、云端最终读回空数组、spawn仍仅1次。
+
+进入设置检测checkUpdates=false；显式检查发送true。Claude沙箱实际升到1.1.0，仅1次成功安装；OpenCode失败保留1.0.0且更新token被消费，另一电脑无安装。重启夹具时曾保留上一轮故障marker，导致一次Claude更新失败；清除marker再显式重新检查后成功，并已修正夹具初始化。测试控制器最终设置恢复Codex+Claude。
+
+修复源码4cc4576c的定向preview：stamp=1795103886121，Update ID=5ec2c72f-288a-b89b-c358-743e7c9815c3；android/preview/runtime24，不覆盖latest。不可变manifest：https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/24/preview/1795103886121.json 。主包44,084,983字节，SHA-256=4dcbff44a62079a170f570834311cab9e3775dd52dce23c7153fbf60a7d89e25，与manifest一致。新增修复相关109项测试、7项runtime契约、App类型检查、Web/Android导出通过。最初误用了不存在的node test文件路径，随后以真实otaRuntimeConfig.test.ts复验通过；打包暂存的server源码曾被App tsc包含，移出TS扫描后类型检查通过，非产品类型错误。
+
+合成worker/controller已关闭、Ego任务空间已结束，本地合成凭据及请求追踪文件已删除。RackNerd的专用server与gzip资源进程按PID、cwd及进程组核验后停止；阿里云早期失败尝试仍因SSH banner超时无法确认进程/目录清理，未重启机器或更改其他服务，不能声称所有云端临时资源已清理。Ego OPS新增verify-coding-agent-manager、Web E2E本机经验已写回；Ego知识校验通过。没有正式Web部署、CLI发布或真实手机加载验收。
