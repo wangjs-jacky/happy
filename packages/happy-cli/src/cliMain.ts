@@ -151,8 +151,8 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       process.exit(1)
     }
     return;
-  } else if (subcommand === 'personal') {
-    console.error(chalk.red('Error:'), PERSONAL_AGENT_RETIRED_MESSAGE);
+  } else if (subcommand === 'personal' || subcommand === 'ask') {
+    console.error(chalk.red('Error:'), subcommand === 'ask' ? 'Ask API has been retired.' : PERSONAL_AGENT_RETIRED_MESSAGE);
     process.exitCode = 1;
     return;
   } else if (subcommand === 'codex') {
