@@ -36,3 +36,5 @@ App组件/真实Zustand状态/设置持久化/空配置派发门禁/OTA契约定
 
 当前稳定daemon未激活配套CLI；version管理在旧daemon显示需要升级Paws CLI的提示。图标与按电脑配置无需新native模块。用户单次选择不截图已在本文件保留，不扩为未来任务豁免。Android OPS的model-connection-catalog和harness已按证据补充经验；Magpie参考没有浏览器操作，无Ego成功日期写回。
 
+
+维护检查：Happy OPS全库知识校验返回两处已有文件链接无效（Android publish-ota / Web verify-deployment），本轮没有修改这些链接；经验正文已保存，未声称该知识库结构校验通过。该结果与197项产品回归、构建和OTA主包哈希校验区分。
