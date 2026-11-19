@@ -1,4 +1,4 @@
-import { copyImportPrefix, assertImportRewindBoundary } from '@/continuation/importPrefix';
+import { assertImportRewindBoundary } from '@/continuation/importPrefix';
 import type { Thread, ThreadItem, ThreadTurn } from './codexAppServerTypes';
 
 export type CodexRewindPoint = {
@@ -179,9 +179,6 @@ export async function forkCodexThread(
             throw error;
         }
     }
-
-    try { await copyImportPrefix(opts.threadId, forked.threadId, opts.cwd); }
-    catch (error) { await client.deleteThread({ threadId: forked.threadId }).catch(() => undefined); throw error; }
 
     return {
         type: 'success',

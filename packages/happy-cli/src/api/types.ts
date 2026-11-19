@@ -443,6 +443,8 @@ export type Metadata = {
 };
 
 export type AgentState = {
+  /** Claude execution before its first protocol output; absent on older workers. */
+  claudeThinking?: boolean
   controlledByUser?: boolean | null | undefined
   queuedMessages?: number
   turnStatus?: {

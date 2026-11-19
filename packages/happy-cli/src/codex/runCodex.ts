@@ -1612,6 +1612,7 @@ export async function runCodex(opts: {
             session.updateMetadata((currentMetadata) => {
                 const nextMetadata = { ...currentMetadata };
                 delete nextMetadata.codexThreadId;
+                delete nextMetadata.crossAgentSourceAgent;
                 return nextMetadata;
             });
         };

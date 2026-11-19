@@ -11,6 +11,8 @@ describe('cross-agent action eligibility', () => {
   expect(getCrossAgentTarget(session, { ...machine, metadata: {} })).toBe(null);
   expect(getCrossAgentTarget(session, { ...machine, active: false, activeAt: 0 })).toBe(null);
   expect(getCrossAgentTarget({ ...session, thinking: true }, machine)).toBe(null);
+  expect(getCrossAgentTarget({ ...session, thinking: false, agentState: { claudeThinking: true } }, machine)).toBe(null);
+  expect(getCrossAgentTarget({ ...session, presence: 0, thinking: true, agentState: { claudeThinking: true, turnStatus: { status: 'running' } } }, machine)).toBe('codex');
   expect(getCrossAgentTarget({ ...session, agentState: { requests: { req: {} } } }, machine)).toBe(null);
   expect(getCrossAgentTarget({ ...session, metadata: { ...session.metadata, application: { appId: 'app' } } }, machine)).toBe(null);
   expect(getCrossAgentTarget({ ...session, metadata: { ...session.metadata, flavor: 'opencode' } }, machine)).toBe(null);

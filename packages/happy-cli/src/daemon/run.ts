@@ -843,7 +843,7 @@ export async function startDaemon(): Promise<void> {
       encryptionKey: Uint8Array,
       encryptionVariant: 'legacy' | 'dataKey',
       single = false,
-    ): Promise<{ metadata: Metadata; seq: number; metadataVersion: number; active: boolean; agentState: AgentState | null } | null> => {
+    ): Promise<{ metadata: Metadata; seq: number; metadataVersion: number; active: boolean; agentState: AgentState | null; agentStateVersion?: number } | null> => {
       try {
         const response = await axios.get(single ? `${configuration.serverUrl}/v2/sessions/${encodeURIComponent(sessionId)}` : `${configuration.serverUrl}/v1/sessions`, {
           headers: { Authorization: `Bearer ${credentials.token}` },
@@ -855,6 +855,7 @@ export async function startDaemon(): Promise<void> {
           metadata: string;
           seq: number;
           metadataVersion: number;
+          agentStateVersion?: number;
           agentState?: string | null;
         }> }).sessions;
         const matched = single ? response.data.session : sessions.find(s => s.id === sessionId);
@@ -864,6 +865,7 @@ export async function startDaemon(): Promise<void> {
         return {
           metadata: decrypted as Metadata,
           active: matched.active,
+          agentStateVersion: matched.agentStateVersion,
           agentState: matched.agentState ? decrypt(encryptionKey, encryptionVariant, decodeBase64(matched.agentState)) as AgentState | null : null,
           seq: matched.seq,
           metadataVersion: matched.metadataVersion,
@@ -1343,7 +1345,7 @@ export async function startDaemon(): Promise<void> {
     const continueWithAgent = createCrossAgentContinuation({
       root: join(configuration.happyHomeDir, 'cross-agent-continuations', machineId),
       findCreated: async request => {
-        for (const tracked of pidToTrackedSession.values()) {
+        for (const tracked of [...pidToTrackedSession.values(), ...sessionIdToFinishedSession.values()]) {
           const meta = tracked.happySessionMetadataFromLocalWebhook;
           if (tracked.happySessionId && meta?.crossAgentRequestId === request.requestId
             && meta.parentSessionId === request.sourceSessionId && meta.flavor === request.targetAgent) return tracked.happySessionId;
@@ -1361,9 +1363,18 @@ export async function startDaemon(): Promise<void> {
         const nativeId = agent === 'claude' ? metadata.claudeSessionId : metadata.codexThreadId;
         if (!nativeId || !metadata.path) throw new Error('Source session has no native history');
         const state = snapshot.agentState;
+        // Relay presence can expire while the local worker is still executing.
+        // Only ESRCH proves that a persisted thinking flag belongs to an exited
+        // worker. Permission errors and missing PIDs remain unknown, not idle.
+        let workerStopped = false;
+        if (agent === 'claude' && Number.isSafeInteger(metadata.hostPid) && metadata.hostPid! > 0) {
+          try { process.kill(metadata.hostPid!, 0); }
+          catch (error) { workerStopped = (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+        }
         return { id, agent, nativeId, directory: metadata.path, application: !!metadata.application,
-          accountProfileId: metadata.codexAccountProfileId, requiresImportedHistory: !!metadata.crossAgentSourceAgent, revision: snapshot.seq,
-          running: state?.turnStatus?.status === 'running'
+          accountProfileId: metadata.codexAccountProfileId, requiresImportedHistory: !!metadata.crossAgentSourceAgent, revision: snapshot.seq, stateVersion: snapshot.agentStateVersion,
+          running: (agent === 'claude' && !workerStopped && (state?.claudeThinking === true || (snapshot.active && state?.claudeThinking !== false)))
+            || (!workerStopped && state?.turnStatus?.status === 'running')
             || !!Object.keys(state?.requests ?? {}).length || (state?.queuedMessages ?? 0) > 0 };
       },
       exportHistory: exportNativeConversation,

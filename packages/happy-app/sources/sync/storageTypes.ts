@@ -114,6 +114,7 @@ export const MetadataSchema = z.object({
 export type Metadata = z.infer<typeof MetadataSchema>;
 
 export const AgentStateSchema = z.object({
+    claudeThinking: z.boolean().optional(),
     controlledByUser: z.boolean().nullish(),
     queuedMessages: z.number().int().nonnegative().optional(),
     turnStatus: z.object({

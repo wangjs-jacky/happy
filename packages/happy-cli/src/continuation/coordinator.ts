@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { SpawnSessionResult } from '@/modules/common/registerCommonHandlers';
 import type { ConversationItem } from './history';
 export type CrossAgentRequest = { sourceSessionId: string; targetAgent: 'claude' | 'codex'; requestId: string; codexSessionGrant?: string };
-export type ContinuationSource = { id: string; agent: 'claude' | 'codex'; nativeId: string; directory: string; running: boolean; application: boolean; accountProfileId?: string; requiresImportedHistory?: boolean; revision?: number };
+export type ContinuationSource = { id: string; agent: 'claude' | 'codex'; nativeId: string; directory: string; running: boolean; application: boolean; accountProfileId?: string; requiresImportedHistory?: boolean; revision?: number; stateVersion?: number };
 export type CrossAgentSpawn = { agent: 'claude' | 'codex'; directory: string; parentSessionId: string; approvedNewDirectoryCreation: false; crossAgentHistory: ConversationItem[]; crossAgentRequestId: string; codexSessionGrant?: string };
 type Dependencies = {
     root: string;
@@ -39,7 +39,7 @@ export function createCrossAgentContinuation(deps: Dependencies) {
         const history = await deps.exportHistory(source);
         // Recheck after export; a different device may have submitted another turn.
         const current = await deps.resolveSource(request.sourceSessionId);
-        if (current.running || current.application || current.agent !== source.agent || current.nativeId !== source.nativeId || current.directory !== source.directory || current.revision !== source.revision) throw new Error('Source session changed while preparing history; try again after it finishes');
+        if (current.running || current.application || current.agent !== source.agent || current.nativeId !== source.nativeId || current.directory !== source.directory || current.revision !== source.revision || current.stateVersion !== source.stateVersion) throw new Error('Source session changed while preparing history; try again after it finishes');
         await mkdir(deps.root, { recursive: true, mode: 0o700 });
         const file = await open(path, 'wx', 0o600);
         try { await file.writeFile(JSON.stringify({ sourceSessionId: source.id, targetAgent: request.targetAgent, phase: 'starting' })); await file.sync(); }

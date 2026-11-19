@@ -8,6 +8,7 @@ import { exportNativeConversation, importClaudeConversation, importCodexConversa
 import { getProjectPath } from '../src/claude/utils/path';
 import { readClaudeConversation, type ConversationItem } from '../src/continuation/history';
 import { CodexAppServerClient } from '../src/codex/codexAppServerClient';
+let forkedId: string | undefined;
 const root = await mkdtemp(join(tmpdir(), 'paws-cross-agent-probe-'));
 const saved = { home: process.env.CODEX_HOME, claude: process.env.CLAUDE_CONFIG_DIR, happy: configuration.happyHomeDir };
 process.env.CODEX_HOME = join(root, 'codex'); process.env.CLAUDE_CONFIG_DIR = join(root, 'claude');
@@ -37,6 +38,8 @@ try {
   const { thread } = await client.readThread({ threadId: codexId, includeTurns: true });
   assert((thread.turns?.length ?? 0) > 0, 'Imported conversation must be visible as native historical turns');
   assert(JSON.stringify(thread.turns).includes('Acorn'), 'Native historical turns must include imported dialogue');
+  const forked = await client.forkThread({ threadId: codexId, cwd: root, deferGoalContinuation: true });
+  forkedId = forked.threadId;
  }
  finally { await client.disconnect(); }
  const files = await logs(process.env.CODEX_HOME!);
@@ -44,10 +47,12 @@ try {
  assert(native.includes('Acorn')); assert(native.includes('exec_command')); assert(native.includes(image), 'Native history must retain the exact image payload');
  const second = await exportNativeConversation({ id: 'synthetic-codex', agent: 'codex', nativeId: codexId, directory: root, requiresImportedHistory: true });
  assert.deepEqual(second, first);
+ const forkedHistory = await exportNativeConversation({ id: 'synthetic-fork', agent: 'codex', nativeId: forkedId!, directory: root, requiresImportedHistory: true });
+ assert.deepEqual(forkedHistory, first);
  const returnedId = await importClaudeConversation(second, root);
  const rows = (await readFile(join(getProjectPath(root), `${returnedId}.jsonl`), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
  assert.deepEqual(readClaudeConversation(rows), first);
- console.log('PASS: Claude → native Codex import → disconnect/resume → export → Claude; text, shell result and PNG preserved. No model request or historical tool execution.');
+ console.log('PASS: Claude → native Codex import → disconnect/resume → export → Claude; text, shell result and PNG preserved, including a direct native /fork. No model request or historical tool execution.');
 } finally {
  for (const [key, value] of [['CODEX_HOME', saved.home], ['CLAUDE_CONFIG_DIR', saved.claude]] as const) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
  (configuration as { happyHomeDir: string }).happyHomeDir = saved.happy;
