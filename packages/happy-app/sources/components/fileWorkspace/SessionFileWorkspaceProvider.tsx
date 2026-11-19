@@ -14,7 +14,7 @@ import { VersionController, type RestoreSelection } from './versionController';
 import { FileWorkspaceController } from './controller';
 import { EventRefreshQueue } from './eventRefreshQueue';
 import { readWorkspaceText, writeWorkspaceText } from './fileIO';
-import { FileWorkspaceContext, type FileReference } from './context';
+import { FileWorkspaceContext, type FileReference, type FileWorkspaceContextValue } from './context';
 
 export type FileWorkspaceBinding = {
     root: string; scope: string; machineId: string;
@@ -42,16 +42,17 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const versionSnapshot = React.useSyncExternalStore(versions.subscribe, versions.getSnapshot, versions.getSnapshot);
     const initial = React.useMemo(() => loadFileWorkspaceUI(scope), [scope]);
     const drafts = React.useRef(loadFileWorkspaceDrafts(scope));
-    const controller = React.useMemo(() => new FileWorkspaceController({ root,
+    const controller = React.useMemo(() => new FileWorkspaceController({ root, allowExternalReadOnly: !binding,
         read: async (path, signal) => {
-            const content = await (binding ? binding.readText(path, signal) : readWorkspaceText(transportSession.current, path));
-            if (!binding?.readOnly && machineId && /\.(md|markdown|html?)$/i.test(path)) {
+            const external = !resolveSessionFilePath(path, root)?.withinSessionRoot;
+            const content = await (binding ? binding.readText(path, signal) : readWorkspaceText(transportSession.current, path, external));
+            if (!external && !binding?.readOnly && machineId && /\.(md|markdown|html?)$/i.test(path)) {
                 void versions.current(path).catch(() => {});
             }
             return content;
         },
         write: (path, content, hash) => {
-            if (binding?.readOnly) throw new Error(t('projectGoals.readOnlyArchive'));
+            if (binding?.readOnly || !resolveSessionFilePath(path, root)?.withinSessionRoot) throw new Error(t('projectGoals.readOnlyArchive'));
             if (versions.state(path).pending) throw new Error(t('fileWorkspace.historyPending'));
             return versions.state(path).artifact ? versions.save(path, content, hash) : binding ? binding.writeText(path, content, hash) : writeWorkspaceText(transportSession.current, path, content, hash);
         }, isCurrent: accountRuntimeCurrent,
@@ -66,13 +67,14 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const [reference, setReference] = React.useState<FileReference | null>(() => {
         const saved = loadFileWorkspaceReference(scope);
         const resolved = saved && resolveSessionFilePath(saved.path, root);
-        return saved && resolved?.withinSessionRoot ? { ...saved, path: resolved.absolutePath } : null;
+        return saved && resolved && (resolved.withinSessionRoot || !binding) ? { ...saved, path: resolved.absolutePath } : null;
     });
     const [chatWidth, updateChatWidth] = React.useState(initial.width);
     const [chatWidthCustomized, setChatWidthCustomized] = React.useState(initial.widthCustomized ?? false);
     const setChatWidth = React.useCallback((width: number) => { updateChatWidth(width); setChatWidthCustomized(true); }, []);
     const [maximized, setMaximized] = React.useState(false);
     const [openRequestId, setOpenRequestId] = React.useState(0);
+    const [locationRequest, setLocationRequest] = React.useState<FileWorkspaceContextValue['locationRequest']>();
     const restored = React.useRef(false);
     const restoration = React.useMemo(() => {
         let finish!: () => void;
@@ -146,7 +148,7 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     }, [changeSignature, controller, versions, eventRefresh]);
     const restoreVersion = React.useCallback(async (path: string, action?: 'inspect' | 'resume' | 'rollback' | 'retry', selection?: RestoreSelection) => {
         const doc = controller.getSnapshot().documents[path];
-        if (binding?.readOnly || !doc || doc.saving || (!action && doc.draft !== doc.content)) return false;
+        if (binding?.readOnly || doc?.readOnly || !doc || doc.saving || (!action && doc.draft !== doc.content)) return false;
         setReference(value => value?.path === path ? null : value);
         const success = action === 'inspect' ? await versions.inspect(path) : action === 'retry' ? await versions.retryOperation(path) : action ? await versions.resolve(path, action) : await versions.restore(path, selection);
         if (success) {
@@ -168,14 +170,15 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
             if (matches.length === 1) path = matches[0];
         }
         const resolved = resolveSessionFilePath(path, root);
-        if (!resolved?.withinSessionRoot) { Modal.alert(t('fileWorkspace.title'), t('fileWorkspace.rootUnavailable')); return; }
+        if (!resolved || (binding && !resolved.withinSessionRoot)) { Modal.alert(t('fileWorkspace.title'), t('fileWorkspace.rootUnavailable')); return; }
         // Child navigation effects run before this owner's restoration effect.
         // Finish restoring every cached draft before a new tab can use a slot.
         await restoration.ready;
         if (!lifetime.current || !accountRuntimeCurrent()) return;
         setMaximized(false);
+        setLocationRequest(resolved.line ? { path: resolved.absolutePath, line: resolved.line, column: resolved.column } : undefined);
         setOpenRequestId(value => value + 1);
         try { await controller.open(resolved.absolutePath); } catch (error) { Modal.alert(t('fileWorkspace.title'), error instanceof Error && error.message === 'FILE_WORKSPACE_TAB_LIMIT' ? t('fileWorkspace.tooManyTabs') : String(error)); }
-    }, [controller, enabled, root, sessionId, restoration]);
-    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, chatWidthCustomized, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    }, [controller, enabled, root, sessionId, restoration, binding]);
+    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, locationRequest, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, chatWidthCustomized, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

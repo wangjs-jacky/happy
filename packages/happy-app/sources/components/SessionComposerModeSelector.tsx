@@ -30,9 +30,10 @@ export type SessionComposerModeSelectorConfig = {
     effort: ModeOption | null;
     effortOptions: ModeOption[];
     onReset?: () => void;
-    agentSwitcher?: { id?: string; current: string; next: string | null; onSwitch: () => void; onManage?: () => void };
+    agentSwitcher?: { id?: string; current: string; next: string | null; onSwitch: () => void };
     onModelChange: (key: string) => void;
     onRefreshModels?: () => Promise<void>;
+    refreshScope?: string;
     onEffortChange: (key: string) => void;
     fastMode?: boolean;
     supportsFast?: boolean;
@@ -107,20 +108,28 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     const [modelsRefreshing, setModelsRefreshing] = React.useState(false);
     const [modelRefreshError, setModelRefreshError] = React.useState(false);
     const refreshingModels = React.useRef(false);
+    const refreshGeneration = React.useRef({ scope: props.refreshScope, generation: 0 });
+    if (refreshGeneration.current.scope !== props.refreshScope) refreshGeneration.current = { scope: props.refreshScope, generation: refreshGeneration.current.generation + 1 };
+    React.useEffect(() => {
+        refreshingModels.current = false;
+        setModelsRefreshing(false);
+        setModelRefreshError(false);
+    }, [props.refreshScope]);
     const mounted = React.useRef(true);
     React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
     const refreshModels = async () => {
         if (!props.onRefreshModels || refreshingModels.current) return;
         refreshingModels.current = true;
+        const generation = refreshGeneration.current.generation;
+        const current = () => mounted.current && refreshGeneration.current.generation === generation;
         setModelsRefreshing(true);
         setModelRefreshError(false);
         try {
             await props.onRefreshModels();
         } catch {
-            if (mounted.current) setModelRefreshError(true);
+            if (current()) setModelRefreshError(true);
         } finally {
-            refreshingModels.current = false;
-            if (mounted.current) setModelsRefreshing(false);
+            if (current()) { refreshingModels.current = false; setModelsRefreshing(false); }
         }
     };
     const openModels = () => {
@@ -136,7 +145,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
     const [anchor, setAnchor] = React.useState<ModePanelAnchor | null>(null);
     const enabled =
         props.online &&
-        (!!props.agentSwitcher?.onManage || !!props.agentSwitcher?.next || !!props.onRefreshModels || props.modelOptions.length > 1 ||
+        (!!props.agentSwitcher?.next || !!props.onRefreshModels || props.modelOptions.length > 1 ||
             props.effortOptions.length > 1 ||
             (props.supportsFast && !!props.onFastModeChange));
     const close = React.useCallback(() => {
@@ -552,13 +561,6 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                             <ComposerTooltip testID="composer-reset-tooltip" label={props.agentSwitcher ? `${t('agentInput.switchCodingAgent')}: ${agentSwitchHint}` : t('common.reset')} visible={Platform.OS === 'web' && resetHovered && (props.agentSwitcher ? canSwitchAgent : canReset)} />
                                         </Pressable>
                                     </View>
-                                    {props.agentSwitcher?.onManage ? <Pressable
-                                        testID="session-composer-agent-manage"
-                                        accessibilityRole="button"
-                                        accessibilityLabel={t('settings.codingAgents')}
-                                        onPress={() => { close(); props.agentSwitcher?.onManage?.(); }}
-                                        style={({ pressed }) => [styles.agentManage, pressed && styles.pressed]}
-                                    ><Ionicons name="settings-outline" size={13} color={theme.colors.textSecondary} /><Text style={styles.description}>{t('settings.codingAgents')}</Text></Pressable> : null}
                                     {levels.length > 0 ? (
                                         <View
                                             ref={trackRef}
@@ -744,7 +746,6 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
     },
     ultraTitle: { color: '#9348ff' },
-    agentManage: { flexDirection: 'row', alignSelf: 'flex-end', alignItems: 'center', gap: 4, borderRadius: 6, padding: 5 },
     modelLink: { color: theme.colors.textSecondary, fontSize: 13, marginTop: 2, ...Typography.default() },
     track: {
         height: 32,

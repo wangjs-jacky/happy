@@ -30,9 +30,9 @@ let controller: FileWorkspaceController;
 let maximized = false;
 let expanded = true;
 const toggleTree = vi.fn();
-function Harness({ sessionId = 's', readOnly = false, readingSurface }: { sessionId?: string; readOnly?: boolean; readingSurface?: 'wide' | 'compact' | 'inherited' }) {
+function Harness({ sessionId = 's', readOnly = false, readingSurface, locationRequest }: { sessionId?: string; readOnly?: boolean; readingSurface?: 'wide' | 'compact' | 'inherited'; locationRequest?: { path: string; line: number; column: number | null } }) {
     const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-    const value = { enabled: true, readOnly, root: '/work', snapshot, controller, maximized, setMaximized: vi.fn(),
+    const value = { enabled: true, readOnly, locationRequest, root: '/work', snapshot, controller, maximized, setMaximized: vi.fn(),
         versions: { currentForHash: () => null }, setReference: vi.fn() } as any;
     return <FileWorkspaceContext.Provider value={value}><FileWorkspace sessionId={sessionId} readingSurface={readingSurface} fileTreeExpanded={expanded} onToggleFileTree={toggleTree} /></FileWorkspaceContext.Provider>;
 }
@@ -199,4 +199,26 @@ it('inherits the project reading surface without stacking another translucent la
     act(() => renderer.update(<Harness readingSurface="compact" />));
     expect(renderer.root.findByProps({ testID: 'file-workspace' }).props.style.backgroundColor).toBe(theme.colors.desktopSkin.readingSolid);
     act(() => renderer.unmount());
+});
+
+it('keeps an external desktop tab read-only with save and history unavailable', async () => {
+    controller = new FileWorkspaceController({ root: '/work', allowExternalReadOnly: true,
+        read: async () => ({ content: '# Skill', hash: 'h' }), write: vi.fn(),
+    });
+    await controller.open('/skills/SKILL.md');
+    let renderer: any;
+    act(() => { renderer = TestRenderer.create(<Harness />); });
+    expect(renderer.root.findByProps({ testID: 'workspace-save' }).props.disabled).toBe(true);
+    expect(renderer.root.findAllByProps({ testID: 'workspace-history-open' })).toHaveLength(0);
+    act(() => renderer.root.findByProps({ label: 'fileWorkspace.code' }).props.onPress());
+    expect(renderer.root.findByType('CodeEditor').props.readOnly).toBe(true);
+    act(() => renderer.unmount());
+});
+
+it('opens positioned references in code mode and forwards line/column to the editor', () => {
+    const locationRequest = { path: '/work/c.md', line: 2, column: 3 };
+    let r: any; act(() => { r = TestRenderer.create(<Harness locationRequest={locationRequest} />); });
+    expect(r.root.findByType('CodeEditor').props.location).toEqual(locationRequest);
+    expect(r.root.findAllByType('MarkdownView')).toHaveLength(0);
+    act(() => r.unmount());
 });

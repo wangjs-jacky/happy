@@ -1,6 +1,4 @@
 import { WorkspaceDirectoryTree } from '@/components/fileWorkspace/WorkspaceDirectoryTree';
-import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
-import { legacySessionFileHref } from '@/utils/sessionFileNavigation';
 import { SessionFileWorkspaceProvider } from '@/components/fileWorkspace/SessionFileWorkspaceProvider';
 import { FileWorkspace, FileWorkspaceResizeHandle } from '@/components/fileWorkspace/FileWorkspace';
 import { getWorkspaceChatWidth, getWorkspaceChatMaximumWidth, workspaceChatMinWidth } from '@/components/fileWorkspace/documentPresentation';
@@ -758,12 +756,7 @@ const SessionViewContent = React.memo((props: SessionViewProps) => {
         const key = `${sessionId}:${request.requestId}`;
         if (handledFileRequest.current === key) return;
         handledFileRequest.current = key;
-        if (resolveSessionFilePath(request.path, fileWorkspace.root)?.withinSessionRoot) {
-            void fileWorkspace.openReference(request.path);
-        } else {
-            // Project-external paths retain the existing read-only route.
-            router.push(legacySessionFileHref(sessionId, request.path));
-        }
+        void fileWorkspace.openReference(request.path);
     }, [isFocused, sessionId, props.fileOpenRequest?.requestId, props.fileOpenRequest?.path, fileWorkspace?.enabled, fileWorkspace?.root]);
     const revealedFileRequest = React.useRef(0);
     React.useEffect(() => {
@@ -1765,6 +1758,7 @@ function SessionViewLoaded({
     const handleRefreshModels = React.useCallback(() => sessionRefreshModels(sessionId), [sessionId]);
     const modeSelector = React.useMemo(() => ({
         unifiedCodex: session.metadata?.flavor === 'codex',
+        refreshScope: sessionId,
         online: !isDisconnected,
         model: nextTurnModes.modelMode,
         modelOptions: nextTurnModes.availableModels,
@@ -1776,12 +1770,13 @@ function SessionViewLoaded({
             storage.getState().updateSessionFastMode(sessionId, false);
         } : undefined,
         onModelChange: handleModelChange,
-        onRefreshModels: session.metadata?.capabilities?.codexModelCatalogRefresh ? handleRefreshModels : undefined,
+        onRefreshModels: (session.metadata?.flavor === 'codex' && session.metadata?.capabilities?.codexModelCatalogRefresh)
+            || (session.metadata?.flavor === 'claude' && session.metadata?.capabilities?.claudeModelCatalogRefresh) ? handleRefreshModels : undefined,
         onEffortChange: handleEffortChange,
         fastMode: session.fastMode === true,
         supportsFast: nextTurnModes.supportsFast,
         onFastModeChange: handleFastModeChange,
-    }), [handleEffortChange, handleFastModeChange, handleModelChange, handleRefreshModels, isDisconnected, nextTurnModes, session.fastMode, session.metadata?.flavor, session.metadata?.capabilities?.codexModelCatalogRefresh, sessionId]);
+    }), [handleEffortChange, handleFastModeChange, handleModelChange, handleRefreshModels, isDisconnected, nextTurnModes, session.fastMode, session.metadata?.flavor, session.metadata?.capabilities?.codexModelCatalogRefresh, session.metadata?.capabilities?.claudeModelCatalogRefresh, sessionId]);
 
     // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。

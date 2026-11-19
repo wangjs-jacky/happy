@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     updateModel: vi.fn(),
     updatePermission: vi.fn(),
 }));
+vi.mock('@/sync/ops', () => ({ sessionRefreshModels: vi.fn().mockResolvedValue(undefined) }));
 
 vi.mock('react-native', () => ({
     LayoutAnimation: {

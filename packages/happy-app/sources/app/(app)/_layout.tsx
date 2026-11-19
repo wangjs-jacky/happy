@@ -68,12 +68,10 @@ export default function RootLayout() {
             <Stack.Screen name="settings/archive" options={{ headerTitle: t('sessionHistory.archiveTitle'), headerBackTitle: t('settings.title') }} />
             <Stack.Screen name="settings/account" options={{ headerTitle: t('settings.account') }} />
             <Stack.Screen name="accounts" options={{ headerTitle: t('accounts.title') }} />
-            <Stack.Screen name="agent-party-access" options={{ headerTitle: "连接群聊网站" }} />
-            <Stack.Screen name="agent-profiles" options={{ headerTitle: "我的群聊 Agent" }} />
             <Stack.Screen name="settings/coding-agents" options={{ headerTitle: t('settings.codingAgents') }} />
             <Stack.Screen name="settings/agents" options={{ headerTitle: t('settings.agentDefaults') }} />
             <Stack.Screen name="settings/appearance" options={{ headerTitle: t('settings.appearance') }} />
-            <Stack.Screen name="settings/sound" options={{ headerTitle: getCurrentLanguage().startsWith('zh') ? '声音提醒' : 'Sound alerts' }} />
+            <Stack.Screen name="settings/sound" options={{ headerTitle: getCurrentLanguage().startsWith('zh') ? '声音与通知' : 'Sound & notifications' }} />
             <Stack.Screen name="settings/connect/claude" options={{ headerTitle: t('connectClaude.title') }} />
             <Stack.Screen name="settings/custom-instructions" options={{ headerTitle: t('settings.customInstructions') }} />
             <Stack.Screen name="settings/features" options={{ headerTitle: t('settings.features') }} />
@@ -83,7 +81,6 @@ export default function RootLayout() {
             <Stack.Screen name="settings/skill" options={{ headerTitle: t('settingsSkills.detailTitle') }} />
             <Stack.Screen name="settings/skills" options={{ headerTitle: t('settingsSkills.title') }} />
             <Stack.Screen name="settings/usage" options={{ headerTitle: t('settings.usage') }} />
-            <Stack.Screen name="settings/agent-party-admin" options={{ headerTitle: 'AgentParty 管理' }} />
             <Stack.Screen name="settings/temporary-previews" options={{ headerTitle: t('interactivePreviews.title') }} />
             <Stack.Screen name="settings/voice" options={{ headerTitle: t('settings.voiceAssistant') }} />
             <Stack.Screen name="settings/voice/language" options={{ headerTitle: t('settingsVoice.languageTitle') }} />

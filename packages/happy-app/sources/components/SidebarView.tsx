@@ -1,4 +1,5 @@
 import { useWebPopoverDismiss } from '@/hooks/useWebPopoverDismiss';
+import { GlobalSessionRailEntry } from './sessionActivity/GlobalSessionMonitor';
 import { useDesktopWorkspacePathname } from '@/hooks/useDesktopWorkspacePathname';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -254,6 +255,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         flex: 1,
         minWidth: 0,
     },
+    railBadge: { backgroundColor: theme.colors.textLink, color: theme.colors.surface },
     primaryNavigation: {
         paddingTop: 2,
     },
@@ -301,6 +303,7 @@ function DesktopRailItem({
     selected = false,
     testID,
     showLabel = false,
+    badge,
 }: {
     icon: React.ComponentProps<typeof Ionicons>['name'];
     iconColor?: string;
@@ -309,6 +312,7 @@ function DesktopRailItem({
     selected?: boolean;
     testID: string;
     showLabel?: boolean;
+    badge?: string;
 }) {
     const styles = stylesheet;
     const [active, setActive] = React.useState(false);
@@ -368,6 +372,7 @@ function DesktopRailItem({
                         size={21}
                     />
                 )}
+                {badge && <Text testID={`${testID}-badge`} style={{ position: 'absolute', right: -2, bottom: 0, fontSize: 9, lineHeight: 13, paddingHorizontal: 3, borderRadius: 4, backgroundColor: stylesheet.railBadge.backgroundColor, color: stylesheet.railBadge.color }}>{badge}</Text>}
                 {showLabel ? <Text numberOfLines={2} style={styles.mobileRailLabel}>{label}</Text> : null}
             </Pressable>
             {tooltip && tooltipAnchor && Platform.OS === 'web' && typeof document !== 'undefined' ? createPortal(tooltip, document.body) : tooltip}
@@ -540,10 +545,6 @@ export const SidebarView = React.memo(({
                     <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
                 </Pressable>
 
-                <Pressable accessibilityRole="button" onPress={() => go('/agent-profiles')} testID="sidebar-party-agents-button" style={({ pressed }) => [styles.messagesRow, desktopDensity && styles.messagesRowDesktop, pressed && styles.navigationCardPressed]}>
-                    <Ionicons name="person-add-outline" size={17} color={stylesheet.messagesText.color}/><Text style={styles.messagesText}>群聊 Agent 管理</Text>
-                </Pressable>
-
                 <Pressable
                     onPress={openSessionSearch}
                     testID="sidebar-command-palette-button"
@@ -633,6 +634,7 @@ export const SidebarView = React.memo(({
                 onPress={openPluginMarketplace}
                 testID="sidebar-plugins-button"
             />
+            {desktopPrimaryNavigation && <GlobalSessionRailEntry render={props => <DesktopRailItem {...props} icon="chatbubbles-outline" testID="sidebar-global-sessions-button" />} />}
             <DesktopPluginRailItems selectedPath={mobileNavigation ? (advisorSidebarActive ? '/relationship-advisor' : null) : undefined} onNavigate={(path) => {
                 if (mobileNavigation && path === '/relationship-advisor') {
                     setMobilePanel('advisor');
