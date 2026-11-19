@@ -276,6 +276,26 @@ describe('ComposeHome session hydration recovery', () => {
         act(() => renderer.unmount());
     });
 
+    it.each([true, false])('restores saved discussion=%s with the recovered text', async (discussing) => {
+        const scope = getFirstSubmissionScope()!;
+        globalThis.localStorage.setItem(`first-submission-v1:${scope.key}`, JSON.stringify({
+            version: 1, scope: scope.key, phase: 'spawning', text: 'Recovered request', prompt: 'Recovered request',
+            agent: 'codex', machineId: 'machine-1', path: '/work', worktreeKey: null, attachments: [], discussing,
+        }));
+        setFirstSubmissionScope(scope.key, scope.serverUrl);
+        useComposeDraft.getState().setImages([]);
+        useComposeDraft.getState().setDiscussing(!discussing);
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome />); });
+        try {
+            vi.mocked(Modal.confirm).mockResolvedValue(true);
+            await act(async () => { await renderer.root.findByProps({ testID: 'compose-home-restore-submission' }).props.onPress(); });
+            expect(useComposeDraft.getState().discussing).toBe(discussing);
+            expect(useComposeDraft.getState().text).toBe('Recovered request');
+            expect(mocks.sendMessage).not.toHaveBeenCalled();
+        } finally { act(() => renderer.unmount()); vi.mocked(Modal.confirm).mockReset(); }
+    });
+
     it('does not spawn a disabled agent even if an old send callback is invoked', async () => {
         mocks.codingAgents = { 'machine-1': [] };
         let renderer: any;

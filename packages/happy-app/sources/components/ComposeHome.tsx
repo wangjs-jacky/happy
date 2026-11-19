@@ -726,9 +726,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 return images.filter(image => !omittedIds.has(image.id));
             });
         }
+        setDiscussing(pending.discussing === true);
         setText(restored);
         composerInputRef.current?.setTextAndSelection(restored, { start: restored.length, end: restored.length });
-    }, [pending, restore, setText, pickAttachment]);
+    }, [pending, restore, setText, setDiscussing, pickAttachment]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
