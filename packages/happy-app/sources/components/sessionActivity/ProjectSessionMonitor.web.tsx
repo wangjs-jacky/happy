@@ -92,7 +92,7 @@ function SessionMonitorRoot({ scope: initialScope, knownScopes: initialScopes = 
     React.useEffect(() => { window.addEventListener('blur', stopDrag); return () => window.removeEventListener('blur', stopDrag); }, []);
     const point = clamp(position);
     return <Context.Provider value={context}>{children}{isOpen && typeof document !== 'undefined' && createPortal(
-        <View ref={panel} role="dialog" aria-modal={false} aria-label={words.title} style={[styles.panel, { position: 'fixed', zIndex: 3000, top: point.y, left: point.x, width: panelWidth, height: panelHeight } as any]} testID="session-activity-panel">
+        <View ref={panel} role="dialog" aria-modal={false} aria-label={words.title} style={[styles.panel, { position: 'fixed', zIndex: 3000, top: point.y, left: point.x, width: panelWidth, maxHeight: panelHeight } as any]} testID="session-activity-panel">
             <View style={[styles.panelHeader, { cursor: 'move', touchAction: 'none', userSelect: 'none' } as any]} testID="session-activity-drag-handle" {...({
                 onPointerDown: startDrag,
                 onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
