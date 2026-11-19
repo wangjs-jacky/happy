@@ -129,7 +129,9 @@ export const SettingsSchema = z.object({
     lastUsedAgent: z.string().nullable().describe('Last selected agent type for new sessions'),
     lastUsedPermissionMode: z.string().nullable().describe('Last selected permission mode for new sessions'),
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
-    codingAgentMachines: z.record(z.string(), z.array(z.string().min(1).max(80))).default({}).describe('Agents explicitly enabled by the user on each machine'),
+    // Defaults belong in settingsDefaults: schema defaults also run when parsing
+    // a partial pending delta and would upload an unintended reset on restart.
+    codingAgentMachines: z.record(z.string(), z.array(z.string().min(1).max(80))).describe('Agents explicitly enabled by the user on each machine'),
     agentDefaultOverrides: AgentDefaultOverridesSchema.describe('User-selected agent defaults. Missing values use code defaults and are not sent as agent metadata.'),
     sessionPinnedOrder: SessionPinnedOrderSchema.describe('Account-synced pinned session IDs in display order'),
     sessionPinnedOrderRaw: z.unknown().nullable().describe('Locally preserved future-format pinned-session data; written back unchanged until the user edits pins'),

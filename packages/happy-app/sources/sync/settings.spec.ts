@@ -6,12 +6,19 @@ import {
     resolveSessionPinnedOrderMigration,
     resolveSidebarOrganizationMigration,
     settingsDefaults,
+    SettingsSchema,
     settingsParse,
     settingsToSyncPayload,
     type Settings,
 } from './settings';
 
 describe('settings', () => {
+    it('does not synthesize agent changes when restoring empty pending settings', () => {
+        const pending = SettingsSchema.partial().parse({});
+        expect(pending).not.toHaveProperty('codingAgentMachines');
+        const saved = settingsParse({ codingAgentMachines: { m1: ['claude', 'opencode'] } });
+        expect(applySettings(saved, pending).codingAgentMachines).toEqual(saved.codingAgentMachines);
+    });
     it('preserves future agent preferences without resetting unrelated settings', () => {
         const parsed = settingsParse({ viewInline: true, codingAgentMachines: { m1: ['future-agent'] } });
         expect(parsed.viewInline).toBe(true);

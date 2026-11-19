@@ -38,3 +38,11 @@ App组件/真实Zustand状态/设置持久化/空配置派发门禁/OTA契约定
 
 
 维护检查：Happy OPS全库知识校验返回两处已有文件链接无效（Android publish-ota / Web verify-deployment），本轮没有修改这些链接；经验正文已保存，未声称该知识库结构校验通过。该结果与197项产品回归、构建和OTA主包哈希校验区分。
+
+## 云端 E2E 增补：刷新清空配置修复
+
+真实云端浏览器回归发现：启用配置上传后，完整刷新会恢复默认Codex。通过云端读回、浏览器请求追踪和相同schema复现确认，Zod 4的`SettingsSchema.partial().parse({})`仍会执行字段的`.default({})`，恢复空pending-settings时构造出清空codingAgentMachines的修改，随后同步覆盖云端。移除该字段的schema默认值，继续由settingsDefaults提供正常缺省值。新增回归先失败后修复通过；相关109项App测试与App类型检查通过。
+
+E2E使用隔离云端完整Happy server/PGlite与分支Web export、真实账号加密设置和machine RPC。更新器使用产品service和实际子进程，但包管理器仅操作测试沙箱；模型回复为transport stub。正式Web、用户账号、真实Agent安装与当前稳定daemon不参与。用户明确不需要截图，未采集截图/视频。
+
+云端静态服务启动时枚举资源路由（wildcard=false），增量上传新hash文件后不能直接通过旧进程新路由访问；测试环境为新主包增加独立loopback gzip资源端点，HTML仍由同一云端App服务提供。主包内容SHA-256为4466330062a3a14fe1c8794184bc6bd60aa9e26c62e0cb4283be053979beb661。该端点只提供精确测试bundle，不是正式发布方案。
