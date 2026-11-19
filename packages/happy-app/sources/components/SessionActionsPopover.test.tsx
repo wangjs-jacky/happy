@@ -86,3 +86,18 @@ it('replaces the web menu with an anchored confirmation and dismisses outside wi
     expect(mocks.oldDelete).not.toHaveBeenCalled();
     mocks.os = 'android';
 });
+
+it('drops the old confirmation when a reused menu switches session, including switching back', () => {
+    mocks.os = 'web';
+    const host = (id: string) => renderer.root.findAll((n: any) => typeof n.type === 'string' && n.props.testID === id)[0];
+    const menu = (id: string) => <SessionActionsPopover visible anchor={{ type: 'point', x: 100, y: 100 }} onClose={() => {}} sessionId={id} />;
+    act(() => { renderer = TestRenderer.create(menu('session-1')); });
+    const remove = renderer.root.findAll((n: any) => n.type === 'Pressable' && n.findAllByType('Ionicons').some((icon: any) => icon.props.name === 'trash'))[0];
+    act(() => remove.props.onPress());
+    expect(host('session-delete-confirmation')).toBeDefined();
+    act(() => renderer.update(menu('session-2')));
+    expect(host('session-delete-confirmation')).toBeUndefined();
+    act(() => renderer.update(menu('session-1')));
+    expect(host('session-delete-confirmation')).toBeUndefined();
+    mocks.os = 'android';
+});

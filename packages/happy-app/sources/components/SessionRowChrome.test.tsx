@@ -108,3 +108,18 @@ it('confirms desktop row deletion beside its trigger before deleting', () => {
     expect(mocks.confirmRemove).toHaveBeenCalledOnce();
     expect(host('session-delete-confirmation')).toBeUndefined();
 });
+
+it('drops inline confirmation when a reused row switches sessions', () => {
+    mocks.os = 'web'; mocks.width = 1400;
+    const row = (id: string) => <SessionRowActions sessionId={id} statusLabel="Completed" visible contextAnchor={null} onContextAnchorChange={vi.fn()} />;
+    render(row('session-1'));
+    act(() => host('session-row-delete-action').props.onPress({ stopPropagation() {}, nativeEvent: { clientX: 280, clientY: 200 } }));
+    expect(host('session-delete-confirmation')).toBeDefined();
+    mocks.session = { id: 'session-2', metadata: {} };
+    act(() => renderer.update(row('session-2')));
+    expect(host('session-delete-confirmation')).toBeUndefined();
+    mocks.session = { id: 'session-1', metadata: {} };
+    act(() => renderer.update(row('session-1')));
+    expect(host('session-delete-confirmation')).toBeUndefined();
+    expect(mocks.confirmRemove).not.toHaveBeenCalled();
+});

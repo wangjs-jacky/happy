@@ -22,10 +22,12 @@
 
 ## 验证
 
-- 34 项相关组件回归通过：ProjectConversationHeader、SessionDeleteConfirmation、SessionRowChrome、SessionActionsPopover。
+- 46 项相关组件回归通过：ProjectConversationHeader、SessionDeleteConfirmation、SessionRowChrome、SessionActionsPopover、ActiveSessionsGroupCompact。
 - happy-app typecheck 与 git diff --check 通过。
 - Ego 实测两个入口：确认仅有 Cancel/Delete，箭头对准垃圾桶；取消关闭且保留会话，顶部对话仍保持打开。左侧另外验证 Esc。
 - 未执行真实账号删除；手机原生行为、底部上翻的真实浏览器交互未验。
 - 隔离服务及浏览器任务空间已关闭。
 
 预览注意：项目分栏展开后需等布局稳定再点击，避免过时按钮几何误触相邻归档；仅测试合成会话受到影响。本次预览生成的 Expo 路由声明曾影响类型检查，备份生成文件并恢复启动前环境后通过；未修改业务路由或类型配置。
+
+独立评审补验：项目首项变化可能复用同一菜单实例，原布尔确认态会切换删除目标；现将菜单和行内确认绑定会话ID，目标切换即清理，切回也不重开。对应回归已通过。

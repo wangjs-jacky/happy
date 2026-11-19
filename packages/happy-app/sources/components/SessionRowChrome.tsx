@@ -356,8 +356,10 @@ function InlineSessionRowActions({ session, statusLabel, visible, onDeleteConfir
     const styles = stylesheet;
     const quickActions = useSessionQuickActions(session);
     const sessionArchived = isSessionArchived(session);
-    const [deleteAnchor, setDeleteAnchor] = React.useState<SessionActionsAnchor | null>(null);
-    const cancelDelete = React.useCallback(() => setDeleteAnchor(null), []);
+    const [pendingDelete, setPendingDelete] = React.useState<{ sessionId: string; anchor: SessionActionsAnchor } | null>(null);
+    React.useEffect(() => setPendingDelete(null), [session.id]);
+    const deleteAnchor = pendingDelete?.sessionId === session.id ? pendingDelete.anchor : null;
+    const cancelDelete = React.useCallback(() => setPendingDelete(null), []);
     // Keep the confirmation mounted when the pointer leaves the hover actions.
     if (!visible && !deleteAnchor) return null;
     const handleAction = (callback: () => void) => (event: any) => {
@@ -382,11 +384,11 @@ function InlineSessionRowActions({ session, statusLabel, visible, onDeleteConfir
                 label={t('sessionInfo.deleteSession')}
                 onPress={(event) => {
                     stopSessionRowActionPropagation(event);
-                    setDeleteAnchor(anchorFromEvent(event));
+                    setPendingDelete({ sessionId: session.id, anchor: anchorFromEvent(event) });
                 }}
                 testID="session-row-delete-action"
             />
-            {deleteAnchor ? <SessionDeleteConfirmation onVisibilityChange={onDeleteConfirmationChange} anchor={deleteAnchor} onCancel={cancelDelete} onConfirm={() => {
+            {deleteAnchor ? <SessionDeleteConfirmation key={session.id} onVisibilityChange={onDeleteConfirmationChange} anchor={deleteAnchor} onCancel={cancelDelete} onConfirm={() => {
                 cancelDelete();
                 quickActions.confirmDeleteSession();
             }} /> : null}
