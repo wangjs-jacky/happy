@@ -8,11 +8,14 @@ import {
 } from '@slopus/happy-wire';
 import { resolveExecutable, type ProcessRunner } from './processRunner';
 import { compareVersions } from './pawsCliAdapter';
+import { detectCLIAvailability } from '../utils/detectCLI';
 const packages: Record<CodingAgentId, string> = {
   codex: '@openai/codex', claude: '@anthropic-ai/claude-code', opencode: 'opencode-ai', gemini: '@google/gemini-cli', openclaw: 'openclaw',
 };
 type Deps = {
   runner: ProcessRunner; env?: NodeJS.ProcessEnv; home?: string; now?: () => number;
+  platform?: NodeJS.Platform;
+  availability?: () => Partial<Record<CodingAgentId, boolean>>;
   resolve?: (name: string) => Promise<string | null>;
   realpath?: (path: string) => Promise<string | null>;
   readPackage?: (path: string) => Promise<{ name?: string } | null>;
@@ -110,6 +113,16 @@ export function createCodingAgentService(deps: Deps) {
   }
   async function inspect(raw: unknown): Promise<CodingAgentsInspectResponse> {
     const request = CodingAgentsInspectRequestSchema.parse(raw);
+    // Windows npm/Powershell shims cannot be executed by our shell-free runner.
+    // Preserve the existing platform detector and require manual management until
+    // a verified native/JS-entry adapter exists; never offer a broken updater.
+    if ((deps.platform ?? process.platform) === 'win32') {
+      tickets.clear();
+      const availability = (deps.availability ?? detectCLIAvailability)();
+      return { agents: CodingAgentIdSchema.options.map(id => ({ id, installed: availability[id] === true,
+        executable: null, version: null, latestVersion: null, source: 'manual',
+        reason: availability[id] === true ? 'manual-update' : 'not-installed' })), checkedAt: now() };
+    }
     for (const [key, ticket] of tickets) if (ticket.expires < now()) tickets.delete(key);
     // Each inspection supersedes the previous preview; tickets never accumulate.
     const currentInspection = request.checkUpdates ? ++inspection : inspection;

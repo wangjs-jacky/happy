@@ -58,3 +58,7 @@ E2E使用隔离云端完整Happy server/PGlite与分支Web export、真实账号
 合成worker/controller已关闭、Ego任务空间已结束，本地合成凭据及请求追踪文件已删除。RackNerd的专用server与gzip资源进程按PID、cwd及进程组核验后停止；阿里云早期失败尝试仍因SSH banner超时无法确认进程/目录清理，未重启机器或更改其他服务，不能声称所有云端临时资源已清理。Ego OPS新增verify-coding-agent-manager、Web E2E本机经验已写回；Ego知识校验通过。没有正式Web部署、CLI发布或真实手机加载验收。
 
 清理补充：RackNerd上核对已无cwd位于专用测试目录的进程后，已删除该专用目录；两条本地测试SSH转发已关闭。阿里云早期目录仍待SSH恢复后清理。
+
+## 正式发布前集成
+
+同步当前main，仅apiMachine顶部imports发生冲突，保留跨Agent接续类型与本次管理service两项。独立评审发现Windows npm shim与shell-free执行器不兼容，新增先失败回归，并在Windows复用既有安装检测、明确手动管理，不生成无法执行的升级token；Mac管理路径保持不变。全量本机CLI回归出现受环境影响的集成失败与文件事件超时，结果按正式CI和定向复验分别记录，不称全量通过。

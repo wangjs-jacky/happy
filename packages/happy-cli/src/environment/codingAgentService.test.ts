@@ -14,6 +14,15 @@ function fixture() {
   return { service, run, realpath, advance: () => { time += 600_001; } };
 }
 describe('coding agent management', () => {
+  it('preserves Windows installation detection without executing npm shims or offering unsafe updates', async () => {
+    const run = vi.fn();
+    const service = createCodingAgentService({ runner: { run }, platform: 'win32', availability: () => ({ codex: true, claude: true, opencode: false }) });
+    const result = await service.inspect({ checkUpdates: true });
+    expect(result.agents.find(agent => agent.id === 'claude')).toMatchObject({ installed: true, source: 'manual', reason: 'manual-update' });
+    expect(result.agents.find(agent => agent.id === 'opencode')).toMatchObject({ installed: false, reason: 'not-installed' });
+    expect(result.agents.every(agent => !agent.updateToken)).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+  });
   it('checks only on request, updates an owned npm installation and verifies the version', async () => {
     const { service, run } = fixture();
     await service.inspect({ checkUpdates: false });
