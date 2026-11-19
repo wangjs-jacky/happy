@@ -159,9 +159,9 @@ function projectArchiveFiles(machineId: string, featurePath: string, root: strin
         let offset = 0, revision: string | undefined, bytes: Uint8Array | undefined, transferId: string | undefined;
         // This is a finite file transfer, driven by byte offsets, not a task/status polling loop.
         do {
-            signal?.throwIfAborted();
+            if (signal?.aborted) throw signal.reason ?? new Error('File read aborted');
             const result = fileResponse.extend({ transferId: z.string() }).parse(await projectGoalRequest(machineId, `${prefix}ReadFile`, { ...input, path, offset, revision, transferId }));
-            signal?.throwIfAborted();
+            if (signal?.aborted) throw signal.reason ?? new Error('File read aborted');
             if (result.offset !== offset || (revision && result.revision !== revision)) throw new Error('File changed during transfer');
             if (!bytes) bytes = new Uint8Array(result.size);
             const chunk = Uint8Array.from(atob(result.content), char => char.charCodeAt(0));
