@@ -79,6 +79,8 @@ const AGENT_LABELS: Record<string, string> = {
     gemini: 'gemini',
 };
 
+const HEADER_MODE_AGENT_OPTIONS = Object.entries(AGENT_LABELS).map(([key, label]) => ({ key: key as NewSessionAgentType, label }));
+
 /**
  * Compose-first new-session page. A greeting and a real text input with every
  * editable launch setting kept in its footer. Sending spawns a session inline
@@ -335,6 +337,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         return agents.find((a) => a.id === agentId) ?? null;
     }, [agentId, agents]);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
+    const availableCodingAgents = React.useMemo(() => enabledCodingAgents(HEADER_MODE_AGENT_OPTIONS, selectedMachineId, codingAgentMachines, selectedMachine?.metadata?.cliAvailability), [selectedMachine, selectedMachineId, codingAgentMachines]);
 
     const openDrawer = React.useCallback(() => {
         navigation.dispatch(DrawerActions.openDrawer());
@@ -650,7 +653,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
         const spawnAgent = activeImageAgent ? 'codex' : draft.agentType;
-        if (spawnAgent !== 'ask' && !enabledCodingAgents(HEADER_MODE_AGENT_OPTIONS, draft.selectedMachineId, storage.getState().settings.codingAgentMachines, machine?.metadata?.cliAvailability).some(agent => agent.key === spawnAgent)) return;
+        if (!enabledCodingAgents(HEADER_MODE_AGENT_OPTIONS, draft.selectedMachineId, storage.getState().settings.codingAgentMachines, machine?.metadata?.cliAvailability).some(agent => agent.key === spawnAgent)) return;
         const resolvedModes = resolveNewSessionModeSelection({
             agent: spawnAgent,
             permissionMode: draft.permissionMode,
@@ -725,7 +728,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
     // isSendDisabled) instead of letting a doomed spawn through.
-    const canSpawn = online && worktreeKey !== '__new__' && (agentType === 'ask' || availableCodingAgents.some(agent => agent.key === (activeImageAgent ? 'codex' : agentType)));
+    const canSpawn = online && worktreeKey !== '__new__' && availableCodingAgents.some(agent => agent.key === (activeImageAgent ? 'codex' : agentType));
     const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
