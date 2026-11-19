@@ -274,6 +274,7 @@ describe('SessionConfigPanel composer layout', () => {
         await act(async () => { mocks.draftStore.setState({ selectedPath: '/two' }); });
         expect(renderer.root.findAllByProps({ testID: 'session-composer-model-claude::vendor/custom' })).toHaveLength(0);
         expect(ref.current.getSelection().modelKey).toBe('opus');
+        expect(ref.current.getSelection().modelUnavailable).toBe(true);
     });
 
     it('discovers native Claude models without an earlier session and refreshes the displayed catalog', async () => {

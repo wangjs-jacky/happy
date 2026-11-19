@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createClaudeModelCatalogReader, isClaudeEffortSupported, normalizeClaudeModels, readClaudeModelCatalog } from './modelCatalog';
+import { createClaudeModelCatalogReader, isClaudeEffortSupported, markClaudeModelConnection, normalizeClaudeModels, readClaudeModelCatalog } from './modelCatalog';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 vi.mock('./installedClaude', () => ({ installedClaudeExecutable: () => process.env.HAPPY_CLAUDE_PATH || '/fixture/claude' }));
 
 describe('Claude native model catalogs', () => {
+    it('removes the prior child catalog only when replacement initialization confirms an unverified context', () => {
+        const prior: any = { path: '/work', host: 'machine', models: [{ code: 'private/old', value: 'Old account' }], modelsUpdatedAt: 1, thoughtLevels: [{ code: 'max', value: 'max' }] };
+        expect(markClaudeModelConnection(prior, false, undefined).models).toEqual(prior.models);
+        const replacement = markClaudeModelConnection(prior, true, undefined);
+        expect(replacement.models).toBeUndefined(); expect(replacement.thoughtLevels).toBeUndefined();
+        expect(replacement.capabilities?.claudeModelCatalogRefresh).toBe(false);
+        expect(markClaudeModelConnection(prior, true, 'verified').models).toEqual(prior.models);
+    });
     it('accepts new effort levels only from the selected model catalog and respects an empty range', () => {
         const models = [{ code: 'future', value: 'Future', supportedEffortLevels: ['future-effort'] }, { code: 'none', value: 'None', supportedEffortLevels: [] }];
         expect(isClaudeEffortSupported('future-effort', 'future', models)).toBe(true);

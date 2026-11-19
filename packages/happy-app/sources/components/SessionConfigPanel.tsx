@@ -45,6 +45,7 @@ import {
     getHardcodedPermissionModes,
     getSuggestedModelModes,
     getEffortLevelsForModel,
+    normalizeModelEffortKey,
     getSupportsWorktree,
     type PermissionMode,
     type ModelMode,
@@ -733,6 +734,7 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
  * read back from the draft store.
  */
 export interface SessionConfigSelection {
+    modelUnavailable?: boolean;
     permissionKey?: string;
     modelKey?: string;
     effortKey: string | null;
@@ -1431,17 +1433,19 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         // Expose the live selection + a way to dismiss pickers to the host.
         React.useImperativeHandle(ref, () => ({
             getSelection: () => ({
+                ...(selectedAgent === 'claude' && draft.modelMode && !modelModes.some(model => model.key === draft.modelMode)
+                    ? { modelUnavailable: true } : {}),
                 permissionKey: currentPermission?.key === 'default' ? undefined : currentPermission?.key,
                 modelKey: currentModelKey === 'default' ? undefined : currentModelKey,
                 effortKey: selectedAgent === 'codex' && !modelMetadata?.models?.length ? null
-                    : draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null,
+                    : normalizeModelEffortKey(selectedAgent, currentModelKey, draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null, effectiveModelMetadata),
                 worktreeKey,
                 fastMode: supportsFast && fastMode,
                 ...(selectedAgent === 'codex' && codexAccountProfileId !== undefined
                     ? { expectedCodexAccountProfileId: codexAccountProfileId } : {}),
             }),
             closePickers: dismissPicker,
-        }), [currentPermission?.key, currentModelKey, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, fastMode, supportsFast, dismissPicker, selectedAgent, codexAccountProfileId]);
+        }), [currentPermission?.key, currentModelKey, draft.modelMode, modelModes, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, fastMode, supportsFast, dismissPicker, selectedAgent, codexAccountProfileId, effectiveModelMetadata]);
 
         // Android uses a bottom sheet so options do not expand inside the
         // composer. iOS and desktop sidebars retain their existing inline layout.

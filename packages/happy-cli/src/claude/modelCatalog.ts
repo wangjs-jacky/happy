@@ -9,6 +9,7 @@ import { isAbsolute } from 'node:path';
 import { realpath, stat } from 'node:fs/promises';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 import { readClaudeModelConnection } from './modelCatalogContext';
+import type { Metadata } from '@/api/types';
 
 const NativeModelsSchema = z.array(z.object({
     value: z.string().min(1).max(512), displayName: z.string().min(1).max(900),
@@ -34,6 +35,12 @@ export function normalizeClaudeModels(input: unknown): ClaudeModelCatalog['model
 
 type Probe = (params: { prompt: AsyncIterable<any>; options: Options }) => Pick<Query, 'initializationResult' | 'close'>;
 export type NativeClaudeModelCatalog = ClaudeModelCatalog & { connectionKey?: string };
+
+export function markClaudeModelConnection(metadata: Metadata, initialized: boolean | undefined, connectionKey: string | undefined): Metadata {
+    return { ...metadata,
+        ...(initialized && !connectionKey ? { models: undefined, modelsUpdatedAt: undefined, currentModelCode: undefined, thoughtLevels: undefined, currentThoughtLevelCode: undefined } : {}),
+        capabilities: { ...metadata.capabilities, claudeModelCatalogRefresh: !!connectionKey } };
+}
 
 export function isClaudeEffortSupported(effort: string, model: string | undefined, models?: ClaudeModelCatalog['models']): boolean {
     const levels = models?.find(entry => entry.code === (model ?? 'default'))?.supportedEffortLevels;

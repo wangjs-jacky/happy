@@ -40,7 +40,7 @@ export async function claudeRemote(opts: {
     /** Backend control handshake completed; independent of model output. */
     onProcessorReady?: () => void,
     onModelCatalog?: (catalog: ClaudeModelCatalog, connectionKey?: string) => void,
-    onModelConnection?: (connectionKey?: string) => void,
+    onModelConnection?: (connectionKey?: string, initialized?: boolean) => void,
     /** Path to temporary settings file with SessionStart hook (required for session tracking) */
     hookSettingsPath: string,
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
@@ -210,7 +210,7 @@ export async function claudeRemote(opts: {
         }
         const connectionKey = models && opts.onModelConnection
             ? await readClaudeModelConnection(response, buildClaudeProcessEnv(), getClaudeQueryExecutable(response), initialization.account) : undefined;
-        if (!applicationPolicy) opts.onModelConnection?.(connectionKey);
+        if (!applicationPolicy) opts.onModelConnection?.(connectionKey, true);
         if (models) {
             try {
                 opts.onModelCatalog?.({ source: 'claude-native', observedAt: catalogObservedAt, models },
