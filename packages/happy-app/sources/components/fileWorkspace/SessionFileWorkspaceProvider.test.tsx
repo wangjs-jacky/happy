@@ -268,7 +268,9 @@ it('announces each explicit file open with its owning session, including the act
     await act(async () => { await value.openReference('/work/方案.md'); });
     expect(value.openRequestId).toBe(2);
     await act(async () => { await value.openReference('/outside/private.md'); });
-    expect(value.openRequestId).toBe(2);
+    expect(value.openRequestId).toBe(3);
+    expect(value.snapshot.documents['/outside/private.md'].readOnly).toBe(true);
+    expect(mocks.reads).toHaveBeenCalledWith('session', '/outside/private.md', true);
     await act(async () => { renderer.unmount(); });
 });
 
