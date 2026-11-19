@@ -50,4 +50,4 @@ Final: fixed stale reconnect/cold-cache trust — storage transport presence tes
 Final: fixed authoritative project path/catalogue-title search — bound project-a + Design Library search test RED→GREEN; uses already-loaded catalogue, no per-session requests.
 Final: fixed closed-drawer durable tombstone scan — 200 idle headers test RED→GREEN, only three activity candidates read tombstones. Closed lists skip scope/search processing.
 Final: corrected auto-archive fixture to valid appId/bindingId and asserted real archive precondition.
-Final: all related model/component/history/store regression 226/226 passed; app typecheck passed. No deferred material findings.
+Final: all related model/component/history/store regression 226/226 passed. Fix-pass typecheck caught a widened test enum; fixture narrowed before final verification. No deferred material findings.

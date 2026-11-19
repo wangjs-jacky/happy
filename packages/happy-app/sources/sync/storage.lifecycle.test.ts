@@ -321,7 +321,7 @@ it('keeps locally staged input current across session reloads and delayed hydrat
 
 describe('transport presence freshness', () => {
     it('invalidates cached online presence on disconnect and does not restore it on socket reconnect alone', () => {
-        const row = { id: 'transport', seq: 1, createdAt: 1, updatedAt: 2, active: true, activeAt: Date.now(), metadata: { path: '/task', host: 'test' }, metadataVersion: 1, agentState: { turnStatus: { status: 'running', updatedAt: 2 } }, agentStateVersion: 1, thinking: true, thinkingAt: 2 };
+        const row = { id: 'transport', seq: 1, createdAt: 1, updatedAt: 2, active: true, activeAt: Date.now(), metadata: { path: '/task', host: 'test' }, metadataVersion: 1, agentState: { turnStatus: { status: 'running' as const, updatedAt: 2 } }, agentStateVersion: 1, thinking: true, thinkingAt: 2 };
         storage.setState({ sessions: {}, unreadSessionIds: new Set(), socketStatus: 'connected' });
         storage.getState().applySessions([row]); expect(storage.getState().sessions.transport.presence).toBe('online');
         storage.getState().setSocketStatus('disconnected'); expect(storage.getState().sessions.transport.presence).toBe(row.activeAt);
