@@ -155,28 +155,6 @@ Conversation history is preserved on the server, but in-flight tool calls are in
     console.error(chalk.red('Error:'), PERSONAL_AGENT_RETIRED_MESSAGE);
     process.exitCode = 1;
     return;
-  } else if (subcommand === 'ask') {
-    try {
-      const { runAsk } = await import('@/ask/runAsk');
-
-      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === '--started-by') {
-          startedBy = args[++i] as 'daemon' | 'terminal';
-        }
-      }
-
-      const { credentials } = await authAndSetupMachineIfNeeded();
-      await ensureDaemonRunning();
-      await runAsk({ credentials, startedBy });
-    } catch (error) {
-      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
-      if (process.env.DEBUG) {
-        console.error(error)
-      }
-      process.exit(1)
-    }
-    return;
   } else if (subcommand === 'codex') {
     // Handle codex command
     try {

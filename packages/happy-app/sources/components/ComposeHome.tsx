@@ -39,11 +39,7 @@ import { isMachineOnline } from '@/utils/machineUtils';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import { resolveNewSessionSpawnSettings } from '@/utils/newSessionSpawnSettings';
 import {
-    getCodingAgentPickerItems,
     getComposeHomeExperience,
-    getHeaderModeSwitchExperience,
-    selectAgentForTopLevelMode,
-    type NewSessionTopLevelMode,
 } from '@/utils/newSessionExperience';
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { useShallow } from 'zustand/react/shallow';
@@ -64,7 +60,6 @@ import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
 import type { UserImageStyle } from './agents/imageStyleTypes';
-import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 import { Modal } from '@/modal';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { machineSpawnNewSession, sessionArchive } from '@/sync/ops';
@@ -76,26 +71,12 @@ import { useGeneratedImagesPlugin } from '@/hooks/useGeneratedImagesPlugin';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
-    ask: 'ask',
     claude: 'claude code',
     codex: 'codex',
     opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
-
-const HEADER_MODE_AGENT_OPTIONS: { key: NewSessionAgentType; label: string }[] = [
-    { key: 'opencode', label: AGENT_LABELS.opencode },
-    { key: 'claude', label: AGENT_LABELS.claude },
-    { key: 'codex', label: AGENT_LABELS.codex },
-    { key: 'openclaw', label: AGENT_LABELS.openclaw },
-    { key: 'gemini', label: AGENT_LABELS.gemini },
-];
-
-const HEADER_MODE_SWITCH_ITEMS: { key: NewSessionTopLevelMode; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: 'ask', icon: 'chatbubble-ellipses-outline' },
-    { key: 'agent', icon: 'terminal-outline' },
-];
 
 /**
  * Compose-first new-session page. A greeting and a real text input with every
@@ -161,7 +142,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
         return () => clearTimeout(timer);
     }, [isDataReady]);
-    const askApi = useLocalSetting('askApi');
     const zenMode = useLocalSetting('zenMode');
     const desktopSkinId = useLocalSetting('desktopSkinId');
     const dreamskin = Platform.OS === 'web' && isTablet && desktopSkinId !== 'default';
@@ -353,20 +333,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         return agents.find((a) => a.id === agentId) ?? null;
     }, [agentId, agents]);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
-    const headerModeSwitchExperience = React.useMemo(
-        () => getHeaderModeSwitchExperience({
-            agentType,
-            activeImageAgent,
-            askConfigured: isAskApiConfigured(askApi),
-        }),
-        [activeImageAgent, agentType, askApi],
-    );
-    const availableCodingAgents = React.useMemo(() => {
-        const availability = selectedMachine?.metadata?.cliAvailability;
-        const codingAgents = getCodingAgentPickerItems(HEADER_MODE_AGENT_OPTIONS);
-        if (!availability) return codingAgents;
-        return codingAgents.filter((agent) => availability[agent.key]);
-    }, [selectedMachine]);
 
     const openDrawer = React.useCallback(() => {
         navigation.dispatch(DrawerActions.openDrawer());
@@ -641,29 +607,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setSelectedImageStyleIds((current) => current.filter((id) => id !== style.id));
     }, [customImageStyles, setCustomImageStyles]);
 
-    const handleHeaderModeSelect = React.useCallback((mode: NewSessionTopLevelMode) => {
-        const nextAgent = selectAgentForTopLevelMode({
-            mode,
-            currentAgent: agentType,
-            availableCodingAgents,
-        });
-        if (nextAgent !== agentType) {
-            hapticsLight();
-            setAgentType(nextAgent);
-        }
-    }, [agentType, availableCodingAgents, setAgentType]);
-
-    React.useEffect(() => {
-        if (activeImageAgent || isAskApiConfigured(askApi) || agentType !== 'ask') {
-            return;
-        }
-        setAgentType(selectAgentForTopLevelMode({
-            mode: 'agent',
-            currentAgent: agentType,
-            availableCodingAgents,
-        }));
-    }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
-
     const handleTextChange = React.useCallback((nextText: string) => {
         setText(nextText);
     }, []);
@@ -744,10 +687,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             ...spawnSettings,
             prompt,
             images,
-            environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
             sidebarListId,
         }, liveText, () => releaseSubmittedText(submittedSnapshot), () => clearQueuedSubmission(submittedSnapshot));
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, pending, machines, submit, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission, releaseSubmittedText]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, pending, machines, submit, hasImages, selectedImages, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission, releaseSubmittedText]);
 
     const handleRetryHydration = React.useCallback(async () => {
         await retry();
@@ -804,38 +746,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             targetHitSlop: 8,
         })
         : 0;
-
-    const composerModeSwitch = (
-        <View style={styles.newSessionComposerControls}>
-            {headerModeSwitchExperience.visible && (
-                <View style={styles.headerModeSwitch}>
-                    {HEADER_MODE_SWITCH_ITEMS.map((item) => {
-                        const selected = item.key === headerModeSwitchExperience.selectedMode;
-                        return (
-                            <Pressable
-                                key={item.key}
-                                onPress={() => handleHeaderModeSelect(item.key)}
-                                hitSlop={4}
-                                accessibilityRole="button"
-                                accessibilityLabel={item.key === 'ask' ? t('newSession.askMode') : t('newSession.agentMode')}
-                                style={({ pressed }) => [
-                                    styles.headerModeButton,
-                                    selected && styles.headerModeButtonSelected,
-                                    pressed && styles.headerModeButtonPressed,
-                                ]}
-                            >
-                                <Ionicons
-                                    name={item.icon}
-                                    size={14}
-                                    color={selected ? theme.colors.button.primary.tint : theme.colors.textSecondary}
-                                />
-                            </Pressable>
-                        );
-                    })}
-                </View>
-            )}
-        </View>
-    );
 
     const capabilityHubLabel = t('rightPanelCapabilityHub.title');
     const rightPanelToggleButton = desktopRightPanelAvailable && desktopRightPanelPresentation !== 'zen' ? (
@@ -1155,9 +1065,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         mode="home"
                         placeholder={activeImageAgent
                             ? t('agents.imagePromptPlaceholder')
-                            : agentType === 'ask'
-                                ? t('composeHome.askPlaceholder')
-                                : t('composeHome.placeholder')}
+                            : t('composeHome.placeholder')}
                         initialValue={text}
                         onChangeText={handleTextChange}
                         onSend={handleSend}
@@ -1173,7 +1081,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onAddImages={canAttach ? addImages : undefined}
                         onPrepareAddImages={canAttach ? prepareAddImages : undefined}
                         imageAttachmentsOnly={!!activeImageAgent || agentType === 'opencode'}
-                        leadingControls={<>{composerModeSwitch}{controls.leading}</>}
+                        leadingControls={controls.leading}
                         trailingControls={controls.trailing}
                         belowComposer={controls.below}
                     />
@@ -1318,33 +1226,6 @@ const styles = StyleSheet.create((theme) => ({
         height: 36,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    newSessionComposerControls: {
-        minWidth: 0,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    headerModeSwitch: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 2,
-        padding: 2,
-        borderRadius: 999,
-        backgroundColor: theme.colors.input.background,
-    },
-    headerModeButton: {
-        width: 26,
-        height: 24,
-        borderRadius: 999,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    headerModeButtonSelected: {
-        backgroundColor: theme.colors.button.primary.background,
-    },
-    headerModeButtonPressed: {
-        opacity: 0.78,
     },
     body: {
         flex: 1,
