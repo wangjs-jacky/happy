@@ -18,6 +18,7 @@ export const initialMachineMetadata: MachineMetadata = {
   homeDir: os.homedir(),
   happyHomeDir: configuration.happyHomeDir,
   happyLibDir: projectPath(),
+  capabilities: { codexNativeModels: true },
   cliAvailability: detectCLIAvailability(),
   resumeSupport: { ...detectResumeSupport(), rpcAvailable: true },
 };

@@ -3,6 +3,15 @@ import { resolveNewSessionSpawnSettings } from './newSessionSpawnSettings';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 
 describe('resolveNewSessionSpawnSettings', () => {
+    it('carries a per-launch native choice instead of the machine default expectation', () => {
+        const result = resolveNewSessionSpawnSettings({ draftWorktreeKey: null, resolvedModes: {}, liveSelection: {
+            modelKey: 'deepseek/DeepSeek-V4.1-Flash', effortKey: null, worktreeKey: '__none__', fastMode: false,
+            codexConnection: { type: 'native' },
+        } });
+        expect(result).toMatchObject({ modelMode: 'deepseek/DeepSeek-V4.1-Flash', codexConnection: { type: 'native' } });
+        expect(result).not.toHaveProperty('expectedCodexAccountProfileId');
+    });
+
     it('preserves a live default model and its native connection instead of restoring a stale draft', () => {
         expect(resolveNewSessionSpawnSettings({ draftWorktreeKey: null,
             resolvedModes: { modelMode: 'deepseek/DeepSeek-V4.1-Flash' },

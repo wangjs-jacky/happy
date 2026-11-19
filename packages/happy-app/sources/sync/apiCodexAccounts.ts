@@ -102,7 +102,7 @@ async function request<T>(credentials: AuthCredentials, path: string, method: st
 }
 
 export function listCodexAccounts(credentials: AuthCredentials): Promise<ListCodexAccountsResponse> {
-    return request(credentials, '/v1/codex-accounts', 'GET', listSchema);
+    return request(credentials, '/v1/codex-accounts/directory', 'GET', listSchema);
 }
 export function renameCodexAccount(credentials: AuthCredentials, profileId: string, displayName: string) {
     return request(credentials, `/v1/codex-accounts/${encodeURIComponent(profileId)}`, 'PATCH', z.object({ profile: profileSchema }), { displayName });
@@ -114,7 +114,7 @@ export function bindCodexAccount(credentials: AuthCredentials, machineId: string
     return request(credentials, `/v1/machines/${encodeURIComponent(machineId)}/codex-account`, 'PUT', z.object({ binding: bindingSchema }),
         { profileId: binding.profileId, expectedVersion: binding.expectedVersion });
 }
-export function createCodexSessionGrant(credentials: AuthCredentials, machineId: string): Promise<CodexSessionGrant> {
+export function createCodexSessionGrant(credentials: AuthCredentials, machineId: string, profileId?: string): Promise<CodexSessionGrant> {
     // No retries or caching: every final spawn attempt uses a new one-time grant.
-    return request(credentials, '/v1/codex-session-grants', 'POST', grantSchema, { machineId });
+    return request(credentials, '/v1/codex-session-grants', 'POST', grantSchema, { machineId, ...(profileId ? { profileId } : {}) });
 }

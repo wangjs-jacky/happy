@@ -2,6 +2,7 @@ import { createArtifactRuntime, authorizeArtifactRoot, watchArtifactChanges, art
 import { registerProjectGoalHandlers, type ProjectGoalDependencies } from '@/modules/goalBoard/projectService';
 import { registerArtifactHandlers } from '@/modules/artifacts/rpc';
 import type { NativeSessionHooks } from '@/daemon/appDelegation/nativeSessionRuntime';
+import type { CodexNativeModelsResult } from '@/daemon/codexNativeModels';
 /**
  * WebSocket client for machine/daemon communication with Happy server
  * Similar to ApiSessionClient but for machine-scoped connections
@@ -119,6 +120,7 @@ type MachineRpcHandlers = {
     requestShutdown: () => void;
     refreshCodexUsage?: () => Promise<void>;
     refreshCodexAccountQuota?: (grant: string) => Promise<{ type: 'success'; accepted: boolean } | { type: 'error'; errorMessage: string }>;
+    listCodexNativeModels?: () => Promise<CodexNativeModelsResult>;
     projectGoals?: Pick<ProjectGoalDependencies, 'history' | 'send'>;
 }
 
@@ -210,6 +212,7 @@ export class ApiMachineClient {
         requestShutdown,
         refreshCodexUsage,
         refreshCodexAccountQuota,
+        listCodexNativeModels,
         projectGoals,
     }: MachineRpcHandlers) {
         this.resumeSessionHandler = resumeSession ?? null;
@@ -301,6 +304,14 @@ export class ApiMachineClient {
                 const grant = typeof (params as { grant?: unknown } | null)?.grant === 'string' ? (params as { grant: string }).grant : '';
                 if (!/^[A-Za-z0-9_-]{43}$/.test(grant)) throw new Error('A valid Codex quota probe grant is required');
                 return refreshCodexAccountQuota(grant);
+            });
+        }
+        if (listCodexNativeModels) {
+            this.rpcHandlerManager.registerHandler<unknown, CodexNativeModelsResult>('list-codex-native-models', async (params) => {
+                if (!params || typeof params !== 'object' || Array.isArray(params) || Object.keys(params).length !== 0) {
+                    return { type: 'error', errorMessage: 'Native model discovery does not accept parameters.' };
+                }
+                return listCodexNativeModels();
             });
         }
 
@@ -601,6 +612,13 @@ export class ApiMachineClient {
 
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.syncResumeSessionRpcRegistration();
+            if (this.rpcHandlerManager.hasHandler('list-codex-native-models')) {
+                // Existing machine registration preserves old metadata. Advertise support on this event.
+                this.updateMachineMetadata(metadata => ({
+                    ...(metadata ?? this.machine.metadata),
+                    capabilities: { ...metadata?.capabilities, codexNativeModels: true },
+                })).catch(() => logger.debug('[API MACHINE] Failed to advertise native model discovery'));
+            }
             this.startKeepAlive();
         });
 

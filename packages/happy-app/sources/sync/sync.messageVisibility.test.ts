@@ -1,3 +1,5 @@
+// Model-connection orchestration is exercised by its own integration tests.
+vi.mock('@/hooks/useSessionModelConnections', () => ({ useSessionModelConnections: () => ({ enabled: false, busy: false }) }));
 import './sessionViewPlatform.testSupport';
 import { AppState, Platform } from 'react-native';
 import { sessionHistoryPageCache } from './sessionHistoryPageCache';

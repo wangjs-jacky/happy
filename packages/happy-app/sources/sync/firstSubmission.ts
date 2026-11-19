@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 import type { AttachmentPreview } from './attachmentTypes';
 import type { NewSessionAgentType } from './persistence';
 import type { LocalMessageQueueReceipt } from './sync';
@@ -8,6 +9,7 @@ export type FirstSubmissionInput = {
     permissionMode?: string | null; modelMode?: string | null; effortLevel?: string | null;
     fastMode?: boolean; sidebarListId?: string | null;
     expectedCodexAccountProfileId?: string | null;
+    codexConnection?: CodexConnection;
     attachments: { id: string; name: string }[];
 };
 export type FirstSubmissionSnapshot = FirstSubmissionInput & {
@@ -108,11 +110,11 @@ export class FirstSubmissionOwner {
         const generation = this.generation;
         const current = () => generation === this.generation && this.current();
         // Explicit whitelist: never serialize live API credentials, blobs or machine metadata.
-        const { text, prompt, machineId, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, fastMode, sidebarListId, expectedCodexAccountProfileId } = input;
+        const { text, prompt, machineId, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, fastMode, sidebarListId, expectedCodexAccountProfileId, codexConnection } = input;
         this.live = { ...live, images: live.images.map(image => ({ ...image })) };
         this.receipt = undefined;
         this.publish({ version: 1, scope: this.scope, phase: 'saving', text, prompt, machineId, path, agent, worktreeKey,
-            permissionMode, modelMode, effortLevel, fastMode, sidebarListId, expectedCodexAccountProfileId, attachments: input.attachments.map(({ id, name }) => ({ id, name })) });
+            permissionMode, modelMode, effortLevel, fastMode, sidebarListId, expectedCodexAccountProfileId, codexConnection, attachments: input.attachments.map(({ id, name }) => ({ id, name })) });
         try {
             await this.persist('saving', current);
             if (!current()) return false;

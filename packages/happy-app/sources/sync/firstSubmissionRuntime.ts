@@ -38,6 +38,8 @@ export const firstSubmission = new FirstSubmissionOwner({
                 directory: live.directory ?? input.path ?? '~', agent: input.agent,
                 environmentVariables: live.environmentVariables, approvedNewDirectoryCreation: approved,
                 expectedCodexAccountProfileId: input.expectedCodexAccountProfileId,
+                codexConnection: input.codexConnection,
+                ...(input.codexConnection && input.modelMode && input.modelMode !== 'default' ? { model: input.modelMode } : {}),
                 ...(trace ? { traceId: trace.id } : {}) });
             if (!current()) return { type: 'cancelled' };
             if (result.type === 'success') {

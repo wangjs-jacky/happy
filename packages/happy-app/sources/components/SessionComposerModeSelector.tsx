@@ -23,6 +23,7 @@ import { ComposerTooltip } from './DesktopShortcutTooltip';
 
 export type SessionComposerModeSelectorConfig = {
     online: boolean;
+    changingModel?: boolean;
     unifiedCodex?: boolean;
     model: ModeOption | null;
     modelOptions: ModeOption[];
@@ -288,7 +289,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                           ? t('settingsAccount.notAvailable')
                           : t('newSession.machineOffline')
                 }
-                accessibilityState={{ disabled: !enabled, expanded: open }}
+                accessibilityState={{ disabled: !enabled, expanded: open, busy: props.changingModel }}
                 aria-expanded={open}
                 disabled={!enabled}
                 onPress={toggle}
@@ -310,7 +311,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                     />
                 ) : null}
                 <Text style={styles.triggerText} numberOfLines={1}>
-                    {open ? t('agentInput.effort.select') : formatComposerModelName(props.model?.name ?? t('agentInput.model.title'))}
+                    {props.changingModel ? t('common.loading') : open ? t('agentInput.effort.select') : formatComposerModelName(props.model?.name ?? t('agentInput.model.title'))}
                     {!open && effectiveEffort ? <Text style={isUltra ? styles.ultraTitle : styles.triggerEffort}> {effectiveEffort.name}</Text> : null}
                 </Text>
                 {enabled ? (
@@ -449,6 +450,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                 >
                                                     <View style={styles.grow}>
                                                         <Text style={styles.optionText}>{formatComposerModelName(option.name)}</Text>
+                                                        {option.actionLabel ? <Text style={styles.catalogStatus}>{option.actionLabel}</Text> : null}
                                                     </View>
                                                     {props.model?.key === option.key ? (
                                                         <Ionicons

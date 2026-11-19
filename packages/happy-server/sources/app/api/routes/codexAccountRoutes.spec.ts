@@ -18,6 +18,7 @@ vi.mock('@/storage/db', () => ({ db: new Proxy({}, { get: (_, key) => {
 } }) }));
 vi.mock('@/utils/log', () => ({ log: vi.fn() }));
 import { codexAccountRoutes } from './codexAccountRoutes';
+import { codexAccountStore } from './codexAccountStore';
 
 const fakeAuth = (account = 'openai-private-account') => ({
     OPENAI_API_KEY: null,
@@ -40,8 +41,8 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         return res.json().profile;
     };
     const bind = (profileId: string | null, expectedVersion = 0, target = machineId) => request('PUT', `/v1/machines/${target}/codex-account`, { profileId, expectedVersion });
-    const issue = async () => {
-        const res = await request('POST', '/v1/codex-session-grants', { machineId });
+    const issue = async (profileId?: string) => {
+        const res = await request('POST', '/v1/codex-session-grants', { machineId, ...(profileId ? { profileId } : {}) });
         expect(res.statusCode, res.body).toBe(200);
         return res.json();
     };
@@ -150,6 +151,155 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         expect(list.bindings).toContainEqual({ machineId, profileId: null, version: 2 });
         expect((await redeem(pending.grant)).statusCode).toBe(409);
         expect((await request('POST', '/v1/codex-session-grants', { machineId })).statusCode).toBe(409);
+    });
+
+    it('launches an explicit owned account independently of the default and redeems it once after rebinding', async () => {
+        const original = await upload();
+        const selected = await upload('selected-account');
+        await bind(original.id);
+        const issued = await issue(selected.id);
+        expect(issued.profile).toMatchObject({ id: selected.id, credentialVersion: 1 });
+        expect(issued).not.toHaveProperty('auth');
+        expect((await request('GET', '/v1/codex-accounts')).json().bindings)
+            .toContainEqual({ machineId, profileId: original.id, version: 1 });
+        expect((await issue()).profile.id).toBe(original.id);
+
+        await bind(null, 1);
+        expect((await redeem(issued.grant, 'wrong-machine')).statusCode).toBe(409);
+        expect((await redeem(issued.grant, machineId, 'foreign-user')).statusCode).toBe(409);
+        const results = await Promise.all([redeem(issued.grant), redeem(issued.grant)]);
+        expect(results.map((res) => res.statusCode).sort()).toEqual([200, 409]);
+        const success = results.find((res) => res.statusCode === 200)!;
+        expect(success.json()).toMatchObject({ auth: fakeAuth('selected-account'), profile: { id: selected.id, credentialVersion: 1 } });
+        expect((await request('GET', '/v1/codex-accounts')).json().bindings)
+            .toContainEqual({ machineId, profileId: null, version: 2 });
+        expect(JSON.stringify(await state.database.codexSessionGrant.findMany({ where: { accountId } })))
+            .not.toContain(issued.grant);
+    });
+
+    it('keeps an unbound device unchanged without triggering legacy migration for an explicit grant', async () => {
+        const selected = await upload('selected-account');
+        await state.database.serviceAccountToken.create({ data: { accountId, vendor: 'openai', token: encryptString(['user', accountId, 'vendors', 'openai', 'token'], JSON.stringify({ oauth: fakeAuth().tokens })) } });
+        const before = await state.database.machine.findUniqueOrThrow({ where: { id: machineId } });
+        const issued = await issue(selected.id);
+        expect((await redeem(issued.grant)).json()).toMatchObject({ auth: fakeAuth('selected-account'), profile: { id: selected.id } });
+        expect(await state.database.machine.findUniqueOrThrow({ where: { id: machineId } })).toEqual(before);
+        expect(await state.database.codexAccountAudit.findMany({ where: { accountId, machineId } }))
+            .toEqual(expect.arrayContaining([expect.objectContaining({ action: 'grant-create-explicit', profileId: selected.id })]));
+        // The unchanged implicit path can still perform the compatibility migration.
+        expect((await issue()).profile.id).not.toBe(selected.id);
+    });
+
+    it('requires an owned machine and available owned profile for explicit account grants', async () => {
+        const own = await upload();
+        const foreign = `${accountId}-foreign`;
+        const foreignMachine = `${foreign}-machine`;
+        await state.database.account.create({ data: { id: foreign, publicKey: foreign } });
+        await state.database.machine.create({ data: { id: foreignMachine, accountId: foreign, metadata: 'encrypted' } });
+        const other = await request('POST', '/v1/codex-accounts/upload', { auth: fakeAuth('foreign-account') }, foreign);
+        expect(other.statusCode).toBe(200);
+        for (const payload of [
+            { machineId, profileId: other.json().profile.id },
+            { machineId, profileId: '00000000-0000-4000-8000-000000000001' },
+            { machineId: foreignMachine, profileId: own.id },
+        ]) expect((await request('POST', '/v1/codex-session-grants', payload)).statusCode).toBe(404);
+        for (const status of ['invalid', 'needs-refresh']) {
+            await state.database.codexAccountProfile.update({ where: { id: own.id }, data: { status } });
+            expect((await request('POST', '/v1/codex-session-grants', { machineId, profileId: own.id })).statusCode).toBe(409);
+        }
+        expect(await state.database.codexSessionGrant.count({ where: { accountId } })).toBe(0);
+    });
+
+    it('rejects explicit profiles combined with resume authority or malformed profile IDs', async () => {
+        const original = await launch();
+        for (const payload of [
+            { machineId, profileId: original.profile.id, sourceSessionId: original.sourceSessionId },
+            { machineId, profileId: 'not-a-uuid' },
+            { machineId, profileId: null },
+        ]) {
+            const response = await request('POST', '/v1/codex-session-grants', payload);
+            expect(response.statusCode).toBe(400);
+            expect(response.json()).toEqual({ error: 'invalid-request' });
+        }
+    });
+
+    it.each(['expired', 'credential-change', 'invalid', 'needs-refresh', 'profile-delete', 'machine-delete', 'profile-owner-change', 'machine-owner-change'])('rejects an explicit grant after %s', async (reason) => {
+        const profile = await upload();
+        const issued = await issue(profile.id);
+        if (reason === 'expired') await state.database.codexSessionGrant.updateMany({ where: { accountId }, data: { expiresAt: new Date(0) } });
+        if (reason === 'credential-change') await upload();
+        if (reason === 'invalid' || reason === 'needs-refresh') await state.database.codexAccountProfile.update({ where: { id: profile.id }, data: { status: reason } });
+        if (reason === 'profile-delete') await request('DELETE', `/v1/codex-accounts/${profile.id}`);
+        if (reason === 'machine-delete') await state.database.machine.delete({ where: { id: machineId } });
+        if (reason.endsWith('owner-change')) {
+            const foreign = `${accountId}-foreign`;
+            await state.database.account.create({ data: { id: foreign, publicKey: foreign } });
+            if (reason === 'profile-owner-change') await state.database.codexAccountProfile.update({ where: { id: profile.id }, data: { accountId: foreign } });
+            else await state.database.machine.update({ where: { id: machineId }, data: { accountId: foreign } });
+        }
+        expect((await redeem(issued.grant)).statusCode).toBe(409);
+    });
+
+    it('registers an explicit launch only to a fresh account session and pins later resumes to that account', async () => {
+        const original = await launch();
+        const selected = await upload('selected-account');
+        const issued = await issue(selected.id);
+        const redeemed = await redeem(issued.grant);
+        expect(redeemed.statusCode).toBe(200);
+        const url = `/v1/codex-session-grants/${redeemed.json().launchId}/session`;
+        expect((await request('POST', url, { machineId, sourceSessionId: original.sourceSessionId })).statusCode).toBe(409);
+        const freshSessionId = `${accountId}-fresh-session`;
+        await state.database.session.create({ data: { id: freshSessionId, accountId, tag: freshSessionId, metadata: 'encrypted' } });
+        for (let i = 0; i < 2; i++) expect((await request('POST', url, { machineId, sourceSessionId: freshSessionId })).statusCode).toBe(200);
+        const resumed = await request('POST', '/v1/codex-session-grants', { machineId, sourceSessionId: freshSessionId });
+        expect(resumed.statusCode).toBe(200);
+        expect(resumed.json().profile.id).toBe(selected.id);
+        expect((await redeem(resumed.json().grant)).json().auth).toEqual(fakeAuth('selected-account'));
+        expect((await request('POST', '/v1/codex-session-grants', { machineId, sourceSessionId: original.sourceSessionId })).json().profile.id)
+            .toBe(original.profile.id);
+        expect((await request('GET', '/v1/codex-accounts')).json().bindings)
+            .toContainEqual({ machineId, profileId: original.profile.id, version: 1 });
+    });
+
+    it('rejects attaching an explicit account launch to an older native session without an account audit', async () => {
+        const nativeSessionId = `${accountId}-native-session`;
+        const native = await state.database.session.create({ data: {
+            id: nativeSessionId, accountId, tag: nativeSessionId, metadata: 'encrypted', createdAt: new Date(0),
+        } });
+        const profile = await upload();
+        const issued = await issue(profile.id);
+        const redeemed = await redeem(issued.grant);
+        expect(redeemed.statusCode).toBe(200);
+        const launchId = redeemed.json().launchId;
+        const url = `/v1/codex-session-grants/${launchId}/session`;
+        expect(await state.database.codexSessionGrant.count({ where: { accountId, sourceSessionId: nativeSessionId } })).toBe(0);
+        expect((await request('POST', url, { machineId, sourceSessionId: nativeSessionId })).statusCode).toBe(409);
+        expect(await state.database.session.findUniqueOrThrow({ where: { id: nativeSessionId } })).toEqual(native);
+        expect(await state.database.codexSessionGrant.findUniqueOrThrow({ where: { id: launchId } }))
+            .toMatchObject({ sourceSessionId: null });
+
+        const freshSessionId = `${accountId}-fresh-session`;
+        await state.database.session.create({ data: { id: freshSessionId, accountId, tag: freshSessionId, metadata: 'encrypted' } });
+        for (let i = 0; i < 2; i++) expect((await request('POST', url, { machineId, sourceSessionId: freshSessionId })).statusCode).toBe(200);
+    });
+
+    it('preserves an already recorded explicit launch registration retry for an older session', async () => {
+        const sourceSessionId = `${accountId}-recorded-session`;
+        await state.database.session.create({ data: { id: sourceSessionId, accountId, tag: sourceSessionId, metadata: 'encrypted', createdAt: new Date(0) } });
+        const profile = await upload();
+        const redeemed = await redeem((await issue(profile.id)).grant);
+        expect(redeemed.statusCode).toBe(200);
+        const launchId = redeemed.json().launchId;
+        // A persisted registration from before this guard must stay idempotent.
+        await state.database.codexSessionGrant.update({ where: { id: launchId }, data: { sourceSessionId } });
+        expect((await request('POST', `/v1/codex-session-grants/${launchId}/session`, { machineId, sourceSessionId })).statusCode).toBe(200);
+    });
+
+    it('does not treat an unknown negative binding version as explicit account authority', async () => {
+        const profile = await upload();
+        const issued = await issue(profile.id);
+        await state.database.codexSessionGrant.updateMany({ where: { accountId }, data: { bindingVersion: -2 } });
+        expect((await redeem(issued.grant)).statusCode).toBe(409);
     });
 
     it('resumes with the recorded session account without changing the machine binding', async () => {
@@ -345,6 +495,57 @@ describe('Codex account security against migrated PostgreSQL and real encryption
         const other = `${accountId}-other-session`;
         await state.database.session.create({ data: { id: other, accountId, tag: other, metadata: 'encrypted' } });
         expect((await request('POST', `/v1/codex-session-grants/${launchId}/session`, { machineId, sourceSessionId: other })).statusCode).toBe(409);
+    });
+
+    it('lists the read-only account directory without migrating legacy credentials or changing untouched bindings', async () => {
+        const profile = await upload('selected-account');
+        await state.database.serviceAccountToken.create({ data: { accountId, vendor: 'openai', token: encryptString(['user', accountId, 'vendors', 'openai', 'token'], JSON.stringify({ oauth: fakeAuth().tokens })) } });
+        const snapshot = async () => ({
+            account: await state.database.account.findUniqueOrThrow({ where: { id: accountId } }),
+            machines: await state.database.machine.findMany({ where: { accountId } }),
+            profiles: await state.database.codexAccountProfile.findMany({ where: { accountId } }),
+            legacy: await state.database.serviceAccountToken.findMany({ where: { accountId } }),
+            audits: await state.database.codexAccountAudit.findMany({ where: { accountId } }),
+        });
+        const before = await snapshot();
+        const response = await request('GET', '/v1/codex-accounts/directory');
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+            profiles: [{ id: profile.id, credentialVersion: 1 }],
+            bindings: [{ machineId, profileId: null, version: 0 }],
+            migration: 'none',
+        });
+        expect(response.json().profiles).toHaveLength(1);
+        expect(await snapshot()).toEqual(before);
+
+        // The compatibility endpoint retains its existing migration behavior.
+        const migrated = await request('GET', '/v1/codex-accounts');
+        expect(migrated.statusCode).toBe(200);
+        expect(migrated.json().migration).toBe('completed');
+        expect(migrated.json().profiles).toHaveLength(2);
+        expect(migrated.json().bindings[0]).toMatchObject({ machineId, version: 1 });
+        expect(migrated.json().bindings[0].profileId).not.toBe(profile.id);
+        expect((await request('GET', '/v1/codex-accounts/directory')).json().migration).toBe('completed');
+    });
+
+    it('returns 404 for the new directory on a legacy-only server without running the legacy migration endpoint', async () => {
+        await state.database.serviceAccountToken.create({ data: { accountId, vendor: 'openai', token: encryptString(['user', accountId, 'vendors', 'openai', 'token'], JSON.stringify({ oauth: fakeAuth().tokens })) } });
+        const beforeMachine = await state.database.machine.findUniqueOrThrow({ where: { id: machineId } });
+        const beforeLegacy = await state.database.serviceAccountToken.findMany({ where: { accountId } });
+        const legacyApp = fastify();
+        legacyApp.get('/v1/codex-accounts', () => codexAccountStore.list(accountId));
+        try {
+            const response = await legacyApp.inject({ method: 'GET', url: '/v1/codex-accounts/directory' });
+            expect(response.statusCode).toBe(404);
+            expect(await state.database.codexAccountProfile.count({ where: { accountId } })).toBe(0);
+            expect(await state.database.machine.findUniqueOrThrow({ where: { id: machineId } })).toEqual(beforeMachine);
+            expect(await state.database.serviceAccountToken.findMany({ where: { accountId } })).toEqual(beforeLegacy);
+            expect(await state.database.codexAccountAudit.count({ where: { accountId } })).toBe(0);
+            const legacyResponse = await legacyApp.inject({ method: 'GET', url: '/v1/codex-accounts' });
+            expect(legacyResponse.statusCode).toBe(200);
+            expect(legacyResponse.json().migration).toBe('completed');
+            expect(legacyResponse.json().bindings[0]).toMatchObject({ machineId, version: 1 });
+        } finally { await legacyApp.close(); }
     });
 
     it('migrates the legacy OAuth record once, binds untouched existing machines, and preserves explicit unbinding', async () => {

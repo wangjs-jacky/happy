@@ -26,7 +26,9 @@ export const renameCodexAccountSchema = z.object({ displayName: z.string().trim(
 export type RenameCodexAccountRequest = z.infer<typeof renameCodexAccountSchema>;
 export const bindCodexAccountSchema = z.object({ profileId: z.string().uuid().nullable(), expectedVersion: version }).strict();
 export type BindCodexAccountRequest = z.infer<typeof bindCodexAccountSchema>;
-export const createCodexGrantSchema = z.object({ machineId: opaqueId, sourceSessionId: opaqueId.optional() }).strict();
+export const createCodexGrantSchema = z.object({
+    machineId: opaqueId, sourceSessionId: opaqueId.optional(), profileId: z.string().uuid().optional(),
+}).strict().refine((input) => input.profileId === undefined || input.sourceSessionId === undefined);
 export type CreateCodexGrantRequest = z.infer<typeof createCodexGrantSchema>;
 export const redeemCodexGrantSchema = z.object({ machineId: opaqueId, grant: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
 export type RedeemCodexGrantRequest = z.infer<typeof redeemCodexGrantSchema>;

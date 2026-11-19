@@ -28,6 +28,14 @@ function fixture() {
     return { owner, deps, disk, effects, receipt, invalidate: () => { current = false; } };
 }
 describe('recoverable first submission', () => {
+    it('persists the exact per-launch connection and model through the real submission owner', async () => {
+        const { owner, deps } = fixture();
+        await owner.submit({ ...input, codexConnection: { type: 'native' }, modelMode: 'deepseek/DeepSeek-V4.1-Flash' }, { images: [] });
+        expect(deps.spawn).toHaveBeenCalledWith(expect.objectContaining({ codexConnection: { type: 'native' }, modelMode: 'deepseek/DeepSeek-V4.1-Flash' }), expect.anything(), expect.any(Function));
+        const records = deps.save.mock.calls.map(call => JSON.parse(call[1]));
+        expect(records.every(record => record.codexConnection?.type === 'native')).toBe(true);
+    });
+
     it.each(['error', 'cancelled'])('allows an explicit new submission after a %s without restoring old text', async type => {
         const f = fixture(); f.deps.spawn.mockResolvedValueOnce({ type } as any);
         await f.owner.submit(input, { images: [] });

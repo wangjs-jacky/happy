@@ -1,3 +1,4 @@
+import type { CodexConnection } from '@/utils/modelConnections';
 import { asyncQuestionResponseSchema, type AsyncQuestionAction, type AsyncQuestionResponse } from '@slopus/happy-wire';
 /**
  * Session operations for remote procedure calls
@@ -5,6 +6,7 @@ import { asyncQuestionResponseSchema, type AsyncQuestionAction, type AsyncQuesti
  */
 
 import { apiSocket } from './apiSocket';
+import { getServerUrl } from './serverConfig';
 import { ComposerPredictionResponseSchema, type ComposerPredictionRequest, type ComposerPredictionResponse } from '@slopus/happy-wire';
 import { sync } from './sync';
 import { isRetiredAgentFlavor } from './retiredSessions';
@@ -240,6 +242,9 @@ export interface SpawnSessionOptions {
     agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw';
     /** Connection used for the selected model catalog; null means native Codex. */
     expectedCodexAccountProfileId?: string | null;
+    codexConnection?: CodexConnection;
+    model?: string;
+    effort?: string;
     environmentVariables?: Record<string, string>;
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
@@ -323,12 +328,20 @@ export interface ResumeSessionOptions {
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
     if (isRetiredAgentFlavor(options.agent)) return { type: 'error', errorMessage: 'personal-agent-retired' };
+    const connection = options.codexConnection;
+    if (connection && (connection.type !== 'native' && (connection.type !== 'account' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(connection.profileId)))) {
+        return { type: 'error', errorMessage: 'Invalid Codex connection.' };
+    }
+    if (options.codexConnection && (options.agent !== 'codex' || options.resumeCodexThreadId || options.resumeClaudeSessionId)) {
+        return { type: 'error', errorMessage: 'Explicit connections are supported only for fresh Codex sessions.' };
+    }
     const { machineId, directory, traceId, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
     return machineStartSession(machineId, 'spawn-happy-session', agent === 'codex', {
         type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation,
         ...(agent === 'codex' ? {} : { token }), agent, environmentVariables,
         resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId,
-    }, options.expectedCodexAccountProfileId);
+        ...(options.model ? { model: options.model } : {}), ...(options.effort ? { effort: options.effort } : {}),
+    }, options.expectedCodexAccountProfileId, options.codexConnection);
 }
 
 /** Project tasks use the same ephemeral Codex-account grants as ordinary session creation. */
@@ -354,27 +367,40 @@ async function machineStartSession(
     isCodex: boolean,
     parameters: Record<string, unknown>,
     expectedCodexAccountProfileId?: string | null,
+    codexConnection?: CodexConnection,
 ): Promise<SpawnSessionResult> {
     let grant: string | undefined;
     const redact = (message: string) => grant ? message.replaceAll(grant, '[redacted]') : message;
     let dispatching = false;
     try {
-        if (isCodex) {
+        if (isCodex && codexConnection?.type !== 'native') {
             let actualProfileId: string | null = null;
             const { TokenStorage } = await import('@/auth/tokenStorage');
             const credentials = await TokenStorage.getCredentials().catch(() => null);
+            const authorizationServer = getServerUrl();
             // A bound account deliberately overrides the machine-local login.
             // An unbound machine falls through to its own Codex auth.json, so
             // normal Paws use does not require duplicating an existing login.
             if (credentials) {
                 try {
-                    const authorization = await createCodexSessionGrant(credentials, machineId);
+                    const authorization = await createCodexSessionGrant(credentials, machineId,
+                        codexConnection?.type === 'account' ? codexConnection.profileId : undefined);
+                    if (codexConnection?.type === 'account' && authorization.profile.id !== codexConnection.profileId) {
+                        throw new CodexAccountError('binding-version-conflict');
+                    }
                     grant = authorization.grant;
                     actualProfileId = authorization.profile.id;
                 } catch (error) {
-                    if (!(error instanceof CodexAccountError) || error.code !== 'codex-account-unbound') throw error;
+                    if (codexConnection?.type === 'account' || !(error instanceof CodexAccountError) || error.code !== 'codex-account-unbound') throw error;
                 }
             }
+            if (credentials) {
+                const latestCredentials = await TokenStorage.getCredentials().catch(() => null);
+                if (latestCredentials?.token !== credentials.token || latestCredentials?.secret !== credentials.secret || getServerUrl() !== authorizationServer) {
+                    throw new CodexAccountError('authentication-required');
+                }
+            }
+            if (codexConnection?.type === 'account' && !grant) throw new CodexAccountError('authentication-required');
             if (expectedCodexAccountProfileId !== undefined && actualProfileId !== expectedCodexAccountProfileId) {
                 throw new CodexAccountError('binding-version-conflict');
             }

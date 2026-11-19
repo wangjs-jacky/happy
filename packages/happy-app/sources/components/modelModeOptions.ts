@@ -7,6 +7,7 @@ export type ModeOption = {
     key: string;
     name: string;
     description?: string | null;
+    actionLabel?: string;
 };
 
 export type PermissionMode = ModeOption;

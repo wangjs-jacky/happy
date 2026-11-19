@@ -28,7 +28,7 @@ describe('App Codex accounts boundary', () => {
         respond({ profiles: [{ ...profile, auth: { access_token: 'must-not-escape' } }], bindings: [], migration: 'none' });
         const result = await api.listCodexAccounts(credentials);
         expect(result).toEqual({ profiles: [profile], bindings: [], migration: 'none' });
-        expect(requests[0]).toMatchObject({ url: 'https://test/v1/codex-accounts', init: {
+        expect(requests[0]).toMatchObject({ url: 'https://test/v1/codex-accounts/directory', init: {
             method: 'GET', headers: { Authorization: 'Bearer paws-bearer', 'X-Happy-Client': 'web' },
         } });
     });

@@ -1,3 +1,6 @@
+import { buildConnectionModelOptions, connectionModelKey } from '@/utils/modelConnections';
+import { useNativeCodexModels } from '@/hooks/useNativeCodexModels';
+import type { CodexConnection } from '@/utils/modelConnections';
 import { SessionComposerPermissionSelector } from './SessionComposerPermissionSelector';
 import { getAgentPermissionModeForTaskLevel, getTaskPermissionLevelForAgentMode } from '@/utils/taskPermissionModes';
 import { ComposerTooltip } from './DesktopShortcutTooltip';
@@ -739,6 +742,7 @@ export interface SessionConfigSelection {
     worktreeKey: string;
     fastMode: boolean;
     expectedCodexAccountProfileId?: string | null;
+    codexConnection?: CodexConnection;
 }
 
 export interface SessionConfigPanelHandle {
@@ -797,6 +801,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             permissionMode: s.permissionMode,
             setPermissionMode: s.setPermissionMode,
             modelMode: s.modelMode,
+            codexConnection: s.codexConnection,
+            setCodexConnection: s.setCodexConnection,
             setModelMode: s.setModelMode,
             effortLevel: s.effortLevel,
             setEffortLevel: s.setEffortLevel,
@@ -999,7 +1005,14 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         }, [availableAgents, selectedAgent, setSelectedAgent]);
 
         // Derive options from agent type
-        const codexAccountProfileId = codexAccounts.loading || codexAccounts.error
+        const [explicitConnection, setExplicitConnection] = React.useState<{ machineId: string | null; connection: CodexConnection } | null>(() =>
+            draft.codexConnection ? { machineId: selectedMachineId, connection: draft.codexConnection } : null);
+        React.useEffect(() => {
+            setExplicitConnection(draft.codexConnection ? { machineId: selectedMachineId, connection: draft.codexConnection } : null);
+        }, [selectedMachineId, draft.codexConnection]);
+        const selectedConnection = explicitConnection?.machineId === selectedMachineId ? explicitConnection.connection : undefined;
+        const nativeCatalog = useNativeCodexModels(selectedMachineId);
+        const codexAccountProfileId = selectedConnection ? (selectedConnection.type === 'account' ? selectedConnection.profileId : null) : codexAccounts.loading || codexAccounts.error
             ? undefined
             : codexAccounts.bindings.find(binding => binding.machineId === selectedMachineId)?.profileId ?? null;
         const getNewSessionModels = React.useCallback((agent: string, metadata: Session['metadata']) =>
@@ -1020,20 +1033,32 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             [selectedAgent, selectedMachineId, sessions, codexAccountProfileId],
         );
         const modelModes = React.useMemo<ModelMode[]>(
-            () => getNewSessionModels(selectedAgent, modelMetadata),
-            [modelMetadata, selectedAgent, getNewSessionModels],
+            () => selectedAgent === 'codex' && codexAccountProfileId === null && nativeCatalog.models.length
+                ? nativeCatalog.models
+                : selectedAgent === 'codex' && selectedConnection && draft.codexConnection && !modelMetadata?.models?.length && draft.modelMode !== 'default'
+                    ? [{ key: draft.modelMode, name: draft.modelMode }]
+                    : getNewSessionModels(selectedAgent, modelMetadata),
+            [modelMetadata, selectedAgent, getNewSessionModels, nativeCatalog.models, codexAccountProfileId, selectedConnection, draft.modelMode, draft.codexConnection],
         );
         // A model choice carries its execution agent, so the composer needs only one picker.
         const unifiedModels = React.useMemo(() => availableAgents.flatMap((item) => {
             const metadata = getLatestSessionModelMetadata({ sessions, selectedMachineId, agent: item.key, codexAccountProfileId });
             const options = getNewSessionModels(item.key, metadata);
+            if (item.key === 'codex' && codexAccountProfileId !== undefined) {
+                const currentConnection: CodexConnection = codexAccountProfileId ? { type: 'account', profileId: codexAccountProfileId } : { type: 'native' };
+                return buildConnectionModelOptions({ machineId: selectedMachineId ?? '', sessions,
+                    profiles: codexAccounts.profiles ?? [], currentConnection,
+                    currentModels: selectedAgent === 'codex' ? modelModes : options,
+                    nativeModels: nativeCatalog.models, nativeLabel: t('agentInput.model.localConnection'), automaticLabel: t('agentInput.model.cliAutomatic'),
+                });
+            }
             const concrete = options.filter((model) => model.key !== 'default');
             // Without a concrete catalog this is an agent launch entry, not
             // an extra default-model choice beside supported models.
             return (concrete.length ? concrete : [{
                 key: 'default', name: `${item.label} · ${t('agentInput.model.cliAutomatic')}`,
             }]).map((model) => ({ ...model, key: `${item.key}::${model.key}` }));
-        }), [availableAgents, sessions, selectedMachineId, codexAccountProfileId, getNewSessionModels]);
+        }), [availableAgents, sessions, selectedMachineId, codexAccountProfileId, getNewSessionModels, codexAccounts.profiles, modelModes, nativeCatalog.models, selectedAgent]);
         const configExperience = React.useMemo(
             () => getSessionConfigExperience(selectedAgent),
             [selectedAgent],
@@ -1369,11 +1394,12 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                     : draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null,
                 worktreeKey,
                 fastMode: supportsFast && fastMode,
-                ...(selectedAgent === 'codex' && codexAccountProfileId !== undefined
-                    ? { expectedCodexAccountProfileId: codexAccountProfileId } : {}),
+                ...(selectedAgent === 'codex' && selectedConnection ? { codexConnection: selectedConnection }
+                    : selectedAgent === 'codex' && codexAccountProfileId !== undefined
+                        ? { expectedCodexAccountProfileId: codexAccountProfileId } : {}),
             }),
             closePickers: dismissPicker,
-        }), [currentPermission?.key, currentModelKey, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, fastMode, supportsFast, dismissPicker, selectedAgent, codexAccountProfileId]);
+        }), [currentPermission?.key, currentModelKey, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, fastMode, supportsFast, dismissPicker, selectedAgent, codexAccountProfileId, selectedConnection]);
 
         // Android uses a bottom sheet so options do not expand inside the
         // composer. iOS and desktop sidebars retain their existing inline layout.
@@ -1597,14 +1623,17 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 <SessionComposerModeSelector
                                     unifiedCodex={selectedAgent === 'codex'}
                                     online={!isOffline}
-                                    model={currentModel ? { ...currentModel, key: `${selectedAgent}::${currentModel.key}` } : null}
+                                    model={currentModel ? { ...currentModel, key: selectedAgent === 'codex' && codexAccountProfileId !== undefined
+                                        ? connectionModelKey(codexAccountProfileId ? { type: 'account', profileId: codexAccountProfileId } : { type: 'native' }, currentModel.key)
+                                        : `${selectedAgent}::${currentModel.key}` } : null}
                                     modelOptions={unifiedModels}
                                     effort={showEffort ? currentEffort : null}
                                     effortOptions={showEffort ? effortLevels : []}
                                     fastMode={fastMode}
                                     supportsFast={supportsFast}
                                     onFastModeChange={setFastMode}
-                                    onReset={unifiedModels.some(option => option.key === 'codex::gpt-6.1-sol') ? () => {
+                                    onReset={codexAccountProfileId !== undefined && unifiedModels.some(option => option.key === connectionModelKey(
+                                        codexAccountProfileId ? { type: 'account', profileId: codexAccountProfileId } : { type: 'native' }, 'gpt-6.1-sol')) ? () => {
                                         draft.setAgentType('codex');
                                         draft.setModelMode('gpt-6.1-sol');
                                         draft.setEffortLevel('medium');
@@ -1612,7 +1641,17 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         const modelIndex = modelModes.findIndex(mode => mode.key === 'gpt-6.1-sol');
                                         if (selectedAgent === 'codex' && modelIndex >= 0) setSelectedModelKey('gpt-6.1-sol');
                                     } : undefined}
+                                    onRefreshModels={availableAgents.some(item => item.key === 'codex') ? nativeCatalog.refresh : undefined}
                                     onModelChange={(key) => {
+                                        const target = unifiedModels.find(option => option.key === key);
+                                        if (target && 'connection' in target) {
+                                            const option = target as import('@/utils/modelConnections').ConnectionModelOption;
+                                            setExplicitConnection({ machineId: selectedMachineId, connection: option.connection });
+                                            draft.setCodexConnection(option.connection);
+                                            draft.setAgentType('codex'); draft.setModelMode(option.modelKey);
+                                            draft.setEffortLevel('default'); setSelectedModelKey(option.modelKey); setFastMode(false);
+                                            return;
+                                        }
                                         const separator = key.indexOf('::');
                                         if (separator < 0) return;
                                         const nextAgent = key.slice(0, separator) as NewSessionAgentType;

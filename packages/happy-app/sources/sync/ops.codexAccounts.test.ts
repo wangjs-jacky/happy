@@ -27,6 +27,56 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('transparent Codex grants', () => {
+    it('rejects malformed explicit selections rather than falling back to device defaults', async () => {
+        for (const codexConnection of [{ type: 'unknown' }, { type: 'account', profileId: '../other' }]) {
+            expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex', codexConnection: codexConnection as any })).toMatchObject({ type: 'error' });
+        }
+        expect(machineRPC).not.toHaveBeenCalled(); expect(requests).toEqual([]);
+    });
+    it('refuses to dispatch an acquired account grant after the signed-in owner changes', async () => {
+        getCredentials.mockResolvedValueOnce({ token: 'paws-bearer', secret: 'paws-secret' })
+            .mockResolvedValueOnce({ token: 'new-owner', secret: 'new-secret' });
+        expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex', codexConnection: {
+            type: 'account', profileId: '00000000-0000-4000-8000-000000000001' } })).toMatchObject({ type: 'error' });
+        expect(machineRPC).not.toHaveBeenCalled();
+    });
+
+    it('launches explicit native without reading or changing the default account', async () => {
+        await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex',
+            codexConnection: { type: 'native' }, model: 'deepseek/DeepSeek-V4.1-Flash', effort: 'high' });
+        expect(requests).toEqual([]);
+        expect(getCredentials).not.toHaveBeenCalled();
+        expect(machineRPC.mock.calls[0][2]).toMatchObject({ model: 'deepseek/DeepSeek-V4.1-Flash', effort: 'high' });
+        expect(machineRPC.mock.calls[0][2]).not.toHaveProperty('codexSessionGrant');
+    });
+    it('requests the explicitly selected account without mutating a device binding', async () => {
+        const profileId = '00000000-0000-4000-8000-000000000001';
+        await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex',
+            codexConnection: { type: 'account', profileId }, model: 'gpt-6.1-sol' });
+        expect(requests).toEqual([{ url: 'https://test/v1/codex-session-grants', body: { machineId: 'm1', profileId } }]);
+        expect(machineRPC.mock.calls[0][2]).toMatchObject({ model: 'gpt-6.1-sol', codexSessionGrant: 'a'.repeat(43) });
+    });
+    it('rejects an explicit account response for a different profile before dispatch', async () => {
+        const result = await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex',
+            codexConnection: { type: 'account', profileId: '00000000-0000-4000-8000-000000000002' } });
+        expect(result).toMatchObject({ type: 'error', codexAccountErrorCode: 'binding-version-conflict' });
+        expect(machineRPC).not.toHaveBeenCalled();
+    });
+    it('does not fall back to native when an explicit account is unavailable', async () => {
+        vi.stubGlobal('fetch', async () => Response.json({ error: 'codex-account-unbound' }, { status: 409 }));
+        const result = await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex',
+            codexConnection: { type: 'account', profileId: '00000000-0000-4000-8000-000000000001' } });
+        expect(result.type).toBe('error');
+        expect(machineRPC).not.toHaveBeenCalled();
+    });
+    it('rejects explicit connection selection for provider resume or a different agent', async () => {
+        for (const extra of [{ agent: 'codex' as const, resumeCodexThreadId: 'old-thread' }, { agent: 'claude' as const }]) {
+            expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', codexConnection: { type: 'native' }, ...extra }))
+                .toMatchObject({ type: 'error' });
+        }
+        expect(machineRPC).not.toHaveBeenCalled();
+    });
+
     it.each([null, '00000000-0000-4000-8000-000000000002'])('rejects a changed connection before RPC (expected %s)', async (expectedCodexAccountProfileId) => {
         expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex', expectedCodexAccountProfileId }))
             .toMatchObject({ type: 'error', codexAccountErrorCode: 'binding-version-conflict' });

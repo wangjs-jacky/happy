@@ -1,3 +1,4 @@
+import { connectionModelKey } from '@/utils/modelConnections';
 vi.mock('react-native-svg', () => ({ default: 'Svg', Path: 'Path', Rect: 'Rect', Circle: 'Circle' }));
 import * as React from 'react';
 import { act } from 'react';
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     sessionsOverride: null as unknown[] | null,
 }));
 
+vi.mock('@/hooks/useNativeCodexModels', () => ({ useNativeCodexModels: () => ({ models: [], refresh: async () => {} }) }));
 vi.mock('@/hooks/useCodexAccounts', () => ({ useCodexAccounts: () => mocks.codexAccounts }));
 
 vi.mock('react-native', async () => {
@@ -132,6 +134,8 @@ vi.mock('@/hooks/useNewSessionDraft', async () => {
         agentType: 'codex',
         permissionMode: 'yolo',
         modelMode: 'gpt-5.6-sol',
+        codexConnection: null,
+        setCodexConnection: vi.fn(),
         effortLevel: 'high',
         fastMode: false,
         setFastMode: (_enabled: boolean): void => undefined,
@@ -249,8 +253,8 @@ describe('SessionConfigPanel composer layout', () => {
         });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::default' })).toHaveLength(0);
-        act(() => renderer.root.findByProps({ testID: 'session-composer-model-codex::gpt-5.6-terra' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'default')}` })).toHaveLength(0);
+        act(() => renderer.root.findByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'gpt-5.6-terra')}` }).props.onPress());
         expect(ref.current.getSelection().modelKey).toBe('gpt-5.6-terra');
         mocks.sessionsOverride = [{ id: 'native', activeAt: 21, metadata: {
             machineId: 'mac', flavor: 'codex', models: [...models].reverse(),
@@ -269,8 +273,8 @@ describe('SessionConfigPanel composer layout', () => {
         });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
-        const launch = renderer.root.findByProps({ testID: 'session-composer-model-codex::default' });
-        expect(launch.props.accessibilityLabel.toLowerCase()).toContain('codex');
+        const launch = renderer.root.findByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'default')}` });
+        expect(launch.props.accessibilityLabel).toContain('agentInput.model.localConnection');
         expect(launch.props.accessibilityLabel).toContain('agentInput.model.cliAutomatic');
         expect(launch.props.accessibilityLabel).not.toContain('default model');
         act(() => launch.props.onPress());
@@ -302,7 +306,7 @@ describe('SessionConfigPanel composer layout', () => {
         expect(controls.props.style).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'session-composer-model-codex::gpt-5.6-terra' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'gpt-5.6-terra')}` }).props.onPress());
         expect(mocks.setModelMode).toHaveBeenCalledWith('gpt-5.6-terra');
         expect(mocks.setEffortLevel).not.toHaveBeenCalledWith(null);
         expect(ref.current.getSelection().effortKey).toBe('high');
@@ -331,16 +335,47 @@ describe('SessionConfigPanel composer layout', () => {
         await act(async () => { renderer = TestRenderer.create(<SessionConfigPanel ref={ref} layout="composer" />); });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::deepseek/DeepSeek-V4.1-Flash' })).toHaveLength(0);
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::gpt-5.6-sol' }).length).toBeGreaterThan(0);
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'deepseek/DeepSeek-V4.1-Flash')}` }).length).toBeGreaterThan(0);
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'account', profileId: 'account-a' }, 'gpt-5.6-sol')}` }).length).toBeGreaterThan(0);
         expect(ref.current.getSelection().modelKey).toBe('gpt-5.6-sol');
         expect(ref.current.getSelection().expectedCodexAccountProfileId).toBe('account-a');
 
         mocks.codexAccounts.bindings = [];
         await act(async () => { renderer.update(<SessionConfigPanel ref={ref} layout="composer" />); });
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::deepseek/DeepSeek-V4.1-Flash' }).length).toBeGreaterThan(0);
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::gpt-5.6-sol' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'deepseek/DeepSeek-V4.1-Flash')}` }).length).toBeGreaterThan(0);
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'account', profileId: 'account-a' }, 'gpt-5.6-sol')}` })).toHaveLength(0);
         expect(ref.current.getSelection().expectedCodexAccountProfileId).toBeNull();
+    });
+
+    it('keeps reset available for the current connection after model identities become qualified', async () => {
+        mocks.sessionsOverride = [{ id: 'account', activeAt: 1, metadata: { machineId: 'mac', flavor: 'codex', codexAccountProfileId: 'account-a',
+            models: [{ code: 'gpt-6.1-sol', value: 'Sol' }], thoughtLevels: [{ code: 'medium', value: 'Medium' }, { code: 'high', value: 'High' }] } }];
+        mocks.codexAccounts.bindings = [{ machineId: 'mac', profileId: 'account-a' }];
+        await act(async () => { renderer = TestRenderer.create(<SessionConfigPanel layout="composer" />); });
+        act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
+        const reset = renderer.root.findByProps({ testID: 'session-composer-effort-reset' });
+        expect(reset.props.disabled).toBe(false);
+        act(() => reset.props.onPress());
+        expect(mocks.setModelMode).toHaveBeenCalledWith('gpt-6.1-sol');
+        expect(mocks.setEffortLevel).toHaveBeenCalledWith('medium');
+        expect(mocks.codexAccounts.bindings).toEqual([{ machineId: 'mac', profileId: 'account-a' }]);
+    });
+
+    it('selects native DeepSeek for one launch while keeping the bound account unchanged', async () => {
+        const model = 'deepseek/DeepSeek-V4.1-Flash';
+        mocks.sessionsOverride = [
+            { id: 'account', activeAt: 1, metadata: { machineId: 'mac', flavor: 'codex', codexAccountProfileId: 'account-a', models: [{ code: 'gpt-6.1-sol', value: 'Sol' }] } },
+            { id: 'native', activeAt: 2, metadata: { machineId: 'mac', flavor: 'codex', models: [{ code: model, value: 'DeepSeek' }] } },
+        ];
+        mocks.codexAccounts.bindings = [{ machineId: 'mac', profileId: 'account-a' }];
+        const ref = React.createRef<any>();
+        await act(async () => { renderer = TestRenderer.create(<SessionConfigPanel ref={ref} layout="composer" />); });
+        act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, model)}` }).props.onPress());
+        expect(ref.current.getSelection()).toMatchObject({ modelKey: model, codexConnection: { type: 'native' } });
+        expect(ref.current.getSelection()).not.toHaveProperty('expectedCodexAccountProfileId');
+        expect(mocks.codexAccounts.bindings).toEqual([{ machineId: 'mac', profileId: 'account-a' }]);
     });
 
     it.each([
@@ -354,7 +389,7 @@ describe('SessionConfigPanel composer layout', () => {
         await act(async () => { renderer = TestRenderer.create(<SessionConfigPanel ref={ref} layout="composer" />); });
         act(() => renderer.root.findByProps({ testID: 'session-composer-mode-trigger' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'session-composer-open-models' }).props.onPress());
-        expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::deepseek/DeepSeek-V4.1-Flash' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: `session-composer-model-${connectionModelKey({ type: 'native' }, 'deepseek/DeepSeek-V4.1-Flash')}` })).toHaveLength(0);
         expect(ref.current.getSelection().modelKey).toBeUndefined();
         expect(ref.current.getSelection().effortKey).toBeNull();
         expect(renderer.root.findAllByProps({ testID: 'session-composer-model-codex::gpt-6.1-sol' })).toHaveLength(0);
