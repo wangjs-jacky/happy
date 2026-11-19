@@ -108,6 +108,11 @@ describe('native Task file cancellation compatibility', () => {
         await expect(projectTaskFiles('machine', '/archive', task).readText(path, abort.signal)).rejects.toThrow('File read aborted');
         expect(mocks.rpc).toHaveBeenCalledTimes(1);
     });
+    it('preserves an explicit null cancellation reason from browser signals', async () => {
+        const abort = new AbortController(); abort.abort(null);
+        await expect(projectTaskFiles('machine', '/archive', task).readText(path, abort.signal)).rejects.toBeNull();
+        expect(mocks.rpc).not.toHaveBeenCalled();
+    });
     it('preserves the cancellation reason from modern browser signals', async () => {
         const abort = new AbortController(); const reason = new Error('reader closed'); abort.abort(reason);
         await expect(projectTaskFiles('machine', '/archive', task).readText(path, abort.signal)).rejects.toBe(reason);
