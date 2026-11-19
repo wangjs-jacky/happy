@@ -136,6 +136,7 @@ export const MachineMetadataSchema = z.object({
   homeDir: z.string(),
   happyHomeDir: z.string(),
   happyLibDir: z.string(),
+  crossAgentContinuation: z.literal(1).optional(),
   cliAvailability: z.object({
     ask: z.boolean().optional(),
     claude: z.boolean(),
@@ -435,6 +436,8 @@ export type Metadata = {
   sandbox?: SandboxConfig | null
   dangerouslySkipPermissions?: boolean | null
   /** Lineage for sessions created via the fork / duplicate flow. */
+  crossAgentRequestId?: string
+  crossAgentSourceAgent?: 'claude' | 'codex'
   parentSessionId?: string
   forkedFromMessageId?: string
 };
