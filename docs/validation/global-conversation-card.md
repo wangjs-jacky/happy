@@ -23,6 +23,8 @@ Validation:
 - Final verified screenshots were reported to Happy Skills. An early screenshot helper restored the full browser size after a 1280 assertion; superseded by a capture that reapplied and checked the 1280 viewport inside the helper before capture.
 - Browser fixtures are synthetic, with actual relay/RPC but a stub session launcher. These checks do not prove production deployment or model startup.
 - Detailed runtime assertions: packages/happy-app/test-results/project-goals/global-card-results.json (ignored).
-- Not committed, pushed, merged or deployed.
+- Source release and automatic Web/OTA deployment are tracked by the corresponding Release OPS local record; browser checks above apply to the isolated candidate.
 
 Browser knowledge was updated at ego-ops/references/sites/paws/operations/verify-global-conversation-card.md and its site indexes; validation completed before the browser space was closed.
+
+Review screenshots: [firefly](global-conversation-card/firefly-global-conversation.png), [1280-wide Gingham](global-conversation-card/gingham-narrow-global-conversation.png).
