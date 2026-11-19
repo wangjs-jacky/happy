@@ -326,7 +326,7 @@ export async function runClaude(
             }
             // Imported messages describe closed history, not a new live turn.
             // Without its terminal event the UI queues the first real prompt.
-            if (process.env.HAPPY_CROSS_AGENT_SOURCE_AGENT && backfilled > 0) {
+            if (crossAgentSourceAgent && backfilled > 0) {
                 session.closeClaudeSessionTurn('completed');
             }
             const skippedAttachMessages = parsedMessages.length - messagesToBackfill.length;
