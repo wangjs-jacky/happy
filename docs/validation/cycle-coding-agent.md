@@ -26,4 +26,13 @@ App组件/真实Zustand状态/设置持久化/空配置派发门禁/OTA契约定
 
 新版界面和启用配置可通过定向preview验收；版本管理需要目标电脑运行本分支配套CLI。旧daemon明确提示先更新Paws CLI。本轮未切换当前稳定执行端、未合并或发布正式Web/production OTA，也没有验证手机已加载。前一版preview 1795093720149属于已被用户修正的箭头方案，不作为当前设计验收版本。
 
-本次preview回执在发布后补充。
+## 定向 preview 回执
+
+源码提交：ce3adc22；发布时工作区干净。channel=preview，platform=android，runtimeVersion=24。stamp=1795097438405；Update ID=d3e71b9b-2476-78ac-c7ba-aff9c3e3e578。
+
+不可变manifest：https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/24/preview/1795097438405.json
+
+匿名读回清单核对id/runtime/源码，主包44,085,036字节完整下载并核验SHA-256与manifest一致。707项既有资源由发布脚本复用，没有逐项重新下载全部资源；未覆盖preview latest。仅代表制品发布与主包校验，用户手机加载、实际更新和正式上线未验。
+
+当前稳定daemon未激活配套CLI；version管理在旧daemon显示需要升级Paws CLI的提示。图标与按电脑配置无需新native模块。用户单次选择不截图已在本文件保留，不扩为未来任务豁免。Android OPS的model-connection-catalog和harness已按证据补充经验；Magpie参考没有浏览器操作，无Ego成功日期写回。
+
