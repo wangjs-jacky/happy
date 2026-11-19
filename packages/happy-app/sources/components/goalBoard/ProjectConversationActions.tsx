@@ -17,7 +17,7 @@ function Actions({ session, onRemoved, disabled, testIDPrefix }: { session: Sess
     const actions = useSessionQuickActions(session, { onAfterArchive: onRemoved, onAfterDelete: onRemoved });
     const busy = disabled || actions.archivingSession || actions.deletingSession || actions.restoringSession;
     return <>
-        <Button variant="toolbar" label={t('sessionInfo.deleteSession')} tooltip={t('sessionInfo.deleteSession')} disabled={busy} testID={`${testIDPrefix}-delete-conversation`} onPress={actions.deleteSession}><Ionicons name="trash-outline" size={20} color={theme.colors.textSecondary} /></Button>
-        <Button variant="toolbar" label={t('sessionInfo.archiveSession')} tooltip={t('sessionInfo.archiveSession')} disabled={busy} testID={`${testIDPrefix}-archive-conversation`} onPress={actions.archiveSession}><Ionicons name="archive-outline" size={20} color={theme.colors.textSecondary} /></Button>
+        <Button variant="toolbar" label={t('sessionInfo.deleteSession')} disabled={busy} testID={`${testIDPrefix}-delete-conversation`} onPress={actions.deleteSession}><Ionicons name="trash-outline" size={20} color={theme.colors.textSecondary} /></Button>
+        <Button variant="toolbar" label={t('sessionInfo.archiveSession')} disabled={busy} testID={`${testIDPrefix}-archive-conversation`} onPress={actions.archiveSession}><Ionicons name="archive-outline" size={20} color={theme.colors.textSecondary} /></Button>
     </>;
 }
