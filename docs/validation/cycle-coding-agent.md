@@ -8,4 +8,14 @@
 
 验证：组件、真实 Zustand 选择状态、同名 Magpie 模型、连续往返切换、不可用 Agent 过滤和 live send selection 回归；App TypeScript 检查通过。Android OTA runtime 契约通过；Android export 构建通过。未进行本轮浏览器/原生设备视觉验收，未发布正式 Web 或 production OTA。
 
-preview 制品回执在发布完成后补充。
+定向 preview 已发布且未覆盖 latest：
+
+- 源码：4059b721（cycle-coding-agent，发布时工作区干净）。
+- channel：preview；platform：android；runtimeVersion：24。
+- stamp：1795093720149。
+- Update ID：f43d98fa-5cf2-6b56-b313-41f703f09994。
+- manifest：https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/24/preview/1795093720149.json。
+- 匿名读回清单核对id/runtime/源码，实际下载44,052,876字节主包，SHA-256与manifest一致；707个既有资源由发布脚本复用。本轮没有逐个重新下载全部资源，也未验证手机已加载。
+- preview包可在OTA Versions中选择上述stamp；正式Web与production OTA仍未发布。
+
+最终自动回归69项通过，TypeScript通过。项目经验指针已补充到Android OPS的happy-paws/model-connection-catalog，通用教训归codex-harness；没有新建凭据或改变云端权限。
