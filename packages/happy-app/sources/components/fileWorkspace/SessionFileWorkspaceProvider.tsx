@@ -67,7 +67,7 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const [reference, setReference] = React.useState<FileReference | null>(() => {
         const saved = loadFileWorkspaceReference(scope);
         const resolved = saved && resolveSessionFilePath(saved.path, root);
-        return saved && resolved?.withinSessionRoot ? { ...saved, path: resolved.absolutePath } : null;
+        return saved && resolved && (resolved.withinSessionRoot || !binding) ? { ...saved, path: resolved.absolutePath } : null;
     });
     const [chatWidth, updateChatWidth] = React.useState(initial.width);
     const [chatWidthCustomized, setChatWidthCustomized] = React.useState(initial.widthCustomized ?? false);

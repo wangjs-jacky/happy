@@ -313,3 +313,14 @@ it('restores all twenty cached tabs and their drafts before attempting a new han
     expect(value.snapshot.tabs).not.toContain('/work/new.md');
     await act(async () => { renderer.unmount(); });
 });
+
+it('restores an external read-only file reference in the same session scope after remount', async () => {
+    mocks.socket = 'connected'; let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    const reference = { path: '/skills/SKILL.md', hash: 'skill-baseline', quote: 'Selected text' };
+    await act(async () => { await value.openReference(reference.path); value.setReference(reference); await tick(); });
+    await act(async () => { renderer.unmount(); await tick(); });
+    await act(async () => { renderer = TestRenderer.create(node()); await tick(); });
+    expect(value.reference).toEqual(reference);
+    await act(async () => { renderer.unmount(); await tick(); });
+});
