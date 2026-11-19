@@ -8,7 +8,7 @@ import { SessionActionsPopover } from './SessionActionsPopover';
 
 const mocks = vi.hoisted(() => ({
     os: 'android', width: 400,
-    actions: vi.fn(), pin: vi.fn(), archive: vi.fn(), remove: vi.fn(),
+    actions: vi.fn(), pin: vi.fn(), archive: vi.fn(), remove: vi.fn(), confirmRemove: vi.fn(),
     session: { id: 'session-1', metadata: {} } as any,
 }));
 vi.mock('react-native', () => ({
@@ -30,7 +30,7 @@ vi.mock('@/utils/sessionUtils', () => ({ formatLastSeen: () => '' }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => {
     mocks.actions();
     return {
-        togglePinSession: mocks.pin, archiveSession: mocks.archive, deleteSession: mocks.remove,
+        togglePinSession: mocks.pin, archiveSession: mocks.archive, deleteSession: mocks.remove, confirmDeleteSession: mocks.confirmRemove,
         actionItems: [{ id: 'pin', label: 'Pin', icon: 'pin', onPress: mocks.pin }],
     };
 } }));
@@ -90,4 +90,21 @@ describe('session row action initialization', () => {
         expect(host('session-row-delete-action')).toBeDefined();
         expect(host('session-row-archive-action')).toBeDefined();
     });
+});
+
+it('confirms desktop row deletion beside its trigger before deleting', () => {
+    mocks.os = 'web'; mocks.width = 1400;
+    render(<SessionRowActions sessionId="session-1" statusLabel="Completed" visible
+        contextAnchor={null} onContextAnchorChange={vi.fn()} />);
+    act(() => host('session-row-delete-action').props.onPress({ stopPropagation() {}, nativeEvent: { clientX: 280, clientY: 200 } }));
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.confirmRemove).not.toHaveBeenCalled();
+    expect(host('session-delete-confirmation')).toBeDefined();
+    act(() => host('session-delete-cancel').props.onPress({ stopPropagation() {} }));
+    expect(host('session-delete-confirmation')).toBeUndefined();
+    expect(mocks.confirmRemove).not.toHaveBeenCalled();
+    act(() => host('session-row-delete-action').props.onPress({ stopPropagation() {}, nativeEvent: { clientX: 280, clientY: 200 } }));
+    act(() => host('session-delete-confirm').props.onPress({ stopPropagation() {} }));
+    expect(mocks.confirmRemove).toHaveBeenCalledOnce();
+    expect(host('session-delete-confirmation')).toBeUndefined();
 });
