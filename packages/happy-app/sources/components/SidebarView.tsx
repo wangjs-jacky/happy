@@ -1,3 +1,4 @@
+import { useWebPopoverDismiss } from '@/hooks/useWebPopoverDismiss';
 import { useDesktopWorkspacePathname } from '@/hooks/useDesktopWorkspacePathname';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -429,6 +430,13 @@ export const SidebarView = React.memo(({
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
+    const footerMenuRef = React.useRef<View>(null);
+    const footerDismissedOutside = React.useRef(false);
+    useWebPopoverDismiss({
+        enabled: footerMenu !== null,
+        onDismiss: () => { footerDismissedOutside.current = true; setFooterMenu(null); },
+        isInside: target => !!(footerMenuRef.current as unknown as HTMLElement | null)?.contains(target),
+    });
     const commandPaletteLauncher = useCommandPaletteLauncher();
     const { isDesktop, openSettings, openRoute } = useDesktopSettingsModal();
     const displayName = getDisplayName(profile) ?? t('settings.title');
@@ -498,10 +506,12 @@ export const SidebarView = React.memo(({
     }, [closeDrawer, commandPaletteLauncher, go]);
 
     const setAccountMenuOpen = React.useCallback((open: boolean) => {
+        footerDismissedOutside.current = false;
         setFooterMenu(open ? 'account' : null);
     }, []);
 
     const setHelpMenuOpen = React.useCallback((open: boolean) => {
+        footerDismissedOutside.current = false;
         setFooterMenu(open ? 'help' : null);
     }, []);
 
@@ -657,6 +667,7 @@ export const SidebarView = React.memo(({
 
     const footerNavigation = (
         <View
+                ref={footerMenuRef}
                 style={[
                     styles.footerMenuSlot,
                     desktopDensity && styles.footerMenusDesktop,
@@ -677,7 +688,7 @@ export const SidebarView = React.memo(({
                             onOpenChange={setAccountMenuOpen}
                             open={footerMenu === 'account'}
                             profile={profile}
-                            restoreFocusOnClose={footerMenu !== 'help'}
+                            restoreFocusOnClose={!footerDismissedOutside.current && footerMenu !== 'help'}
                         />
                     </View>
                 ) : (
@@ -692,6 +703,7 @@ export const SidebarView = React.memo(({
                         onOpenChange={setAccountMenuOpen}
                         open={footerMenu === 'account'}
                         profile={profile}
+                        restoreFocusOnClose={!footerDismissedOutside.current}
                     />
                 )}
                 {desktopDensity ? (
@@ -699,7 +711,7 @@ export const SidebarView = React.memo(({
                         railMode={desktopPrimaryNavigation}
                         onOpenChange={setHelpMenuOpen}
                         open={footerMenu === 'help'}
-                        restoreFocusOnClose={footerMenu !== 'account'}
+                        restoreFocusOnClose={!footerDismissedOutside.current && footerMenu !== 'account'}
                     />
                 ) : null}
         </View>
