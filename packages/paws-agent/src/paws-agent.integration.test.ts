@@ -1,7 +1,8 @@
+import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -101,6 +102,8 @@ let testProjectDir: string | null = null;
 let testWorktreeDir: string | null = null;
 let previousAnthropicBaseUrl: string | undefined;
 let previousAnthropicApiKey: string | undefined;
+let previousClaudeConfigDir: string | undefined;
+let fixtureClaudeConfigDir: string | undefined;
 let fixtureServer: Server | null = null;
 const spawnedSessionIds = new Set<string>();
 
@@ -497,10 +500,14 @@ async function writeAgentState(
 describe('paws-agent integration', { timeout: 180_000 }, () => {
     beforeAll(async () => {
         previousCurrentEnv = readCurrentEnvName();
+        previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
         previousAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
         previousAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
         process.env.ANTHROPIC_BASE_URL = await startAnthropicFixture();
         process.env.ANTHROPIC_API_KEY = 'paws-agent-fixture-key';
+        fixtureClaudeConfigDir = mkdtempSync(join(tmpdir(), 'paws-sdk-claude-'));
+        writeFileSync(join(fixtureClaudeConfigDir, 'settings.json'), JSON.stringify({ env: { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY: 'paws-agent-fixture-key' } }));
+        process.env.CLAUDE_CONFIG_DIR = fixtureClaudeConfigDir;
 
         try {
             await runPnpmAsync(['env:up', '--template', 'authenticated-empty', '--no-web']);
@@ -509,6 +516,7 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
             if (current && current !== previousCurrentEnv) {
                 integrationEnvName = current;
                 integrationEnvDir = join(environmentsDir, current);
+
             }
         }
 
@@ -532,6 +540,8 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
     });
 
     afterAll(async () => {
+        if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+        else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
         if (previousAnthropicBaseUrl === undefined) {
             delete process.env.ANTHROPIC_BASE_URL;
         } else {
@@ -542,6 +552,7 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         } else {
             process.env.ANTHROPIC_API_KEY = previousAnthropicApiKey;
         }
+        if (fixtureClaudeConfigDir) rmSync(fixtureClaudeConfigDir, { recursive: true, force: true });
         if (fixtureServer) {
             fixtureServer.closeAllConnections();
             await new Promise<void>(resolvePromise => fixtureServer!.close(() => resolvePromise()));

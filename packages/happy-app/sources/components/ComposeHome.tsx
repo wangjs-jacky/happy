@@ -1,3 +1,4 @@
+import { enabledCodingAgents } from '@/utils/codingAgentSelection';
 import * as React from 'react';
 import { View, Text, Pressable, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -154,6 +155,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         rightWidth: desktopRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
+    const codingAgentMachines = useSetting('codingAgentMachines');
     const { pending, submit, retry, restore, checkSession, dismiss } = useFirstSubmission();
     const sending = pending?.phase === 'saving';
     const hydrationError = pending?.failure === 'hydrate';
@@ -648,6 +650,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
         const spawnAgent = activeImageAgent ? 'codex' : draft.agentType;
+        if (spawnAgent !== 'ask' && !enabledCodingAgents(HEADER_MODE_AGENT_OPTIONS, draft.selectedMachineId, storage.getState().settings.codingAgentMachines, machine?.metadata?.cliAvailability).some(agent => agent.key === spawnAgent)) return;
         const resolvedModes = resolveNewSessionModeSelection({
             agent: spawnAgent,
             permissionMode: draft.permissionMode,
@@ -722,7 +725,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
     // isSendDisabled) instead of letting a doomed spawn through.
-    const canSpawn = online && worktreeKey !== '__new__';
+    const canSpawn = online && worktreeKey !== '__new__' && (agentType === 'ask' || availableCodingAgents.some(agent => agent.key === (activeImageAgent ? 'codex' : agentType)));
     const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
