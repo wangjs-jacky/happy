@@ -19,9 +19,20 @@ Goal First OPS 的 `references/knowledge-schema.md` 定义维护协议：首次�
 - CLI Goal Board/RPC：134 passed，2 skipped；新目录字段用例先失败再通过。最后 URL 验证器调整后目录 15 项重新通过。
 - App 项目缓存、导航、RPC、按钮主题与数据刷新：57 passed。
 - happy-wire build、App typecheck、CLI typecheck 通过。CLI 首次检查缺 paws-agent dist，构建工作树内该依赖后重新通过；未切换 daemon 或生产 CLI。
-- 截图已询问，尚未收到用户决定，未采集；浏览器真实点击、手机和上线未验。
+- 用户明确要求截图后，使用完整隔离 App、同一合成项目、Gingham 深色主题和 1680×950 / DPR 1 视口采集两种状态的前后图。基线 UI 使用 4b4339af 的原组件，候选使用 7d960659；未改造 DOM 来伪造效果。
+- 真浏览器检查标题右侧图标、44×44 触达区、仓库地址提示与键盘焦点反馈；无字段时隐藏。截图来自相同 Ego 空间与精确目标，关键帧已向 Happy Skills 上报。手机和正式上线仍未验。
 - 无原生依赖、权限或 runtime 变化；本次未发布 APK/OTA/Web，也未修改生产执行端。
 
 ## 部署边界
 
 客户端与机器端 CLI 均有变更；仅更新 Web 不会使旧 CLI 返回新字段。合并后沿正式 CI 发布 Web/适用 OTA，机器端按现有稳定入口更新 CLI；不能将本工作树的构建产物视为已切换运行环境。
+
+
+## 用户要求的前后截图
+
+| 状态 | 修改前 | 修改后 |
+| --- | --- | --- |
+| 已配置仓库 | [原图](project-github-link/before-with-repository.png) | [原图](project-github-link/after-with-repository.png) |
+| 未配置仓库 | [原图](project-github-link/before-without-repository.png) | [原图](project-github-link/after-without-repository.png) |
+
+验收环境只含合成账号和项目；启动器为 stub，未提交模型指令。捕获前通过单次合成机器 presence 事件恢复可比在线状态，未实现查询轮询。早期截图含离线提示，最终对比采用本表在线版本。
