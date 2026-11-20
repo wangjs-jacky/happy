@@ -2045,6 +2045,7 @@ failedContinueTask: "Continuar tarefa pendente",
     },
 
     message: {
+        structuredSummaryCopy: 'Copiar original',
         structuredSummaryView: 'Ver resumo',
         structuredSummaryTitle: 'Resumo estruturado',
         structuredSummaryAnalysis: 'Notas',

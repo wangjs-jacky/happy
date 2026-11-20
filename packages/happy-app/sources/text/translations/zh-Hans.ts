@@ -2844,6 +2844,7 @@ failedContinueTask: "继续未完成的任务",
     },
 
     message: {
+        structuredSummaryCopy: '复制原文',
         structuredSummaryView: '查看摘要',
         structuredSummaryTitle: '结构化摘要',
         structuredSummaryAnalysis: '说明',

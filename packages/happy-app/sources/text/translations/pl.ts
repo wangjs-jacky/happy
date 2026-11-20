@@ -2062,6 +2062,7 @@ failedContinueTask: "Kontynuuj niedokończone zadanie",
     },
 
     message: {
+        structuredSummaryCopy: 'Kopiuj oryginał',
         structuredSummaryView: 'Zobacz podsumowanie',
         structuredSummaryTitle: 'Podsumowanie strukturalne',
         structuredSummaryAnalysis: 'Uwagi',

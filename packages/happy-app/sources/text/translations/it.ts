@@ -2044,6 +2044,7 @@ failedContinueTask: "Continua il lavoro in sospeso",
     },
 
     message: {
+        structuredSummaryCopy: 'Copia originale',
         structuredSummaryView: 'Visualizza riepilogo',
         structuredSummaryTitle: 'Riepilogo strutturato',
         structuredSummaryAnalysis: 'Note',

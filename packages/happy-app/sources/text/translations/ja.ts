@@ -2047,6 +2047,7 @@ failedContinueTask: "未完了の作業を続ける",
     },
 
     message: {
+        structuredSummaryCopy: '原文をコピー',
         structuredSummaryView: '要約を表示',
         structuredSummaryTitle: '構造化された要約',
         structuredSummaryAnalysis: '補足',

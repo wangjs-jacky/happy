@@ -2046,6 +2046,7 @@ failedContinueTask: "Continua la tasca pendent",
     },
 
     message: {
+        structuredSummaryCopy: 'Copia l’original',
         structuredSummaryView: 'Mostra el resum',
         structuredSummaryTitle: 'Resum estructurat',
         structuredSummaryAnalysis: 'Notes',

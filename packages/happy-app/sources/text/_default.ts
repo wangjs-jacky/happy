@@ -3000,6 +3000,7 @@ failedContinueTask: "Continue unfinished task",
     },
 
     message: {
+        structuredSummaryCopy: 'Copy original',
         structuredSummaryView: 'View summary',
         structuredSummaryTitle: 'Structured summary',
         structuredSummaryAnalysis: 'Notes',

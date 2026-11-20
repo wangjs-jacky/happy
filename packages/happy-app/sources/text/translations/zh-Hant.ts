@@ -2220,6 +2220,7 @@ failedContinueTask: "繼續未完成的工作",
     },
 
     message: {
+        structuredSummaryCopy: '複製原文',
         structuredSummaryView: '查看摘要',
         structuredSummaryTitle: '結構化摘要',
         structuredSummaryAnalysis: '說明',

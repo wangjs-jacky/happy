@@ -485,8 +485,8 @@ function AgentTextBlock(props: {
   }, []);
 
   const structuredSummary = React.useMemo(() => parseStructuredSummary(props.message.text), [props.message.text]);
-  const renderMarkdown = (markdown: string) => (
-    <MarkdownView readOnly={restrictedContent} optionKey={optionKey} optionResponses={props.metadata?.messageOptionResponses} optionResponse={props.optionResponse} optionsInactive={props.optionsInactive || readOnly} onOptionDismiss={handleOptionDismiss} markdown={markdown} onOptionPress={!readOnly && props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} typography="chatMono" />
+  const renderMarkdown = (markdown: string, viewOnly = false) => (
+    <MarkdownView readOnly={restrictedContent || viewOnly} optionKey={optionKey} optionResponses={props.metadata?.messageOptionResponses} optionResponse={props.optionResponse} optionsInactive={viewOnly || props.optionsInactive || readOnly} onOptionDismiss={viewOnly ? undefined : handleOptionDismiss} markdown={markdown} onOptionPress={!viewOnly && !readOnly && props.sessionId ? handleOptionPress : undefined} sessionId={props.sessionId} typography="chatMono" />
   );
 
   // Hide thinking messages
@@ -535,7 +535,7 @@ function AgentTextBlock(props: {
         }}
       /> : <AnnotatableMessage sessionId={props.sessionId} messageId={props.message.id} enabled={!readOnly && !restrictedContent}>
         {structuredSummary
-          ? <StructuredSummaryView key={props.message.id} sections={structuredSummary} renderMarkdown={renderMarkdown} />
+          ? <StructuredSummaryView key={props.message.id} sections={structuredSummary} renderMarkdown={text => renderMarkdown(text, true)} onCopy={copyMessage} copied={isCopied} />
           : renderMarkdown(props.message.text)}
       </AnnotatableMessage>}
       {showActions && (

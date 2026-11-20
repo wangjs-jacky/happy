@@ -2050,6 +2050,7 @@ failedContinueTask: "Продолжить незавершённую задач�
     },
 
     message: {
+        structuredSummaryCopy: 'Копировать оригинал',
         structuredSummaryView: 'Открыть резюме',
         structuredSummaryTitle: 'Структурированное резюме',
         structuredSummaryAnalysis: 'Примечания',

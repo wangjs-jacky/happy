@@ -441,10 +441,9 @@ describe('MessageView structured handoff compatibility', () => {
             expect(toggle().props['aria-expanded']).toBe(true);
             expect(renderer.root.findAllByType('MarkdownView').map((n: any) => n.props.markdown))
                 .toEqual(['Still needs verification.', '## Changes\nCandidate built.']);
-            if (platform === 'web') {
-                act(() => renderer.root.findByProps({ testID: 'message-agent-copy-agent-1' }).props.onPress());
-                expect(Clipboard.setStringAsync).toHaveBeenCalledWith(text);
-            }
+            const header = renderer.root.findByType('DesktopDialogFrame').props.headerActions;
+            act(() => header.props.onPress());
+            expect(Clipboard.setStringAsync).toHaveBeenCalledWith(text);
             const dialog = renderer.root.findByType('DesktopDialogFrame');
             expect(dialog.props.title).toBe('message.structuredSummaryTitle');
             act(() => dialog.props.onClose());
@@ -466,11 +465,11 @@ describe('MessageView structured handoff compatibility', () => {
             act(() => renderer.unmount());
         }
     });
-    it('preserves restricted transcript policies after expanding a handoff', () => {
+    it.each([false, true])('keeps summary dialogs read-only even when transcript restricted=%s', restricted => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(
-            <TranscriptReadOnlyContext.Provider value={true}>
-                <TranscriptRestrictedContentContext.Provider value={true}>
+            <TranscriptReadOnlyContext.Provider value={restricted}>
+                <TranscriptRestrictedContentContext.Provider value={restricted}>
                     <MessageView message={{ ...agentMessage, text }} metadata={null} sessionId="original-session" />
                 </TranscriptRestrictedContentContext.Provider>
             </TranscriptReadOnlyContext.Provider>,
@@ -482,6 +481,7 @@ describe('MessageView structured handoff compatibility', () => {
             expect(block.props.readOnly).toBe(true);
             expect(block.props.optionsInactive).toBe(true);
             expect(block.props.onOptionPress).toBeUndefined();
+            expect(block.props.onOptionDismiss).toBeUndefined();
             expect(block.props.sessionId).toBe('original-session');
         }
         act(() => renderer.unmount());

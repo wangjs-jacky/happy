@@ -8,8 +8,10 @@ import { DesktopDialogFrame } from './DesktopDialogFrame';
 import type { StructuredSummary } from './markdown/parseStructuredSummary';
 
 /** Display compatibility only; this does not classify provider thinking or compaction. */
-export function StructuredSummaryView({ sections, renderMarkdown }: {
+export function StructuredSummaryView({ sections, renderMarkdown, onCopy, copied }: {
     sections: StructuredSummary;
+    onCopy: () => Promise<void>;
+    copied: boolean;
     renderMarkdown: (text: string) => React.ReactNode;
 }) {
     const { theme } = useUnistyles();
@@ -51,6 +53,16 @@ export function StructuredSummaryView({ sections, renderMarkdown }: {
         {open && <DesktopDialogFrame
             visible
             title={t('message.structuredSummaryTitle')}
+            headerActions={<Pressable
+                testID="structured-summary-copy"
+                accessibilityRole="button"
+                accessibilityLabel={t(copied ? 'common.copied' : 'message.structuredSummaryCopy')}
+                accessibilityLiveRegion="polite"
+                onPress={() => { void onCopy(); }}
+                style={({ pressed }) => [styles.button, pressed && styles.active]}
+            >
+                <Text style={styles.action}>{t(copied ? 'common.copied' : 'message.structuredSummaryCopy')}</Text>
+            </Pressable>}
             maxWidth={760}
             onClose={close}
             testID="structured-summary-dialog"
