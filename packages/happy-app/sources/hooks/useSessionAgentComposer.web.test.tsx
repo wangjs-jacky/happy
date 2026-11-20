@@ -29,4 +29,6 @@ describe('Web composer Agent staging', () => {
  it('stages target permissions instead of writing source settings', async () => { mount();act(() => value.modeSelector.agentSwitcher.onSwitch());await act(async () => value.permissionSelector.onLevelChange('confirm'));expect(mocks.update).not.toHaveBeenCalled();await act(async () => value.submit());expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({permissionMode:'default'}),false,expect.any(Function)); });
  it('rejects unsupported target attachments before creating a session and lets the user recover', async () => { mount();act(() => value.modeSelector.agentSwitcher.onSwitch());act(() => value.modeSelector.agentSwitcher.onSwitch());mocks.images=[{id:'pdf',kind:'file',uri:'file.pdf'}];await act(async () => value.submit());expect(mocks.spawn).not.toHaveBeenCalled();expect(mocks.alert).toHaveBeenCalledOnce();mocks.images=[];await act(async () => value.submit());expect(mocks.spawn).toHaveBeenCalledOnce(); });
 
+ it('keeps the current brand with cycling disabled when only one Agent is enabled', () => { const previous=mocks.settings.codingAgentMachines;mocks.settings.codingAgentMachines={m:['codex']};try {mount();expect(value.modeSelector.agentSwitcher.id).toBe('codex');expect(value.modeSelector.agentSwitcher.next).toBeNull();} finally {mocks.settings.codingAgentMachines=previous;} });
+
 });

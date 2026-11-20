@@ -88,7 +88,7 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
             prompt: submission.prompt, images: submission.images,
         }, false, args.flushDraft);
     };
-    if (!directory || !machineId || !agents.some(a => a.key === current) || session.metadata?.application || cycle.length < 2) return undefined;
+    if (!directory || !machineId || !agents.some(a => a.key === current) || session.metadata?.application) return undefined;
     const next = cycle[(cycle.findIndex(a => a.key === selected) + 1) % cycle.length];
     return { pendingAgent: pending ? selected : null, sending: spawn.sending, disabled,
         submit,
@@ -120,8 +120,8 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
             } : base),
             online,
             agentSwitcher: { id: selected, current: agents.find(a => a.key === selected)!.label,
-                next: busy ? null : next.label,
-                onSwitch: () => { if (!busy) setDraft(previous => ({ scope, agent: next.key, choices: previous.scope === scope ? previous.choices : {} })); },
+                next: busy || cycle.length < 2 ? null : next.label,
+                onSwitch: () => { if (!busy && cycle.length > 1) setDraft(previous => ({ scope, agent: next.key, choices: previous.scope === scope ? previous.choices : {} })); },
             },
         },
     };
