@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CodingAgentsInspectResponseSchema, supportedCodingAgentIds } from '@slopus/happy-wire';
 import { agentKeys, normalizeAgentKey, getCodeAgentDefaults } from '@/sync/agentDefaults';
-import { enabledCodingAgents } from './codingAgentSelection';
+import { enabledCodingAgents, getCodingAgentCycle } from './codingAgentSelection';
 describe('enabled coding agents', () => {
     it('offers Antigravity only on the enabled machine with advertised installation', () => {
         const choices = [{ key: 'antigravity' }];
@@ -27,6 +27,7 @@ describe('enabled coding agents', () => {
 
 it('keeps legacy responses and session identity readable without offering Gemini CLI', () => {
     expect(supportedCodingAgentIds).not.toContain('gemini');
+    expect(getCodingAgentCycle([{ key: 'gemini' }, { key: 'antigravity' }, { key: 'codex' }])).toEqual([{ key: 'codex' }, { key: 'antigravity' }]);
     expect(agentKeys).not.toContain('gemini');
     expect(agentKeys).toContain('antigravity');
     expect(normalizeAgentKey('gemini')).toBe('gemini');
