@@ -78,7 +78,6 @@ const ALL_AGENTS: { key: AgentKey; label: string }[] = [
     { key: 'claude', label: 'Claude Code' },
     { key: 'codex', label: 'Codex' },
     { key: 'openclaw', label: 'OpenClaw' },
-    { key: 'gemini', label: 'Gemini' },
 ];
 
 export type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
@@ -1075,7 +1074,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 ...model, key: `${selectedAgent}::${model.key}`,
             }));
         }, [modelModes, selectedAgent]);
-        const cycleAgents = ['codex', 'claude', 'opencode', 'antigravity', 'gemini', 'openclaw']
+        const cycleAgents = ['codex', 'claude', 'opencode', 'antigravity', 'openclaw']
             .flatMap(key => availableAgents.filter(agent => agent.key === key));
         const nextCycleAgent = cycleAgents.length > 1
             ? cycleAgents[(cycleAgents.findIndex(agent => agent.key === selectedAgent) + 1) % cycleAgents.length]
