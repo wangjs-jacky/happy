@@ -12,6 +12,7 @@ import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
 import { validatePath } from './pathSecurity';
 import { validateMachineReadPath } from './machineReadPath';
+import { createReadFileChunkHandler } from './readFileChunk';
 import { browseHomeDirectory, getMountedVolumePaths } from './browseHomeDirectory';
 
 const execAsync = promisify(exec);
@@ -275,6 +276,9 @@ export function registerCommonHandlers(
             return result;
         }
     });
+
+    // Bounded media transfer avoids exceeding the relay's encrypted packet limit.
+    rpcHandlerManager.registerHandler('readFileChunk', createReadFileChunkHandler(workingDirectory, homedir()));
 
     // Read file handler - returns base64 encoded content
     rpcHandlerManager.registerHandler<ReadFileRequest, ReadFileResponse>('readFile', async (data) => {
