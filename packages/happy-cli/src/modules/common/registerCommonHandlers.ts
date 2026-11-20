@@ -10,7 +10,8 @@ import { homedir } from 'os';
 import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
-import { validatePath, validateReadPath } from './pathSecurity';
+import { validatePath } from './pathSecurity';
+import { validateMachineReadPath } from './machineReadPath';
 import { browseHomeDirectory, getMountedVolumePaths } from './browseHomeDirectory';
 
 const execAsync = promisify(exec);
@@ -279,8 +280,8 @@ export function registerCommonHandlers(
     rpcHandlerManager.registerHandler<ReadFileRequest, ReadFileResponse>('readFile', async (data) => {
         logger.debug('Read file request:', data.path);
 
-        // Read is allowed under HOME or the session working directory, including external drives.
-        const validation = validateReadPath(data.path, workingDirectory, homedir());
+        // Read is allowed under canonical HOME, workspace, or discovered mounted volumes.
+        const validation = await validateMachineReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }
@@ -370,7 +371,7 @@ export function registerCommonHandlers(
         logger.debug('List directory request:', data.path);
 
         // Validate the read against HOME and the session working directory.
-        const validation = validateReadPath(data.path, workingDirectory, homedir());
+        const validation = await validateMachineReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }
@@ -440,7 +441,7 @@ export function registerCommonHandlers(
         logger.debug('Get directory tree request:', data.path, 'maxDepth:', data.maxDepth);
 
         // Validate the read against HOME and the session working directory.
-        const validation = validateReadPath(data.path, workingDirectory, homedir());
+        const validation = await validateMachineReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }

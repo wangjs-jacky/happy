@@ -10,7 +10,7 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('./fileIO', () => ({ readWorkspaceBytes: vi.fn() }));
 vi.mock('./WorkspaceButton', () => ({ WorkspaceButton: 'WorkspaceButton' }));
 const assets = vi.hoisted(() => ({ css: 'red', js: 'v1' }));
-vi.mock('./htmlPreviewBundle', () => ({ buildHtmlFilePreview: async () => ({ html: `<style>body{color:${assets.css}}</style><script>${assets.js}</script>`, dispose: vi.fn() }) }));
+vi.mock('./htmlPreviewBundle', () => ({ buildHtmlFilePreview: vi.fn(async () => ({ html: `<style>body{color:${assets.css}}</style><script>${assets.js}</script>`, dispose: vi.fn() })) }));
 beforeEach(() => { assets.css = 'red'; assets.js = 'v1'; });
 import { HtmlFilePreview } from './HtmlFilePreview.web';
 it('keeps an interactive Task iframe alive when its conversation changes', async () => {
@@ -57,5 +57,18 @@ it.each(['css', 'js'] as const)('refreshes changed %s dependencies when HTML byt
     await act(async () => { await controller.refresh('/work/index.html'); });
     expect(renderer.root.findByType('iframe').props.srcDoc).toContain(resource === 'css' ? 'color:blue' : 'v2');
     expect(controller.getSnapshot().documents['/work/index.html'].content).toBe(html);
+    await act(async () => { renderer.unmount(); });
+});
+
+import { buildHtmlFilePreview } from './htmlPreviewBundle';
+import { readWorkspaceBytes } from './fileIO';
+it('reads external HTML dependencies through the read-only RPC within the HTML directory', async () => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(<HtmlFilePreview sessionId="s" path="/Volumes/SSD/demo/index.html" root="/home/task" content="<h1>External</h1>" />); });
+    const call = vi.mocked(buildHtmlFilePreview).mock.calls.at(-1)!;
+    expect(call[2]).toBe('/Volumes/SSD/demo');
+    await call[3]('/Volumes/SSD/demo/style.css');
+    expect(readWorkspaceBytes).toHaveBeenLastCalledWith('s', '/Volumes/SSD/demo/style.css', undefined, true);
     await act(async () => { renderer.unmount(); });
 });
