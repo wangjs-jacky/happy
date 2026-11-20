@@ -2047,6 +2047,10 @@ failedContinueTask: "未完了の作業を続ける",
     },
 
     message: {
+        structuredSummaryView: '要約を表示',
+        structuredSummaryTitle: '構造化された要約',
+        structuredSummaryAnalysis: '補足',
+        structuredSummaryContent: '要約',
         switchedToMode: ({ mode }: { mode: string }) => `${mode}モードに切り替えました`,
         unknownEvent: '不明なイベント',
         usageLimitUntil: ({ time }: { time: string }) => `${time}まで使用制限中`,

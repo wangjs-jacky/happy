@@ -2046,6 +2046,10 @@ failedContinueTask: "Continuar tarea pendiente",
     },
 
     message: {
+        structuredSummaryView: 'Ver resumen',
+        structuredSummaryTitle: 'Resumen estructurado',
+        structuredSummaryAnalysis: 'Notas',
+        structuredSummaryContent: 'Resumen',
         switchedToMode: ({ mode }: { mode: string }) => `Cambiado al modo ${mode}`,
         unknownEvent: 'Evento desconocido',
         usageLimitUntil: ({ time }: { time: string }) => `Límite de uso alcanzado hasta ${time}`,

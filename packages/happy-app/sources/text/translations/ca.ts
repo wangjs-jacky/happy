@@ -2046,6 +2046,10 @@ failedContinueTask: "Continua la tasca pendent",
     },
 
     message: {
+        structuredSummaryView: 'Mostra el resum',
+        structuredSummaryTitle: 'Resum estructurat',
+        structuredSummaryAnalysis: 'Notes',
+        structuredSummaryContent: 'Resum',
         switchedToMode: ({ mode }: { mode: string }) => `S'ha canviat al mode ${mode}`,
         unknownEvent: 'Esdeveniment desconegut',
         usageLimitUntil: ({ time }: { time: string }) => `Límit d'ús assolit fins a ${time}`,

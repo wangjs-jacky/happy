@@ -2062,6 +2062,10 @@ failedContinueTask: "Kontynuuj niedokończone zadanie",
     },
 
     message: {
+        structuredSummaryView: 'Zobacz podsumowanie',
+        structuredSummaryTitle: 'Podsumowanie strukturalne',
+        structuredSummaryAnalysis: 'Uwagi',
+        structuredSummaryContent: 'Podsumowanie',
         switchedToMode: ({ mode }: { mode: string }) => `Przełączono na tryb ${mode}`,
         unknownEvent: 'Nieznane zdarzenie',
         usageLimitUntil: ({ time }: { time: string }) => `Osiągnięto limit użycia do ${time}`,

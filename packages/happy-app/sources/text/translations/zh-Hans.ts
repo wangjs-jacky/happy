@@ -2844,6 +2844,10 @@ failedContinueTask: "继续未完成的任务",
     },
 
     message: {
+        structuredSummaryView: '查看摘要',
+        structuredSummaryTitle: '结构化摘要',
+        structuredSummaryAnalysis: '说明',
+        structuredSummaryContent: '摘要',
         switchedToMode: ({ mode }: { mode: string }) => `已切换到 ${mode} 模式`,
         unknownEvent: '未知事件',
         usageLimitUntil: ({ time }: { time: string }) => `使用限制到 ${time}`,
