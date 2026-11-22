@@ -80,7 +80,7 @@ describe('daemon-owned immutable project conversation catalogs', () => {
         expect(result.catalogSnapshotId).toBe(snapshotA);
         expect(result.candidates.map(candidate => candidate.sessionId)).toEqual(['one']);
         expect(projectGoalRequest).toHaveBeenCalledTimes(1);
-        expect(fetchSessionSnapshotPage).toHaveBeenCalledExactlyOnceWith(expect.any(Object), { limit: 200 });
+        expect(fetchSessionSnapshotPage).toHaveBeenCalledExactlyOnceWith(expect.any(Object), { limit: 25, signal: expect.any(AbortSignal) });
     });
 
     it('does not decrypt or cache HTTP results after cancellation', async () => {

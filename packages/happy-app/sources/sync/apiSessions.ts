@@ -25,6 +25,7 @@ export interface FetchSessionSnapshotPageOptions {
     cursor?: string;
     limit?: number;
     changedSince?: number;
+    signal?: AbortSignal;
 }
 
 const sessionSnapshotResponseSchema = z.object({
@@ -54,9 +55,24 @@ async function readSessionResponse<T>(
     credentials: AuthCredentials,
     path: string,
     read: (response: Response) => Promise<T>,
+    signal?: AbortSignal,
 ): Promise<T> {
+    // RN's installed AbortSignal has no reason/throwIfAborted. Preserve a
+    // browser caller's explicit reason (including null) when it is available.
+    const cancellation = () => {
+        if (signal?.reason !== undefined) return signal.reason;
+        const error = new Error('Session request cancelled');
+        error.name = 'AbortError';
+        return error;
+    };
+    if (signal?.aborted) throw cancellation();
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let abort: (() => void) | undefined;
+    const cancelled = signal ? new Promise<never>((_resolve, reject) => {
+        abort = () => { reject(cancellation()); controller.abort(); };
+        signal.addEventListener('abort', abort, { once: true });
+    }) : undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
             reject(new SessionRequestError('timeout'));
@@ -82,9 +98,11 @@ async function readSessionResponse<T>(
                 }
             })(),
             deadline,
+            ...(cancelled ? [cancelled] : []),
         ]);
     } finally {
         clearTimeout(timer!);
+        if (abort) signal!.removeEventListener('abort', abort);
         controller.abort();
     }
 }
@@ -129,7 +147,7 @@ export async function fetchSessionSnapshotPage(
             throw new SessionRequestError('http', response.status);
         }
         return sessionSnapshotPageResponseSchema.parse(await response.json());
-    });
+    }, options.signal);
 }
 
 export async function fetchLegacySessionSnapshots(credentials: AuthCredentials): Promise<ApiSessionSnapshot[]> {

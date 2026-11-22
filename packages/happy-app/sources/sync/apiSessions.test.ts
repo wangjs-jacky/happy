@@ -1,4 +1,5 @@
 import type { AuthCredentials } from '@/auth/tokenStorage';
+import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     fetchActiveSessionSnapshots,
@@ -18,6 +19,7 @@ const credentials: AuthCredentials = {
     token: 'test-token',
     secret: 'test-secret',
 };
+const { AbortController: NativeAbortController } = createRequire(import.meta.url)('abort-controller/dist/abort-controller');
 
 function sessionSnapshot(id: string) {
     return {
@@ -46,6 +48,57 @@ describe('session snapshot API readers', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it.each(['headers', 'body'] as const)('cancels a page during %s immediately even when the adapter ignores abort', async stage => {
+        vi.useFakeTimers();
+        const controller = new AbortController(), reason = new Error('History closed');
+        const remove = vi.spyOn(controller.signal, 'removeEventListener');
+        let transportSignal: AbortSignal | undefined, outcome: unknown = 'pending';
+        vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+            transportSignal = options.signal;
+            return stage === 'headers' ? new Promise(() => {}) : { ok: true, json: () => new Promise(() => {}) };
+        }));
+        const request = fetchSessionSnapshotPage(credentials, { limit: 25, signal: controller.signal }).catch(error => { outcome = error; });
+        await vi.advanceTimersByTimeAsync(0);
+        controller.abort(reason);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(outcome).toBe(reason);
+        await request;
+        expect(transportSignal?.aborted).toBe(true);
+        expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('does not dispatch an already cancelled page and preserves a browser null reason', async () => {
+        const controller = new AbortController(); controller.abort(null);
+        const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+        await expect(fetchSessionSnapshotPage(credentials, { limit: 25, signal: controller.signal })).rejects.toBe(null);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('cancels with the installed React Native AbortController without reason or throwIfAborted', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('AbortController', NativeAbortController);
+        const controller = new NativeAbortController();
+        let transportSignal: AbortSignal | undefined, outcome: unknown = 'pending';
+        vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+            transportSignal = options.signal;
+            return { ok: true, json: () => new Promise(() => {}) };
+        }));
+        const request = fetchSessionSnapshotPage(credentials, { limit: 25, signal: controller.signal }).catch(error => { outcome = error; });
+        await vi.advanceTimersByTimeAsync(0);
+        controller.abort();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(outcome).toBeInstanceOf(Error);
+        expect(outcome).toMatchObject({ name: 'AbortError' });
+        await request;
+        expect(transportSignal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+        const alreadyCancelled = new NativeAbortController(); alreadyCancelled.abort();
+        await expect(fetchSessionSnapshotPage(credentials, { limit: 25, signal: alreadyCancelled.signal }))
+            .rejects.toMatchObject({ name: 'AbortError' });
+        expect(fetch).toHaveBeenCalledTimes(1);
     });
 
     it.each([

@@ -141,7 +141,7 @@ export function loadProjectConversationCandidates(
                 if ([...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('') !== manifest.catalogFingerprint)
                     throw new Error('Project history manifest fingerprint is invalid');
                 progress(0, manifest.total);
-                const headers = await readProjectConversationManifestHeaders(machineId, projectPath, manifest, { current, version });
+                const headers = await readProjectConversationManifestHeaders(machineId, projectPath, manifest, { current, version, signal });
                 current();
                 // A local reconstruction, not one oversized transport frame.
                 // Each actual manifest/repair RPC was bounded independently.
