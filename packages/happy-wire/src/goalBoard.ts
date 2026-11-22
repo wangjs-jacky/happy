@@ -50,6 +50,13 @@ export const GoalTaskSessionSchema = z.object({
     sessionId: label, title: label, directory: path, updatedAt: z.number(), executed: z.boolean(), active: z.boolean().optional(), lifecycleState: z.string().max(64).optional(),
 });
 export type GoalTaskSession = z.infer<typeof GoalTaskSessionSchema>;
+/** Compact metadata supplied only by the authenticated owner's fully read catalog.
+ * Session/account existence and metadataVersion are verified again by the daemon. */
+export const GoalProjectConversationCandidateSchema = z.object({
+    sessionId: label, metadataVersion: z.number().int().nonnegative(), directory: path, title: label,
+    featurePath: path.optional(), taskId: label.optional(), lifecycleState: z.string().max(64).optional(),
+}).refine(value => !value.taskId || !!value.featurePath, 'A task candidate needs its feature path');
+export type GoalProjectConversationCandidate = z.infer<typeof GoalProjectConversationCandidateSchema>;
 /** Complete group totals accompany bounded, independently paginated session headers. */
 export const GoalProjectConversationSchema = GoalTaskSessionSchema.extend({ taskId: label.optional() });
 export type GoalProjectConversation = z.infer<typeof GoalProjectConversationSchema>;

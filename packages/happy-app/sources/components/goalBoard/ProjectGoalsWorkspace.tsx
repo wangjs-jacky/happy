@@ -362,7 +362,7 @@ function ProjectGoalsOwner({ machineId, machines, params, navigation }: {
         onOpened: (task, conversation) => go({ task, conversation, view: 'chat' }) });
     const tasks = feature?.tasks ?? [];
     const selectedMachine = machines.find(machine => machine.id === machineId);
-    return <ProjectConversationNavigationProvider project={project} machineId={machineId} agent={agent} offline={data.offline} selectedId={params.conversation ?? params.author}
+    return <ProjectConversationNavigationProvider project={project} machineId={machineId} agent={agent} offline={data.offline} selectedId={params.conversation ?? params.author} locationKey={location}
         revision={JSON.stringify([(selectedMachine?.daemonState as { goalProjectRevision?: string } | null)?.goalProjectRevision, scopeRefresh])}
         onSelect={({ scopePath, taskId, sessionId }) => go({ project: project?.projectPath, feature: !taskId && scopePath === project?.projectPath ? undefined : scopePath, task: taskId, conversation: sessionId })}>
         <ProjectSessionMonitor knownScopes={data.projects.flatMap(entry => [{ machineId, path: entry.projectPath, title: entry.title }, ...entry.features.map(feature => ({ machineId, path: feature.featurePath, title: feature.title }))])} scope={feature ? { machineId, path: feature.featurePath, title: feature.title } : project ? { machineId, path: project.projectPath, title: project.title } : undefined}><ProjectWorkspaceWidthProvider><ProjectSurfaces.Provider value={photo && !reduced ? projectSurfaces(theme.colors) : null}><View style={[styles.page, !mobile && { backgroundColor: readingSurface }, mobile && { paddingTop: safeArea.top, paddingBottom: safeArea.bottom }]} testID="project-goals-workspace">

@@ -567,3 +567,32 @@ it('still refuses actual catalog truncation in another project because duplicate
     try { await expect(f.service.conversations({ projectPath: join(f.root, 'p') })).rejects.toThrow('Task catalog is incomplete'); }
     finally { spy.mockRestore(); }
 });
+
+it('passes compact owner header candidates only into this read without persisting them', async () => {
+    const f = await fixture(); const projectPath = join(f.root, 'p');
+    const candidates = [{ sessionId: 'owned', metadataVersion: 2, directory: f.feature, title: 'Owned', featurePath: f.feature }];
+    vi.mocked(f.deps.history).mockClear();
+    await f.service.conversations({ projectPath, candidates, catalogFingerprint: 'a'.repeat(64) });
+    expect(f.deps.history).toHaveBeenLastCalledWith(projectPath, expect.any(Array), { headersOnly: true, headerCandidates: candidates, catalogFingerprint: 'a'.repeat(64) });
+    await f.service.conversations({ projectPath });
+    expect(f.deps.history).toHaveBeenLastCalledWith(projectPath, expect.any(Array), { headersOnly: true });
+});
+it('bounds candidate count and serialized request bytes before reading account history', async () => {
+    const f = await fixture(); const projectPath = join(f.root, 'p');
+    vi.mocked(f.deps.history).mockClear();
+    const candidate = { sessionId: 's', metadataVersion: 1, directory: '/x', title: 'x' };
+    await expect(f.service.conversations({ projectPath, candidates: Array.from({ length: 20001 }, (_, i) => ({ ...candidate, sessionId: `${i}` })) })).rejects.toThrow();
+    await expect(f.service.conversations({ projectPath, candidates: Array.from({ length: 1100 }, (_, i) => ({ ...candidate, sessionId: `${i}`, title: 'x'.repeat(2048) })) })).rejects.toThrow('byte limit');
+    expect(f.deps.history).not.toHaveBeenCalled();
+});
+
+it('requires the complete account catalog fingerprint when owner candidates are supplied', async () => {
+    const f = await fixture();
+    await expect(f.service.conversations({ projectPath: join(f.root, 'p'), candidates: [] })).rejects.toThrow('fingerprint is required');
+    await expect(f.service.conversations({ projectPath: join(f.root, 'p'), candidates: [], catalogFingerprint: 'invalid' })).rejects.toThrow();
+});
+it('preserves available lifecycle in newer aggregate history after a restore',async()=>{
+ const f=await fixture();const projectPath=join(f.root,'p');
+ f.history.push({sessionId:'restored',directory:projectPath,title:'Restored',updatedAt:20,executed:true,metadata:{path:projectPath,machineId:'m',lifecycleState:'available'}} as ProjectSession);
+ const result=await f.service.conversations({projectPath});expect(result.groups[0].sessions[0]).toMatchObject({sessionId:'restored',lifecycleState:'available'});
+});

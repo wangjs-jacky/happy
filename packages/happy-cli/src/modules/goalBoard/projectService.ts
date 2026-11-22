@@ -4,8 +4,8 @@ import { mkdir, open, readdir, rename, realpath, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { goalOutputRecognition } from '@slopus/happy-wire';
-import type { GoalTask, GoalTaskSession, GoalProjectConversation, GoalProjectConversationGroup } from '@slopus/happy-wire';
+import { goalOutputRecognition, GoalProjectConversationCandidateSchema } from '@slopus/happy-wire';
+import type { GoalTask, GoalTaskSession, GoalProjectConversation, GoalProjectConversationGroup, GoalProjectConversationCandidate } from '@slopus/happy-wire';
 import { discoverRoots, readCatalog, readProjects, safePath, within, catalogSummary, MAX_CATALOG, type CatalogRecord } from './catalog';
 import { digest, goalFileRevision, goalOf, titleOf, parseBoard, readBoundedFile } from './parser';
 import { goalBoardTaskPrompt } from './taskPrompt';
@@ -23,7 +23,7 @@ export type ProjectGoalDependencies = {
     observe?: boolean;
     spawn: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
     send: (sessionId: string, prompt: string, localId: string) => Promise<void>;
-    history: (featurePath: string, tasks: Array<{ id: string; directory: string; title?: string; directories?: string[]; sessionIds?: string[]; featurePath?: string }>, options?: { headersOnly: true }) => Promise<ProjectSession[]>;
+    history: (featurePath: string, tasks: Array<{ id: string; directory: string; title?: string; directories?: string[]; sessionIds?: string[]; featurePath?: string }>, options?: { headersOnly: true; headerCandidates?: GoalProjectConversationCandidate[]; catalogFingerprint?: string }) => Promise<ProjectSession[]>;
     changed: () => void | Promise<void>;
     getArtifactStore?: () => Promise<import('../artifacts/store').ArtifactStore>;
 };
@@ -307,7 +307,11 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
     };
     const conversations = async (input: unknown) => {
         const cursorSchema = z.object({ updatedAt: z.number(), sessionId: z.string().min(1).max(2048) });
-        const data = z.object({ projectPath: pathInput, scopePath: pathInput.optional(), cursor: cursorSchema.optional() }).parse(input);
+        if (Buffer.byteLength(JSON.stringify(input)) > 512 * 1024) throw new Error('Conversation candidate request exceeds the byte limit');
+        const data = z.object({ projectPath: pathInput, scopePath: pathInput.optional(), cursor: cursorSchema.optional(),
+            candidates: z.array(GoalProjectConversationCandidateSchema).max(20000).optional(),
+            catalogFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        }).refine(value => value.candidates === undefined || !!value.catalogFingerprint, 'A complete candidate catalog fingerprint is required').parse(input);
         if (data.cursor && !data.scopePath) throw new Error('Choose a conversation group for pagination');
         const projectPath = await realpath(data.projectPath);
         const projects = await readProjects(await discoverRoots(deps.workingDirectory, deps.homeDirectory));
@@ -327,7 +331,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             tasks.push({ ...item, descriptor: { ...await historyTask(item.task), featurePath: item.entry.featurePath } });
         }
         const descriptors = [...scopes.map(scope => ({ id: '', directory: scope.scopePath, title: scope.title, featurePath: scope.scopePath })), ...tasks.map(item => item.descriptor)];
-        const source = await deps.history(projectPath, descriptors, { headersOnly: true });
+        const source = await deps.history(projectPath, descriptors, { headersOnly: true, ...(data.candidates ? { headerCandidates: data.candidates, catalogFingerprint: data.catalogFingerprint } : {}) });
         const grouped = new Map(scopes.map(scope => [scope.scopePath, new Map<string, GoalProjectConversation>()]));
         for (const session of source) {
             if (archived(session.metadata.lifecycleState)) continue;
@@ -355,7 +359,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             const group = grouped.get(scopePath);
             if (!group) continue;
             const { metadata: _, ...header } = session;
-            group.set(session.sessionId, { ...header, title: header.title.slice(0, 2048), directory: task ? dirname(task.task.indexPath) : scopePath, ...(task ? { taskId: task.task.id } : {}) });
+            group.set(session.sessionId, { ...header, lifecycleState: session.metadata.lifecycleState, title: header.title.slice(0, 2048), directory: task ? dirname(task.task.indexPath) : scopePath, ...(task ? { taskId: task.task.id } : {}) });
         }
         const groups: GoalProjectConversationGroup[] = [];
         // Reserve catalog headers before filling rows: encrypted RPC frames stay

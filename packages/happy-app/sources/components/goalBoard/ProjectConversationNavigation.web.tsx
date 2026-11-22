@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { GoalProjectConversationsSchema } from '@slopus/happy-wire';
 import { storage } from '@/sync/storage';
+import { loadProjectConversationCandidates } from '@/sync/projectConversationCandidates.web';
 import { getRuntimeAccountSelection } from '@/auth/accountRuntime';
 import { machineStartGoalAuthor } from '@/sync/ops';
 import { projectGoalRequest, canCreateProjectConversation, isReadOnlyProjectPreview } from '@/sync/projectGoals';
@@ -123,6 +124,8 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
     const refreshRequested = React.useRef(false),
         reread = React.useRef<(() => void) | undefined>(undefined);
     const selection = React.useRef(props.selectedId);
+    const location = React.useRef(props.locationKey);
+    location.current = props.locationKey;
     selection.current = props.selectedId;
     const latest = React.useRef(props);
     latest.current = props;
@@ -155,12 +158,12 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
             setLoading(true);
             setError(undefined);
             try {
-                const result = GoalProjectConversationsSchema.parse(
-                    await projectGoalRequest(machineId, 'goalProjectConversations', {
-                        projectPath: path,
-                        ...(scopePath ? { scopePath, cursor } : {}),
-                    }),
-                );
+                const catalog = await loadProjectConversationCandidates(machineId);
+                if (!alive.current || epoch.current !== request || getRuntimeAccountSelection() !== account) return;
+                const input = { projectPath: path, ...catalog, ...(scopePath ? { scopePath, cursor } : {}) };
+                if (new TextEncoder().encode(JSON.stringify(input)).byteLength > 512 * 1024)
+                    throw new Error('Complete project history exceeds the request size limit');
+                const result = GoalProjectConversationsSchema.parse(await projectGoalRequest(machineId, 'goalProjectConversations', input));
                 if (!alive.current || epoch.current !== request || getRuntimeAccountSelection() !== account) return;
                 if (result.projectPath !== path) throw new Error('Project conversation scope changed');
                 setGroups((previous) => {
@@ -205,9 +208,14 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
         setError(undefined);
         const account = getRuntimeAccountSelection(),
             selected = selection.current,
+            requestedLocation = location.current,
             focused = focus.current;
         const current = () =>
-            alive.current && account === getRuntimeAccountSelection() && focus.current === focused && selection.current === selected;
+            alive.current &&
+            account === getRuntimeAccountSelection() &&
+            focus.current === focused &&
+            selection.current === selected &&
+            location.current === requestedLocation;
         if (attempt.current?.scopePath !== scopePath)
             attempt.current = { scopePath, requestId: `goal-navigation-${Date.now()}-${Math.random().toString(36).slice(2)}` };
         try {
@@ -310,8 +318,8 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                             <Ionicons name="refresh-outline" size={15} color={theme.colors.textSecondary} />
                         </Button>
                     </View>
-                    <Text selectable style={styles.path}>
-                        {path}
+                    <Text selectable accessibilityLabel={path} style={styles.path}>
+                        {path.includes('/projects/') ? path.slice(path.lastIndexOf('/projects/') + 1) : path}
                     </Text>
                     <Text style={styles.meta}>
                         {groups.length
@@ -383,7 +391,8 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                     {filtered
                         .filter(
                             (g) =>
-                                (filter === 'all' && !query) || (!!query && !!g.nextCursor) ||
+                                (filter === 'all' && !query) ||
+                                (!!query && !!g.nextCursor) ||
                                 g.visible.length > 0 ||
                                 (query && g.title.toLocaleLowerCase().includes(query.toLocaleLowerCase())),
                         )

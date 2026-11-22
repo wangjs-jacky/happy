@@ -9,5 +9,6 @@ export type ProjectConversationNavigationProps = {
     offline: boolean;
     revision?: string;
     selectedId?: string;
+    locationKey?: string;
     onSelect: (selection: ProjectConversationSelection) => void;
 };

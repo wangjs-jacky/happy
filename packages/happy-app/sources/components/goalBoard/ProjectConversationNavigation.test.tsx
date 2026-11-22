@@ -41,6 +41,7 @@ vi.mock('@/sync/projectSessionLinks', () => ({
         mock.deletionListeners.add(listener); return () => { mock.deletionListeners.delete(listener); };
     },
 }));
+vi.mock('@/sync/projectConversationCandidates.web',()=>({loadProjectConversationCandidates:vi.fn().mockResolvedValue({candidates:[],catalogFingerprint:'a'.repeat(64)})}));
 vi.mock('@/sync/ops', () => ({ machineStartGoalAuthor: vi.fn() }));
 vi.mock('@/sync/projectGoals', () => ({
     projectGoalRequest: vi.fn(), canCreateProjectConversation: () => mock.canCreate,
@@ -128,7 +129,7 @@ afterEach(() => { if (renderer) act(() => { renderer.unmount(); }); renderer = u
 describe('project conversation navigation integration', () => {
     it('uses complete server totals and preserves task identity when navigating loaded history', async () => {
         await setup();
-        expect(projectGoalRequest).toHaveBeenCalledExactlyOnceWith('machine', 'goalProjectConversations', { projectPath: project.projectPath });
+        expect(projectGoalRequest).toHaveBeenCalledExactlyOnceWith('machine', 'goalProjectConversations', { projectPath: project.projectPath, candidates: [], catalogFingerprint: 'a'.repeat(64) });
         expect(button('project-conversations-filter-all').props.label).toBe('全部 33');
         expect(allText()).toContain('33 个会话 · 2 个子项目');
         await press('project-conversations-session-task-chat');
@@ -198,7 +199,7 @@ describe('project conversation navigation integration', () => {
         }]));
         await act(async () => { byLabel('加载更多历史').props.onPress(); });
         expect(projectGoalRequest).toHaveBeenLastCalledWith('machine', 'goalProjectConversations', {
-            projectPath: project.projectPath, scopePath: webPath, cursor: { updatedAt: 10, sessionId: 'task-chat' },
+            projectPath: project.projectPath, scopePath: webPath, candidates: [], catalogFingerprint: 'a'.repeat(64), cursor: { updatedAt: 10, sessionId: 'task-chat' },
         });
         expect(button('project-conversations-session-global')).toBeDefined();
         expect(button('project-conversations-session-older')).toBeDefined();
@@ -270,4 +271,9 @@ it('keeps compact Web task details and footer reachable when desktop tabs are hi
 it('retains older-history loading when search has no match on the first page',async()=>{
  await setup();const input=renderer.root.findByType('TextInput');await act(async()=>input.props.onChangeText('older missing title'));
  expect(allText()).toContain('加载更多历史');expect(allText()).toContain('已加载');
+});
+it('does not steal navigation after switching feature or file while creation is pending',async()=>{
+ await setup({locationKey:'feature-one'});const pending=deferred<any>();vi.mocked(machineStartGoalAuthor).mockReturnValue(pending.promise);
+ await press(`project-conversations-new-${mobilePath}`);await setup({locationKey:'feature-two-file'});
+ await act(async()=>pending.resolve({type:'success',sessionId:'late-scope'}));expect(select).not.toHaveBeenCalled();
 });
