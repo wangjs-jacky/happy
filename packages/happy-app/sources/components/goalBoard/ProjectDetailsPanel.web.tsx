@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { PanelTabs } from '@/components/PanelTabs';
 import { t, getCurrentLanguage } from '@/text';
-import { useProjectConversationNavigation } from './ProjectConversationNavigation.web';
+import { useFileWorkspace } from '@/components/fileWorkspace/context';
+import { ProjectConversationNavigationPane, useProjectConversationNavigation } from './ProjectConversationNavigation.web';
 
 /** Scope and Task share the same right-column frame and file-tab semantics. */
 export function ProjectDetailsPanel({
@@ -26,9 +27,11 @@ export function ProjectDetailsPanel({
     showTabs?: boolean;
 }) {
     const conversations = useProjectConversationNavigation();
+    const workspace = useFileWorkspace();
     const [showConversations, setShowConversations] = React.useState(true);
     const activeTab = showTabs && conversations && showConversations && tab !== 'files' ? 'sessions' : tab;
     const selectTab = (value: string) => {
+        if (value === 'sessions') workspace?.setMaximized(false);
         setShowConversations(value === 'sessions');
         onTab(value === 'sessions' ? 'details' : value);
     };
@@ -57,7 +60,13 @@ export function ProjectDetailsPanel({
                     />
                 </View>
             )}
-            {activeTab === 'sessions' ? conversations : children}
+            {activeTab === 'sessions' ? (
+                <ProjectConversationNavigationPane onReveal={() => selectTab('sessions')}>
+                    {conversations}
+                </ProjectConversationNavigationPane>
+            ) : (
+                children
+            )}
             {activeTab !== 'sessions' && <View style={styles.footer}>{footer}</View>}
         </View>
     );

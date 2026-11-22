@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -16,6 +16,23 @@ import { Typography } from '@/constants/Typography';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 import { buildProjectConversationGroups, type ConversationGroup, type ConversationStatus } from './projectConversationModel';
 import type { ProjectConversationNavigationProps, ProjectConversationSelection } from './ProjectConversationNavigation.types';
+const RevealContext = React.createContext<(() => void) | undefined>(undefined);
+/** Actions render inside the current file workspace even though list state is project-owned. */
+export function ProjectConversationNavigationPane({ children, onReveal }: { children: React.ReactNode; onReveal: () => void }) {
+    return <RevealContext.Provider value={onReveal}>{children}</RevealContext.Provider>;
+}
+function ConversationButton({ reveal, ...props }: React.ComponentProps<typeof Button> & { reveal?: boolean }) {
+    const onReveal = React.useContext(RevealContext);
+    return (
+        <Button
+            {...props}
+            onPress={() => {
+                if (reveal) onReveal?.();
+                props.onPress();
+            }}
+        />
+    );
+}
 const Context = React.createContext<React.ReactNode>(null);
 export function useProjectConversationNavigation() {
     return React.useContext(Context);
@@ -92,11 +109,12 @@ function statusLabel(status: ConversationStatus, w: ReturnType<typeof words>) {
 }
 export function ProjectConversationNavigationProvider(props: ProjectConversationNavigationProps) {
     const path = props.project?.projectPath;
+    const desktop = useWindowDimensions().width >= 1100;
     const owner = getRuntimeAccountSelection();
     const key = JSON.stringify([owner?.key, owner?.generation, owner?.serverUrl, props.machineId, path]);
-    return <NavigationOwner key={key} {...props} scopeKey={key} />;
+    return <NavigationOwner key={key} {...props} scopeKey={key} desktop={desktop} />;
 }
-function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey: string }) {
+function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey: string; desktop: boolean }) {
     const { theme } = useUnistyles(),
         w = words();
     const path = props.project?.projectPath,
@@ -147,7 +165,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
     }, []);
     const read = React.useCallback(
         async (scopePath?: string, cursor?: ConversationGroup['nextCursor']) => {
-            if (!path || props.offline || isReadOnlyProjectPreview()) return;
+            if (!path || !props.desktop || props.offline || isReadOnlyProjectPreview()) return;
             if (reading.current || opening.current) {
                 if (!scopePath) refreshRequested.current = true;
                 return;
@@ -193,7 +211,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                 }
             }
         },
-        [path, machineId, props.offline, props.scopeKey],
+        [path, machineId, props.offline, props.scopeKey, props.desktop],
     );
     reread.current = () => {
         void read();
@@ -202,7 +220,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
         void read();
     }, [read, props.revision]);
     const create = async (scopePath: string) => {
-        if (opening.current || reading.current || props.offline || !canCreateProjectConversation()) return;
+        if (!props.desktop || opening.current || reading.current || props.offline || !canCreateProjectConversation()) return;
         opening.current = true;
         setCreating(scopePath);
         setError(undefined);
@@ -299,14 +317,14 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                   : theme.colors.textSecondary;
     const relative = (p: string) => (path && p.startsWith(path + '/') ? p.slice(path.length + 1) : p === path ? '.' : p);
     const sidebar =
-        path && !isReadOnlyProjectPreview() ? (
+        props.desktop && path && !isReadOnlyProjectPreview() ? (
             <View style={styles.area} testID="project-conversation-navigation">
                 <View style={styles.summary}>
                     <View style={styles.line}>
                         <Ionicons name="folder-outline" size={17} color={theme.colors.textLink} />
                         <Text style={styles.title}>{props.project?.title}</Text>
                         <View style={{ flex: 1 }} />
-                        <Button
+                        <ConversationButton
                             variant="toolbar"
                             label={w.refresh}
                             testID="project-conversations-refresh"
@@ -316,7 +334,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                             }}
                         >
                             <Ionicons name="refresh-outline" size={15} color={theme.colors.textSecondary} />
-                        </Button>
+                        </ConversationButton>
                     </View>
                     <Text selectable accessibilityLabel={path} style={styles.path}>
                         {path.includes('/projects/') ? path.slice(path.lastIndexOf('/projects/') + 1) : path}
@@ -330,7 +348,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                     </Text>
                     <View style={styles.filters}>
                         {(['all', 'attention', 'running'] as const).map((f) => (
-                            <Button
+                            <ConversationButton
                                 key={f}
                                 variant="toolbar"
                                 label={`${w[f]} ${f === 'all' ? total : f === 'attention' ? attention : running}`}
@@ -353,7 +371,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                 >
                                     {w[f]} {f === 'all' ? total : f === 'attention' ? attention : running}
                                 </Text>
-                            </Button>
+                            </ConversationButton>
                         ))}
                     </View>
                 </View>
@@ -375,7 +393,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                         <Text accessibilityRole="alert" style={styles.error}>
                             {error}
                         </Text>
-                        <Button
+                        <ConversationButton
                             label={w.retry}
                             disabled={loading || props.offline}
                             onPress={() => {
@@ -383,7 +401,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                             }}
                         >
                             <Text style={styles.link}>{w.retry}</Text>
-                        </Button>
+                        </ConversationButton>
                     </View>
                 )}
                 {loading && <ActivityIndicator size="small" color={theme.colors.textLink} accessibilityLabel={w.load} />}
@@ -400,7 +418,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                             <View key={g.scopePath} style={styles.group} testID={`project-conversations-group-${g.scopePath}`}>
                                 <View style={styles.line}>
                                     <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Button
+                                        <ConversationButton
                                             variant="toolbar"
                                             label={`${collapsed.has(g.scopePath) ? w.open : w.closed} ${g.scopePath === path ? w.global : g.title}`}
                                             expanded={!collapsed.has(g.scopePath)}
@@ -426,11 +444,12 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                                 {g.scopePath === path ? w.global : g.title}
                                             </Text>
                                             <Text style={styles.small}>{g.total}</Text>
-                                        </Button>
+                                        </ConversationButton>
                                     </View>
-                                    <Button
+                                    <ConversationButton
                                         variant="toolbar"
                                         label={`${g.scopePath === path ? w.global : g.title} · ${w.create}`}
+                                        reveal
                                         testID={`project-conversations-new-${g.scopePath}`}
                                         disabled={loading || !!creating || props.offline || !canCreateProjectConversation()}
                                         onPress={() => {
@@ -442,7 +461,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                         ) : (
                                             <Ionicons name="add-outline" size={17} color={theme.colors.textLink} />
                                         )}
-                                    </Button>
+                                    </ConversationButton>
                                 </View>
                                 <Text selectable style={styles.relative}>
                                     {relative(g.scopePath)}
@@ -450,8 +469,9 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                 {!collapsed.has(g.scopePath) && (
                                     <View style={styles.rows}>
                                         {g.visible.map((row) => (
-                                            <Button
+                                            <ConversationButton
                                                 key={row.sessionId}
+                                                reveal
                                                 variant="row"
                                                 label={`${row.title || w.sessions} · ${statusLabel(row.status, w)}`}
                                                 selected={props.selectedId === row.sessionId}
@@ -476,14 +496,15 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                                         <Text style={styles.time}>{formatLastSeen(row.updatedAt)}</Text>
                                                     </View>
                                                 </View>
-                                            </Button>
+                                            </ConversationButton>
                                         ))}
                                         {!g.visible.length && filter === 'all' && !query && (
                                             <View style={styles.empty}>
                                                 <Text style={styles.meta}>{w.empty}</Text>
-                                                <Button
+                                                <ConversationButton
                                                     variant="toolbar"
                                                     label={w.first}
+                                                    reveal
                                                     disabled={loading || !!creating || props.offline || !canCreateProjectConversation()}
                                                     onPress={() => {
                                                         void create(g.scopePath);
@@ -491,11 +512,11 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                                 >
                                                     <Ionicons name="add-outline" size={15} color={theme.colors.textLink} />
                                                     <Text style={styles.link}>{w.first}</Text>
-                                                </Button>
+                                                </ConversationButton>
                                             </View>
                                         )}
                                         {g.nextCursor && (
-                                            <Button
+                                            <ConversationButton
                                                 variant="toolbar"
                                                 label={w.more}
                                                 disabled={loading || props.offline}
@@ -504,7 +525,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                                 }}
                                             >
                                                 <Text style={styles.link}>{w.more}</Text>
-                                            </Button>
+                                            </ConversationButton>
                                         )}
                                     </View>
                                 )}

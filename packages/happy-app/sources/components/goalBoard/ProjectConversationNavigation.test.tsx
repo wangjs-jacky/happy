@@ -11,7 +11,7 @@ const mock = vi.hoisted(() => ({
     sessions: {} as Record<string, any>, unread: new Set<string>(), connected: true,
     deleted: new Set<string>(), deletionRevision: 0,
     deletionListeners: new Set<() => void>(),
-    blur: undefined as (() => void) | undefined, canCreate: true, readOnly: false,
+    blur: undefined as (() => void) | undefined, canCreate: true, readOnly: false, maximized: false, width: 1600,
 }));
 vi.mock('expo-router', async () => {
     const React = await import('react');
@@ -20,7 +20,7 @@ vi.mock('expo-router', async () => {
     }, [callback]) };
 });
 vi.mock('react-native', () => ({
-    View: 'View', Text: 'Text', ScrollView: 'ScrollView', TextInput: 'TextInput', ActivityIndicator: 'Spinner',
+    View: 'View', Text: 'Text', ScrollView: 'ScrollView', TextInput: 'TextInput', ActivityIndicator: 'Spinner', useWindowDimensions:()=>({width:mock.width}),
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon' }));
 vi.mock('react-native-unistyles', () => {
@@ -48,6 +48,7 @@ vi.mock('@/sync/projectGoals', () => ({
     isReadOnlyProjectPreview: () => mock.readOnly,
 }));
 vi.mock('./GoalBoardButton', () => ({ GoalBoardButton: 'Button' }));
+vi.mock('@/components/fileWorkspace/context',()=>({useFileWorkspace:()=>({setMaximized:(value:boolean)=>{mock.maximized=value;}})}));
 vi.mock('@/components/PanelTabs', () => ({ PanelTabs: 'PanelTabs' }));
 
 import { projectGoalRequest } from '@/sync/projectGoals';
@@ -119,7 +120,7 @@ beforeEach(() => {
     mock.owner = { key: 'account', generation: String(++generation), serverUrl: 'https://example.test', scope: 'test' };
     mock.sessions = {}; mock.unread = new Set(); mock.connected = true; mock.deleted.clear();
     mock.deletionRevision = 0; mock.deletionListeners.clear(); mock.blur = undefined;
-    mock.canCreate = true; mock.readOnly = false;
+    mock.canCreate = true; mock.readOnly = false; mock.maximized = false; mock.width=1600;
     currentProps = { project, machineId: 'machine', agent: 'codex', offline: false, selectedId: 'global', onSelect: select };
     vi.mocked(projectGoalRequest).mockResolvedValue(response());
     vi.mocked(machineStartGoalAuthor).mockResolvedValue({ type: 'success', sessionId: 'new-chat' });
@@ -276,4 +277,16 @@ it('does not steal navigation after switching feature or file while creation is 
  await setup({locationKey:'feature-one'});const pending=deferred<any>();vi.mocked(machineStartGoalAuthor).mockReturnValue(pending.promise);
  await press(`project-conversations-new-${mobilePath}`);await setup({locationKey:'feature-two-file'});
  await act(async()=>pending.resolve({type:'success',sessionId:'late-scope'}));expect(select).not.toHaveBeenCalled();
+});
+
+it('reveals chat from a maximized file on the Sessions tab and on the already-selected history row',async()=>{
+ await setup();const tabs=()=>renderer.root.findByType('PanelTabs');
+ await act(async()=>tabs().props.onTabChange('files'));mock.maximized=true;
+ await act(async()=>tabs().props.onTabChange('sessions'));expect(mock.maximized).toBe(false);
+ mock.maximized=true;onTab.mockClear();await press('project-conversations-session-global');
+ expect(mock.maximized).toBe(false);expect(onTab).toHaveBeenCalledWith('details');expect(select).toHaveBeenCalledWith({scopePath:project.projectPath,sessionId:'global',taskId:undefined});
+});
+
+it('does not read complete history for the desktop-only navigator on compact Web',async()=>{
+ mock.width=800;await setup();expect(projectGoalRequest).not.toHaveBeenCalled();expect(allText()).toContain('Original details');expect(renderer.root.findAllByType('Button').filter((b:any)=>b.props.testID==='project-conversations-filter-all')).toHaveLength(0);
 });
