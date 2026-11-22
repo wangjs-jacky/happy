@@ -9,6 +9,7 @@ type WorkspaceTreeRowProps = {
     label: string;
     depth?: number;
     expanded?: boolean;
+    reserveDisclosure?: boolean;
     icon?: React.ComponentProps<typeof Ionicons>['name'];
     selected?: boolean;
     badge?: React.ReactNode;
@@ -19,7 +20,7 @@ type WorkspaceTreeRowProps = {
 
 /** A compact directory-style row. Adjacent actions remain independent buttons. */
 export const WorkspaceTreeRow = React.memo(function WorkspaceTreeRow({
-    title, label, depth = 0, expanded, icon, selected = false, badge, trailing, onPress, testID,
+    title, label, depth = 0, expanded, reserveDisclosure = false, icon, selected = false, badge, trailing, onPress, testID,
 }: WorkspaceTreeRowProps) {
     const { theme } = useUnistyles();
     const [hovered, setHovered] = React.useState(false);
@@ -47,7 +48,9 @@ export const WorkspaceTreeRow = React.memo(function WorkspaceTreeRow({
                 } : undefined,
             ]}
         >
-            {expanded !== undefined && <Ionicons name={expanded ? 'chevron-down-outline' : 'chevron-forward-outline'} size={15} color={theme.colors.textSecondary} />}
+            {expanded !== undefined
+                ? <Ionicons name={expanded ? 'chevron-down-outline' : 'chevron-forward-outline'} size={15} color={theme.colors.textSecondary} />
+                : reserveDisclosure ? <View style={styles.disclosureSpace} /> : null}
             {icon && <Ionicons name={icon} size={15} color={theme.colors.textSecondary} />}
             <Text numberOfLines={1} ellipsizeMode="tail" style={styles.title}>{title}</Text>
             {badge != null && <View style={styles.accessory}>{badge}</View>}
@@ -61,6 +64,7 @@ const styles = StyleSheet.create(theme => ({
     main: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', padding: 8, gap: 7, backgroundColor: 'transparent' },
     title: { flex: 1, minWidth: 0, fontSize: 12, color: theme.colors.text },
     accessory: { flexDirection: 'row', alignItems: 'center', flexGrow: 0, flexShrink: 0 },
+    disclosureSpace: { width: 15, flexShrink: 0 },
     selected: { backgroundColor: theme.colors.surfaceSelected },
     pressed: { backgroundColor: theme.colors.surfacePressed },
 }));

@@ -561,7 +561,7 @@ function NavigationOwner(props: ProjectConversationNavigationProps & { scopeKey:
                                     {g.visible.map(row => <ConversationTreeRow
                                         key={row.sessionId} title={row.title || w.sessions}
                                         label={`${row.title || w.sessions} · ${statusLabel(row.status, w)}`}
-                                        icon="chatbubble-outline" depth={1} reveal
+                                        icon="chatbubble-outline" depth={1} reserveDisclosure reveal
                                         selected={props.selectedId === row.sessionId}
                                         testID={`project-conversations-session-${row.sessionId}`}
                                         badge={<View style={styles.line}><Text style={{ color: color(row.status), fontSize: 10 }}>●</Text><Text style={styles.time}>{formatLastSeen(row.updatedAt)}</Text></View>}
@@ -607,7 +607,7 @@ const styles = StyleSheet.create((theme) => ({
     list: { flex: 1, minHeight: 0 },
     content: { paddingVertical: 6, paddingBottom: 12 },
     group: { minWidth: 0 },
-    historyAction: { paddingLeft: 26, alignItems: 'flex-start' },
+    historyAction: { paddingLeft: 42, alignItems: 'flex-start' },
     creating: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
     link: { fontSize: 12, color: theme.colors.textLink, ...Typography.default() },
     notice: {
@@ -618,7 +618,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
-    empty: { paddingVertical: 6, paddingLeft: 48, paddingRight: 12, color: theme.colors.textSecondary, fontSize: 12, ...Typography.default() },
+    empty: { paddingVertical: 6, paddingLeft: 70, paddingRight: 12, color: theme.colors.textSecondary, fontSize: 12, ...Typography.default() },
     errorBox: { padding: 12, gap: 6 },
     error: { fontSize: 12, color: theme.colors.textDestructive },
 }));
