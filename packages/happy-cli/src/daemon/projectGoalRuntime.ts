@@ -29,7 +29,7 @@ export function createProjectGoalRuntime(options: {
             }, { headers, timeout: 15000 });
             if (!Array.isArray(response.data?.messages) || !response.data.messages.some((message: { localId?: unknown }) => message.localId === localId)) throw new Error('Task submission acknowledgement is missing');
         },
-        history: async (featurePath, tasks) => {
+        history: async (featurePath, tasks, historyOptions) => {
             const sessions: HistorySession[] = [];
             let cursor: string | undefined;
             const seenCursors = new Set<string>();
@@ -49,9 +49,10 @@ export function createProjectGoalRuntime(options: {
             const result: ProjectSession[] = [];
             for (const raw of sessions) {
                 const encryption = encryptionFor(raw.id);
-                if (!encryption) continue;
+                if (!encryption) { if (historyOptions?.headersOnly) throw new Error('Complete session history encryption is unavailable'); continue; }
                 const metadata = decrypt(encryption.encryptionKey, encryption.encryptionVariant, decodeBase64(raw.metadata)) as Metadata | null;
-                if (!metadata || metadata.machineId !== options.machineId || typeof metadata.path !== 'string') continue;
+                if (!metadata) { if (historyOptions?.headersOnly) throw new Error('Complete session history could not be decrypted'); continue; }
+                if (metadata.machineId !== options.machineId || typeof metadata.path !== 'string') continue;
                 const directory = await realpath(metadata.path).catch(() => metadata.path);
                 const task = tasks.find(task => {
                     const directories = task.directories ?? [task.directory];
@@ -59,14 +60,14 @@ export function createProjectGoalRuntime(options: {
                     if (task.sessionIds?.includes(raw.id)) return !binding?.taskId || !isStableTaskId(binding.taskId) || binding.taskId === task.id;
                     if (!binding) return directories.includes(directory) || directories.includes(metadata.path);
                     if (isStableTaskId(task.id) && binding.taskId === task.id) return true;
-                    return (binding.featurePath === featurePath && (binding.taskId ?? '') === task.id) ||
+                    return (binding.featurePath === (task.featurePath ?? featurePath) && (binding.taskId ?? '') === task.id) ||
                         directories.some(path => digest(`${path}/index.md`) === binding.taskId);
                 });
                 if (!task) continue;
                 let executed = raw.seq > 0;
                 // Ready events do not consume first execution. Only a complete
                 // decrypted ready-only transcript can establish an empty chat.
-                if (raw.seq > 0 && raw.seq <= 150) {
+                if (!historyOptions?.headersOnly && raw.seq > 0 && raw.seq <= 150) {
                     const messages = await axios.get(`${options.serverUrl}/v1/sessions/${encodeURIComponent(raw.id)}/messages`, { headers, timeout: 15000 });
                     const rows = messages.data.messages as Array<{ seq: number; content: { t: string; c?: string } }>;
                     const ordered = [...rows].sort((a, b) => a.seq - b.seq);

@@ -63,3 +63,20 @@ it('retains task history across a feature move and observed directory changes', 
     const history = await runtime().history('/new/feature', [{ id: 'GFT-abcdefgh', directory: '/new/task', directories: ['/new/task', '/old/task'] }]);
     expect(history.map(session => [session.sessionId, session.directory])).toEqual([['stable', '/new/task'], ['legacy', '/new/task']]);
 });
+
+it('reads aggregate header groups from one catalog without fetching message transcripts', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: { sessions: [
+        row('feature-global', 1, { ...metadata, path: '/archive/feature', goalBoard: { featurePath: '/archive/feature' } } as any),
+        row('feature-task', 1, { ...metadata, goalBoard: { featurePath: '/archive/feature', taskId: 'task' } } as any),
+    ], hasNext: false } });
+    const history = await runtime().history('/archive', [
+        { id: '', directory: '/archive', featurePath: '/archive' },
+        { id: '', directory: '/archive/feature', featurePath: '/archive/feature' },
+        { id: 'task', directory: metadata.path, featurePath: '/archive/feature' },
+    ], { headersOnly: true });
+    expect(history.map(session => session.sessionId)).toEqual(['feature-global', 'feature-task']); expect(axios.get).toHaveBeenCalledTimes(1);
+});
+it('refuses an exact header total when a session cannot be decrypted', async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: { sessions: [{ ...row('inaccessible', 0), metadata: encodeBase64(new Uint8Array(64)) }], hasNext: false } });
+    await expect(runtime().history('/archive', [], { headersOnly: true })).rejects.toThrow();
+});
