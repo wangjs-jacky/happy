@@ -19,7 +19,7 @@ export function createProjectGoalRuntime(options: {
     serverUrl: string; token: string; machineId: string; legacyKey?: Uint8Array;
     findSession: (id: string) => TrackedSession | undefined;
     now?: () => number; indexEncryption?: ProjectConversationIndexEncryption; indexPath?: string;
-}): Pick<ProjectGoalDependencies, 'history' | 'send' | 'conversationCatalog' | 'conversationIndex' | 'disposeConversationCatalog'> {
+}): Pick<ProjectGoalDependencies, 'history' | 'send' | 'conversationCatalog' | 'conversationIndex' | 'releaseConversationCatalog' | 'disposeConversationCatalog'> {
     const headers = { Authorization: `Bearer ${options.token}` };
     const encryptionFor = (id: string) => options.findSession(id)?.encryption ?? (options.legacyKey ? { encryptionKey: options.legacyKey, encryptionVariant: 'legacy' as const } : null);
     const readCatalog = async (maxBytes?: number) => {
@@ -80,6 +80,7 @@ export function createProjectGoalRuntime(options: {
             const applied = await index.record(rows, input.entries, generation);
             return { success: true, applied };
         },
+        releaseConversationCatalog: (projectPath, snapshotId) => catalog.release(projectPath, snapshotId),
         send: async (sessionId, prompt, localId) => {
             const child = options.findSession(sessionId);
             if (!child?.encryption) throw new Error('Task session encryption is unavailable');

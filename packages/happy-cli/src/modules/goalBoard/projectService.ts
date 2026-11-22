@@ -27,6 +27,7 @@ export type ProjectGoalDependencies = {
     disposeConversationCatalog?: () => void;
     conversationCatalog?: (projectPath: string, input: { snapshotId?: string; cursor?: string; format?: 'manifest'; sessionIds?: string[] }) => Promise<GoalProjectConversationCatalogPage | GoalProjectConversationCatalogManifestPage>;
     conversationIndex?: (projectPath: string, input: { snapshotId: string; catalogFingerprint: string; entries: GoalProjectConversationIndexEntry[] }) => Promise<{ success: true }>;
+    releaseConversationCatalog?: (projectPath: string, snapshotId: string) => boolean | Promise<boolean>;
     changed: () => void | Promise<void>;
     getArtifactStore?: () => Promise<import('../artifacts/store').ArtifactStore>;
 };
@@ -335,6 +336,18 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
         if (!deps.conversationIndex) throw new Error('Persistent conversation index is unavailable; update this machine CLI');
         return deps.conversationIndex(projectPath, { snapshotId: data.snapshotId, catalogFingerprint: data.catalogFingerprint, entries: data.entries });
     };
+    const conversationCatalogRelease = async (input: unknown) => {
+        if (disposed) throw new Error('Project workspace is closed');
+        const data = z.object({ projectPath: pathInput, snapshotId: z.string().min(1).max(128) }).parse(input);
+        const projectPath = await realpath(data.projectPath);
+        const projects = await readProjects(await discoverRoots(deps.workingDirectory, deps.homeDirectory));
+        if (disposed) throw new Error('Project workspace is closed');
+        if (!projects.some(project => project.projectPath === projectPath)) throw new Error('Project is outside the authorized Goal catalog');
+        if (!deps.releaseConversationCatalog) throw new Error('Conversation catalog snapshot release is unsupported; update this machine CLI');
+        const released = await deps.releaseConversationCatalog(projectPath, data.snapshotId);
+        if (disposed) throw new Error('Project workspace is closed');
+        return { success: true, released };
+    };
     const conversations = async (input: unknown) => {
         if (disposed) throw new Error('Project workspace is closed');
         const cursorSchema = z.object({ updatedAt: z.number(), sessionId: z.string().min(1).max(2048) });
@@ -575,7 +588,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             }
             return { success: true, projects: await readProjects(roots) };
         },
-        board, launch, files, approve, historyPage, overview, scopeHistory, conversations, conversationCatalog, conversationIndex, resolveWorkspace,
+        board, launch, files, approve, historyPage, overview, scopeHistory, conversations, conversationCatalog, conversationIndex, conversationCatalogRelease, resolveWorkspace,
         author: async (input: unknown): Promise<SpawnSessionResult> => {
             const data = z.object({ scopePath: pathInput.optional(), requestId: z.string().min(1).max(128), agent: z.enum(['codex', 'claude']), codexSessionGrant: z.string().max(4096).optional() }).parse(input);
             const roots = await discoverRoots(deps.workingDirectory, deps.homeDirectory);
@@ -606,6 +619,7 @@ export function registerProjectGoalHandlers(manager: { registerHandler(method: s
     manager.registerHandler('goalProjectConversations', wrap(service.conversations));
     manager.registerHandler('goalProjectConversationCatalog', wrap(service.conversationCatalog));
     manager.registerHandler('goalProjectConversationIndex', wrap(service.conversationIndex));
+    manager.registerHandler('goalProjectConversationCatalogRelease', wrap(service.conversationCatalogRelease));
     manager.registerHandler('goalScopeListDirectory', wrap(input => service.files(input, 'list', true)));
     manager.registerHandler('goalScopeReadFile', wrap(input => service.files(input, 'read', true)));
     manager.registerHandler('goalScopeWriteFile', wrap(input => service.files(input, 'write', true)));

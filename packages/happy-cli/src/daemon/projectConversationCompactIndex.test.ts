@@ -159,3 +159,29 @@ it('does not let a local manifest consumer mutate another page of the fixed snap
     const again = await adapter.conversationCatalog!('/project', { format: 'manifest', snapshotId: first.snapshotId });
     expect(again.sessions).toEqual([{ id: 'own', metadataVersion: 1, candidate }]);
 });
+
+it('shares same-project I/O while keeping each reader classification, generation and release independent', async () => {
+    const path = await indexPath();
+    let finish!: (response: any) => void;
+    vi.mocked(axios.get).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }))
+        .mockResolvedValue({ data: { sessions: [raw('own')], hasNext: false } });
+    const adapter = runtime(path);
+    const firstRead = adapter.conversationCatalog!('/project', { format: 'manifest' });
+    const secondRead = adapter.conversationCatalog!('/project', { format: 'manifest' });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    finish({ data: { sessions: [raw('own')], hasNext: false } });
+    const [first, second] = await Promise.all([firstRead, secondRead]);
+    expect(first.snapshotId).not.toBe(second.snapshotId);
+    expect(first.sessions).toEqual([{ id: 'own', metadataVersion: 1 }]);
+    expect(second.sessions).toEqual(first.sessions);
+    const evidence = { catalogFingerprint: second.catalogFingerprint, entries: [{ id: 'own', metadataVersion: 1, candidate }] };
+    await expect(adapter.conversationIndex!('/project', { ...evidence, snapshotId: first.snapshotId })).resolves.toEqual({ success: true, applied: false });
+    await expect(adapter.conversationIndex!('/project', { ...evidence, snapshotId: second.snapshotId })).resolves.toEqual({ success: true, applied: true });
+    expect(await adapter.releaseConversationCatalog!('/project', first.snapshotId)).toBe(true);
+    await expect(adapter.conversationIndex!('/project', { ...evidence, snapshotId: first.snapshotId })).rejects.toThrow('unavailable');
+    expect(await adapter.conversationCatalog!('/project', { format: 'manifest', snapshotId: second.snapshotId })).toEqual(second);
+    expect((await adapter.conversationCatalog!('/project', { snapshotId: second.snapshotId, sessionIds: ['own'] })).sessions).toHaveLength(1);
+    const next = await adapter.conversationCatalog!('/project', { format: 'manifest' });
+    expect(next.sessions).toEqual([{ id: 'own', metadataVersion: 1, candidate }]);
+    expect(axios.get).toHaveBeenCalledTimes(2);
+});
