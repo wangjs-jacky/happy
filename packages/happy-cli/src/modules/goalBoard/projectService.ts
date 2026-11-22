@@ -97,11 +97,11 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             .slice(0, 25).map(({ metadata, ...session }) => ({ ...session, lifecycleState: metadata.lifecycleState }));
         return { success: true, sessions };
     };
-    const identityCatalog = async (strict = false) => {
+    const identityCatalog = async (strictProjectPath?: string) => {
         const result: Array<{ entry: CatalogRecord; task: GoalTask }> = [];
         const duplicateIds = new Set<string>();
         const entries = await catalog();
-        if (strict) {
+        if (strictProjectPath) {
             if (entries.length >= MAX_CATALOG) throw new Error('Project catalog limit reached; complete conversation totals are unavailable');
             for (const root of await discoverRoots(deps.workingDirectory, deps.homeDirectory)) {
                 if ((await readdir(root)).length > MAX_CATALOG) throw new Error('Project directory limit reached; complete conversation totals are unavailable');
@@ -112,8 +112,9 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
             }
         }
         for (const entry of entries) {
-            const { snapshot } = await parseBoard(entry, { featureOnly: true, finalOnly: true, ...(strict ? { strictCompleteness: true } : {}) });
-            if (strict && snapshot.warnings.some(warning => /truncat|limit reached|budget exceeded|Unavailable (task entry|navigation)/i.test(warning)))
+            const { snapshot } = await parseBoard(entry, { featureOnly: true, finalOnly: true, ...(strictProjectPath ? { strictCompleteness: true } : {}) });
+            if (strictProjectPath && snapshot.warnings.some(warning => /truncat|limit reached|budget exceeded/i.test(warning)
+                || (entry.projectPath === strictProjectPath && /Unavailable (task entry|navigation)/i.test(warning))))
                 throw new Error('Task catalog is incomplete; complete conversation totals are unavailable');
             for (const id of snapshot.ambiguousTaskIds ?? []) duplicateIds.add(id);
             for (const task of snapshot.tasks) result.push({ entry, task });
@@ -317,7 +318,7 @@ export function createProjectGoalService(deps: ProjectGoalDependencies) {
         if (requestedScope && !scopes.some(scope => scope.scopePath === requestedScope)) throw new Error('Conversation group is outside this project');
         // One identity catalog and one finite account-header traversal per read,
         // never one complete account scan for every feature or Task.
-        const allTasks = await identityCatalog(true);
+        const allTasks = await identityCatalog(projectPath);
         const tasks = [];
         for (const item of allTasks.filter(item => item.entry.projectPath === projectPath)) {
             const directory = dirname(item.task.indexPath);

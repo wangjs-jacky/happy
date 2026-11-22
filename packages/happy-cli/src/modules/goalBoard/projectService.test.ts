@@ -544,3 +544,26 @@ it('refuses aggregate totals when feature directory discovery would silently tru
     const f = await fixture(); await Promise.all(Array.from({ length: 100 }, (_, i) => mkdir(join(f.root, 'p/features', `extra-${i}`), { recursive: true })));
     await expect(f.service.conversations({ projectPath: join(f.root, 'p') })).rejects.toThrow('Feature directory limit reached');
 });
+
+it('does not let stale task links in another project block complete selected-project totals', async () => {
+    const f = await fixture();
+    await f.put(join(f.root, 'other/index.md'), '# Other project');
+    await f.put(join(f.root, 'other/features/broken/index.md'), '# Unrelated feature\n[Missing task](tasks/missing/index.md)');
+    f.history.push({ sessionId: 'selected', title: 'Selected', directory: f.feature, updatedAt: 1, executed: false, metadata: { path: f.feature } as any });
+    const result = await f.service.conversations({ projectPath: join(f.root, 'p') });
+    expect(result.groups.find(group => group.scopePath === f.feature)?.total).toBe(1);
+    await expect(f.service.conversations({ projectPath: join(f.root, 'other') })).rejects.toThrow('Task catalog is incomplete');
+});
+it('still refuses actual catalog truncation in another project because duplicate identity checks would be incomplete', async () => {
+    const f = await fixture();
+    await f.put(join(f.root, 'other/index.md'), '# Other project');
+    await f.put(join(f.root, 'other/features/large/index.md'), '# Other feature');
+    const original = parser.parseBoard;
+    const spy = vi.spyOn(parser, 'parseBoard').mockImplementation(async (...args) => {
+        const parsed = await original(...args);
+        if (args[0].projectPath === join(f.root, 'other')) parsed.snapshot.warnings.push('Task limit reached; board is truncated');
+        return parsed;
+    });
+    try { await expect(f.service.conversations({ projectPath: join(f.root, 'p') })).rejects.toThrow('Task catalog is incomplete'); }
+    finally { spy.mockRestore(); }
+});
