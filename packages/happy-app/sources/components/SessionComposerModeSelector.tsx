@@ -91,6 +91,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
 ) {
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
+    const compactModelList = Platform.OS === 'web' && width >= 768;
     const triggerRef = React.useRef<View>(null);
     const triggerButton = React.useRef<View>(null);
     const panelRef = React.useRef<View>(null);
@@ -412,7 +413,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                         >
                             {modelsOpen ? (
                                 <View style={styles.models}>
-                                    <View style={styles.modelsHead}>
+                                    <View style={[styles.modelsHead, compactModelList && styles.compactModelsHead]}>
                                         <Pressable
                                             accessibilityRole="button"
                                             ref={panelButton}
@@ -430,7 +431,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                 color={theme.colors.textSecondary}
                                             />
                                         </Pressable>
-                                        <Text style={styles.modelsTitle}>{t('agentInput.model.title')}</Text>
+                                        <Text style={[styles.modelsTitle, compactModelList && styles.compactModelsTitle]}>{t('agentInput.model.title')}</Text>
                                         {props.onRefreshModels ? <Pressable
                                             testID="session-composer-refresh-models"
                                             accessibilityRole="button"
@@ -464,7 +465,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                         accessibilityLabel={t('tools.names.search')}
                                         placeholder={t('tools.names.search')}
                                         placeholderTextColor={theme.colors.textSecondary}
-                                        style={styles.search}
+                                        style={[styles.search, compactModelList && styles.compactSearch]}
                                     />
                                     <ScrollView
                                         style={[
@@ -472,7 +473,9 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                             {
                                                 maxHeight: Math.max(
                                                     40,
-                                                    placement.maxHeight - 125,
+                                                    compactModelList
+                                                        ? Math.min(388, placement.maxHeight - 104)
+                                                        : placement.maxHeight - 125,
                                                 ),
                                             },
                                         ]}
@@ -481,7 +484,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                     >
                                         {modelGroups.map(([group, options]) => (
                                             <View key={group}>
-                                                <Text accessibilityRole="header" style={styles.groupHeading} testID={`session-composer-model-group-${group}`}>
+                                                <Text accessibilityRole="header" style={[styles.groupHeading, compactModelList && styles.compactGroupHeading]} testID={`session-composer-model-group-${group}`}>
                                                     {group === 'automatic' ? t('settingsLanguage.automatic') : group === 'other' ? t('tools.askUserQuestion.other') : group}
                                                 </Text>
                                                 {options.map(option => (
@@ -495,13 +498,17 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                                                         aria-checked={props.model?.key === option.key}
                                                         onPress={() => selectModel(option.key)}
                                                         style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
-                                                            styles.option, hoverTransition,
+                                                            styles.option, compactModelList && styles.compactModelOption, hoverTransition,
                                                             props.model?.key === option.key && styles.selected,
                                                             (pressed || hovered) && styles.pressed,
                                                         ]}
                                                     >
-                                                        <Text style={styles.optionText} numberOfLines={2}>{formatComposerModelName(option.name)}</Text>
-                                                        {option.connectionLabel ? <View style={styles.optionDetail}>
+                                                        <Text style={[styles.optionText, compactModelList && styles.compactOptionText]} numberOfLines={2}>{formatComposerModelName(option.name)}</Text>
+                                                        {option.connectionLabel ? compactModelList ? (
+                                                            <Text style={[styles.description, styles.compactOptionDetail]} numberOfLines={1}>
+                                                                {option.actionLabel ? `${option.connectionLabel} · ${option.actionLabel}` : option.connectionLabel}
+                                                            </Text>
+                                                        ) : <View style={styles.optionDetail}>
                                                             <Text style={styles.description} numberOfLines={1}>{option.connectionLabel}</Text>
                                                             {option.actionLabel ? <Text style={styles.description} numberOfLines={1}>{option.actionLabel}</Text> : null}
                                                         </View> : null}
@@ -864,9 +871,13 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
     },
     modelsTitle: { flex: 1, color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') },
+    compactModelsHead: { paddingHorizontal: 7, paddingTop: 4, paddingBottom: 4 },
+    compactModelsTitle: { fontSize: 12 },
     groupHeading: { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 4, color: theme.colors.textSecondary, fontSize: 12, ...Typography.default('semiBold') },
+    compactGroupHeading: { paddingHorizontal: 8, paddingTop: 4, paddingBottom: 2, fontSize: 11, lineHeight: 16 },
     selected: { backgroundColor: theme.colors.surfaceSelected },
     optionText: { flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') },
+    compactOptionText: { fontSize: 12, lineHeight: 16, ...Typography.default() },
     search: {
         color: theme.colors.text,
         backgroundColor: theme.colors.surface,
@@ -877,7 +888,9 @@ const styles = StyleSheet.create((theme) => ({
         marginBottom: 4,
         fontSize: 13,
     },
+    compactSearch: { marginHorizontal: 8, paddingHorizontal: 8, paddingVertical: 5, fontSize: 12, lineHeight: 16 },
     optionDetail: { flexShrink: 1, maxWidth: '40%', alignItems: 'flex-end' },
+    compactOptionDetail: { flexShrink: 1, maxWidth: '44%', lineHeight: 16 },
     description: { color: theme.colors.textSecondary, fontSize: 11, ...Typography.default() },
     catalogStatus: { color: theme.colors.textSecondary, fontSize: 12, paddingHorizontal: 14, paddingBottom: 6, ...Typography.default() },
     modelList: { flexShrink: 1, paddingHorizontal: 7, marginBottom: 8 },
@@ -891,4 +904,5 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
+    compactModelOption: { minHeight: 32, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7 },
 }));
