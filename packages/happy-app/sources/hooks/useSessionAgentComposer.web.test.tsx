@@ -81,6 +81,26 @@ describe('Web composer Agent staging', () => {
   await act(async () => value.submit());
   expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ agent: 'codex', modelMode: 'gpt-6-astra', effortLevel: 'ultra' }), false, expect.any(Function));
  });
+ it('keeps a staged Codex model selected and blocks submission until it is available again', async () => {
+  const source = { ...session, metadata: { ...session.metadata, flavor: 'claude' } };
+  const catalog = { id: 'codex-catalog', activeAt: 1, metadata: { machineId: 'm', flavor: 'codex',
+   models: [{ code: 'gpt-6.1-sol', value: 'Sol' }, { code: 'gpt-6-astra', value: 'Astra' }] } };
+  mocks.sessions = [catalog];
+  mount(source);
+  act(() => value.modeSelector.agentSwitcher.onSelect('codex'));
+  act(() => value.modeSelector.onModelChange('gpt-6-astra'));
+  mocks.sessions = [{ ...catalog, metadata: { ...catalog.metadata, models: [catalog.metadata.models[0]] } }];
+  act(() => renderer.update(<Harness source={source} />));
+  expect(value.modeSelector.model.key).toBe('gpt-6-astra');
+  expect(value.disabled).toBe(true);
+  await expect(value.submit()).resolves.toBe(false);
+  expect(mocks.spawn).not.toHaveBeenCalled();
+  mocks.sessions = [catalog];
+  act(() => renderer.update(<Harness source={source} />));
+  expect(value.disabled).toBe(false);
+  await act(async () => value.submit());
+  expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({ modelMode: 'gpt-6-astra' }), false, expect.any(Function));
+ });
  it('keeps staged Codex CLI reset visible and explicit when its concrete catalog arrives', async () => {
   const source = { ...session, metadata: { ...session.metadata, flavor: 'claude' } };
   mount(source);

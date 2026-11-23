@@ -301,7 +301,7 @@ export async function startDaemon(): Promise<void> {
     }
 
     // Session spawning awaiter system
-    const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
+    const pidToAwaiter = new Map<number, (session?: TrackedSession) => void>();
     const startupIntegration = new DaemonSessionStartupIntegration();
 
     // Helper functions
@@ -631,6 +631,10 @@ export async function startDaemon(): Promise<void> {
               // Register awaiter for tmux session (exact same as regular flow)
               pidToAwaiter.set(tmuxResult.pid!, (completedSession) => {
                 clearTimeout(timeout);
+                if (!completedSession) {
+                  resolve({ type: 'error', errorMessage: 'Session process exited before startup completed' });
+                  return;
+                }
                 logger.debug(`[DAEMON RUN] Session ${completedSession.happySessionId} fully spawned with webhook (tmux)`);
                 resolve({
                   type: 'success',
@@ -834,6 +838,10 @@ export async function startDaemon(): Promise<void> {
 
         pidToAwaiter.set(happyProcess.pid!, (completedSession) => {
           clearTimeout(timeout);
+          if (!completedSession) {
+            resolve({ type: 'error', errorMessage: 'Session process exited before startup completed' });
+            return;
+          }
           logger.debug(`[DAEMON RUN] Session ${completedSession.happySessionId} fully spawned with webhook`);
           resolve({
             type: 'success',
@@ -1174,6 +1182,9 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
       }
       pidToTrackedSession.delete(pid);
+      const awaiter = pidToAwaiter.get(pid);
+      pidToAwaiter.delete(pid);
+      awaiter?.();
       startupIntegration.childExited(pid);
     };
 

@@ -244,15 +244,17 @@ export class ApiMachineClient {
             changed: async () => { await this.updateDaemonState(state => ({ ...state, status: state?.status ?? 'running', goalProjectRevision: `${Date.now()}:${Math.random()}` })); },
         });
 
-        // Register separate entry points so a legacy daemon cannot ignore a Magpie selection.
-        const handleSpawn = async (params: any, magpie: boolean) => {
-            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, codexSessionGrant, magpieModel, model, effort, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+        this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
+            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, codexSessionGrant, model: requestedModel, effort, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+            const magpie = requestedModel?.connection === 'magpie';
+            const magpieModel = magpie ? requestedModel.id : undefined;
+            const model = magpie ? undefined : requestedModel;
             const traceId = traceIdFromParams(params?.traceId);
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
-            if ((model !== undefined || effort !== undefined) && agent !== 'codex') {
+            if ((requestedModel !== undefined || effort !== undefined) && agent !== 'codex') {
                 throw new Error('Model and effort are supported only for Codex sessions');
             }
             if (model !== undefined && (typeof model !== 'string' || model.length === 0)) {
@@ -262,9 +264,9 @@ export class ApiMachineClient {
                 throw new Error('Codex effort must be one of: low, medium, high, xhigh, max');
             }
 
-            if (magpie !== (magpieModel !== undefined) || (magpie && (typeof magpieModel !== 'string' || !magpieModel || magpieModel.length > 512
-                || agent !== 'codex' || codexSessionGrant !== undefined || model !== undefined
-                || sessionId || resumeClaudeSessionId || resumeCodexThreadId || parentSessionId))) {
+            if (magpie && (typeof magpieModel !== 'string' || !magpieModel.trim() || magpieModel.length > 512
+                || codexSessionGrant !== undefined || token !== undefined
+                || sessionId || resumeClaudeSessionId || resumeCodexThreadId || parentSessionId || forkedFromMessageId)) {
                 throw new Error('Magpie selection requires a fresh native Codex session');
             }
 
@@ -299,9 +301,7 @@ export class ApiMachineClient {
                 case 'error':
                     return { type: 'error', errorMessage: result.errorMessage };
             }
-        };
-        this.rpcHandlerManager.registerHandler('spawn-happy-session', params => handleSpawn(params, false));
-        this.rpcHandlerManager.registerHandler('spawn-magpie-session', params => handleSpawn(params, true));
+        });
 
         this.syncResumeSessionRpcRegistration();
 

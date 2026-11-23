@@ -42,7 +42,7 @@ import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { trimIdent } from "@/utils/trimIdent";
 import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
-import type { Session as ApiSession } from '@/api/types';
+import type { Metadata, Session as ApiSession } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
 import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
@@ -105,10 +105,12 @@ const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 export async function completeCodexProcessorStartup(
     session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent'>,
     ensureThreadAvailable: () => Promise<unknown>,
+    reportReady?: () => Promise<void>,
 ): Promise<void> {
     await ensureThreadAvailable();
     session.processorReady();
     session.sendSessionEvent({ type: 'ready' });
+    await reportReady?.();
 }
 
 export async function archiveFailedCodexProcessorStartup(
@@ -559,7 +561,7 @@ export async function runCodex(opts: {
             }
         }
     };
-    if (!deferForkReport) await reportSessionStarted();
+    if (!deferForkReport && !expectMagpieConnection) await reportSessionStarted();
 
     // Track current overrides to apply per message
     // Use shared PermissionMode type from api/types for cross-agent compatibility
@@ -1354,10 +1356,11 @@ export async function runCodex(opts: {
             || (opts.model && !codexModelCatalog?.some(model => model.model === opts.model && !model.hidden)))) {
             throw new Error('The selected Magpie connection or model is no longer available.');
         }
-        session.updateMetadata(meta => ({
+        const publishModelConnection = (meta: Metadata): Metadata => ({
             ...meta, codexMagpieConnection,
             capabilities: { ...meta.capabilities, codexModelCatalogRefresh: client.supportsModelCatalogRefresh },
-        }));
+        });
+        if (!expectMagpieConnection) session.updateMetadata(publishModelConnection);
 
         if (opts.resumeThreadId) {
             const resumedThread = await resumeExistingThread({
@@ -1450,7 +1453,7 @@ export async function runCodex(opts: {
             }
         }
 
-        if (deferForkReport) await reportSessionStarted();
+        if (deferForkReport && !expectMagpieConnection) await reportSessionStarted();
 
         const resolveExecutionPolicyForMode = (mode: EnhancedMode) => {
             const sandboxManagedByHappy = client.sandboxEnabled;
@@ -1796,13 +1799,16 @@ export async function runCodex(opts: {
             }
         };
 
-        await completeCodexProcessorStartup(session, () => ensureCodexThread({
-            permissionMode: currentPermissionMode ?? 'default',
-            model: currentModel,
-            appendSystemPrompt: currentAppendSystemPrompt,
-            effort: currentEffort,
-            fast: currentFastMode,
-        }));
+        await completeCodexProcessorStartup(session, async () => {
+            await ensureCodexThread({
+                permissionMode: currentPermissionMode ?? 'default',
+                model: currentModel,
+                appendSystemPrompt: currentAppendSystemPrompt,
+                effort: currentEffort,
+                fast: currentFastMode,
+            });
+            if (expectMagpieConnection) await session.updateMetadataAndAwait(publishModelConnection);
+        }, expectMagpieConnection ? reportSessionStarted : undefined);
         processorStartupComplete = true;
 
         while (!shouldExit) {

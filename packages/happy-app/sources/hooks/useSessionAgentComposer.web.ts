@@ -86,7 +86,12 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
         effortSelection: choice?.effortSelection, agentDefaultOverrides: defaults,
         modelOptions: models, effortMetadata: modelMetadata });
     if (choice?.permissionMode) selection.permissionMode = choice.permissionMode;
-    const effortLevels = getEffortLevelsForModel(selected, selection.modelMode, modelMetadata);
+    const explicitCodexModel = selected === 'codex' && choice?.modelMode && choice.modelMode !== 'default'
+        && (useMagpie || (choice.modelSelection?.agent === 'codex'
+            && choice.modelSelection.defaultValue === resolveAgentDefaultConfig(defaults, 'codex').modelMode))
+        ? choice.modelMode : null;
+    const modelUnavailable = explicitCodexModel !== null && !models.some(model => model.key === explicitCodexModel);
+    const effortLevels = modelUnavailable ? [] : getEffortLevelsForModel(selected, selection.modelMode, modelMetadata);
     const spawn = useSpawnSession();
     const busy = spawn.sending || Boolean(spawn.hydrationError);
     const update = (change: Choice) => {
@@ -95,7 +100,6 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
             [selected]: { ...(previous.scope === scope ? previous.choices[selected] : undefined), ...change } } }));
     };
     const targetAvailable = available.some(a => a.key === selected);
-    const modelUnavailable = useMagpie && !magpieModels.some(model => model.key === choice?.modelMode);
     const disabled = !online || !targetAvailable || modelUnavailable
         || (selected === 'codex' && !useMagpie && accountProfile === undefined);
     const submit = async () => {
@@ -137,7 +141,9 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
         .map(model => ({ ...model, ...(nativeRoutes.length && current === 'codex' && (!pending || useMagpie)
             ? { connectionLabel: runningMagpie ? 'Magpie' : session.metadata?.codexAccountProfileId ? 'ChatGPT' : 'Codex' } : {}) }));
     const options = [...sourceModels, ...nativeRoutes];
-    const stagedModel = selected === 'codex' && selection.modelMode === 'default'
+    const stagedModel = modelUnavailable && explicitCodexModel
+        ? { key: explicitCodexModel, name: explicitCodexModel }
+        : selected === 'codex' && selection.modelMode === 'default'
         ? { key: 'default', name: t('agentInput.model.cliAutomatic') }
         : models.find(model => model.key === selection.modelMode) ?? null;
     const displayedModel = useMagpie
@@ -187,7 +193,7 @@ export function useSessionAgentComposer(args: SessionAgentComposerArgs): Session
                 effort: effortLevels.find(e => e.key === selection.effortLevel) ?? null, effortOptions: effortLevels,
                 onEffortChange: key => update({ effortLevel: key,
                     effortSelection: { agent: selected, defaultValue: resolveAgentDefaultConfig(defaults, selected).effortLevel } }),
-                supportsFast: supportsCodexFast(modelMetadata, selection.modelMode), fastMode: choice?.fastMode === true,
+                supportsFast: !modelUnavailable && supportsCodexFast(modelMetadata, selection.modelMode), fastMode: choice?.fastMode === true,
                 onFastModeChange: enabled => update({ fastMode: enabled }),
             } : base),
             ownerScope: scope,

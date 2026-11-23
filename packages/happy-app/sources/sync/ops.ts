@@ -335,8 +335,10 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         || options.expectedCodexAccountProfileId != null)) {
         return { type: 'error', errorMessage: 'Magpie selection requires a fresh native Codex session' };
     }
-    return machineStartSession(machineId, magpieModel ? 'spawn-magpie-session' : 'spawn-happy-session', agent === 'codex' && !magpieModel, {
-        ...(magpieModel ? { magpieModel } : {}),
+    return machineStartSession(machineId, 'spawn-happy-session', agent === 'codex' && !magpieModel, {
+        // Older daemons reject a non-string model. The existing method keeps
+        // the relay's longer startup budget while the worker checks Magpie.
+        ...(magpieModel ? { model: { connection: 'magpie', id: magpieModel } } : {}),
         type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation,
         ...(agent === 'codex' ? {} : { token }), agent, environmentVariables,
         resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId,
@@ -370,7 +372,7 @@ export async function machineStartGoalAuthor(machineId: string, input: { scopePa
 /** Every final process launch goes through here; grants never enter persisted App state. */
 async function machineStartSession(
     machineId: string,
-    method: 'continue-with-agent' | 'spawn-happy-session' | 'spawn-magpie-session' | 'resume-happy-session' | 'goalTaskLaunch' | 'previewGoalTaskLaunch' | 'goalProjectAuthor',
+    method: 'continue-with-agent' | 'spawn-happy-session' | 'resume-happy-session' | 'goalTaskLaunch' | 'previewGoalTaskLaunch' | 'goalProjectAuthor',
     isCodex: boolean,
     parameters: Record<string, unknown>,
     expectedCodexAccountProfileId?: string | null,
