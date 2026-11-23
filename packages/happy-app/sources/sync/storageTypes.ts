@@ -33,6 +33,7 @@ export const MetadataSchema = z.object({
         description: z.string().nullish(),
     })).optional(),
     currentOperatingModeCode: z.string().optional(),
+    acpPermissionMode: z.enum(['default', 'bypassPermissions']).optional(),
     thoughtLevels: z.array(z.object({
         code: z.string(),
         value: z.string(),
@@ -50,6 +51,7 @@ export const MetadataSchema = z.object({
         updatedAt: z.number()
     }).optional(),
     capabilities: z.object({
+        acpPermissionPolicy: z.boolean().optional(),
         regenerateTitle: z.boolean().optional(),
         codexCredentialRecovery: z.boolean().optional(),
         codexSteer: z.boolean().optional(),

@@ -49,7 +49,8 @@ describe('Claude Skill document reads', () => {
     });
 
     it('recognizes an agy command only when it exclusively reads Skill documents', () => {
-        expect(getSkillNamesFromTool(toolMessage(1, 'execute', { CommandLine: "cat '/skills/ego-ops/SKILL.md'" }).tool)).toEqual(['ego-ops']);
+        expect(collectConversationActivities([toolMessage(1, 'execute', { CommandLine: "cat '/skills/ego-ops/SKILL.md'" })]).skills)
+            .toEqual([expect.objectContaining({ name: 'ego-ops', source: 'command-read' })]);
         expect(getSkillNamesFromTool(toolMessage(2, 'execute', { CommandLine: "cat '/skills/ego-ops/SKILL.md' && rm file" }).tool)).toEqual([]);
     });
     it.each([

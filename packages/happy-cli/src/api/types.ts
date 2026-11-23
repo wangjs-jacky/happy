@@ -383,6 +383,7 @@ export type Metadata = {
   currentModelCode?: string,
   operatingModes?: Array<{ code: string; value: string; description?: string | null }>,
   currentOperatingModeCode?: string,
+  acpPermissionMode?: 'default' | 'bypassPermissions',
   thoughtLevels?: Array<{ code: string; value: string; description?: string | null }>,
   currentThoughtLevelCode?: string,
   path: string,
@@ -395,6 +396,7 @@ export type Metadata = {
     updatedAt: number
   },
   capabilities?: {
+    acpPermissionPolicy?: boolean
     regenerateTitle?: boolean
     codexCredentialRecovery?: boolean
     artifactLeases?: 1 | typeof ARTIFACT_PROTOCOL

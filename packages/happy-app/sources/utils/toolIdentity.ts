@@ -14,12 +14,6 @@ export function getSkillDocumentName(tool: Pick<ToolCall, 'name' | 'input'>): st
     return name && name !== '.' && name !== '..' ? name : null;
 }
 
-export function getAcpSkillNames(tool: Pick<ToolCall, 'name' | 'input'>): string[] {
-    return tool.name === 'execute'
-        ? extractSkillNamesFromCommand(stringifyToolCommand(tool.input?.CommandLine ?? tool.input?.command))
-        : [];
-}
-
 /** Repair old CLI records that labelled a whole compound terminal command as a Skill. */
 export function getEffectiveToolName(tool: Pick<ToolCall, 'name' | 'input'>): string {
     if (tool.name !== 'Skill') return tool.name;

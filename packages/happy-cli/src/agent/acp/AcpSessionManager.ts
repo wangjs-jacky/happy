@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2';
-import { createEnvelope, type CreateEnvelopeOptions, type SessionEnvelope } from '@slopus/happy-wire';
+import { createEnvelope, selectToolFailure, type CreateEnvelopeOptions, type SessionEnvelope } from '@slopus/happy-wire';
 import type { AgentMessage } from '@/agent/core';
 
 function turnOptions(turnId: string | null, time: number): CreateEnvelopeOptions {
@@ -161,9 +161,13 @@ export class AcpSessionManager {
     if (msg.type === 'tool-result') {
       const flushed = this.flush();
       const call = this.getSessionCallId(msg.callId);
+      const result = msg.result && typeof msg.result === 'object' ? msg.result as Record<string, unknown> : {};
+      const status = result.status === 'cancelled' ? 'cancelled' : result.status === 'failed' || result.error ? 'failed' : undefined;
+      const failure = status === 'failed' ? selectToolFailure([msg.result], 'Tool failed') : null;
       return [
         ...flushed,
-        createEnvelope('agent', { t: 'tool-call-end', call }, turnOptions(this.currentTurnId, this.nextTime())),
+        createEnvelope('agent', { t: 'tool-call-end', call, ...(status ? { status } : {}),
+          ...(failure?.summary ? { error: failure } : {}) }, turnOptions(this.currentTurnId, this.nextTime())),
       ];
     }
 

@@ -152,7 +152,7 @@ export function normalizeAcpPermissionRequest(
   const toolCallId = toolCall?.id || toolCall?.toolCallId || createFallbackId();
   let input: Record<string, unknown> = {};
   if (toolCall) {
-    input = toolCall.input || toolCall.arguments || toolCall.content || toolCall.rawInput || {};
+    input = toolCall.rawInput ?? toolCall.input ?? toolCall.arguments ?? toolCall.content ?? {};
   } else {
     input = extendedParams.input || extendedParams.arguments || extendedParams.content || {};
   }
@@ -166,19 +166,29 @@ export function normalizeAcpPermissionRequest(
   };
 }
 
-function acpPermissionResponse(
+export function normalizeAcpPermissionResult(
   options: RequestPermissionRequest['options'],
   result: { decision: 'approved' | 'approved_for_session' | 'denied' | 'abort'; optionId?: string },
-): RequestPermissionResponse {
-  if (result.decision === 'abort') return { outcome: { outcome: 'cancelled' } };
+): { decision: 'approved' | 'approved_for_session' | 'denied' | 'abort'; optionId?: string } {
+  if (result.decision === 'abort') return { decision: 'abort' };
   const kinds = result.decision === 'approved_for_session' ? ['allow_always']
     : result.decision === 'approved' ? ['allow_once'] : ['reject_once', 'reject_always'];
+  // Existing client-managed modes (including Gemini YOLO) persist in the client;
+  // their native response can safely remain a single-use approval.
+  if (result.optionId === undefined && result.decision === 'approved_for_session' && !options.some(o => o.kind === 'allow_always')) kinds.push('allow_once');
   const candidates = options.filter(option => result.optionId !== undefined
-    ? option.optionId === result.optionId : option.kind === kinds[0]);
+    ? option.optionId === result.optionId : option.kind === (kinds.includes('allow_once') ? 'allow_once' : kinds[0]));
   const selected = candidates.length === 1 ? candidates[0] : undefined;
   // Never infer a broader scope from position, translated labels or an unknown ID.
-  if (!selected || !kinds.includes(selected.kind)) return { outcome: { outcome: 'cancelled' } };
-  return { outcome: { outcome: 'selected', optionId: selected.optionId } };
+  if (!selected || !kinds.includes(selected.kind)) return { decision: 'abort' };
+  return { decision: selected.kind === 'allow_always' ? 'approved_for_session'
+    : selected.kind === 'allow_once' ? 'approved' : 'denied', optionId: selected.optionId };
+}
+
+function acpPermissionResponse(options: RequestPermissionRequest['options'], result: Parameters<typeof normalizeAcpPermissionResult>[1]): RequestPermissionResponse {
+  const normalized = normalizeAcpPermissionResult(options, result);
+  return normalized.optionId === undefined ? { outcome: { outcome: 'cancelled' } }
+    : { outcome: { outcome: 'selected', optionId: normalized.optionId } };
 }
 
 /**
