@@ -31,6 +31,7 @@ import { createCloudflaredAdapter } from '@/environment/cloudflaredAdapter';
 import { createEnvironmentService } from '@/environment/environmentService';
 import { registerEnvironmentHandlers } from '@/environment/registerEnvironmentHandlers';
 import { registerClaudeModelCatalogHandler } from '@/claude/modelCatalog';
+import { registerMagpieModelCatalogHandler } from '@/codex/magpieModelCatalog';
 import { detectCLIAvailability, CLIAvailability } from '@/utils/detectCLI';
 import { detectResumeSupport, type ResumeSupport } from '@/resume/localHappyAgentAuth';
 import { shouldReconnect } from '@/utils/lidState';
@@ -207,6 +208,7 @@ export class ApiMachineClient {
         ]);
         registerEnvironmentHandlers(this.rpcHandlerManager, environmentService);
         registerClaudeModelCatalogHandler(this.rpcHandlerManager);
+        registerMagpieModelCatalogHandler(this.rpcHandlerManager);
         const codingAgents = createCodingAgentService({ runner, env: process.env });
         this.rpcHandlerManager.registerHandler('coding-agents-inspect', (request: unknown) => codingAgents.inspect(request));
         this.rpcHandlerManager.registerHandler('coding-agent-update', async (request: unknown) => {
@@ -242,9 +244,9 @@ export class ApiMachineClient {
             changed: async () => { await this.updateDaemonState(state => ({ ...state, status: state?.status ?? 'running', goalProjectRevision: `${Date.now()}:${Math.random()}` })); },
         });
 
-        // Register spawn session handler
-        this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, codexSessionGrant, model, effort, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+        // Register separate entry points so a legacy daemon cannot ignore a Magpie selection.
+        const handleSpawn = async (params: any, magpie: boolean) => {
+            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, codexSessionGrant, magpieModel, model, effort, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
             const traceId = traceIdFromParams(params?.traceId);
 
             if (!directory) {
@@ -260,6 +262,12 @@ export class ApiMachineClient {
                 throw new Error('Codex effort must be one of: low, medium, high, xhigh, max');
             }
 
+            if (magpie !== (magpieModel !== undefined) || (magpie && (typeof magpieModel !== 'string' || !magpieModel || magpieModel.length > 512
+                || agent !== 'codex' || codexSessionGrant !== undefined || model !== undefined
+                || sessionId || resumeClaudeSessionId || resumeCodexThreadId || parentSessionId))) {
+                throw new Error('Magpie selection requires a fresh native Codex session');
+            }
+
             const result = await spawnSession({
                 directory,
                 sessionId,
@@ -269,6 +277,7 @@ export class ApiMachineClient {
                 environmentVariables,
                 token,
                 codexSessionGrant,
+                ...(magpieModel ? { magpieModel } : {}),
                 model,
                 effort,
                 resumeClaudeSessionId,
@@ -290,7 +299,9 @@ export class ApiMachineClient {
                 case 'error':
                     return { type: 'error', errorMessage: result.errorMessage };
             }
-        });
+        };
+        this.rpcHandlerManager.registerHandler('spawn-happy-session', params => handleSpawn(params, false));
+        this.rpcHandlerManager.registerHandler('spawn-magpie-session', params => handleSpawn(params, true));
 
         this.syncResumeSessionRpcRegistration();
 
@@ -708,6 +719,7 @@ export class ApiMachineClient {
                 this.updateMachineMetadata((metadata) => ({
                     ...(metadata || {} as any),
                     crossAgentContinuation: this.crossAgentContinuationAvailable ? 1 : undefined,
+                    magpieModelCatalog: 1,
                     cliAvailability: newAvailability,
                     resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
                 })).catch((err) => {

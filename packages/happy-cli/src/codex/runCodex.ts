@@ -71,6 +71,7 @@ import {
     type CodexEnhancedMode,
 } from './codexPrompt';
 import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
+import { EXPECT_MAGPIE_CONNECTION_ENV, isMagpieModelConnection } from './magpieModelCatalog';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import type { GoalCommand, UsageCommand } from '@/parsers/specialCommands';
 import { discoverCodexSkillNames } from './codexSkillDiscovery';
@@ -338,6 +339,8 @@ export async function runCodex(opts: {
     effort?: ReasoningEffort;
     startupLifecycle?: WorkerSessionStartupLifecycle;
 }): Promise<void> {
+    const expectMagpieConnection = process.env[EXPECT_MAGPIE_CONNECTION_ENV] === '1';
+    delete process.env[EXPECT_MAGPIE_CONNECTION_ENV];
     // Early check: ensure Codex CLI is installed before proceeding
     try {
         if (!isAppServerAvailable(resolveCodexExecutablePath())) {
@@ -568,6 +571,7 @@ export async function runCodex(opts: {
     let currentFastMode = boundMode?.fast ?? false;
     let currentAppendSystemPrompt: string | undefined = undefined;
     let codexModelCatalog: Model[] | null = null;
+    let modelsUpdatedAt: number | undefined;
 
     const syncCodexSessionConfigMetadata = (model: string | undefined, effort: ReasoningEffort | undefined) => {
         if (!model) {
@@ -575,6 +579,7 @@ export async function runCodex(opts: {
         }
         session.updateMetadata((currentMetadata) => mergeCodexSessionConfigIntoMetadata(currentMetadata, {
             models: codexModelCatalog,
+            modelsUpdatedAt,
             currentModel: model,
             currentEffort: effort ?? null,
         }));
@@ -972,8 +977,10 @@ export async function runCodex(opts: {
     refreshModelsHandler = async () => {
         const models = await client.refreshModelCatalog();
         codexModelCatalog = models;
+        const observedAt = modelsUpdatedAt = Date.now();
         await session.updateMetadataAndAwait(meta => mergeCodexSessionConfigIntoMetadata(meta, {
             models,
+            modelsUpdatedAt: observedAt,
             currentModel: meta.currentModelCode ?? currentModel ?? models.find(model => model.isDefault)?.model ?? models[0].model,
             currentEffort: (meta.currentThoughtLevelCode as ReasoningEffort | undefined) ?? currentEffort,
         }));
@@ -1330,17 +1337,27 @@ export async function runCodex(opts: {
                 cursor = page.nextCursor ?? null;
             } while (cursor);
             codexModelCatalog = models;
+            modelsUpdatedAt = Date.now();
             logger.debug(`[Codex] Loaded ${models.length} models from app-server catalog`);
         } catch (error) {
             logger.debug('[Codex] Failed to load model catalog from app-server; using fallback metadata', error);
         }
 
+        let codexMagpieConnection = false;
         try {
-            await client.prepareModelCatalogRefresh();
+            const config = await client.prepareModelCatalogRefresh();
+            codexMagpieConnection = !!config && !process.env.HAPPY_CODEX_ACCOUNT_PROFILE_ID && isMagpieModelConnection(config);
         } catch (error) {
             logger.debug('[Codex] Model catalog refresh unavailable', error);
         }
-        session.updateMetadata(meta => ({ ...meta, capabilities: { ...meta.capabilities, codexModelCatalogRefresh: client.supportsModelCatalogRefresh } }));
+        if (expectMagpieConnection && (!codexMagpieConnection
+            || (opts.model && !codexModelCatalog?.some(model => model.model === opts.model && !model.hidden)))) {
+            throw new Error('The selected Magpie connection or model is no longer available.');
+        }
+        session.updateMetadata(meta => ({
+            ...meta, codexMagpieConnection,
+            capabilities: { ...meta.capabilities, codexModelCatalogRefresh: client.supportsModelCatalogRefresh },
+        }));
 
         if (opts.resumeThreadId) {
             const resumedThread = await resumeExistingThread({

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { asyncQuestionResponseSchema, type AsyncQuestionAction, type AsyncQuestionResponse } from '@slopus/happy-wire';
-import { ClaudeModelCatalogSchema, type ClaudeModelCatalog } from '@slopus/happy-wire';
+import { CodexMagpieCatalogSchema, type CodexMagpieCatalog, ClaudeModelCatalogSchema, type ClaudeModelCatalog } from '@slopus/happy-wire';
 /**
  * Session operations for remote procedure calls
  * Provides strictly typed functions for all session-related RPC operations
@@ -242,6 +242,7 @@ export interface SpawnSessionOptions {
     agent?: 'codex' | 'claude' | 'gemini' | 'opencode' | 'antigravity' | 'openclaw';
     /** Connection used for the selected model catalog; null means native Codex. */
     expectedCodexAccountProfileId?: string | null;
+    magpieModel?: string;
     environmentVariables?: Record<string, string>;
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
@@ -316,6 +317,7 @@ export interface ResumeSessionOptions {
     sessionId: string;
     /** Source session flavor; required so Codex never silently skips authorization. */
     agent: string;
+    codexMagpieConnection?: boolean;
     expectedFailedTurn?: { turnId?: string; updatedAt: number };
     expectedWorkerPid?: number;
 }
@@ -328,7 +330,13 @@ export interface ResumeSessionOptions {
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
     if (isRetiredAgentFlavor(options.agent)) return { type: 'error', errorMessage: 'personal-agent-retired' };
     const { machineId, directory, traceId, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
-    return machineStartSession(machineId, 'spawn-happy-session', agent === 'codex', {
+    const { magpieModel } = options;
+    if (magpieModel && (agent !== 'codex' || resumeClaudeSessionId || resumeCodexThreadId || parentSessionId
+        || options.expectedCodexAccountProfileId != null)) {
+        return { type: 'error', errorMessage: 'Magpie selection requires a fresh native Codex session' };
+    }
+    return machineStartSession(machineId, magpieModel ? 'spawn-magpie-session' : 'spawn-happy-session', agent === 'codex' && !magpieModel, {
+        ...(magpieModel ? { magpieModel } : {}),
         type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation,
         ...(agent === 'codex' ? {} : { token }), agent, environmentVariables,
         resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId,
@@ -362,7 +370,7 @@ export async function machineStartGoalAuthor(machineId: string, input: { scopePa
 /** Every final process launch goes through here; grants never enter persisted App state. */
 async function machineStartSession(
     machineId: string,
-    method: 'continue-with-agent' | 'spawn-happy-session' | 'resume-happy-session' | 'goalTaskLaunch' | 'previewGoalTaskLaunch' | 'goalProjectAuthor',
+    method: 'continue-with-agent' | 'spawn-happy-session' | 'spawn-magpie-session' | 'resume-happy-session' | 'goalTaskLaunch' | 'previewGoalTaskLaunch' | 'goalProjectAuthor',
     isCodex: boolean,
     parameters: Record<string, unknown>,
     expectedCodexAccountProfileId?: string | null,
@@ -605,7 +613,7 @@ export async function machineResumeSession(
         return { type: 'error', errorMessage: 'personal-agent-retired' };
     }
     const { machineId, sessionId, agent, model, permissionMode, effort, expectedFailedTurn, expectedWorkerPid } = options;
-    return machineStartSession(machineId, 'resume-happy-session', agent === 'codex', { sessionId, model, permissionMode, effort, ...(expectedFailedTurn ? { expectedFailedTurn } : {}), ...(expectedWorkerPid ? { expectedWorkerPid } : {}) }, undefined, options.isCurrent);
+    return machineStartSession(machineId, 'resume-happy-session', agent === 'codex' && !options.codexMagpieConnection, { sessionId, model, permissionMode, effort, ...(expectedFailedTurn ? { expectedFailedTurn } : {}), ...(expectedWorkerPid ? { expectedWorkerPid } : {}) }, undefined, options.isCurrent);
 }
 
 /**
@@ -799,6 +807,13 @@ export async function sessionRefreshModels(sessionId: string): Promise<void> {
         timeoutMs: 30_000, overallTimeoutMs: 30_000,
     });
     if (!result?.success) throw new Error('Model catalog refresh failed');
+}
+
+export async function machineGetMagpieModelCatalog(machineId: string, directory: string): Promise<CodexMagpieCatalog | null> {
+    const result = await apiSocket.machineRPC<unknown, { directory: string }>(machineId, 'list-codex-magpie-models', { directory }, {
+        timeoutMs: 25_000, overallTimeoutMs: 30_000,
+    });
+    return CodexMagpieCatalogSchema.parse(result);
 }
 
 export async function machineGetClaudeModelCatalog(machineId: string, directory: string): Promise<ClaudeModelCatalog> {

@@ -63,6 +63,16 @@ describe('transparent Codex grants', () => {
             .toEqual({ type: 'success', sessionId: 'paws-new' });
         expect(machineRPC.mock.calls[0][2]).not.toHaveProperty('codexSessionGrant');
     });
+    it('uses the dedicated native Magpie RPC without acquiring a default ChatGPT grant', async () => {
+        const magpieModel = 'openrouter/google/gemini-4-argon';
+        expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'codex',
+            expectedCodexAccountProfileId: null, magpieModel })).toEqual({ type: 'success', sessionId: 'paws-new' });
+        expect(requests).toEqual([]);
+        expect(machineRPC.mock.calls[0][1]).toBe('spawn-magpie-session');
+        expect(machineRPC.mock.calls[0][2]).toMatchObject({ magpieModel, agent: 'codex' });
+        expect(machineRPC.mock.calls[0][2]).not.toHaveProperty('codexSessionGrant');
+    });
+
     it('rejects retired Personal launches and resumes before authorization or RPC', async () => {
         expect(await machineSpawnNewSession({ machineId: 'm1', directory: '/repo', agent: 'personal' as any, resumeCodexThreadId: 'misleading' }))
             .toEqual({ type: 'error', errorMessage: 'personal-agent-retired' });
