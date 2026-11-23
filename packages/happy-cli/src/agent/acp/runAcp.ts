@@ -431,7 +431,7 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
     'archive_session',
   ];
 
-  constructor(session: ApiSessionClient, agentName: string) {
+  constructor(session: ApiSessionClient, agentName: string, private readonly sessionCallId: (id: string) => string) {
     super(session);
     this.logPrefix = `[${agentName}]`;
   }
@@ -454,8 +454,9 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
     return false;
   }
 
-  async handleToolCall(toolCallId: string, toolName: string, input: unknown): Promise<PermissionResult> {
-    if (this.shouldAutoApprove(toolName, toolCallId)) {
+  async handleToolCall(providerCallId: string, toolName: string, input: unknown, options?: Parameters<AcpPermissionHandler['handleToolCall']>[3]): Promise<PermissionResult> {
+    const toolCallId = this.sessionCallId(providerCallId);
+    if (this.shouldAutoApprove(toolName, providerCallId)) {
       this.session.updateAgentState((currentState) => ({
         ...currentState,
         completedRequests: {
@@ -482,7 +483,9 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
         toolName,
         input,
       });
-      this.addPendingRequestToState(toolCallId, toolName, input);
+      this.addPendingRequestToState(toolCallId, toolName, input, options?.map(option => ({
+        id: option.optionId, name: option.name, kind: option.kind,
+      })));
       logger.debug(`${this.logPrefix} Permission request sent for tool: ${toolName} (${toolCallId})`);
     });
   }
@@ -573,12 +576,12 @@ export async function runAcp(opts: {
     }
   }
 
-  permissionHandler = new GenericAcpPermissionHandler(session, opts.agentName);
+  const sessionManager = new AcpSessionManager();
+  permissionHandler = new GenericAcpPermissionHandler(session, opts.agentName, id => sessionManager.getSessionCallId(id));
   // Drop any permission requests left in agent state from a previous CLI
   // process that died while a tool prompt was open — see the matching
   // call in claudeRemoteLauncher for the full rationale.
   permissionHandler.reset('Previous CLI process exited before responding');
-  const sessionManager = new AcpSessionManager();
   const messageQueue = new MessageQueue2<AcpSwitchMode>((mode) => hashObject(mode));
   let currentPermissionMode: string | undefined;
   let currentModel: string | null | undefined;

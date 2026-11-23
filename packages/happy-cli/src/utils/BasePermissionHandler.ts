@@ -9,7 +9,7 @@
 
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
-import { AgentState } from "@/api/types";
+import { AgentState, type AcpPermissionOption } from "@/api/types";
 
 /**
  * Permission response from the mobile app.
@@ -18,6 +18,7 @@ export interface PermissionResponse {
     id: string;
     approved: boolean;
     decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    optionId?: string;
 }
 
 /**
@@ -35,6 +36,7 @@ export interface PendingRequest {
  */
 export interface PermissionResult {
     decision: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    optionId?: string;
 }
 
 /**
@@ -89,6 +91,7 @@ export abstract class BasePermissionHandler {
                 const result: PermissionResult = response.approved
                     ? { decision: response.decision === 'approved_for_session' ? 'approved_for_session' : 'approved' }
                     : { decision: response.decision === 'denied' ? 'denied' : 'abort' };
+                if (typeof response.optionId === 'string') result.optionId = response.optionId;
 
                 pending.resolve(result);
 
@@ -108,7 +111,8 @@ export abstract class BasePermissionHandler {
                                 ...request,
                                 completedAt: Date.now(),
                                 status: response.approved ? 'approved' : 'denied',
-                                decision: result.decision
+                                decision: result.decision,
+                                ...(result.optionId !== undefined ? { optionId: result.optionId } : {})
                             }
                         }
                     } satisfies AgentState;
@@ -123,7 +127,7 @@ export abstract class BasePermissionHandler {
     /**
      * Add a pending request to the agent state.
      */
-    protected addPendingRequestToState(toolCallId: string, toolName: string, input: unknown): void {
+    protected addPendingRequestToState(toolCallId: string, toolName: string, input: unknown, permissionOptions?: AcpPermissionOption[]): void {
         this.session.updateAgentState((currentState) => ({
             ...currentState,
             requests: {
@@ -131,7 +135,8 @@ export abstract class BasePermissionHandler {
                 [toolCallId]: {
                     tool: toolName,
                     arguments: input,
-                    createdAt: Date.now()
+                    createdAt: Date.now(),
+                    ...(permissionOptions ? { permissionOptions } : {})
                 }
             }
         }));

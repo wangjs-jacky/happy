@@ -1,6 +1,6 @@
 import { isGenericToolFailure, selectToolFailure, summarizeToolFailureOutput } from '@slopus/happy-wire';
 import { Message, ToolCall, ToolCallMessage } from '@/sync/typesMessage';
-import { getEffectiveToolName, getSkillDocumentName } from './toolIdentity';
+import { getAcpSkillNames, getEffectiveToolName, getSkillDocumentName } from './toolIdentity';
 
 export type ConversationActivityStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -100,6 +100,7 @@ export function getSkillNamesFromTool(tool: Pick<ToolCall, 'name' | 'input'>): s
     if (tool.name === 'ego-browser' || tool.name === 'ego-ops') return [tool.name];
     const documentName = getSkillDocumentName(tool);
     if (documentName) return [documentName];
+    if (tool.name === 'execute') return getAcpSkillNames(tool);
     if (getEffectiveToolName(tool) !== 'Skill') {
         return [];
     }

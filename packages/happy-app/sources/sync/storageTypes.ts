@@ -117,6 +117,11 @@ export const MetadataSchema = z.object({
 
 export type Metadata = z.infer<typeof MetadataSchema>;
 
+const AcpPermissionOptionSchema = z.object({
+    id: z.string(), name: z.string(),
+    kind: z.enum(['allow_once', 'allow_always', 'reject_once', 'reject_always']),
+});
+
 export const AgentStateSchema = z.object({
     claudeThinking: z.boolean().optional(),
     controlledByUser: z.boolean().nullish(),
@@ -129,7 +134,8 @@ export const AgentStateSchema = z.object({
     requests: z.record(z.string(), z.object({
         tool: z.string(),
         arguments: z.any(),
-        createdAt: z.number().nullish()
+        createdAt: z.number().nullish(),
+        permissionOptions: z.array(AcpPermissionOptionSchema).optional(),
     })).nullish(),
     completedRequests: z.record(z.string(), z.object({
         tool: z.string(),
@@ -140,7 +146,9 @@ export const AgentStateSchema = z.object({
         reason: z.string().nullish(),
         mode: z.string().nullish(),
         allowedTools: z.array(z.string()).nullish(),
-        decision: z.enum(['approved', 'approved_for_session', 'denied', 'abort']).nullish()
+        decision: z.enum(['approved', 'approved_for_session', 'denied', 'abort']).nullish(),
+        permissionOptions: z.array(AcpPermissionOptionSchema).optional(),
+        optionId: z.string().optional(),
     })).nullish()
 });
 

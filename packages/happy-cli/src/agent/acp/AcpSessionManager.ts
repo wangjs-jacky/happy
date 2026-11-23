@@ -44,7 +44,7 @@ export class AcpSessionManager {
     return this.lastTime;
   }
 
-  private ensureSessionCallId(acpCallId: string): string {
+  getSessionCallId(acpCallId: string): string {
     const existing = this.acpCallToSessionCall.get(acpCallId);
     if (existing) {
       return existing;
@@ -144,7 +144,7 @@ export class AcpSessionManager {
 
     if (msg.type === 'tool-call') {
       const flushed = this.flush();
-      const call = this.ensureSessionCallId(msg.callId);
+      const call = this.getSessionCallId(msg.callId);
       return [
         ...flushed,
         createEnvelope('agent', {
@@ -160,7 +160,7 @@ export class AcpSessionManager {
 
     if (msg.type === 'tool-result') {
       const flushed = this.flush();
-      const call = this.ensureSessionCallId(msg.callId);
+      const call = this.getSessionCallId(msg.callId);
       return [
         ...flushed,
         createEnvelope('agent', { t: 'tool-call-end', call }, turnOptions(this.currentTurnId, this.nextTime())),

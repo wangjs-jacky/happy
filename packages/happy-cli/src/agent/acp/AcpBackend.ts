@@ -166,6 +166,21 @@ export function normalizeAcpPermissionRequest(
   };
 }
 
+function acpPermissionResponse(
+  options: RequestPermissionRequest['options'],
+  result: { decision: 'approved' | 'approved_for_session' | 'denied' | 'abort'; optionId?: string },
+): RequestPermissionResponse {
+  if (result.decision === 'abort') return { outcome: { outcome: 'cancelled' } };
+  const kinds = result.decision === 'approved_for_session' ? ['allow_always']
+    : result.decision === 'approved' ? ['allow_once'] : ['reject_once', 'reject_always'];
+  const candidates = options.filter(option => result.optionId !== undefined
+    ? option.optionId === result.optionId : option.kind === kinds[0]);
+  const selected = candidates.length === 1 ? candidates[0] : undefined;
+  // Never infer a broader scope from position, translated labels or an unknown ID.
+  if (!selected || !kinds.includes(selected.kind)) return { outcome: { outcome: 'cancelled' } };
+  return { outcome: { outcome: 'selected', optionId: selected.optionId } };
+}
+
 /**
  * Extended SessionNotification with additional fields
  */
@@ -204,8 +219,9 @@ export interface AcpPermissionHandler {
   handleToolCall(
     toolCallId: string,
     toolName: string,
-    input: unknown
-  ): Promise<{ decision: 'approved' | 'approved_for_session' | 'denied' | 'abort' }>;
+    input: unknown,
+    options?: RequestPermissionRequest['options'],
+  ): Promise<{ decision: 'approved' | 'approved_for_session' | 'denied' | 'abort'; optionId?: string }>;
 }
 
 /**
@@ -661,74 +677,19 @@ export class AcpBackend implements AgentBackend {
               const result = await this.options.permissionHandler.handleToolCall(
                 toolCallId,
                 toolName,
-                input
+                input,
+                options,
               );
-              
-              // Map permission decision to ACP response
-              // ACP uses optionId from the request options
-              let optionId = 'cancel'; // Default to cancel/deny
-              
-              if (result.decision === 'approved' || result.decision === 'approved_for_session') {
-                // Find the appropriate optionId from the request options
-                // Look for 'proceed_once' or 'proceed_always' in options
-                const proceedOnceOption = options.find((opt: any) => 
-                  opt.optionId === 'proceed_once' || opt.name?.toLowerCase().includes('once')
-                );
-                const proceedAlwaysOption = options.find((opt: any) => 
-                  opt.optionId === 'proceed_always' || opt.name?.toLowerCase().includes('always')
-                );
-                
-                if (result.decision === 'approved_for_session' && proceedAlwaysOption) {
-                  optionId = proceedAlwaysOption.optionId || 'proceed_always';
-                } else if (proceedOnceOption) {
-                  optionId = proceedOnceOption.optionId || 'proceed_once';
-                } else if (options.length > 0) {
-                  // Fallback to first option if no specific match
-                  optionId = options[0].optionId || 'proceed_once';
-                }
-                
-                // Emit tool-result with permissionId so UI can close the timer
-                // This is needed because tool_call_update comes with a different ID
-                this.emit({
-                  type: 'tool-result',
-                  toolName,
-                  result: { status: 'approved', decision: result.decision },
-                  callId: permissionId,
-                });
-              } else {
-                // Denied or aborted - find cancel option
-                const cancelOption = options.find((opt: any) => 
-                  opt.optionId === 'cancel' || opt.name?.toLowerCase().includes('cancel')
-                );
-                if (cancelOption) {
-                  optionId = cancelOption.optionId || 'cancel';
-                }
-                
-                // Emit tool-result for denied/aborted
-                this.emit({
-                  type: 'tool-result',
-                  toolName,
-                  result: { status: 'denied', decision: result.decision },
-                  callId: permissionId,
-                });
-              }
-              
-              return { outcome: { outcome: 'selected', optionId } };
+              return acpPermissionResponse(options, result);
             } catch (error) {
               // Log to file only, not console
               logger.debug('[AcpBackend] Error in permission handler:', error);
               // Fallback to deny on error
-              return { outcome: { outcome: 'selected', optionId: 'cancel' } };
+              return { outcome: { outcome: 'cancelled' } };
             }
           }
           
-          // Auto-approve with 'proceed_once' if no permission handler
-          // optionId must match one from the request options (e.g., 'proceed_once', 'proceed_always', 'cancel')
-          const proceedOnceOption = options.find((opt) => 
-            opt.optionId === 'proceed_once' || (typeof opt.name === 'string' && opt.name.toLowerCase().includes('once'))
-          );
-          const defaultOptionId = proceedOnceOption?.optionId || (options.length > 0 && options[0].optionId ? options[0].optionId : 'proceed_once');
-          return { outcome: { outcome: 'selected', optionId: defaultOptionId } };
+          return acpPermissionResponse(options, { decision: 'approved' });
         },
       };
 

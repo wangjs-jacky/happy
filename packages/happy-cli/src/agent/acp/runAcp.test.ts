@@ -263,6 +263,50 @@ describe('runAcp', () => {
     await runPromise;
   });
 
+  it('publishes the native ACP options and returns the exact persistent scope chosen by the client', async () => {
+    const run = runAcp({ credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'antigravity', command: '/test/agy', args: ['acp'] });
+    try {
+      await vi.waitFor(() => expect(mocks.backendState.startSessionCalls).toBe(1));
+      const pending = mocks.backendState.constructorArgs.permissionHandler.handleToolCall('native-call', 'execute', { CommandLine: 'pwd' }, [
+        { optionId: 'once', kind: 'allow_once', name: '本次允许' },
+        { optionId: 'remember', kind: 'allow_always', name: '记住此命令' },
+      ]);
+      const state = mocks.mockSession.updateAgentState.mock.calls.map(([update]) => update({} as any))
+        .find(state => Object.values((state.requests ?? {}) as object).some((request: any) => request.tool === 'execute')) as any;
+      const id = Object.keys(state.requests)[0];
+      expect(state.requests[id].permissionOptions).toEqual([
+        { id: 'once', kind: 'allow_once', name: '本次允许' },
+        { id: 'remember', kind: 'allow_always', name: '记住此命令' },
+      ]);
+      await mocks.sessionHandlers.get('permission')!({ id, approved: true, decision: 'approved_for_session', optionId: 'remember' });
+      await expect(pending).resolves.toEqual({ decision: 'approved_for_session', optionId: 'remember' });
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
+  it('applies an explicit agy full-access setting to pending and subsequent requests, then restores confirmation', async () => {
+    const run = runAcp({ credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'antigravity', command: '/test/agy', args: ['acp'] });
+    try {
+      await vi.waitFor(() => expect(mocks.backendState.startSessionCalls).toBe(1));
+      const handler = mocks.backendState.constructorArgs.permissionHandler;
+      const pending = handler.handleToolCall('before', 'execute', { CommandLine: 'pwd' });
+      const setMode = mocks.sessionHandlers.get('setPermissionMode');
+      expect(setMode).toBeTypeOf('function');
+      await expect(setMode!({ mode: 'bypassPermissions' })).resolves.toBe(true);
+      await expect(pending).resolves.toEqual({ decision: 'approved' });
+      await expect(handler.handleToolCall('after', 'execute', { CommandLine: 'pwd' })).resolves.toEqual({ decision: 'approved' });
+      await expect(setMode!({ mode: 'default' })).resolves.toBe(true);
+      let resolved = false;
+      const next = handler.handleToolCall('confirm-again', 'execute', { CommandLine: 'pwd' }).then(() => { resolved = true; });
+      await Promise.resolve();
+      expect(resolved).toBe(false);
+      await expect(setMode!({ mode: 'invalid' })).rejects.toThrow();
+      await setMode!({ mode: 'bypassPermissions' });
+      await next;
+    } finally { await mocks.getKillHandler()!(); await run; }
+  });
+
   const imageEvent = (ref: string) => ({ content: { data: { ev: {
     t: 'file', ref, name: ref + '.png', size: 3, mimeType: 'image/png', image: { width: 1, height: 1 },
   } } } });
