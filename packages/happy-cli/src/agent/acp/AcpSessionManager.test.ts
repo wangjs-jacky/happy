@@ -184,6 +184,16 @@ describe('AcpSessionManager text mapping', () => {
 });
 
 describe('AcpSessionManager tool mapping', () => {
+  it('keeps explicit native tool titles in the existing protocol title without reinterpreting kind/name', () => {
+    const mapper = new AcpSessionManager();
+    const [root] = mapper.startTurn(['native-parent-input']);
+    const [started] = mapper.mapMessage({ type: 'tool-call', toolName: 'other', title: 'Run mcp_happy_delegate_task',
+      args: { requestId: 'synthetic-request', toolSummary: 'Delegate synthetic acceptance task' }, callId: 'native-call' });
+    expect(started.turn).toBe(root.turn);
+    expect(started.ev).toMatchObject({ t: 'tool-call-start', name: 'other', title: 'Run mcp_happy_delegate_task',
+      args: { requestId: 'synthetic-request', toolSummary: 'Delegate synthetic acceptance task' } });
+  });
+
   it('maps tool-call to tool-call-start with generated call id', () => {
     const mapper = new AcpSessionManager();
     const start = mapper.startTurn()[0];

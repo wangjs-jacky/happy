@@ -44,6 +44,8 @@ export function happyDelegationTool(event) {
     for (const name of ['agent_roles', 'delegate_task']) {
         if ([name, `happy.${name}`, `happy__${name}`, `mcp__happy__${name}`].includes(event.name)) return { name, input: event.args };
     }
+    const nativeTitle = typeof event.title === 'string' ? /^Run mcp_happy_(agent_roles|delegate_task)$/.exec(event.title) : null;
+    if (nativeTitle && nativeTitle[0] === event.title) return { name: nativeTitle[1], input: event.args };
     return null;
 }
 

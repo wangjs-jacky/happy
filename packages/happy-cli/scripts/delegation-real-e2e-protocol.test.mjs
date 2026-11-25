@@ -33,6 +33,25 @@ test('accepts explicit Happy tools and rejects another MCP server, generic kind 
     assert.equal(happyDelegationTool({ t: 'tool-call-start', name: 'other', title: 'agent_roles', args: { action: 'list' } }), null);
 });
 
+test('accepts the exact observed native AGY MCP title and never infers identity from toolSummary', () => {
+    for (const name of ['agent_roles', 'delegate_task']) {
+        const args = { toolSummary: 'Synthetic human description' };
+        assert.deepEqual(happyDelegationTool({ t: 'tool-call-start', name: 'other', title: `Run mcp_happy_${name}`, args }), { name, input: args });
+    }
+    for (const title of ['Run mcp_happy_delegate_task extra', 'Run mcp_happy_delegate_task\n', 'Run mcp_other_delegate_task', 'run mcp_happy_delegate_task', 'Delegate synthetic acceptance task', 'List configured agent roles']) {
+        assert.equal(happyDelegationTool({ t: 'tool-call-start', name: 'other', title, args: { toolSummary: 'Run mcp_happy_delegate_task', roleId: input.roleId, requestId: input.requestId, prompt: input.childMarker } }), null);
+    }
+});
+
+test('proves native AGY calls from preserved titles while retaining generic protocol names', () => {
+    const proof = createNativeParentProof(input); proof.observe(start());
+    proof.observe(envelope({ t: 'tool-call-start', name: 'other', title: 'Run mcp_happy_agent_roles', call: 'native-list', args: { action: 'list', toolSummary: 'List configured agent roles' } }));
+    proof.observe(envelope({ t: 'tool-call-end', call: 'native-list' }));
+    proof.observe(envelope({ t: 'tool-call-start', name: 'other', title: 'Run mcp_happy_delegate_task', call: 'native-delegate', args: { requestId: input.requestId, roleId: input.roleId, prompt: input.childMarker, toolSummary: 'Delegate synthetic acceptance task' } }));
+    proof.observe(envelope({ t: 'tool-call-end', call: 'native-delegate' })); finish(proof);
+    assert.deepEqual(proof.completed([task()]).toolCalls.map(call => call.name), ['agent_roles', 'delegate_task']);
+});
+
 test('requires successful native tools, the submitted root, both output markers and a new completed child', () => {
     for (const wrapper of [value => value, value => ({ role: 'session', content: { type: 'session', data: value } })]) {
         const proof = createNativeParentProof(input);
