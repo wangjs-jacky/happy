@@ -73,7 +73,7 @@ export class AcpSessionManager {
     return [createEnvelope('agent', { t: 'text', text }, turnOptions(this.currentTurnId, this.nextTime()))];
   }
 
-  startTurn(): SessionEnvelope[] {
+  startTurn(localIds?: string[]): SessionEnvelope[] {
     if (this.currentTurnId) {
       return [];
     }
@@ -81,7 +81,7 @@ export class AcpSessionManager {
     this.currentTurnId = createId();
     this.acpCallToSessionCall.clear();
     return [
-      createEnvelope('agent', { t: 'turn-start' }, { turn: this.currentTurnId, time: this.nextTime() }),
+      createEnvelope('agent', { t: 'turn-start', ...(localIds?.length ? { localIds } : {}) }, { turn: this.currentTurnId, time: this.nextTime() }),
     ];
   }
 

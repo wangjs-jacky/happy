@@ -38,6 +38,8 @@ import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTm
 import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
 import { initialMachineMetadata } from './machineMetadata';
 import { createDaemonScheduledTaskRunner } from './scheduledTasks/integration';
+import { createDaemonDelegationRuntime } from './delegationRuntime';
+import { artifactAccountScope } from '@/modules/artifacts/runtime';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { retiredAgentMessage } from '@/utils/retiredAgent';
 import { isUnusedCodexSession } from './emptyCodexSession';
@@ -1163,7 +1165,10 @@ export async function startDaemon(): Promise<void> {
             }
           }
 
-          pidToTrackedSession.delete(pid);
+          // Keep delegated worker identity until its actual exit callback (or
+          // the existing liveness check) confirms death and reconciles its task.
+          // Sending SIGTERM alone is not a completed or interrupted receipt.
+          if (!session.happySessionMetadataFromLocalWebhook?.delegatedTask) pidToTrackedSession.delete(pid);
           startupIntegration.sessionStopped(pid);
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from tracking`);
           return true;
@@ -1173,6 +1178,8 @@ export async function startDaemon(): Promise<void> {
       logger.debug(`[DAEMON RUN] Session ${sessionId} not found`);
       return false;
     };
+
+    let delegationRuntime: Awaited<ReturnType<typeof createDaemonDelegationRuntime>> | undefined;
 
     // Handle child process exit — preserve session data for resume
     const onChildExited = (pid: number) => {
@@ -1192,6 +1199,10 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
       }
       pidToTrackedSession.delete(pid);
+      if (session?.happySessionId) {
+        void delegationRuntime?.workerExited(session.happySessionId)
+          .catch(() => logger.debug('[DELEGATION] Worker exit receipt could not be reconciled'));
+      }
       const awaiter = pidToAwaiter.get(pid);
       pidToAwaiter.delete(pid);
       awaiter?.();
@@ -1200,6 +1211,10 @@ export async function startDaemon(): Promise<void> {
 
     // Start control server
     const { port: controlPort, stop: stopControlServer } = await startDaemonControlServer({
+      delegation: (request, context) => {
+        if (!delegationRuntime) throw new Error('The delegation coordinator is still starting');
+        return delegationRuntime.handle(request, context);
+      },
       launchIndependentSession: createIndependentSessionLauncher({
         findSession: findTrackedSessionById,
         readMetadata: async parent => {
@@ -1271,6 +1286,15 @@ export async function startDaemon(): Promise<void> {
 
     // Create realtime machine session
     const apiMachine = api.machineSyncClient(machine);
+    delegationRuntime = await createDaemonDelegationRuntime({
+      directory: join(configuration.happyHomeDir, 'delegation', artifactAccountScope(machine.encryptionKey, configuration.serverUrl, machineId)),
+      machineId, serverUrl: configuration.serverUrl, token: credentials.token, api, machineClient: apiMachine,
+      findSession: findTrackedSessionById,
+      fetchSnapshot: (id, tracked) => tracked.encryption
+        ? fetchServerSessionSnapshot(id, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant, true)
+        : Promise.resolve(null),
+      spawn: spawnSession,
+    });
     const nativeHooks = createOwnerNativeSessionHooks({
       serverUrl: configuration.serverUrl, credentials, machine,
       resolveSessionEncryption: id => findTrackedSessionById(id)?.encryption ?? null,
@@ -1425,6 +1449,8 @@ export async function startDaemon(): Promise<void> {
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({
+      delegation: request => delegationRuntime!.handle(request),
+      delegationConnected: () => delegationRuntime?.republish(),
       continueWithAgent,
       spawnSession,
       resumeSession,
@@ -1525,6 +1551,7 @@ export async function startDaemon(): Promise<void> {
         await Promise.allSettled(Array.from(codexLaunches.values(), launch => launch.sync()));
         await drainCodexFinalizers();
         await nativeHooks.dispose();
+        delegationRuntime?.dispose();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
@@ -1607,6 +1634,7 @@ export async function startDaemon(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       await nativeHooks.dispose();
+      delegationRuntime?.dispose();
       apiMachine.shutdown();
       await stopControlServer();
       await cleanupDaemonState();

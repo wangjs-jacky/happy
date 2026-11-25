@@ -8,6 +8,15 @@ function mapMany(mapper: AcpSessionManager, messages: AgentMessage[]) {
 }
 
 describe('AcpSessionManager turn lifecycle', () => {
+  it('binds delegated inputs only to their root turn, without carrying them into the next turn', () => {
+    const mapper = new AcpSessionManager();
+    const [first] = mapper.startTurn(['delegation:task:1:request']);
+    expect(first.ev).toEqual({ t: 'turn-start', localIds: ['delegation:task:1:request'] });
+    mapper.endTurn('completed');
+    const [second] = mapper.startTurn();
+    expect(second.ev).toEqual({ t: 'turn-start' });
+    expect(second.turn).not.toBe(first.turn);
+  });
   it('preserves a failed Skill read instead of marking it completed', () => {
     const mapper = new AcpSessionManager();
     mapper.startTurn();
