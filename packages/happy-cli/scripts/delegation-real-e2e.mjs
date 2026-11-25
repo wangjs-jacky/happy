@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { parseHarnessOwnerCredentials, resolveHarnessMachineEncryption, resolveHarnessSessionEncryption } from './delegation-real-e2e-credentials.mjs';
 import { parseHarnessArguments, createNativeParentProof, buildNativeParentPrompt } from './delegation-real-e2e-protocol.mjs';
+import { createEventDrivenMessageReplay } from './delegation-real-e2e-replay.mjs';
 
 async function main() {
 const cases = ['Codex -> Antigravity', 'Antigravity -> Codex'];
@@ -64,7 +65,7 @@ delete rawCredentials.encryption;
 const runId = randomUUID();
 const knownSessions = new Set();
 const parentSessionIds = new Set();
-const nativeParentTrackers = new Map();
+const nativeParentReplays = new Map();
 const records = new Map();
 const earlyMetadata = new Map();
 const changes = new EventEmitter();
@@ -108,15 +109,8 @@ socket.on('update', event => {
     const body = event?.body;
     if (body?.t === 'new-message') {
         // Never decrypt another session's chat, including unrelated children.
-        const proof = parentSessionIds.has(body.sid) ? nativeParentTrackers.get(body.sid) : undefined;
-        if (!proof || body.message?.content?.t !== 'encrypted' || typeof body.message.content.c !== 'string') return;
-        try {
-            proof.observe(decrypt(records.get(body.sid).encryption, body.message.content.c));
-            changes.emit('change');
-        } catch (error) {
-            connectionFailure = error instanceof assert.AssertionError ? error : new Error('Could not verify a scoped native-parent protocol event');
-            changes.emit('change');
-        }
+        const replay = parentSessionIds.has(body.sid) ? nativeParentReplays.get(body.sid) : undefined;
+        if (replay) void replay.notify(body.sid, body.message);
         return;
     }
     if (body?.t !== 'update-session' || !knownSessions.has(body.id) || !body.metadata?.value) return;
@@ -267,7 +261,20 @@ async function runNativeParentDirection(parent, target, roleId) {
     const record = records.get(parent.id);
     const proof = createNativeParentProof({ parentSessionId: parent.id, localId, roleId, requestId, childMarker, parentMarker,
         previousTaskIds: record.metadata.delegatedTasks?.map(task => task.id) ?? [] });
-    nativeParentTrackers.set(parent.id, proof);
+    const replay = createEventDrivenMessageReplay({
+        sessionId: parent.id,
+        readPage: ({ sessionId, afterSeq, limit }) => http(`/v3/sessions/${encodeURIComponent(sessionId)}/messages?after_seq=${afterSeq}&limit=${limit}`),
+        onMessage: message => {
+            assert(message.content?.t === 'encrypted' && typeof message.content.c === 'string', 'The scoped durable message is not encrypted');
+            proof.observe(decrypt(record.encryption, message.content.c));
+            changes.emit('change');
+        },
+        onError: error => {
+            connectionFailure = error instanceof assert.AssertionError ? error : new Error('Could not verify the event-triggered durable native-parent protocol');
+            changes.emit('change');
+        },
+    });
+    nativeParentReplays.set(parent.id, replay);
     try {
         const content = crypto.encodeBase64(crypto.encrypt(record.encryption.key, record.encryption.variant, {
             role: 'user', content: { type: 'text', text: buildNativeParentPrompt({ roleId, requestId, childMarker, parentMarker }) },
@@ -298,7 +305,7 @@ async function runNativeParentDirection(parent, target, roleId) {
             taskId: task.id, rootTurnId: verified.rootTurnId, actualModelCode: task.model, toolCalls: verified.toolCalls,
             parentFinalMarkersVerified: true, childResultMarkerVerified: true, parentRootCompleted: true, childTaskCompleted: true });
         evidence.parentModelInvokedMcp = true;
-    } finally { nativeParentTrackers.delete(parent.id); }
+    } finally { replay.stop(); nativeParentReplays.delete(parent.id); }
 }
 try {
     await new Promise((resolve, reject) => {
