@@ -239,6 +239,7 @@ function DelegatedTaskPanel({ sessionId, taskId, onBack, onCompose }: { sessionI
     React.useEffect(() => { alive.current = true; void load(); return () => { alive.current = false; generation.current += 1; }; }, [load]);
     const summary = task ?? live;
     const currentSummary = live && (!task || live.version > task.version || (live.version === task.version && live.updatedAt >= task.updatedAt)) ? live : task;
+    const isActive = currentSummary ? ['starting', 'running', 'waiting-for-input'].includes(currentSummary.status) : false;
     const versions = new Map<number, DelegatedTaskVersion>((task?.history ?? []).map(item => [item.version, item]));
     if (task) versions.set(task.version, { version: task.version, prompt: task.prompt, context: task.context, status: task.status, startedAt: task.startedAt, updatedAt: task.updatedAt, finishedAt: task.finishedAt, error: task.error, result: task.result ?? versions.get(task.version)?.result });
     const selected = versions.get(version ?? task?.version ?? 0) ?? (task ? versions.get(task.version) : undefined);
@@ -266,16 +267,16 @@ function DelegatedTaskPanel({ sessionId, taskId, onBack, onCompose }: { sessionI
                 {live?.error || task?.error ? <Text selectable style={styles.error}>{live?.error ?? task?.error}</Text> : null}
                 <Text style={styles.caption}>{t('delegation.snapshotHint')}</Text>
             </> : null}
-            {tab === 'context' ? <><Field label={t('delegation.originalPrompt')}><Text selectable style={styles.body}>{selected?.prompt ?? task?.prompt ?? ''}</Text></Field><Field label={t('delegation.context')}><Text selectable style={styles.body}>{selected?.context ?? task?.context ?? t('delegation.noContext')}</Text></Field></> : null}
+            {tab === 'context' ? <><Field label={t('delegation.originalPrompt')}><Text selectable style={styles.body}>{selected?.prompt ?? task?.prompt ?? ''}</Text></Field><Field label={t('delegation.context')}><Text selectable style={styles.body}>{(selected ? selected.context : task?.context) ?? t('delegation.noContext')}</Text></Field></> : null}
             {tab === 'result' ? <>
                 <Field label={t('delegation.history')}><View style={styles.actions}>{[...versions.keys()].sort((a, b) => a - b).map(number => <Button key={number} label={`v${number}`} selected={selected?.version === number} onPress={() => { setVersion(number); remember(tab, number); }} testID={`delegation-version-${number}`} />)}</View></Field>
                 {selected?.result ? <><Text selectable style={styles.result} testID="delegation-result-text">{selected.result.text}</Text>{selected.result.truncated ? <Text style={styles.error}>{t('delegation.truncated')}</Text> : null}</> : <Text style={styles.secondary}>{t('delegation.noResult')}</Text>}
                 <Text style={styles.caption}>{t('delegation.resultBoundary')}</Text>
             </> : null}
-            {cancelRequested || currentSummary?.cancelRequested ? <Text style={styles.secondary}>{t('delegation.cancelRequested')}</Text> : null}
+            {isActive && (cancelRequested || currentSummary?.cancelRequested) ? <Text style={styles.secondary}>{t('delegation.cancelRequested')}</Text> : null}
             {session?.metadata?.capabilities?.delegation !== 1 ? <Text style={styles.caption}>{t('delegation.protocolHint')}</Text> : null}
             <View style={styles.actions}><Button label={t('delegation.append')} onPress={() => onCompose(t('delegation.appendPrompt', { id: taskId }))} disabled={session?.metadata?.capabilities?.delegation !== 1} testID="delegation-task-append" />
-                {currentSummary && ['starting', 'running', 'waiting-for-input'].includes(currentSummary.status) ? <Button label={t('delegation.cancelTask')} onPress={() => { void cancel(); }} disabled={cancelling || cancelRequested || currentSummary.cancelRequested} destructive testID="delegation-task-cancel" /> : null}</View>
+                {isActive ? <Button label={t('delegation.cancelTask')} onPress={() => { void cancel(); }} disabled={cancelling || cancelRequested || currentSummary?.cancelRequested} destructive testID="delegation-task-cancel" /> : null}</View>
         </ScrollView>
     </View>;
 }

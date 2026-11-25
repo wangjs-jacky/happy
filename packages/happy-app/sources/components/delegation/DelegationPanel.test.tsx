@@ -57,6 +57,7 @@ describe('real delegation panels', () => {
     const button = (testID: string) => renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === testID);
     const press = async (testID: string) => { await act(async () => { button(testID).props.onPress(); }); };
     const input = (testID: string) => renderer.root.findAllByType('TextInput').find((node: any) => node.props.testID === testID);
+    const textContent = () => renderer.root.findAllByType('Text').map((node: any) => node.children.join(''));
 
     beforeEach(() => {
         (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -115,6 +116,31 @@ describe('real delegation panels', () => {
         expect(mocks.read).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps handoff context scoped to the selected version, including an absent historical context', async () => {
+        const versionedTask = { ...task, version: 4, context: 'Fourth handoff', history: [
+            ...task.history,
+            { version: 2, prompt: 'Revise the README', context: 'Second handoff', status: 'completed' as const, startedAt: 11, updatedAt: 20 },
+        ] };
+        mocks.session.metadata.delegatedTasks = [versionedTask];
+        mocks.read.mockResolvedValueOnce(versionedTask);
+        await render(taskSelection);
+        await press('delegation-tab-result');
+        await press('delegation-version-1');
+        await press('delegation-tab-context');
+        expect(textContent()).toContain('Write a README');
+        expect(textContent()).toContain('delegation.noContext');
+        expect(textContent()).not.toContain('Fourth handoff');
+        await press('delegation-tab-result');
+        await press('delegation-version-2');
+        await press('delegation-tab-context');
+        expect(textContent()).toContain('Second handoff');
+        expect(textContent()).not.toContain('Fourth handoff');
+        await press('delegation-tab-result');
+        await press('delegation-version-4');
+        await press('delegation-tab-context');
+        expect(textContent()).toContain('Fourth handoff');
+    });
+
     it('requires the current parent worker capability for composer dispatch', async () => {
         mocks.session.metadata.capabilities = {};
         await render(roleSelection);
@@ -133,7 +159,7 @@ describe('real delegation panels', () => {
         expect(mocks.compose).not.toHaveBeenCalled();
     });
 
-    it('keeps cancellation pending until the daemon returns an actual terminal status', async () => {
+    it.each(['cancelled', 'completed', 'failed', 'interrupted'] as const)('clears the pending cancellation notice when the daemon confirms %s, even with the retained request marker', async terminalStatus => {
         const running = { ...task, status: 'running' as const, updatedAt: 20, finishedAt: undefined };
         mocks.session.metadata.delegatedTasks = [running];
         mocks.read.mockResolvedValueOnce(running);
@@ -143,9 +169,16 @@ describe('real delegation panels', () => {
         expect(mocks.cancel).toHaveBeenCalledExactlyOnceWith('parent-a', task.id);
         expect(renderer.root.findByProps({ testID: 'delegation-task-status' }).children.join('')).toBe('delegation.running');
         expect(button('delegation-task-cancel').props.disabled).toBe(true);
-        mocks.read.mockResolvedValueOnce({ ...running, status: 'cancelled', updatedAt: 22 });
+        expect(textContent()).toContain('delegation.cancelRequested');
+        const terminal = { ...running, status: terminalStatus, cancelRequested: true, updatedAt: 22 };
+        mocks.session = { metadata: { ...mocks.session.metadata, delegatedTasks: [terminal] } };
+        act(() => renderer.update(element(taskSelection)));
+        expect(renderer.root.findByProps({ testID: 'delegation-task-status' }).children.join('')).toBe(`delegation.${terminalStatus}`);
+        expect(textContent()).not.toContain('delegation.cancelRequested');
+        mocks.read.mockResolvedValueOnce(terminal);
         await press('delegation-task-refresh');
-        expect(renderer.root.findByProps({ testID: 'delegation-task-status' }).children.join('')).toBe('delegation.cancelled');
+        expect(renderer.root.findByProps({ testID: 'delegation-task-status' }).children.join('')).toBe(`delegation.${terminalStatus}`);
+        expect(textContent()).not.toContain('delegation.cancelRequested');
         expect(button('delegation-task-cancel')).toBeUndefined();
     });
 
