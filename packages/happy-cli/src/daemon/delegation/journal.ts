@@ -86,11 +86,16 @@ export async function waitForDelegationReady(options: {
         };
         const inspect = () => { const receipt = matchingReceipt(); if (receipt) finish(undefined, receipt); };
         try {
-            watcher = watch(descriptor.directory, { persistent: false }, (_event, filename) => {
-                if (!filename || String(filename) === readyName(descriptor.taskId)) inspect();
-            });
+            // macOS can report an atomic replacement under its temporary filename.
+            // A directory event only reads this exact protected receipt, never a scan.
+            watcher = watch(descriptor.directory, { persistent: false }, inspect);
             watcher.on('error', error => finish(error));
-            deadline = setTimeout(() => finish(new Error('Timed out waiting for delegated native model readiness')), options.timeoutMs ?? 90_000);
+            deadline = setTimeout(() => {
+                // A single final read also covers a coalesced/lost filesystem event.
+                const receipt = matchingReceipt();
+                if (receipt) finish(undefined, receipt);
+                else finish(new Error('Timed out waiting for delegated native model readiness'));
+            }, options.timeoutMs ?? 90_000);
             // Close the read/subscribe race without querying in a loop.
             inspect();
         } catch (error) { finish(error instanceof Error ? error : new Error('Cannot observe delegated native readiness')); }

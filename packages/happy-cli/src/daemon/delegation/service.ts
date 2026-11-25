@@ -19,6 +19,8 @@ export interface DelegationParent {
     application?: unknown;
     sandbox?: boolean;
     delegated?: boolean;
+    /** Local authorization result only; never accepted from wire requests. */
+    inspectionOnly?: boolean;
 }
 export interface DelegationSendOptions {
     agent: 'codex' | 'antigravity';
@@ -31,11 +33,12 @@ export interface DelegationSendOptions {
     assertCurrent(): Promise<void>;
 }
 export interface DelegationDependencies {
-    resolveParent(id: string): Promise<DelegationParent>;
+    resolveParent(id: string, options?: { inspection: true }): Promise<DelegationParent>;
     spawn(parent: DelegationParent, role: DelegationRole, environment: Record<string, string>): Promise<string | { sessionId: string; model?: string; effort?: string }>;
     send(childSessionId: string, prompt: string, localId: string, options: DelegationSendOptions): Promise<void | { model: string; effort?: string }>;
     cancel(childSessionId: string, expectedTurnId?: string, binding?: DelegationMessageBinding): Promise<void | { queuedCancelled?: boolean }>;
-    isChildAlive(childSessionId: string): boolean | Promise<boolean>;
+    /** false confirms disappearance; null is an unverified identity, never a stop. */
+    isChildAlive(childSessionId: string): boolean | null | Promise<boolean | null>;
     publish(parentSessionId: string, tasks: DelegatedTaskSummary[], roles: DelegationRole[]): Promise<void>;
 }
 export class DelegationDeliveryError extends Error {
@@ -181,10 +184,10 @@ export async function createDelegationService(options: { directory: string; deps
             const version = latest(task);
             if (final(version.status)) continue;
             const alive = task.childSessionId ? await deps.isChildAlive(task.childSessionId) : false;
-            if (!alive && task.childSessionId) exitedWorkers.add(task.childSessionId);
-            if (!alive || version.phase !== 'sent') {
+            if (alive === false && task.childSessionId) exitedWorkers.add(task.childSessionId);
+            if (alive === false || version.phase !== 'sent') {
                 version.status = 'interrupted'; version.updatedAt = Date.now();
-                version.error = alive ? 'Previous task delivery was not confirmed; automatic retry is disabled' : 'Worker is unavailable; automatic history restoration is unsupported';
+                version.error = alive !== false ? 'Previous task delivery was not confirmed; automatic retry is disabled' : 'Worker is unavailable; automatic history restoration is unsupported';
                 save(task); notify(task, version);
             }
         }
@@ -202,7 +205,7 @@ export async function createDelegationService(options: { directory: string; deps
             const currentParent = await deps.resolveParent(parent.id);
             if (currentParent.id !== parent.id || currentParent.agent !== parent.agent || currentParent.directory !== parent.directory
                 || currentParent.permissionMode !== parent.permissionMode || currentParent.accountProfileId !== parent.accountProfileId
-                || currentParent.application || currentParent.sandbox || currentParent.delegated) {
+                || currentParent.application || currentParent.sandbox || currentParent.delegated || currentParent.inspectionOnly) {
                 throw new DelegationDeliveryError('Parent permissions or ownership changed before delegation was dispatched');
             }
             assertActive();
@@ -267,7 +270,9 @@ export async function createDelegationService(options: { directory: string; deps
             if (request.taskId) {
                 task = getTask(parent.id, request.taskId);
                 if (!final(latest(task).status)) throw new Error('Wait for this task to finish or confirm its cancellation before revising it');
-                if (!task.childSessionId || !await deps.isChildAlive(task.childSessionId)) {
+                const alive = task.childSessionId ? await deps.isChildAlive(task.childSessionId) : false;
+                if (alive === null) throw new Error('Original delegated worker identity is unconfirmed; reconnect and retry explicitly. History restoration was not attempted.');
+                if (!task.childSessionId || alive !== true) {
                     throw new Error('Original delegated worker is unavailable; history restoration is unsupported. Start a new task explicitly.');
                 }
                 if (task.versions.length >= 100) throw new Error('Delegation revision limit reached');
@@ -308,40 +313,54 @@ export async function createDelegationService(options: { directory: string; deps
             if (isDelegatedTaskSettled(version.status)) wake();
         });
     }
+    async function workerExited(childSessionId: string): Promise<void> {
+        if (disposed) return;
+        exitedWorkers.add(childSessionId);
+        await serialize(() => {
+            if (disposed) return;
+            // The final protected receipt may have arrived immediately before process exit.
+            for (const report of readDelegationReports(store.journalDirectory)) {
+                if (report.childSessionId === childSessionId) applyReport(report);
+            }
+            for (const task of tasks.values()) {
+                if (task.childSessionId !== childSessionId) continue;
+                const version = latest(task);
+                if (final(version.status)) continue;
+                version.status = 'interrupted'; version.updatedAt = Date.now();
+                version.error = 'Delegated worker exited before completion was confirmed; automatic history restoration is unsupported';
+                save(task); notify(task, version);
+            }
+        });
+    }
+    async function reconcileConnectedWorkers(epoch: number): Promise<void> {
+        const children = new Set([...tasks.values()].filter(task => !final(latest(task).status)).flatMap(task => task.childSessionId ? [task.childSessionId] : []));
+        for (const childId of children) {
+            let alive: boolean | null = null;
+            try { alive = await deps.isChildAlive(childId); } catch { /* An uncertain check never confirms an exit. */ }
+            if (disposed || cancellationEpoch !== epoch) return;
+            if (alive === false) await workerExited(childId);
+        }
+        if (!disposed && cancellationEpoch === epoch) for (const task of tasks.values()) void requestCancellation(task, latest(task));
+    }
     return {
         republish(): void {
             if (disposed) return;
             cancellationEpoch += 1;
             cancellationAttempts.clear();
             for (const parentId of knownParents) publish(parentId);
-            for (const task of tasks.values()) void requestCancellation(task, latest(task));
+            void reconcileConnectedWorkers(cancellationEpoch);
         },
-        async workerExited(childSessionId: string): Promise<void> {
-            if (disposed) return;
-            exitedWorkers.add(childSessionId);
-            await serialize(() => {
-                if (disposed) return;
-                // The final protected receipt may have arrived immediately before process exit.
-                for (const report of readDelegationReports(store.journalDirectory)) {
-                    if (report.childSessionId === childSessionId) applyReport(report);
-                }
-                for (const task of tasks.values()) {
-                    if (task.childSessionId !== childSessionId) continue;
-                    const version = latest(task);
-                    if (final(version.status)) continue;
-                    version.status = 'interrupted'; version.updatedAt = Date.now();
-                    version.error = 'Delegated worker exited before completion was confirmed; automatic history restoration is unsupported';
-                    save(task); notify(task, version);
-                }
-            });
-        },
+        workerExited,
         async handle(raw: DelegationRequest, context?: { appendSystemPrompt?: string }): Promise<DelegationResponse> {
             const deadline = Date.now() + waitTimeoutMs;
             try {
                 if (disposed) throw new Error('Delegation coordinator is stopping');
                 const request = DelegationRequestSchema.parse(raw);
-                const parent = await deps.resolveParent(request.parentSessionId);
+                const parent = request.action === 'read'
+                    ? await deps.resolveParent(request.parentSessionId, { inspection: true })
+                    : await deps.resolveParent(request.parentSessionId);
                 if (parent.id !== request.parentSessionId || !['codex', 'antigravity'].includes(parent.agent)) throw new Error('Unsupported delegation parent');
+                if (parent.inspectionOnly && request.action !== 'read') throw new Error('Inspection authorization only permits reading this parent task');
                 if (parent.application || parent.sandbox) throw new Error('Delegation is unavailable for application-bound or sandboxed sessions');
                 if (parent.delegated && ['start', 'roles-save', 'roles-delete'].includes(request.action)) throw new Error('Recursive delegation is disabled for delegated workers');
                 knownParents.add(parent.id);
@@ -366,13 +385,19 @@ export async function createDelegationService(options: { directory: string; deps
                 }
                 const task = getTask(parent.id, request.taskId);
                 // An explicit read is a one-shot recovery path if a watcher event was lost.
-                for (const report of readDelegationReports(store.journalDirectory).filter(report => report.taskId === task.id)) await serialize(() => applyReport(report));
+                // Inspection creates no execution intent and never waits for native authority.
+                // A newly observed protected receipt may still advance the lifecycle and
+                // asynchronously fulfil a cancellation the user had already requested.
+                for (const version of task.versions) {
+                    const report = readDelegationReport(store.journalDirectory, `report-${task.id}-${version.version}.json`);
+                    if (report) await serialize(() => applyReport(report));
+                }
                 if (request.action === 'cancel' && !final(latest(task).status)) {
                     const version = latest(task);
                     await serialize(() => { version.cancelRequested = true; version.updatedAt = Date.now(); save(task); notify(task, version); });
                     await requestCancellation(task, version, true);
                 }
-                if (request.action === 'read') publish(parent.id);
+                if (request.action === 'read' && !parent.inspectionOnly) publish(parent.id);
                 return { success: true, taskId: task.id, task: view(task) };
             } catch (error) {
                 return { success: false, error: (error instanceof Error ? error.message : 'Delegation failed').slice(0, 4000) };

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import axios from 'axios';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ApiMachineClient } from '@/api/apiMachine';
 import type { Metadata } from '@/api/types';
 import { decodeBase64, decrypt } from '@/api/encryption';
@@ -9,6 +12,7 @@ import { createDaemonDelegationRuntime } from './delegationRuntime';
 import { createDelegationService, DelegationDeliveryError, type DelegationSendOptions } from './delegation/service';
 import { delegationLocalId } from './delegation/journal';
 import type { TrackedSession } from './types';
+import { createDelegationStore } from './delegation/store';
 
 const mocks = vi.hoisted(() => ({ createService: vi.fn(), waitForReady: vi.fn() }));
 vi.mock('./delegation/service', async importOriginal => ({
@@ -20,7 +24,9 @@ vi.mock('./delegation/journal', async importOriginal => ({
     waitForDelegationReady: mocks.waitForReady,
 }));
 vi.mock('axios', () => ({ default: { post: vi.fn() } }));
-afterEach(() => { vi.restoreAllMocks(); mocks.createService.mockReset(); });
+const directories: string[] = [];
+const disposers: Array<() => void> = [];
+afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); vi.restoreAllMocks(); mocks.createService.mockReset(); });
 
 const binding = { taskId: 'task-one', parentSessionId: 'parent', version: 1, requestId: 'request-one', nonce: 'a'.repeat(64) };
 const localId = delegationLocalId(binding);
@@ -41,7 +47,7 @@ async function fixture() {
     const context = { agent: 'codex', permissionMode: 'yolo', appendSystemPrompt: 'Preserve source attribution.', hostPid: 111, lifecycleState: undefined as string | undefined };
     const prepare = { model: 'native-neon', effort: 'high' };
     const rpc = vi.fn(async (_id: string, _encryption: unknown, method: string, _body: unknown, _timeout?: number) => {
-        if (method === 'delegation-context') return { ...context };
+        if (method === 'delegation-context') return _id === 'child' ? { ...context, agent: childMetadata.flavor, hostPid: childMetadata.hostPid } : { ...context };
         if (method === 'delegation-prepare') return { ...prepare };
         if (method === 'delegation-abort') return { queuedCancelled: true };
         return { success: true };
@@ -50,15 +56,23 @@ async function fixture() {
     const spawn = vi.fn(async (_options: SpawnSessionOptions): Promise<SpawnSessionResult> => ({ type: 'success', sessionId: 'child' }));
     const findSession = vi.fn((id: string) => sessions.get(id));
     const fetchSnapshot = vi.fn(async (id: string) => snapshots.get(id) ?? null);
+    const isConnected = vi.fn(() => true);
+    const retainRecoveredSession = vi.fn((tracked: TrackedSession) => { sessions.set(tracked.happySessionId!, tracked); });
     const coordinator = {} as Awaited<ReturnType<typeof createDelegationService>>;
     mocks.createService.mockResolvedValue(coordinator);
     const runtime = await createDaemonDelegationRuntime({ directory: '/private-test/delegation', machineId: 'machine', serverUrl: 'https://relay.test', token: 'relay-test-token',
-        api: { createCodexSessionGrant: grant }, machineClient: { callSessionRpc: rpc as ApiMachineClient['callSessionRpc'] }, findSession, fetchSnapshot, spawn });
+        api: { createCodexSessionGrant: grant }, machineClient: { callSessionRpc: rpc as ApiMachineClient['callSessionRpc'], isConnected }, findSession, fetchSnapshot, spawn, retainRecoveredSession });
     expect(runtime).toBe(coordinator);
     const deps = (mocks.createService.mock.calls.at(-1)![0] as Parameters<typeof createDelegationService>[0]).deps;
     const options: DelegationSendOptions = { agent: 'antigravity', permissionMode: 'yolo', model: 'Neon', effort: 'high',
         appendSystemPrompt: context.appendSystemPrompt, delegation: binding, assertCurrent: vi.fn(async () => {}) };
-    return { deps, sessions, parent, child, parentMetadata, childMetadata, context, prepare, rpc, grant, spawn, findSession, fetchSnapshot, options };
+    return { deps, sessions, parent, child, parentMetadata, childMetadata, context, prepare, rpc, grant, spawn, findSession, fetchSnapshot, options, isConnected, retainRecoveredSession,
+        persist(id: 'parent' | 'child') {
+            const value = sessions.get(id)!;
+            value.happySessionMetadataFromLocalWebhook = JSON.parse(JSON.stringify(snapshots.get(id)!.metadata)) as Metadata;
+            value.startedBy = 'persisted'; value.pid = 0;
+        },
+    };
 }
 
 describe('daemon delegation runtime authorization and delivery', () => {
@@ -66,7 +80,7 @@ describe('daemon delegation runtime authorization and delivery', () => {
         const f = await fixture(); f.parentMetadata.codexAccountProfileId = 'account-one';
         expect(await f.deps.resolveParent('parent')).toMatchObject({ id: 'parent', agent: 'codex', directory: '/project', permissionMode: 'yolo',
             appendSystemPrompt: 'Preserve source attribution.', accountProfileId: 'account-one' });
-        expect(f.fetchSnapshot).toHaveBeenCalledWith('parent', f.parent);
+        expect(f.fetchSnapshot).toHaveBeenCalledWith('parent', expect.objectContaining(f.parent));
         expect(f.rpc).toHaveBeenCalledWith('parent', f.parent.encryption, 'delegation-context', {});
     });
 
@@ -248,6 +262,167 @@ describe('daemon delegation runtime authorization and delivery', () => {
         expect(f.rpc).toHaveBeenCalledWith('child', f.child.encryption, 'delegation-abort', { localId, expectedTurnId: 'root-one' });
         await f.deps.publish('parent', [], [role]);
         expect(f.rpc).toHaveBeenCalledWith('parent', f.parent.encryption, 'delegation-publish', { tasks: [], roles: [role] });
-        f.sessions.delete('child'); expect(await f.deps.isChildAlive('child')).toBe(false);
+        f.sessions.delete('child'); expect(await f.deps.isChildAlive('child')).toBeNull();
+    });
+});
+
+describe('persisted delegation session recovery', () => {
+    async function retainedRunningTask() {
+        const f = await fixture(); f.persist('child'); f.isConnected.mockReturnValue(false);
+        const directory = mkdtempSync(join(tmpdir(), 'paws-delegation-retain-')); directories.push(directory);
+        const store = createDelegationStore(directory);
+        const taskId = '00000000-0000-4000-8000-000000000002';
+        store.saveTask({ id: taskId, parentSessionId: 'parent', childSessionId: 'child', title: 'Retained running draft', role, nonce: 'a'.repeat(64), createdAt: 1,
+            versions: [{ version: 1, requestId: 'request-one', inputHash: 'b'.repeat(64), prompt: 'Write the draft', status: 'running',
+                startedAt: 1, updatedAt: 2, turnId: 'root-one', phase: 'sent', reportSequence: 1 }] });
+        const actual = await vi.importActual<typeof import('./delegation/service')>('./delegation/service');
+        const service = await actual.createDelegationService({ directory, deps: f.deps }); disposers.push(service.dispose);
+        return { ...f, store, service, taskId };
+    }
+
+    it('recovers only the retained positive parent PID and still checks fresh native identity', async () => {
+        const f = await fixture(); f.persist('parent');
+        expect(await f.deps.resolveParent('parent')).toMatchObject({ permissionMode: 'yolo', directory: '/project' });
+        expect(process.kill).toHaveBeenCalledWith(111, 0); expect(process.kill).not.toHaveBeenCalledWith(0, 0);
+        expect(f.rpc).toHaveBeenCalledWith('parent', f.parent.encryption, 'delegation-context', {});
+        expect(f.parent.pid).toBe(0);
+        expect(f.retainRecoveredSession).toHaveBeenCalledWith(expect.objectContaining({ happySessionId: 'parent', pid: 111, encryption: f.parent.encryption }));
+    });
+
+    it('reuses a persisted live child only after fresh child/parent contexts, readiness and model ACK', async () => {
+        const f = await fixture(); f.persist('parent'); f.persist('child');
+        expect(await f.deps.isChildAlive('child')).toBe(true);
+        expect(await f.deps.send('child', 'Revise the existing draft', localId, f.options)).toEqual(f.prepare);
+        expect(f.rpc.mock.calls.filter(call => call[2] === 'delegation-context').map(call => call[0])).toEqual(['child', 'parent']);
+        expect(f.rpc).toHaveBeenCalledWith('child', f.child.encryption, 'delegation-prepare', expect.anything(), 30_000);
+        expect(process.kill).not.toHaveBeenCalledWith(0, 0);
+        expect(axios.post).toHaveBeenCalledTimes(1); expect(f.spawn).not.toHaveBeenCalled(); expect(f.grant).not.toHaveBeenCalled();
+    });
+
+    it.each([0, -1, 1.5, undefined, Number.NaN])('rejects an invalid retained PID (%s) without a process-group probe', async invalidPid => {
+        const f = await fixture(); f.persist('parent'); f.parent.happySessionMetadataFromLocalWebhook!.hostPid = invalidPid;
+        await expect(f.deps.resolveParent('parent')).rejects.toThrow('retained live worker identity');
+        expect(process.kill).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+    });
+
+    it.each(['machine', 'directory', 'account', 'parent-lineage', 'task-binding'])('rejects a persisted record whose fresh %s identity changed', async condition => {
+        const f = await fixture(); f.persist('parent');
+        if (condition === 'machine') f.parentMetadata.machineId = 'another-machine';
+        if (condition === 'directory') f.parentMetadata.path = '/another-project';
+        if (condition === 'account') f.parentMetadata.codexAccountProfileId = 'another-account';
+        if (condition === 'parent-lineage') f.parentMetadata.parentSessionId = 'foreign-lineage';
+        if (condition === 'task-binding') f.parentMetadata.delegatedTask = { taskId: 'another-task', parentSessionId: 'other-parent' };
+        await expect(f.deps.resolveParent('parent')).rejects.toThrow();
+        expect(f.rpc).not.toHaveBeenCalled(); expect(f.grant).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it.each(['no-owner-rpc', 'different-native-pid'])('does not authorize delivery just because a reused PID exists (%s)', async condition => {
+        const f = await fixture(); f.persist('child');
+        if (condition === 'no-owner-rpc') f.rpc.mockRejectedValueOnce(new Error('Original session worker is unavailable'));
+        else f.rpc.mockResolvedValueOnce({ ...f.context, agent: 'antigravity', hostPid: 333 });
+        await expect(f.deps.send('child', 'Review', localId, f.options)).rejects.toMatchObject({ notDispatched: true });
+        expect(f.rpc.mock.calls.filter(call => call[2] === 'delegation-prepare')).toHaveLength(0);
+        expect(axios.post).not.toHaveBeenCalled(); expect(f.grant).not.toHaveBeenCalled(); expect(f.spawn).not.toHaveBeenCalled();
+    });
+
+    it('validates retained ownership before cancellation and metadata publication', async () => {
+        const f = await fixture(); f.persist('child'); f.persist('parent');
+        await f.deps.cancel('child', 'root-one', binding); await f.deps.publish('parent', [], [role]);
+        expect(f.rpc.mock.calls.map(call => [call[0], call[2]])).toEqual([
+            ['child', 'delegation-context'], ['child', 'delegation-abort'], ['parent', 'delegation-context'], ['parent', 'delegation-publish'],
+        ]);
+        expect(process.kill).not.toHaveBeenCalledWith(0, 0);
+    });
+
+    it('reads an archived parent task from retained encryption without a worker, but refuses start or mutation', async () => {
+        const f = await fixture(); f.persist('parent'); f.parentMetadata.lifecycleState = 'archived';
+        vi.mocked(process.kill).mockImplementation(() => { throw Object.assign(new Error('not running'), { code: 'ESRCH' }); });
+        f.rpc.mockRejectedValue(new Error('Worker is offline'));
+        const directory = mkdtempSync(join(tmpdir(), 'paws-delegation-inspection-')); directories.push(directory);
+        const taskId = '00000000-0000-4000-8000-000000000001';
+        createDelegationStore(directory).saveTask({ id: taskId, parentSessionId: 'parent', childSessionId: 'child', title: 'Completed draft', role,
+            nonce: 'a'.repeat(64), createdAt: 1, versions: [{ version: 1, requestId: 'request-one', inputHash: 'b'.repeat(64), prompt: 'Write the draft',
+                status: 'completed', startedAt: 1, updatedAt: 2, finishedAt: 2, result: { text: 'Retained final result' }, phase: 'sent', reportSequence: 1 }] });
+        const actual = await vi.importActual<typeof import('./delegation/service')>('./delegation/service');
+        const service = await actual.createDelegationService({ directory, deps: f.deps }); disposers.push(service.dispose);
+        const result = await service.handle({ action: 'read', parentSessionId: 'parent', taskId });
+        expect(result).toMatchObject({ success: true, task: { status: 'completed', result: { text: 'Retained final result' } } });
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(process.kill).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+        const forgedInspection = { action: 'start' as const, parentSessionId: 'parent', taskId, requestId: 'request-two', prompt: 'Revise this draft', inspection: true };
+        expect((await service.handle(forgedInspection)).success).toBe(false);
+        expect(process.kill).not.toHaveBeenCalled();
+        expect((await service.handle({ action: 'start', parentSessionId: 'parent', taskId, requestId: 'request-two', prompt: 'Revise this draft' })).success).toBe(false);
+        expect((await service.handle({ action: 'roles-save', parentSessionId: 'parent', role: { id: role.id, name: role.name, description: role.description,
+            agent: role.agent, model: role.model, autoDelegate: role.autoDelegate } })).success).toBe(false);
+        expect((await service.handle({ action: 'read', parentSessionId: 'unowned-parent', taskId })).success).toBe(false);
+        expect(f.spawn).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+    });
+
+    it('refuses inspection with a changed retained account', async () => {
+        const f = await fixture(); f.persist('parent'); f.parentMetadata.codexAccountProfileId = 'other-account';
+        await expect(f.deps.resolveParent('parent', { inspection: true })).rejects.toThrow('retained session identity');
+        expect(process.kill).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+    });
+
+    it('promotes an active persisted child once on reconnect without a user action or a new timer', async () => {
+        const f = await retainedRunningTask();
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        expect(f.rpc).not.toHaveBeenCalled(); expect(f.retainRecoveredSession).not.toHaveBeenCalled();
+        expect(f.store.loadTasks()[0].versions[0].status).toBe('running');
+        f.isConnected.mockReturnValue(true); f.service.republish();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.retainRecoveredSession).toHaveBeenCalledTimes(1);
+        expect(f.retainRecoveredSession).toHaveBeenCalledWith(expect.objectContaining({ happySessionId: 'child', pid: 222 }));
+        expect(f.sessions.get('child')!.pid).toBe(222);
+        expect(f.rpc.mock.calls.filter(call => call[0] === 'child' && call[2] === 'delegation-context')).toHaveLength(1);
+        f.service.republish(); await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.retainRecoveredSession).toHaveBeenCalledTimes(1);
+        expect(f.rpc.mock.calls.filter(call => call[0] === 'child' && call[2] === 'delegation-context')).toHaveLength(1);
+        expect(intervals).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('keeps a transient relay identity failure unknown and retries only on the next reconnect event', async () => {
+        const f = await retainedRunningTask(); const original = f.rpc.getMockImplementation()!;
+        f.rpc.mockImplementation(async (...args) => {
+            if (args[0] === 'child' && args[2] === 'delegation-context') throw new Error('Relay response was lost');
+            return original(...args);
+        });
+        f.isConnected.mockReturnValue(true); f.service.republish();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.retainRecoveredSession).not.toHaveBeenCalled(); expect(f.sessions.get('child')!.pid).toBe(0);
+        expect(f.store.loadTasks()[0].versions[0].status).toBe('running');
+        expect(f.rpc.mock.calls.filter(call => call[0] === 'child' && call[2] === 'delegation-context')).toHaveLength(1);
+        f.rpc.mockImplementation(original); f.service.republish();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.retainRecoveredSession).toHaveBeenCalledTimes(1);
+        expect(f.rpc.mock.calls.filter(call => call[0] === 'child' && call[2] === 'delegation-context')).toHaveLength(2);
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('only confirms an exit on ESRCH and keeps permission/probe errors unknown', async () => {
+        const f = await retainedRunningTask(); f.isConnected.mockReturnValue(true);
+        vi.mocked(process.kill).mockImplementation(pid => {
+            if (pid === 222) throw Object.assign(new Error('probe denied'), { code: 'EPERM' });
+            return true;
+        });
+        expect(await f.deps.isChildAlive('child')).toBeNull(); f.service.republish();
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.store.loadTasks()[0].versions[0].status).toBe('running');
+        vi.mocked(process.kill).mockImplementation(pid => {
+            if (pid === 222) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+            return true;
+        });
+        f.service.republish(); await new Promise<void>(resolve => setImmediate(resolve));
+        expect(f.store.loadTasks()[0].versions[0].status).toBe('interrupted');
+        expect(f.retainRecoveredSession).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('refuses delivery if the daemon rejects recovery tracking because the PID/session slot changed', async () => {
+        const f = await fixture(); f.persist('child');
+        f.retainRecoveredSession.mockImplementationOnce(() => { throw new Error('PID is already owned by another tracked session'); });
+        await expect(f.deps.send('child', 'Revise', localId, f.options)).rejects.toMatchObject({ notDispatched: true });
+        expect(f.rpc.mock.calls.filter(call => call[2] === 'delegation-prepare')).toHaveLength(0);
+        expect(axios.post).not.toHaveBeenCalled(); expect(f.sessions.get('child')!.pid).toBe(0);
     });
 });

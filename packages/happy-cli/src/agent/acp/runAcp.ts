@@ -24,6 +24,7 @@ import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler'
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { delegationLaunchContext } from '@/daemon/delegationLaunchContext';
 import { createDelegationPromptLifecycle } from '@/delegation/delegationPrompt';
+import { createPausableDeadline, type PausableDeadline } from './pausableDeadline';
 import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PendingRequest, type PermissionResponse, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
@@ -538,7 +539,8 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
 type PendingTurn = {
   resolve: () => void;
   reject: (err: Error) => void;
-  timeout: NodeJS.Timeout;
+  deadline: PausableDeadline;
+  root: AcpRootTurn;
 };
 
 function resolveSessionFlavor(agentName: string): 'gemini' | 'opencode' | 'antigravity' | 'acp' {
@@ -668,9 +670,12 @@ export async function runAcp(opts: {
   let sawModels = false;
   let archiveReason = 'Session ended';
   let archiveCurrentSession: ((reason?: string) => void) | null = null;
+  let pauseDelegationWait: () => (() => void) = () => () => {};
 
   const happyServer = await startHappyServer(session, {
     delegationContext: effectiveDelegationContext,
+    currentDelegationSessionId: () => session.sessionId,
+    onDelegationWait: () => pauseDelegationWait(),
     archiveSession: async (reason?: string) => {
       if (!archiveCurrentSession) {
         return { success: false, error: 'Archive handler is not ready' };
@@ -727,7 +732,7 @@ export async function runAcp(opts: {
     if (!pendingTurn) {
       return;
     }
-    clearTimeout(pendingTurn.timeout);
+    pendingTurn.deadline.cancel();
     const current = pendingTurn;
     pendingTurn = null;
     if (error) {
@@ -737,13 +742,30 @@ export async function runAcp(opts: {
     current.resolve();
   };
 
-  const waitForTurnEnd = () => new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
+  const waitForTurnEnd = (root: AcpRootTurn) => new Promise<void>((resolve, reject) => {
+    const current: PendingTurn = { resolve, reject, root, deadline: createPausableDeadline(TURN_TIMEOUT_MS, () => {
+      if (pendingTurn !== current) return;
       pendingTurn = null;
       reject(new Error(`Timed out waiting for ${opts.agentName} to finish the turn`));
-    }, TURN_TIMEOUT_MS);
-    pendingTurn = { resolve, reject, timeout };
+    }) };
+    pendingTurn = current;
   });
+  pauseDelegationWait = () => {
+    const current = pendingTurn;
+    const root = activeRoot;
+    const parentSessionId = session.sessionId;
+    if (opts.agentName !== 'antigravity' || delegatedLaunch || session.getMetadata?.()?.delegatedTask
+      || shouldExit || !current || !root || current.root !== root || root.cancelled
+      || !root.turnId || session.getCurrentRootTurnId?.() !== root.turnId) return () => {};
+    const release = current.deadline.pause();
+    return () => {
+      if (shouldExit || session.sessionId !== parentSessionId || pendingTurn !== current || activeRoot !== root || root.cancelled) {
+        current.deadline.cancel();
+        return;
+      }
+      release();
+    };
+  };
 
   const stopRunnerFromBackendStatus = (status: 'error' | 'stopped', detail?: string) => {
     const reason = detail
@@ -1375,7 +1397,7 @@ export async function runAcp(opts: {
         activeRoot = null;
         continue;
       }
-      const turnEnded = waitForTurnEnd();
+      const turnEnded = waitForTurnEnd(root);
       // Backend errors can settle the turn before sendPrompt rejects.
       void turnEnded.catch(() => {});
       let promptStarted = false;

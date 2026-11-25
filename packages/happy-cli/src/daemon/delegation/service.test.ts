@@ -209,6 +209,13 @@ describe('persistent delegation coordinator', () => {
         expect(f.deps.spawn).not.toHaveBeenCalled();
     });
 
+    it('never treats an inspection-only authorization as permission to start or mutate roles', async () => {
+        const f = await fixture(); f.parent.inspectionOnly = true;
+        expect((await f.service.handle({ action: 'start', parentSessionId: f.parent.id, roleId: role.id, requestId: 'request-one', prompt: 'Write README.' })).error).toContain('Inspection authorization');
+        expect((await f.service.handle({ action: 'roles-delete', parentSessionId: f.parent.id, roleId: role.id })).success).toBe(false);
+        expect(f.deps.spawn).not.toHaveBeenCalled();
+    });
+
     it('does not blindly repeat a spawn whose outcome was unknown at daemon shutdown', async () => {
         const f = await fixture(); const gate = deferred<string>(); vi.mocked(f.deps.spawn).mockImplementationOnce(() => gate.promise);
         const input = { action: 'start' as const, parentSessionId: f.parent.id, roleId: role.id, requestId: 'request-one', prompt: 'Write README.' };
@@ -334,5 +341,25 @@ describe('persistent delegation coordinator', () => {
         expect(f.deps.cancel).toHaveBeenLastCalledWith(sent.child, turn, sent.options.delegation);
         await recovered.handle({ action: 'read', parentSessionId: f.parent.id, taskId: response.taskId! });
         expect(f.deps.cancel).toHaveBeenCalledTimes(2); expect(f.deps.send).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([false, true])('inspection of a fresh root receipt only fulfils existing cancel intent (%s) without awaiting native work', async cancelRequested => {
+        const f = await fixture();
+        const response = await f.service.handle({ action: 'start', parentSessionId: f.parent.id, roleId: role.id, requestId: 'request-one', prompt: 'Write README.' });
+        const sent = await f.nextSent();
+        if (cancelRequested) await f.service.handle({ action: 'cancel', parentSessionId: f.parent.id, taskId: response.taskId! });
+        const priorCalls = vi.mocked(f.deps.cancel).mock.calls.length;
+        const native = deferred<void>(); vi.mocked(f.deps.cancel).mockImplementation(async () => { await native.promise; });
+        f.parent.inspectionOnly = true;
+        const turn = startTurn(sent);
+        // The authorized read can return while a prior-intent cancellation is still pending.
+        const read = await f.service.handle({ action: 'read', parentSessionId: f.parent.id, taskId: response.taskId! });
+        expect(read.task).toMatchObject({ status: 'running', ...(cancelRequested ? { cancelRequested: true } : {}) });
+        expect(f.deps.resolveParent).toHaveBeenLastCalledWith(f.parent.id, { inspection: true });
+        expect(f.deps.cancel).toHaveBeenCalledTimes(priorCalls + (cancelRequested ? 1 : 0));
+        if (cancelRequested) expect(f.deps.cancel).toHaveBeenLastCalledWith(sent.child, turn, sent.options.delegation);
+        native.resolve();
+        sent.reporter.observe(createEnvelope('agent', { t: 'turn-end', status: cancelRequested ? 'cancelled' : 'completed' }, { turn }));
+        expect((await f.service.handle({ action: 'read', parentSessionId: f.parent.id, taskId: response.taskId! })).task?.status).toBe(cancelRequested ? 'cancelled' : 'completed');
     });
 });

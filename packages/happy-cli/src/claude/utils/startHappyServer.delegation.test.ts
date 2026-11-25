@@ -54,7 +54,8 @@ describe('parent-bound delegation MCP tools', () => {
 
     it('binds CRUD/read/cancel to the parent and rejects spoofed scope, credentials, and ambiguous task identities', async () => {
         vi.mocked(launchDelegationDaemonSession).mockResolvedValue({ success: true, roles: [role] });
-        const server = await startHappyServer({ sessionId: 'parent-one' } as ApiSessionClient);
+        const onDelegationWait = vi.fn(() => vi.fn());
+        const server = await startHappyServer({ sessionId: 'parent-one' } as ApiSessionClient, { onDelegationWait });
         const client = new Client({ name: 'delegation-scope-test', version: '1' });
         try {
             await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
@@ -79,6 +80,85 @@ describe('parent-bound delegation MCP tools', () => {
                 expect(result.isError).toBe(true);
             }
             expect(launchDelegationDaemonSession).toHaveBeenCalledTimes(5);
+            expect(onDelegationWait).not.toHaveBeenCalled();
+        } finally { await client.close(); server.stop(); }
+    });
+
+    it('holds the parent wait hook for the actual daemon delegation lifecycle and releases on success', async () => {
+        let entered!: () => void;
+        let finish!: (value: DelegationResponse) => void;
+        const waiting = new Promise<void>(resolve => { entered = resolve; });
+        const daemonResult = new Promise<DelegationResponse>(resolve => { finish = resolve; });
+        const release = vi.fn();
+        const onDelegationWait = vi.fn(() => { entered(); return release; });
+        vi.mocked(launchDelegationDaemonSession).mockReturnValueOnce(daemonResult);
+        const server = await startHappyServer({ sessionId: 'parent-one' } as ApiSessionClient, { onDelegationWait });
+        const client = new Client({ name: 'delegation-budget-test', version: '1' });
+        try {
+            await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+            const response = client.callTool({ name: 'delegate_task', arguments: { requestId: 'budget-request', roleId: 'writer', prompt: 'Write the draft' } });
+            await waiting;
+            expect(onDelegationWait).toHaveBeenCalledOnce();
+            expect(release).not.toHaveBeenCalled();
+            finish(completed);
+            expect((await response).isError).toBe(false);
+            expect(release).toHaveBeenCalledOnce();
+        } finally { finish(completed); await client.close(); server.stop(); }
+    });
+
+    it('binds each HTTP delegation to its current session across a swap without allowing caller scope overrides', async () => {
+        let currentParent = 'parent-one';
+        let entered!: () => void;
+        let finish!: (value: DelegationResponse) => void;
+        const firstEntered = new Promise<void>(resolve => { entered = resolve; });
+        const firstResult = new Promise<DelegationResponse>(resolve => { finish = resolve; });
+        const firstRelease = vi.fn();
+        const secondRelease = vi.fn();
+        const onDelegationWait = vi.fn(() => {
+            if (currentParent === 'parent-one') { entered(); return firstRelease; }
+            return secondRelease;
+        });
+        vi.mocked(launchDelegationDaemonSession).mockReturnValueOnce(firstResult).mockResolvedValueOnce(completed);
+        const server = await startHappyServer({ sessionId: 'original-client' } as ApiSessionClient, {
+            currentDelegationSessionId: () => currentParent, onDelegationWait,
+        });
+        const client = new Client({ name: 'delegation-swap-test', version: '1' });
+        const first = { requestId: 'before-swap', roleId: 'writer', prompt: 'First task' };
+        const second = { requestId: 'after-swap', roleId: 'writer', prompt: 'Second task' };
+        try {
+            await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+            const pending = client.callTool({ name: 'delegate_task', arguments: first });
+            await firstEntered;
+            currentParent = 'parent-two';
+            expect((await client.callTool({ name: 'delegate_task', arguments: second })).isError).toBe(false);
+            expect(launchDelegationDaemonSession).toHaveBeenNthCalledWith(1, 'parent-one', { ...first, action: 'start', wait: true }, undefined);
+            expect(launchDelegationDaemonSession).toHaveBeenNthCalledWith(2, 'parent-two', { ...second, action: 'start', wait: true }, undefined);
+            expect(firstRelease).not.toHaveBeenCalled();
+            expect(secondRelease).toHaveBeenCalledOnce();
+            finish(completed);
+            await pending;
+            expect(firstRelease).toHaveBeenCalledOnce();
+            const forged = await client.callTool({ name: 'delegate_task', arguments: { ...second, parentSessionId: 'caller-chosen-parent' } });
+            expect(forged.isError).toBe(true);
+            expect(launchDelegationDaemonSession).toHaveBeenCalledTimes(2);
+            expect(onDelegationWait).toHaveBeenCalledTimes(2);
+        } finally { finish(completed); await client.close(); server.stop(); }
+    });
+
+    it.each(['daemon failure', 'context failure'])('releases the parent budget hook in finally after %s', async failure => {
+        const release = vi.fn();
+        const onDelegationWait = vi.fn(() => release);
+        vi.mocked(launchDelegationDaemonSession).mockRejectedValue(new Error('Synthetic daemon failure'));
+        const server = await startHappyServer({ sessionId: 'parent-one' } as ApiSessionClient, { onDelegationWait,
+            ...(failure === 'context failure' ? { delegationContext: () => { throw new Error('Synthetic context failure'); } } : {}) });
+        const client = new Client({ name: 'delegation-budget-failure-test', version: '1' });
+        try {
+            await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+            const response = await client.callTool({ name: 'delegate_task', arguments: { requestId: 'failed-budget-request', roleId: 'writer', prompt: 'Write the draft' } });
+            expect(response.isError).toBe(true);
+            expect(onDelegationWait).toHaveBeenCalledOnce();
+            expect(release).toHaveBeenCalledOnce();
+            if (failure === 'context failure') expect(launchDelegationDaemonSession).not.toHaveBeenCalled();
         } finally { await client.close(); server.stop(); }
     });
 

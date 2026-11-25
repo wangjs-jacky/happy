@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
   const metadataListeners = new Set<(metadata: any) => void>();
   const connectedListeners = new Set<() => void>();
   const mockSession = {
+    sessionId: 'session-1',
     getMetadata: vi.fn(() => null as any),
     getCurrentRootTurnId: vi.fn(() => undefined as string | undefined),
     acknowledgeCancelledUserInput: vi.fn(),
@@ -1136,6 +1137,62 @@ describe('runAcp', () => {
     .map(([envelope]: any[]) => envelope.ev).filter(ev => ev.t === 'turn-end').map(ev => ev.status);
   const emitBackend = (event: any) => { for (const listener of mocks.backendState.listeners) listener(event); };
 
+  it('suspends only the active root deadline during a real delegation wait and ignores its stale release after completion', async () => {
+    let finishNative!: () => void;
+    mocks.backendState.holdPrompt = new Promise(resolve => { finishNative = resolve; });
+    const run = runDelegationWorker(false);
+    void run.catch(() => {});
+    let stopped = false;
+    try {
+      await vi.waitFor(() => expect(mocks.mockSession.processorReady).toHaveBeenCalled());
+      const onDelegationWait = mocks.mockStartHappyServer.mock.calls[0][1].onDelegationWait;
+      onDelegationWait()(); // An idle request has no root budget to pause.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      mocks.getUserMessageHandler()!({ localId: 'parent-task', content: { text: 'busy' } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(60_000);
+      const release = onDelegationWait();
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      expect(endStatuses()).toEqual([]);
+      finishNative();
+      await vi.waitFor(() => expect(endStatuses()).toEqual(['completed']));
+      release();
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      expect(endStatuses()).toEqual(['completed']);
+      expect(mocks.backendState.disposeCalls).toBe(0);
+      await mocks.getKillHandler()!();
+      await run;
+      stopped = true;
+    } finally {
+      finishNative();
+      if (!stopped) { await mocks.getKillHandler()!(); await run.catch(() => {}); }
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+
+  it('keeps the ordinary five minute deadline for a delegated child even if it attempts another delegation', async () => {
+    let finishNative!: () => void;
+    mocks.backendState.holdPrompt = new Promise(resolve => { finishNative = resolve; });
+    const run = runDelegationWorker();
+    void run.catch(() => {});
+    try {
+      await vi.waitFor(() => expect(mocks.mockSession.processorReady).toHaveBeenCalled());
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      mocks.getUserMessageHandler()!({ localId: 'delegation:task:v1', content: { text: 'busy' }, meta: { delegation: {} } });
+      await vi.waitFor(() => expect(mocks.backendState.prompts).toHaveLength(1));
+      const release = mocks.mockStartHappyServer.mock.calls[0][1].onDelegationWait();
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      finishNative();
+      await expect(run).rejects.toThrow('Timed out waiting for antigravity');
+      expect(endStatuses()).toEqual(['failed']);
+      release();
+    } finally {
+      finishNative();
+      await mocks.getKillHandler()!(); await run.catch(() => {});
+      vi.clearAllTimers(); vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])('injects role discovery once for a parent and never for a delegated child=%s', async delegatedChild => {
     mocks.backendState.delegatedLaunch = delegatedChild ? { parentSessionId: 'parent', taskId: 'task' } : null;
     if (delegatedChild) mocks.mockNotifyDaemonSessionStarted.mockImplementationOnce(async () => {
@@ -1276,10 +1333,11 @@ describe('runAcp', () => {
       const staleContext = mocks.sessionHandlers.get('delegation-context')!;
       const stalePrepare = mocks.sessionHandlers.get('delegation-prepare')!;
       const freshHandlers = new Map<string, any>();
-      const replacement = { ...mocks.mockSession, getMetadata: vi.fn(() => ({ ...mocks.mockSession.getMetadata() })),
+      const replacement = { ...mocks.mockSession, sessionId: 'session-2', getMetadata: vi.fn(() => ({ ...mocks.mockSession.getMetadata() })),
         rpcHandlerManager: { registerHandler: vi.fn((name: string, handler: any) => freshHandlers.set(name, handler)) },
         updateMetadataAndAwait: vi.fn(async (handler: any) => { replacement.getMetadata.mockReturnValue(handler(replacement.getMetadata())); }) };
       mocks.mockSetupOfflineReconnection.mock.calls[0][0].onSessionSwap(replacement);
+      expect(mocks.mockStartHappyServer.mock.calls[0][1].currentDelegationSessionId()).toBe('session-2');
       expect([...freshHandlers.keys()]).toEqual(expect.arrayContaining(['delegation-context', 'delegation-prepare', 'delegation-abort']));
       await expect(staleContext({})).rejects.toThrow('worker changed');
       await expect(stalePrepare({ model: 'Argon', permissionMode: 'default' })).rejects.toThrow('worker changed');

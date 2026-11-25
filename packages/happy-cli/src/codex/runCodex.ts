@@ -1324,6 +1324,7 @@ export async function runCodex(opts: {
 
     // Start Happy MCP server (HTTP) and prepare STDIO bridge config for Codex
     const happyServer = await startHappyServer(session, {
+        currentDelegationSessionId: () => session.sessionId,
         delegationContext: () => ({ permissionMode: currentPermissionMode ?? 'read-only', appendSystemPrompt: currentAppendSystemPrompt }),
         archiveSession: async (reason?: string) => {
             setTimeout(() => {

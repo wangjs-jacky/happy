@@ -385,6 +385,8 @@ export async function startHappyServer(
     client: ApiSessionClient,
     options?: {
         delegationContext?: () => DelegationContext;
+        currentDelegationSessionId?: () => string;
+        onDelegationWait?: () => (() => void);
         archiveSession?: (reason?: string) => Promise<{ success: boolean; error?: string }>;
     },
 ) {
@@ -403,7 +405,15 @@ export async function startHappyServer(
 
     const handlers: HappyMcpHandlers = {
         startSession: task => launchIndependentDaemonSession(client.sessionId, task, options?.delegationContext?.()),
-        delegation: action => launchDelegationDaemonSession(client.sessionId, action, options?.delegationContext?.()),
+        delegation: async action => {
+            const parentSessionId = options?.currentDelegationSessionId?.() ?? client.sessionId;
+            const release = action.action === 'start' && action.wait === true ? options?.onDelegationWait?.() : undefined;
+            try {
+                return await launchDelegationDaemonSession(parentSessionId, action, options?.delegationContext?.());
+            } finally {
+                release?.();
+            }
+        },
         changeTitle: async (title: string) => {
             logger.debug('[happyMCP] Changing title to:', title);
             try {

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { ApiClient } from '@/api/api';
 import type { ApiMachineClient } from '@/api/apiMachine';
@@ -22,17 +22,62 @@ const undelivered = (error: unknown, fallback: string) => error instanceof Deleg
 
 export async function createDaemonDelegationRuntime(input: {
     directory: string; machineId: string; serverUrl: string; token: string;
-    api: Pick<ApiClient, 'createCodexSessionGrant'>; machineClient: Pick<ApiMachineClient, 'callSessionRpc'>;
+    api: Pick<ApiClient, 'createCodexSessionGrant'>; machineClient: Pick<ApiMachineClient, 'callSessionRpc' | 'isConnected'>;
     findSession(id: string): TrackedSession | undefined;
     fetchSnapshot(id: string, tracked: TrackedSession): Promise<{ metadata: Metadata; agentState: AgentState | null } | null>;
     spawn(options: SpawnSessionOptions): Promise<SpawnSessionResult>;
+    retainRecoveredSession(tracked: TrackedSession): void;
 }) {
-    function ownedSession(id: string): TrackedSession & { encryption: NonNullable<TrackedSession['encryption']> } {
+    function sessionRecord(id: string) {
         const tracked = input.findSession(id);
-        if (!tracked?.encryption || tracked.happySessionId !== id || !Number.isSafeInteger(tracked.pid) || tracked.pid <= 0) throw new Error('The session is not owned by this daemon');
-        try { process.kill(tracked.pid, 0); } catch { throw new Error('The session worker is no longer running'); }
+        if (!tracked?.encryption || tracked.happySessionId !== id) throw new Error('The session is not owned by this daemon');
+        const metadata = tracked.happySessionMetadataFromLocalWebhook;
         // Do not let in-place tracking updates change an identity captured before an await.
-        return { ...tracked, encryption: { ...tracked.encryption, encryptionKey: new Uint8Array(tracked.encryption.encryptionKey) } };
+        return { ...tracked, encryption: { ...tracked.encryption, encryptionKey: new Uint8Array(tracked.encryption.encryptionKey) },
+            recovered: tracked.startedBy === 'persisted' && tracked.pid === 0,
+            retainedIdentity: metadata ? { machineId: metadata.machineId, path: metadata.path, flavor: metadata.flavor,
+                hostPid: metadata.hostPid, codexAccountProfileId: metadata.codexAccountProfileId, parentSessionId: metadata.parentSessionId,
+                delegatedTask: metadata.delegatedTask ? { ...metadata.delegatedTask } : undefined } : undefined };
+    }
+    function ownedSession(id: string) {
+        const tracked = sessionRecord(id);
+        const pid = tracked.recovered ? tracked.retainedIdentity?.hostPid : tracked.pid;
+        if (!Number.isSafeInteger(pid) || !pid || pid <= 0) throw new Error('The session has no retained live worker identity');
+        if (tracked.recovered && tracked.retainedIdentity?.machineId !== input.machineId) throw new Error('The retained session belongs to another machine');
+        try { process.kill(pid, 0); }
+        catch (error) { throw Object.assign(new Error('The session worker is no longer running'), { code: (error as NodeJS.ErrnoException).code }); }
+        // This local liveness hint grants no authority; fresh snapshots and encrypted
+        // native RPCs below must still confirm a recovered worker before any effect.
+        return { ...tracked, pid };
+    }
+    function checkedSnapshot(tracked: ReturnType<typeof sessionRecord>, snapshot: Awaited<ReturnType<typeof input.fetchSnapshot>>, inspection = false) {
+        if (!snapshot || typeof snapshot.metadata.path !== 'string' || !isAbsolute(snapshot.metadata.path)
+            || !['codex', 'antigravity'].includes(snapshot.metadata.flavor ?? '') || snapshot.metadata.machineId !== input.machineId
+            || (!inspection && (snapshot.metadata.hostPid !== tracked.pid || archived(snapshot.metadata)))) throw new Error('The session is unavailable or changed');
+        if (tracked.recovered || inspection) {
+            const retained = tracked.retainedIdentity;
+            const current = snapshot.metadata;
+            if (!retained || retained.machineId !== input.machineId || retained.path !== current.path || retained.flavor !== current.flavor
+                || retained.codexAccountProfileId !== current.codexAccountProfileId || retained.parentSessionId !== current.parentSessionId
+                || retained.delegatedTask?.taskId !== current.delegatedTask?.taskId
+                || retained.delegatedTask?.parentSessionId !== current.delegatedTask?.parentSessionId) {
+                throw new Error('The retained session identity or account changed');
+            }
+        }
+        return snapshot.metadata;
+    }
+    async function nativeContext(id: string, tracked: ReturnType<typeof ownedSession>, snapshot: Awaited<ReturnType<typeof input.fetchSnapshot>>) {
+        const metadata = checkedSnapshot(tracked, snapshot);
+        if (!input.machineClient.isConnected()) throw new Error('Machine relay is disconnected');
+        const runtime = runtimeContextSchema.parse(await input.machineClient.callSessionRpc(id, tracked.encryption, 'delegation-context', {}));
+        if (runtime.hostPid !== tracked.pid || runtime.agent !== metadata.flavor
+            || ['archived', 'archiveRequested'].includes(runtime.lifecycleState ?? '')) throw new Error('The worker identity changed');
+        if (tracked.recovered) {
+            assertSameWorker(id, tracked);
+            const { recovered: _recovered, retainedIdentity: _identity, ...retained } = tracked;
+            input.retainRecoveredSession({ ...retained, happySessionMetadataFromLocalWebhook: metadata });
+        }
+        return runtime;
     }
     function assertSameWorker(id: string, expected: ReturnType<typeof ownedSession>): void {
         const current = ownedSession(id);
@@ -42,18 +87,15 @@ export async function createDaemonDelegationRuntime(input: {
         }
     }
     return createDelegationService({ directory: input.directory, deps: {
-        async resolveParent(id) {
-            const tracked = ownedSession(id);
+        async resolveParent(id, options) {
+            const tracked = options?.inspection ? sessionRecord(id) : ownedSession(id);
             const snapshot = await input.fetchSnapshot(id, tracked);
-            if (!snapshot || !['codex', 'antigravity'].includes(snapshot.metadata.flavor ?? '')
-                || snapshot.metadata.machineId !== input.machineId || snapshot.metadata.hostPid !== tracked.pid
-                || archived(snapshot.metadata)) throw new Error('The parent session is unavailable or changed');
-            const runtime = runtimeContextSchema.parse(await input.machineClient.callSessionRpc(id, tracked.encryption, 'delegation-context', {}));
-            if (runtime.hostPid !== tracked.pid || runtime.agent !== snapshot.metadata.flavor
-                || ['archived', 'archiveRequested'].includes(runtime.lifecycleState ?? '')) throw new Error('The parent worker identity changed');
-            return { id, agent: runtime.agent, directory: snapshot.metadata.path, permissionMode: runtime.permissionMode,
-                appendSystemPrompt: runtime.appendSystemPrompt, accountProfileId: snapshot.metadata.codexAccountProfileId,
-                application: snapshot.metadata.application, sandbox: Boolean(snapshot.metadata.sandbox?.enabled), delegated: Boolean(snapshot.metadata.delegatedTask) };
+            const metadata = checkedSnapshot(tracked, snapshot, options?.inspection);
+            const runtime = options?.inspection ? null : await nativeContext(id, tracked, snapshot);
+            return { id, agent: metadata.flavor as 'codex' | 'antigravity', directory: metadata.path, permissionMode: runtime?.permissionMode ?? 'read-only',
+                appendSystemPrompt: runtime?.appendSystemPrompt, accountProfileId: metadata.codexAccountProfileId,
+                application: metadata.application, sandbox: Boolean(metadata.sandbox?.enabled), delegated: Boolean(metadata.delegatedTask),
+                ...(options?.inspection ? { inspectionOnly: true } : {}) };
         },
         async spawn(parent, role, environment) {
             // Validate transfer before creating a process. Model selection occurs
@@ -88,6 +130,8 @@ export async function createDaemonDelegationRuntime(input: {
                 const parent = ownedSession(options.delegation.parentSessionId);
                 const snapshot = await input.fetchSnapshot(childId, child);
                 const parentSnapshot = await input.fetchSnapshot(options.delegation.parentSessionId, parent);
+                if (child.recovered) await nativeContext(childId, child, snapshot);
+                if (parent.recovered) await nativeContext(options.delegation.parentSessionId, parent, parentSnapshot);
                 if (!snapshot || !parentSnapshot || !['codex', 'antigravity'].includes(parentSnapshot.metadata.flavor ?? '')
                     || parentSnapshot.metadata.machineId !== input.machineId || parentSnapshot.metadata.hostPid !== parent.pid || archived(parentSnapshot.metadata)
                     || snapshot.metadata.flavor !== options.agent || snapshot.metadata.machineId !== input.machineId || snapshot.metadata.hostPid !== child.pid
@@ -128,12 +172,26 @@ export async function createDaemonDelegationRuntime(input: {
         async cancel(childId, expectedTurnId, binding) {
             if (!binding) throw new Error('Cancellation requires the original delegated input identity');
             const child = ownedSession(childId);
+            if (child.recovered) await nativeContext(childId, child, await input.fetchSnapshot(childId, child));
             return input.machineClient.callSessionRpc<{ queuedCancelled?: boolean }>(childId, child.encryption, 'delegation-abort',
                 { localId: delegationLocalId(binding), ...(expectedTurnId ? { expectedTurnId } : {}) });
         },
-        isChildAlive(id) { try { ownedSession(id); return true; } catch { return false; } },
+        async isChildAlive(id) {
+            try {
+                const tracked = ownedSession(id);
+                if (tracked.recovered && input.machineClient.isConnected()) {
+                    await nativeContext(id, tracked, await input.fetchSnapshot(id, tracked));
+                }
+                return true;
+            } catch (error) {
+                // Only OS-confirmed disappearance means dead. A relay/identity
+                // failure is unknown and cannot authorize promotion or a stop.
+                return (error as NodeJS.ErrnoException).code === 'ESRCH' ? false : null;
+            }
+        },
         async publish(parentId, tasks, roles) {
             const parent = ownedSession(parentId);
+            if (parent.recovered) await nativeContext(parentId, parent, await input.fetchSnapshot(parentId, parent));
             await input.machineClient.callSessionRpc(parentId, parent.encryption, 'delegation-publish', { tasks, roles });
         },
     } });
