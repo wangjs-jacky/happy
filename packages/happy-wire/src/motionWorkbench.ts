@@ -77,7 +77,7 @@ export type MotionProject = z.infer<typeof MotionProjectSchema>;
 /** Thin references only; the native document and media remain engine-owned. */
 export const MotionProjectLinkSchema = MotionProjectSchema.pick({ projectId: true, projectPath: true, title: true }).extend({
     linkedAt: z.number().nonnegative(), workspaceRoot: z.string().min(1).max(4096),
-}).strict();
+}).passthrough();
 export const MotionProjectReferenceSchema = MotionProjectSchema.pick({ projectId: true, projectPath: true, title: true }).extend({
     documentRevision: revision, buildId: id, markerVersion: id, snapshotHash: hash,
 }).strict();

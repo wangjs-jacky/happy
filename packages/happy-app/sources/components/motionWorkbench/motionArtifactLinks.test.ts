@@ -96,3 +96,16 @@ it('counts retained links from older workspace roots without evicting them to ma
  await expect(linkMotionProject('session', project('b'))).rejects.toThrow('at most 20');
  expect(state.update).not.toHaveBeenCalled(); expect(state.sessions.session.metadata.motionProjectLinks).toEqual([...existing, link('a')]);
 });
+
+it('preserves future worker fields inside stored link envelopes while stripping unknown incoming command fields', async () => {
+ const futureWorkerState = { identityVersion: 2, capabilities: ['review'], nested: { preserve: true } };
+ state.sessions.session.metadata.motionProjectLinks = [{ ...link(), futureWorkerState }];
+ expect(loadMotionLinks(state.sessions.session.metadata)).toEqual([{ ...link(), futureWorkerState }]);
+ // A thin browser reference may update known fields, never replace future worker data.
+ await linkMotionProject('session', { ...project(), title: 'Renamed by user', futureWorkerState: 'untrusted override', unknownCommandField: 'do not store' } as any);
+ expect(state.sessions.session.metadata.motionProjectLinks).toEqual([{ ...link(), title: 'Renamed by user', futureWorkerState }]);
+ await linkMotionProject('session', { ...project('b'), unknownCommandField: 'do not store' } as any);
+ expect(state.sessions.session.metadata.motionProjectLinks[0]).toEqual({ ...link(), title: 'Renamed by user', futureWorkerState });
+ expect(state.sessions.session.metadata.motionProjectLinks[1]).not.toHaveProperty('unknownCommandField');
+ expect(state.sessions.session.metadata.foreignField).toEqual({ keep: true });
+});

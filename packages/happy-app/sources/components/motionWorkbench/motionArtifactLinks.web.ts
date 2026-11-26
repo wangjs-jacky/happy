@@ -15,8 +15,9 @@ const linkSchema = z.object({
     projectId: z.string().regex(/^[a-f0-9]{64}$/), projectPath: z.string().min(1).max(4096),
     title: z.string().trim().min(1).max(200), linkedAt: z.number().nonnegative().finite(),
     workspaceRoot: z.string().min(1).max(4096),
-});
-const projectSchema = linkSchema.pick({ projectId: true, projectPath: true, title: true });
+}).passthrough();
+// Incoming thin references are commands, not persisted envelopes.
+const projectSchema = linkSchema.pick({ projectId: true, projectPath: true, title: true }).strip();
 const MAX_SESSION_MOTION_LINKS = 20;
 const limitError = () => new Error('A conversation can reference at most 20 film projects.');
 const locks = new Map<string, { lock: AsyncLock; users: number }>();
@@ -106,7 +107,7 @@ export async function linkMotionProject(sessionId: string, project: Pick<MotionP
     const links = await updateLinks(sessionId, (current, root) => {
         if (!inside(root, verified.projectPath)) throw new Error('Choose a project inside this conversation workspace.');
         const prior = current.find(link => pathKey(link.workspaceRoot) === pathKey(root) && link.projectId === verified.projectId);
-        const next: MotionArtifactLink = { ...verified, linkedAt: prior?.linkedAt ?? linkedAt, workspaceRoot: root };
+        const next: MotionArtifactLink = { ...prior, ...verified, linkedAt: prior?.linkedAt ?? linkedAt, workspaceRoot: root };
         return [...current.filter(link => !(pathKey(link.workspaceRoot) === pathKey(root)
             && (link.projectId === verified.projectId || link.projectPath === verified.projectPath))), next];
     });
