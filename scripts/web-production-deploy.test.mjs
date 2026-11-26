@@ -135,6 +135,23 @@ test('supersession skips deployment work, restores earlier mutations, and never 
     assert.equal(enabled('Write superseded deployment summary', state), false);
 });
 
+test('verifies the canvas license before writing externally and includes the renderer in the release build', async () => {
+    const { jobs: { deploy: { steps } } } = parse(await readFile(workflowUrl, 'utf8'));
+    const position = name => steps.findIndex(step => step.name === name);
+    const guard = position('Verify the project canvas production license');
+    const build = position('Build and stamp Web from this main revision');
+    const switchEntry = position('Atomically switch OSS Web entry');
+    const keyRef = '${{ secrets.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE }}';
+    assert.ok(guard > position('Install dependencies'));
+    assert.ok(guard < position('Configure MCP App sandbox route'));
+    assert.ok(guard < position('Configure dedicated Bots HTTPS ingress'));
+    assert.ok(guard < build && build < switchEntry);
+    assert.equal(steps[guard].env.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE, keyRef);
+    assert.equal(steps[build].env.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE, keyRef);
+    assert.equal(steps[switchEntry].env.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE, keyRef);
+    assert.match(steps[build].run, /build:project-canvas[\s\S]*expo export[\s\S]*--project-canvas/);
+});
+
 test('MCP App sandbox rollout is disabled by default and verified before Web export or activation', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
     const job = workflow.jobs.deploy;

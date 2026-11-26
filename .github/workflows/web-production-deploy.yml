@@ -98,6 +98,12 @@ jobs:
         if: ${{ steps.source.outputs.eligible == 'true' }}
         run: pnpm install --frozen-lockfile
 
+      - name: Verify the project canvas production license
+        if: ${{ steps.source.outputs.eligible == 'true' }}
+        env:
+          PAWS_PROJECT_CANVAS_TLDRAW_LICENSE: ${{ secrets.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE }}
+        run: node packages/paws-dsh-canvas/scripts/verify-production-license.mjs "$PAWS_WEB_ORIGIN"
+
       - name: Install Aliyun CLI
         if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
@@ -221,6 +227,8 @@ jobs:
 
       - name: Build and stamp Web from this main revision
         if: ${{ steps.source.outputs.eligible == 'true' }}
+        env:
+          PAWS_PROJECT_CANVAS_TLDRAW_LICENSE: ${{ secrets.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE }}
         run: |
           set -euo pipefail
           RELEASE_TIMESTAMP="$(git show -s --format=%cI "$GITHUB_SHA")"
@@ -229,13 +237,14 @@ jobs:
           else
             unset EXPO_PUBLIC_MCP_APP_SANDBOX_ORIGIN
           fi
+          pnpm --filter happy-app build:project-canvas
           CI=1 APP_ENV=production EXPO_PUBLIC_HAPPY_SERVER_URL="$PAWS_WEB_ORIGIN" \
             HAPPY_BUILD_COMMIT_SHA="$GITHUB_SHA" \
             HAPPY_BUILD_COMMIT_TIMESTAMP="$RELEASE_TIMESTAMP" \
             pnpm --filter happy-app exec expo export --platform web --clear
           pnpm --filter happy-app exec tsx sources/scripts/injectWebLoading.ts
           node scripts/build-bots-web.mjs
-          node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html
+          node scripts/inject-web-runtime-server-config.mjs packages/happy-app/dist/index.html --project-canvas "$PAWS_WEB_ORIGIN" "$GITHUB_SHA"
           node scripts/stamp-web-release.mjs \
             packages/happy-app/dist/index.html \
             packages/happy-app/dist/.paws-release-revision \
@@ -256,6 +265,7 @@ jobs:
           PAWS_SKIP_BUILD: '1'
           PAWS_WEB_SKIP_SUPERSEDED: '1'
           PAWS_WEB_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          PAWS_PROJECT_CANVAS_TLDRAW_LICENSE: ${{ secrets.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE }}
         run: pnpm web:deploy
 
       - name: Route the Web SPA to OSS
