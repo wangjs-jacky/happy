@@ -18,6 +18,21 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHant: TranslationStructure = {
+    codexActivity: {
+        scope: '此機器全部 Codex 活動',
+        total: '總處理量',
+        uncachedInput: '非快取輸入',
+        cacheRead: '快取讀取',
+        output: '輸出',
+        showDetails: '查看明細',
+        hideDetails: '收起明細',
+        processed: 'token（含快取讀取）',
+        incomplete: '部分用量記錄需要核對',
+        noActivity: '暫無活動記錄',
+        events: '用量記錄',
+        cacheNote: '輸入包含快取讀取，推理已計入輸出。token 數不能直接換算為訂閱額度或實際扣費。',
+    },
+
     delegation: {
         assistants: "助手",
         manage: "管理",
