@@ -253,6 +253,7 @@ a { color: inherit; text-underline-offset: 3px; }
   font-weight: 700;
   line-height: 1.35;
 }
+.job-error .job-state { color: var(--error); }
 
 .job-steps {
   display: grid;
@@ -302,9 +303,18 @@ a { color: inherit; text-underline-offset: 3px; }
 }
 
 #history-list { margin-top: 8px; }
-#history-list .job-row { padding-block: 12px; }
-#history-list .job-title, #history-list .job-state { font-size: 14px; }
-#history-list .job-state { margin-top: 6px; }
+.history-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.history-row .job-title { font-size: 14px; }
 
 .empty {
   padding: 18px;
