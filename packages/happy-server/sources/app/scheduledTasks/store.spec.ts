@@ -20,6 +20,85 @@ describe('durable scheduled tasks', () => {
     });
     afterAll(async () => { await context?.database.$disconnect(); await context?.pg.close(); });
 
+    it('isolates webhook credentials, rotates and revokes without accepting stale credentials', async () => {
+        await store.save(owner, input, -1);
+        await expect(store.configureWebhook(other, input.id, true)).rejects.toMatchObject({ code: 'task-not-found' });
+        const first = (await store.configureWebhook(owner, input.id, true)).token!;
+        expect(await store.webhookOwner(input.id, first)).toBe(owner);
+        const second = (await store.configureWebhook(owner, input.id, true)).token!;
+        await expect(store.webhookOwner(input.id, first)).rejects.toMatchObject({ status: 401 });
+        expect(await store.webhookOwner(input.id, second)).toBe(owner);
+        await store.configureWebhook(owner, input.id, false);
+        await expect(store.runNow(owner, input.id, randomUUID(), { token: second, input: {} })).rejects.toMatchObject({ status: 401 });
+    });
+    it('persists independent webhook inputs and rejects busy requests without consuming their identity', async () => {
+        await store.save(owner, { ...input, enabled: false }, -1);
+        const token = (await store.configureWebhook(owner, input.id, true)).token!;
+        const requestId = randomUUID(), secondId = randomUUID();
+        const first = await store.runNow(owner, input.id, requestId, { token, input: { value: 'one' } });
+        expect((await store.runNow(owner, input.id, requestId, { token, input: { value: 'one' } })).id).toBe(first.id);
+        await expect(store.runNow(owner, input.id, requestId, { token, input: { value: 'changed' } })).rejects.toMatchObject({ code: 'idempotency-conflict' });
+        await expect(store.runNow(owner, input.id, secondId, { token, input: { value: 'two' } })).rejects.toMatchObject({ code: 'task-busy' });
+        const saved = (await store.list(owner))[0];
+        await store.save(owner, { ...input, enabled: false, encryptedConfig: 'new-config' }, saved.version);
+        expect((await store.history(owner, input.id))[0]).toMatchObject({ status: 'pending', encryptedConfig: 'opaque-ciphertext' });
+        const restored = createScheduledTaskStore(context.database, { now: () => now });
+        expect(await restored.claim(owner, machine)).toEqual([]);
+        const [claim] = await restored.claim(owner, machine, 1);
+        expect(claim.webhookInput).toEqual({ value: 'one' });
+        expect((await restored.claim(owner, machine, 1))[0].deliveryAuthorized).toBe(false);
+        await restored.report(owner, input.id, claim.id, { claimId: claim.claimId!, status: 'uncertain' });
+        await expect(restored.runNow(owner, input.id, secondId, { token, input: { value: 'two' } })).rejects.toMatchObject({ code: 'task-busy' });
+        await restored.abandon(owner, input.id, claim.id);
+        const second = await restored.runNow(owner, input.id, secondId, { token, input: { value: 'two' } });
+        expect(second.id).not.toBe(first.id);
+        expect(second.webhookInput).toEqual({ value: 'two' });
+        expect((await restored.runNow(owner, input.id, requestId, { token, input: { value: 'one' } })).id).toBe(first.id);
+        expect(await restored.history(owner, input.id)).toHaveLength(2);
+    });
+    it('canonicalizes distinct Unicode keys independently of their insertion order', async () => {
+        await store.save(owner, input, -1);
+        const token = (await store.configureWebhook(owner, input.id, true)).token!;
+        const requestId = randomUUID();
+        const first = await store.runNow(owner, input.id, requestId, { token, input: { 'é': 1, 'e\u0301': 2 } });
+        const retry = await store.runNow(owner, input.id, requestId, { token, input: { 'e\u0301': 2, 'é': 1 } });
+        expect(retry.id).toBe(first.id);
+    });
+    it('serializes concurrent webhook requests and enforces a durable acceptance budget', async () => {
+        await store.save(owner, input, -1);
+        const token = (await store.configureWebhook(owner, input.id, true)).token!;
+        const ids = [randomUUID(), randomUUID()];
+        const results = await Promise.allSettled(ids.map(requestId => store.runNow(owner, input.id, requestId, { token, input: { value: requestId } })));
+        expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+        expect(results.find(r => r.status === 'rejected')).toMatchObject({ reason: { code: 'task-busy' } });
+        for (let i = 0; i < 10; i++) {
+            if (i > 0) await store.runNow(owner, input.id, randomUUID(), { token, input: { value: i } });
+            const [claim] = await store.claim(owner, machine, 1);
+            await store.report(owner, input.id, claim.id, { claimId: claim.claimId!, status: 'failed', reason: 'test-terminal' });
+        }
+        const restored = createScheduledTaskStore(context.database, { now: () => now });
+        const id = randomUUID();
+        await expect(restored.runNow(owner, input.id, id, { token, input: {} })).rejects.toMatchObject({ code: 'webhook-rate-limit', status: 429 });
+        now += 60_001;
+        expect((await restored.runNow(owner, input.id, id, { token, input: {} })).status).toBe('pending');
+    });
+    it('retains webhook receipts beyond ordinary history pruning and bounds total admissions', async () => {
+        await store.save(owner, input, -1);
+        const token = (await store.configureWebhook(owner, input.id, true)).token!;
+        const firstId = randomUUID();
+        const first = await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } });
+        for (let i = 0; i < 101; i++) {
+            const [claim] = await store.claim(owner, machine, 1);
+            await store.report(owner, input.id, claim.id, { claimId: claim.claimId!, status: 'failed', reason: 'test-terminal' });
+            now += 60_001;
+            if (i < 100) await store.runNow(owner, input.id, randomUUID(), { token, input: { value: i } });
+        }
+        expect((await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } })).id).toBe(first.id);
+        const prefix = `${SCHEDULED_TASK_PREFIX}webhook-request:${input.id}:`;
+        await context.database.userKVStore.createMany({ data: Array.from({ length: 899 }, (_, i) => ({ accountId: owner, key: prefix + 'seed-' + i, value: new TextEncoder().encode('{}') })) });
+        await expect(store.runNow(owner, input.id, randomUUID(), { token, input: {} })).rejects.toMatchObject({ code: 'webhook-history-limit', status: 429 });
+        expect((await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } })).id).toBe(first.id);
+    });
     it('persists encrypted configuration and materializes a due occurrence only once', async () => {
         await store.save(owner, input, -1);
         expect(await store.due(owner, input.id, now)).toBeNull();

@@ -1,7 +1,7 @@
 /** Adapts durable scheduling to the daemon's existing encrypted spawn/resume pipeline. */
 import axios from 'axios';
 import { stat, realpath } from 'node:fs/promises';
-import { ScheduledRunClaimSchema, type ScheduledRunReport, type ScheduledTaskConfig } from '@slopus/happy-wire';
+import { scheduledTaskPrompt, ScheduledRunClaimSchema, type ScheduledRunReport, type ScheduledTaskConfig } from '@slopus/happy-wire';
 import { configuration } from '@/configuration';
 import { ApiClient } from '@/api/api';
 import type { Machine, Metadata, AgentState } from '@/api/types';
@@ -44,7 +44,7 @@ export function createDaemonScheduledTaskRunner(deps: {
             assertScheduledRuntimeSupported(Boolean((await readSettings()).sandboxConfig?.enabled));
         },
         claim: async () => {
-            const response = await axios.post(`${configuration.serverUrl}/v1/scheduled-tasks/machines/${encodeURIComponent(deps.machine.id)}/claim`, {}, { headers, timeout: 15000 });
+            const response = await axios.post(`${configuration.serverUrl}/v1/scheduled-tasks/machines/${encodeURIComponent(deps.machine.id)}/claim`, { taskWebhookProtocol: 1 }, { headers, timeout: 15000 });
             return ScheduledRunClaimSchema.array().parse(response.data.runs);
         },
         report: (run, report) => sendReport(run.taskId, run.id, report),
@@ -79,7 +79,7 @@ export function createDaemonScheduledTaskRunner(deps: {
             return bindingFromTracked(result.sessionId, config);
         },
         send: async (binding, run, config) => {
-            const message = { role: 'user', content: { type: 'text', text: `${config.title}\n\n${config.prompt}` },
+            const message = { role: 'user', content: { type: 'text', text: scheduledTaskPrompt(config, run.webhookInput) },
                 meta: { sentFrom: 'paws-scheduled-task', permissionMode: scheduledLaunchPermission(config.agent, { [SCHEDULED_PERMISSION_ENV]: config.permissionMode }), permissionModeExplicit: true,
                     ...(config.agent === 'codex' ? { model: config.model ?? null, effort: config.effort ?? null } : {}),
                     scheduledRun: { taskId: run.taskId, runId: run.id, claimId: run.claimId!, notificationPolicy: run.notificationPolicy } } };

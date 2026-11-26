@@ -98,3 +98,6 @@ packages/paws-bots/**/asset-archive/
 packages/happy-app/public/bots-assets/
 packages/paws-bots/**/__pycache__/
 packages/paws-bots/**/.pytest_cache/
+
+# Isolated task-webhook runtime, private test keys and logs
+/.webhook-validation/

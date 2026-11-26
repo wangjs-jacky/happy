@@ -1,19 +1,49 @@
 /** Authenticated scheduling API; ciphertext is opaque and every operation is account-scoped. */
 import { z } from 'zod';
-import { ScheduledTaskInputSchema, ScheduledRunReportSchema } from '@slopus/happy-wire';
+import { TaskWebhookInputSchema, ScheduledTaskInputSchema, ScheduledRunReportSchema } from '@slopus/happy-wire';
 import type { Fastify } from '@/app/api/types';
 import { ScheduledTaskError } from '@/app/scheduledTasks/store';
 import { scheduledTaskStore as store, recoverScheduledTaskDeadlines } from '@/app/scheduledTasks/service';
 
 const taskParams = z.object({ taskId: z.string().uuid() });
 const runParams = taskParams.extend({ runId: z.string().uuid() });
-export function scheduledTaskRoutes(app: Fastify): void {
+export function scheduledTaskRoutes(app: Fastify, taskStore = store): void {
+    const store = taskStore;
+    // Bounded, process-local ingress budget includes invalid credentials and replays.
+    // Lazy expiry needs no periodic job; the durable acceptance budget lives in the store.
+    const attempts = new Map<string, { start: number; count: number }>();
     app.register(async api => {
         const routes = api.withTypeProvider<import('fastify-type-provider-zod').ZodTypeProvider>();
         routes.setErrorHandler((error, _request, reply) => {
             if (error instanceof ScheduledTaskError) return reply.code(error.status).send({ error: error.code });
             if ((error && typeof error === 'object' && 'validation' in error) || error instanceof z.ZodError) return reply.code(400).send({ error: 'invalid-scheduled-task' });
             throw error;
+        });
+        routes.get('/v1/scheduled-tasks/:taskId/webhook', { preHandler: app.authenticate, schema: { params: taskParams } },
+            async request => store.webhookStatus(request.userId, request.params.taskId));
+        routes.post('/v1/scheduled-tasks/:taskId/webhook', { preHandler: app.authenticate, schema: {
+            params: taskParams, body: z.object({ enabled: z.boolean() }).strict(),
+        } }, async (request, reply) => {
+            reply.header('Cache-Control', 'no-store');
+            return store.configureWebhook(request.userId, request.params.taskId, request.body.enabled);
+        });
+        routes.post('/v1/task-webhooks/:taskId', { bodyLimit: 16384, onRequest: async (request, reply) => {
+            const now = Date.now();
+            let budget = attempts.get(request.ip);
+            if (!budget || now - budget.start >= 60_000) {
+                attempts.delete(request.ip);
+                if (attempts.size >= 1024) attempts.delete(attempts.keys().next().value!);
+                budget = { start: now, count: 0 }; attempts.set(request.ip, budget);
+            }
+            if (++budget.count > 60) return reply.header('Retry-After', '60').code(429).send({ error: 'webhook-ingress-limit' });
+        }, schema: {
+            params: taskParams, body: z.object({ requestId: z.string().uuid(), input: TaskWebhookInputSchema }).strict(),
+        } }, async (request, reply) => {
+            const token = request.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{2,267}\.[A-Za-z0-9_-]{43})$/)?.[1] ?? '';
+            const accountId = await store.webhookOwner(request.params.taskId, token);
+            const run = await store.runNow(accountId, request.params.taskId, request.body.requestId, { token, input: request.body.input });
+            reply.header('Cache-Control', 'no-store');
+            return reply.code(202).send({ requestId: request.body.requestId, runId: run.id, status: run.status });
         });
         routes.get('/v1/scheduled-tasks', { preHandler: app.authenticate }, async request => {
             recoverScheduledTaskDeadlines(request.userId);
@@ -36,7 +66,8 @@ export function scheduledTaskRoutes(app: Fastify): void {
         } }, async request => ({ run: await store.runNow(request.userId, request.params.taskId, request.body.requestId) }));
         routes.post('/v1/scheduled-tasks/machines/:machineId/claim', { preHandler: app.authenticate, schema: {
             params: z.object({ machineId: z.string().min(1).max(200) }),
-        } }, async request => ({ runs: await store.claim(request.userId, request.params.machineId) }));
+            body: z.object({ taskWebhookProtocol: z.literal(1).optional() }).strict().optional(),
+        } }, async request => ({ runs: await store.claim(request.userId, request.params.machineId, request.body?.taskWebhookProtocol) }));
         routes.post('/v1/scheduled-tasks/:taskId/runs/:runId/report', { preHandler: app.authenticate, schema: {
             params: runParams, body: ScheduledRunReportSchema,
         } }, async request => ({ run: await store.report(request.userId, request.params.taskId, request.params.runId, request.body) }));
