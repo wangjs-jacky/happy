@@ -69,10 +69,19 @@ export const MotionStudioOpenSchema = z.object({
 export type MotionStudioOpen = z.infer<typeof MotionStudioOpenSchema>;
 export const MotionWorkbenchChangeSchema = z.object({ bindingId, sequence: z.number().int().nonnegative().safe() }).strict();
 export const MotionProjectSchema = z.object({
+    projectId: hash,
     projectPath: z.string().min(1).max(4096), title: z.string().min(1).max(200),
     modifiedAt: z.number().nonnegative(), lastOpenedAt: z.number().nonnegative().optional(),
 }).strict();
 export type MotionProject = z.infer<typeof MotionProjectSchema>;
+/** Thin references only; the native document and media remain engine-owned. */
+export const MotionProjectLinkSchema = MotionProjectSchema.pick({ projectId: true, projectPath: true, title: true }).extend({
+    linkedAt: z.number().nonnegative(), workspaceRoot: z.string().min(1).max(4096),
+}).strict();
+export const MotionProjectReferenceSchema = MotionProjectSchema.pick({ projectId: true, projectPath: true, title: true }).extend({
+    documentRevision: revision, buildId: id, markerVersion: id, snapshotHash: hash,
+}).strict();
+export type MotionProjectReference = z.infer<typeof MotionProjectReferenceSchema>;
 export const MotionProjectListSchema = z.object({ projects: z.array(MotionProjectSchema).max(100), truncated: z.boolean() }).strict();
 
 export const MotionWorkbenchRequests = {

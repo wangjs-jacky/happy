@@ -76,6 +76,12 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
     const [openRequestId, setOpenRequestId] = React.useState(0);
     const [locationRequest, setLocationRequest] = React.useState<FileWorkspaceContextValue['locationRequest']>();
     const [motionRequest, setMotionRequest] = React.useState<FileWorkspaceContextValue['motionRequest']>();
+    const leaveGuard = React.useRef<(() => Promise<boolean>) | null>(null);
+    const registerMotionLeaveGuard = React.useCallback((guard: () => Promise<boolean>) => {
+        leaveGuard.current = guard;
+        return () => { if (leaveGuard.current === guard) leaveGuard.current = null; };
+    }, []);
+    const prepareLeave = React.useCallback(() => leaveGuard.current?.() ?? Promise.resolve(true), []);
     const restored = React.useRef(false);
     const restoration = React.useMemo(() => {
         let finish!: () => void;
@@ -189,5 +195,5 @@ function FileWorkspaceOwner({ sessionId, root, enabled, scope, binding, children
         if (!lifetime.current || transportSession.current !== sessionId || !accountRuntimeCurrent() || controller.getSnapshot().active !== resolved.absolutePath) return;
         setMotionRequest(value => ({ id: (value?.id ?? 0) + 1, sessionId, path: resolved.absolutePath }));
     }, [sessionId, binding?.readOnly, root, openReference, controller]);
-    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, locationRequest, motionRequest, openMotionProject, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, chatWidthCustomized, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
+    return <FileWorkspaceContext.Provider value={{ sessionId, readOnly: binding?.readOnly, readBytes: binding?.readBytes, openRequestId, locationRequest, motionRequest, openMotionProject, registerMotionLeaveGuard, prepareLeave, versions, versionSnapshot, restoreVersion, draftCacheError: draftCacheError || referenceCacheError, enabled, root, controller, snapshot, reference, setReference, openReference, chatWidth, chatWidthCustomized, setChatWidth, maximized, setMaximized }}>{children}</FileWorkspaceContext.Provider>;
 }

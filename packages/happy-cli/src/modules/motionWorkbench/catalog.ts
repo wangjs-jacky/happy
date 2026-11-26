@@ -44,7 +44,7 @@ export function createMotionProjectCatalog(directory: string, resolveProject: Re
             const file = await open(join(project, 'document.json'), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
             try { modifiedAt = (await file.stat()).mtimeMs; } finally { await file.close(); }
         } catch { /* A new project can have no saved document yet. */ }
-        return MotionProjectSchema.parse({ projectPath: project, title: title.slice(0, 200), modifiedAt, ...(lastOpenedAt === undefined ? {} : { lastOpenedAt }) });
+        return MotionProjectSchema.parse({ projectId: hash(JSON.stringify(['motionharness', project])), projectPath: project, title: title.slice(0, 200), modifiedAt, ...(lastOpenedAt === undefined ? {} : { lastOpenedAt }) });
     }
     async function remember(storage: string, projectPath: string, lastOpenedAt?: number) {
         await mkdir(storage, { recursive: true, mode: 0o700 });

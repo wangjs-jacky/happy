@@ -20,6 +20,7 @@ import { WorkspaceMediaPreview } from './WorkspaceMediaPreview';
 import { WorkspaceDirectoryPreview } from './WorkspaceDirectoryPreview';
 import { MotionWorkbench } from '@/components/motionWorkbench/MotionWorkbench';
 import type { MotionWorkbenchHandle } from '@/components/motionWorkbench/types';
+import { MotionNavigationGuard } from '@/components/motionWorkbench/MotionNavigationGuard';
 import { WorkspaceButton as Button } from './WorkspaceButton';
 import { documentBodyStyle, documentScrollStyle, workspaceChatMinWidth, workspaceResizeWidth } from './documentPresentation';
 
@@ -39,6 +40,10 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree, f
     const [motionPath, setMotionPath] = React.useState<string | null>(null);
     const [motionTitles, setMotionTitles] = React.useState<Record<string, string>>({});
     const motionEditor = React.useRef<MotionWorkbenchHandle>(null);
+    React.useEffect(() => {
+        if (!motionPath || !workspace?.snapshot.open) return;
+        return workspace.registerMotionLeaveGuard?.(() => motionEditor.current?.prepareClose() ?? Promise.resolve(true));
+    }, [motionPath, workspace?.snapshot.open, workspace?.registerMotionLeaveGuard]);
     const motionOpenSequence = React.useRef(0);
     const handledMotionRequest = React.useRef(0);
     const historyExpanded = React.useRef(false);
@@ -143,6 +148,7 @@ export function FileWorkspace({ sessionId, fileTreeExpanded, onToggleFileTree, f
         const anchor = globalThis.document.createElement('a'); anchor.href = url; anchor.download = path.split('/').pop() ?? 'file'; anchor.click(); URL.revokeObjectURL(url);
     };
     return <View testID="file-workspace" onLayout={event => setWorkspaceWidth(Math.round(event.nativeEvent.layout.width))} style={{ flex: 1, minWidth: 0, minHeight: 0, backgroundColor: readingSurface === 'inherited' ? 'transparent' : photoSkin ? (reducedTransparency ? theme.colors.desktopSkin.readingSolid : readingSurface === 'compact' ? theme.colors.desktopSkin.readingCompact : theme.colors.desktopSkin.readingWide) : theme.colors.surface, borderRadius: framed ? 13 : 20, borderWidth: framed ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider, overflow: 'hidden' }} {...({ onKeyDown: (event: any) => { if (readOnly || historyPath === path) return; if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); void controller.save(path); } } } as any)}>
+        <MotionNavigationGuard enabled={!!motionPath} prepareLeave={() => motionEditor.current?.prepareClose() ?? Promise.resolve(true)} />
         <View style={{flex:1,minHeight:0}} {...(historyPath === path ? {"aria-hidden":true,inert:true} : {}) as any}>
         <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: framed ? 48 : 46, backgroundColor: readingSurface === 'inherited' ? 'transparent' : photoSkin ? 'transparent' : theme.colors.surface, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
             <ScrollView horizontal style={{ flex: 1, minWidth: 0 }} contentContainerStyle={{ alignItems: 'center', paddingHorizontal: 6 }}>

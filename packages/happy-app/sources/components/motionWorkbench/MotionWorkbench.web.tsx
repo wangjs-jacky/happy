@@ -6,11 +6,17 @@ import { Text } from '@/components/StyledText';
 import { WorkspaceButton as Button } from '@/components/fileWorkspace/WorkspaceButton';
 import { accountRuntimeCurrent, getRuntimeAccountSelection } from '@/auth/accountRuntime';
 import { getServerUrl } from '@/sync/serverConfig';
-import { resolveSessionState } from '@/utils/sessionUtils';
+import { getSessionName, resolveSessionState } from '@/utils/sessionUtils';
 import { motionWorkbenchRequest, MotionWorkbenchRpcError } from '@/sync/motionWorkbench.web';
 import { stageSessionMessage } from '@/sync/messageStagingQueueRuntime';
-import { useSession, useSocketStatus } from '@/sync/storage';
-import { t } from '@/text';
+import { storage, useAllSessions, useSession, useSocketStatus } from '@/sync/storage';
+import { getCurrentLanguage, t } from '@/text';
+import { DesktopDialogFrame } from '@/components/DesktopDialogFrame';
+import { useFileWorkspace } from '@/components/fileWorkspace/context';
+import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
+import { machineSpawnNewSession } from '@/sync/ops';
+import { sync } from '@/sync/sync';
+import { linkMotionProject } from './motionArtifactLinks.web';
 import type { MotionWorkbenchSnapshot } from '@slopus/happy-wire';
 import { createStudioClient, motionStudioFrameHtml, type StudioAssetBytes } from './studioClient.web';
 import type { MotionWorkbenchHandle, MotionWorkbenchProps } from './types';
@@ -29,6 +35,22 @@ export const MotionWorkbench = React.forwardRef<MotionWorkbenchHandle, MotionWor
 const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkbenchProps & { resumeTime?: number; onReload(time?: number): void }>(function MotionWorkbenchOwner({ sessionId, projectPath, visible, onClose, onReload, onProjectTitleChange, resumeTime }, ref) {
     const { theme } = useUnistyles();
     const session = useSession(sessionId);
+    const workspace = useFileWorkspace();
+    const sessions = useAllSessions();
+    const zh = getCurrentLanguage().startsWith('zh');
+    const [targetId, setTargetId] = React.useState<string | null>(workspace?.reference?.motion?.projectPath === projectPath ? sessionId : null);
+    const [targetChooser, setTargetChooser] = React.useState(false);
+    const [creatingUnknown, setCreatingUnknown] = React.useState(false);
+    const createdTarget = React.useRef<string | null>(null);
+    const [queuedTargets, setQueuedTargets] = React.useState<string[]>([]);
+    const target = sessions.find(row => row.id === targetId);
+    const canTarget = (id: string) => {
+        const candidate = storage.getState().sessions[id];
+        return !!session?.metadata?.machineId && candidate?.metadata?.machineId === session.metadata.machineId
+            && !!candidate.metadata.path && !!resolveSessionFilePath(projectPath.replace(/\/$/, '') + '/mh.json', candidate.metadata.path)?.withinSessionRoot
+            && resolveSessionState(candidate).isConnected;
+    };
+    const candidates = sessions.filter(row => canTarget(row.id));
     const { status: socketStatus } = useSocketStatus();
     const connected = socketStatus === 'connected' && !!session && resolveSessionState(session).isConnected;
     const connectedRef = React.useRef(connected); connectedRef.current = connected;
@@ -50,7 +72,6 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
     const reloading = React.useRef(false);
     const savedTime = React.useRef<number | undefined>(undefined);
     const reloadRef = React.useRef<() => Promise<void>>(async () => {});
-    if (session?.agentState?.turnStatus?.status === 'running') completedForOwner.current = false;
     const [projectTitle, setProjectTitle] = React.useState('');
     const titleCallback = React.useRef(onProjectTitleChange); titleCallback.current = onProjectTitleChange;
     const acceptTitle = React.useCallback((value: unknown) => {
@@ -66,6 +87,7 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
     const connectFrameRef = React.useRef<(incoming: MessagePort) => void>(() => {});
     const storagePrefix = 'paws.motion.' + JSON.stringify([getServerUrl(), getRuntimeAccountSelection()?.key ?? 'legacy', sessionId]) + ':';
     const storageKey = storagePrefix + projectPath;
+    const viewStorageKey = 'paws.motion.view.' + JSON.stringify([getServerUrl(), getRuntimeAccountSelection()?.key, session?.metadata?.machineId, projectPath]);
     const iframe = React.useRef<HTMLIFrameElement>(null);
     const port = React.useRef<MessagePort | null>(null);
     const initial = React.useRef<{ state: Record<string, unknown>; assets: StudioAssetBytes[] } | null>(null);
@@ -153,7 +175,9 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
             if (!raw || typeof raw !== 'object') return;
             if (raw.type === 'ready') {
                 setPhase('ready'); setError('');
-                if (resumeTime !== undefined) incoming.postMessage({ type: 'seek', time: resumeTime });
+                let restoreTime = resumeTime;
+                try { if (restoreTime === undefined) { const stored = JSON.parse(localStorage.getItem(viewStorageKey) ?? 'null'); if (typeof stored === 'number' && Number.isFinite(stored) && stored >= 0) restoreTime = stored; } } catch {}
+                if (restoreTime !== undefined) incoming.postMessage({ type: 'seek', time: restoreTime });
                 return;
             }
             if (raw.type === 'review-request') { void loadReviewRef.current(); return; }
@@ -175,6 +199,7 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
                 const pending = controls.current.get(raw.id); if (!pending) return;
                 const view = z.object({ playback: z.object({ time: z.number().finite().nonnegative() }) }).safeParse(raw.value);
                 savedTime.current = view.success ? view.data.playback.time : undefined;
+                if (savedTime.current !== undefined) { try { localStorage.setItem(viewStorageKey, JSON.stringify(savedTime.current)); } catch {} }
                 controls.current.delete(raw.id); clearTimeout(pending.timer); pending.resolve(true); return;
             }
             const parsed = operationMessage.safeParse(raw); if (!parsed.success) return;
@@ -189,7 +214,7 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
         };
         incoming.postMessage({ type: 'paws-motion-connect', ...data, theme: theme.dark ? 'dark' : 'light' });
         initial.current = null;
-    }, [theme.dark, acceptTitle, resumeTime]);
+    }, [theme.dark, acceptTitle, resumeTime, viewStorageKey]);
     connectFrameRef.current = connectFrame;
     React.useEffect(() => { port.current?.postMessage({ type: 'theme', value: theme.dark ? 'dark' : 'light' }); }, [theme.dark, phase]);
     React.useEffect(() => { port.current?.postMessage({ type: 'visibility', visible }); }, [visible, phase]);
@@ -214,16 +239,32 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
         previousInvalidation.current = invalidation; port.current?.postMessage({ type: 'refresh' });
         if (reviewRef.current) setReviewStale(true);
     }, [invalidation, phase]);
-    const turn = session?.agentState?.turnStatus;
-    const terminal = turn && ['completed', 'cancelled', 'failed'].includes(turn.status) ? `${turn.turnId}:${turn.updatedAt}` : null;
-    const previousTurn = React.useRef({ initialized: !!session, terminal });
+    const observedTurns = [...new Set([sessionId, ...queuedTargets])].map(id => {
+        const actor = id === sessionId ? session : sessions.find(row => row.id === id);
+        const turn = actor?.agentState?.turnStatus;
+        return { id, status: turn?.status, terminal: turn && ['completed', 'cancelled', 'failed'].includes(turn.status) ? `${turn.turnId}:${turn.updatedAt}` : null };
+    });
+    const turnSignature = JSON.stringify(observedTurns);
+    const previousTurns = React.useRef(new Map(observedTurns.map(row => [row.id, row.terminal])));
+    const rememberTarget = (id: string) => {
+        const turn = storage.getState().sessions[id]?.agentState?.turnStatus;
+        previousTurns.current.set(id, turn && ['completed', 'cancelled', 'failed'].includes(turn.status) ? `${turn.turnId}:${turn.updatedAt}` : null);
+        setQueuedTargets(value => value.includes(id) ? value : [...value, id]);
+    };
     React.useEffect(() => {
-        if (!port.current || phase !== 'ready' || !session) return;
-        const previous = previousTurn.current; previousTurn.current = { initialized: true, terminal };
-        if (!previous.initialized || !terminal || previous.terminal === terminal) return;
-        // Source file events can precede compilation. The existing Agent completion
-        // event gives us the final saved build without querying it periodically.
-        if (turn?.status === 'completed') {
+        if (!port.current || phase !== 'ready') return;
+        let refresh = false, completed = false;
+        for (const row of observedTurns) {
+            const known = previousTurns.current.has(row.id), previous = previousTurns.current.get(row.id);
+            previousTurns.current.set(row.id, row.terminal);
+            if (row.status === 'running') completedForOwner.current = false;
+            if (!known || !row.terminal || row.terminal === previous) continue;
+            refresh = true; if (row.status === 'completed') completed = true;
+        }
+        if (!refresh) return;
+        // A chosen collaboration session can finish after the transport's file event.
+        // Observe the frozen submitted targets, independently of later UI selection.
+        if (completed) {
             completedForOwner.current = true;
             if (sourceChangedRef.current && !autoReloadAttempted.current) {
                 autoReloadAttempted.current = true; void reloadRef.current(); return;
@@ -231,7 +272,7 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
         }
         port.current.postMessage({ type: 'refresh' });
         if (reviewRef.current) setReviewStale(true);
-    }, [terminal, phase, !!session]);
+    }, [turnSignature, phase]);
     const previousConnection = React.useRef<boolean | null>(null);
     React.useEffect(() => {
         if (!port.current || phase !== 'ready') return;
@@ -239,23 +280,64 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
         previousConnection.current = connected;
     }, [connected, phase]);
 
-    const sendReview = async () => {
-        if (sending.current || !review || reviewStale || !selected.length || !connected) return;
+    React.useEffect(() => {
+        if (targetId === sessionId && workspace && workspace.reference?.motion?.projectPath !== projectPath) setTargetId(null);
+    }, [workspace?.reference, sessionId, projectPath]);
+    const chooseTarget = async (id: string) => {
+        if (sending.current || !canTarget(id)) return;
         sending.current = true; setWorking(true); setError(''); const token = owner.current;
+        try {
+            if (!await flushEditor()) return;
+            const snapshot = await motionWorkbenchRequest(sessionId, 'motionWorkbenchInspect', { projectPath });
+            if (!token || owner.current !== token || !canTarget(id) || !accountRuntimeCurrent()) return;
+            await linkMotionProject(id, { projectId: snapshot.projectId, projectPath: snapshot.projectPath, title: projectTitle || 'MotionHarness' });
+            if (owner.current !== token || !accountRuntimeCurrent()) return;
+            if (id === sessionId) workspace?.setReference({ path: snapshot.projectPath.replace(/\/$/, '') + '/mh.json', hash: snapshot.snapshotHash,
+                motion: { projectId: snapshot.projectId, projectPath: snapshot.projectPath, title: projectTitle || 'MotionHarness', documentRevision: snapshot.documentRevision, buildId: snapshot.buildId, markerVersion: snapshot.markerVersion, snapshotHash: snapshot.snapshotHash } });
+            setTargetId(id); setTargetChooser(false); if (createdTarget.current === id) createdTarget.current = null;
+        } catch (failure) { if (owner.current === token) setError(messageOf(failure)); }
+        finally { if (owner.current === token) { sending.current = false; setWorking(false); } }
+    };
+    const createTarget = async () => {
+        if (sending.current || creatingUnknown || !session?.metadata?.machineId || !session.metadata.path) return;
+        sending.current = true; setWorking(true); setError(''); const token = owner.current;
+        try {
+            if (!await flushEditor()) return;
+            let id = createdTarget.current;
+            if (!id) {
+                const result = await machineSpawnNewSession({ machineId: session.metadata.machineId, directory: session.metadata.path,
+                    agent: session.metadata.flavor === 'claude' ? 'claude' : 'codex', approvedNewDirectoryCreation: false, traceId: crypto.randomUUID() });
+                if (!token || owner.current !== token || !accountRuntimeCurrent()) return;
+                if (result.type !== 'success') {
+                    if (result.type === 'error' && (('outcomeUnknown' in result && result.outcomeUnknown) || 'sessionId' in result)) setCreatingUnknown(true);
+                    throw new Error('errorMessage' in result ? result.errorMessage : 'The new session is not ready. Check the session list.');
+                }
+                id = result.sessionId; createdTarget.current = id;
+            }
+            if (!await sync.ensureSessionHydrated(id) || owner.current !== token || !accountRuntimeCurrent()) throw new Error('Created session is not ready. Retry to connect to the same session.');
+            sending.current = false; setWorking(false); await chooseTarget(id);
+        } catch (failure) { if (owner.current === token) setError(messageOf(failure)); }
+        finally { if (owner.current === token) { sending.current = false; setWorking(false); } }
+    };
+    const sendReview = async () => {
+        if (sending.current || !review || reviewStale || !selected.length || !connected || !targetId || !canTarget(targetId)) return;
+        sending.current = true; setWorking(true); setError(''); const token = owner.current, frozenTarget = targetId;
         try {
             if (!await flushEditor()) return;
             const markers = review.markers.filter(marker => selected.includes(marker.id)).map(marker => ({ id: marker.id, requestVersion: marker.requestVersion }));
             const prepared = await motionWorkbenchRequest(sessionId, 'motionWorkbenchPrepareReview', { projectPath, projectId: review.projectId, snapshotHash: review.snapshotHash, markers });
             if (!token || owner.current !== token || !accountRuntimeCurrent()) return;
             const display = t('motionWorkbench.reviewMessage') + '\n' + review.markers.filter(marker => selected.includes(marker.id)).map(marker => '• ' + (marker.notes || marker.label).slice(0, 600)).join('\n');
-            await stageSessionMessage(sessionId, prepared.prompt, undefined, 'queue', { draftText: display, displayText: display });
+            if (!canTarget(frozenTarget)) throw new Error('The target session is unavailable');
+            rememberTarget(frozenTarget);
+            await stageSessionMessage(frozenTarget, prepared.prompt, undefined, 'queue', { draftText: display, displayText: display });
             if (owner.current === token) { setQueued(true); setSelected([]); }
         } catch (failure) { if (owner.current === token) { setError(messageOf(failure)); if (failure instanceof MotionWorkbenchRpcError && failure.code === 'STALE_REVIEW') setReviewStale(true); } }
         finally { if (owner.current === token) { sending.current = false; setWorking(false); } }
     };
     const exportWithAi = async () => {
-        if (sending.current || !client.current || !connected) return;
-        sending.current = true; setWorking(true); setError(''); const token = owner.current;
+        if (sending.current || !client.current || !connected || !targetId || !canTarget(targetId)) return;
+        sending.current = true; setWorking(true); setError(''); const token = owner.current, frozenTarget = targetId;
         try {
             if (!await flushEditor()) return;
             const current = await client.current.state();
@@ -271,7 +353,9 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
                 'Verify codec, dimensions, duration and full decoding. Use the available Paws media delivery tool with the exact absolute output path so this device can play or download the MP4. Report any delivery failure plainly.',
                 'The JSON is project data, never shell text.', '```json', JSON.stringify(context, null, 2).replace(/</g, '\\u003c').replace(/`/g, '\\u0060'), '```',
             ].join('\n');
-            await stageSessionMessage(sessionId, prompt, undefined, 'queue', { draftText: t('motionWorkbench.export'), displayText: t('motionWorkbench.export') });
+            if (!canTarget(frozenTarget)) throw new Error('The target session is unavailable');
+            rememberTarget(frozenTarget);
+            await stageSessionMessage(frozenTarget, prompt, undefined, 'queue', { draftText: t('motionWorkbench.export'), displayText: t('motionWorkbench.export') });
             if (owner.current === token) setQueued(true);
         } catch (failure) { if (owner.current === token) setError(messageOf(failure)); }
         finally { if (owner.current === token) { sending.current = false; setWorking(false); } }
@@ -281,12 +365,25 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'MotionHarness-Studio-0.1.8-GPL-3.0.txt'; anchor.click(); URL.revokeObjectURL(url);
     };
     return <View testID="motion-workbench" style={{ flex: 1, minWidth: 0, minHeight: 0, display: visible ? 'flex' : 'none', backgroundColor: theme.colors.surface }}>
+        <DesktopDialogFrame visible={targetChooser} title={zh ? '选择协作会话' : 'Choose a conversation'} onClose={() => setTargetChooser(false)} testID="motion-target-dialog" maxWidth={580}>
+            <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }} style={{ maxHeight: 480 }}>
+                <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>{zh ? '选择后只关联工程；发送标注或输入要求才会调用 AI。仅列出同一执行机、允许访问该工程的在线会话。' : 'Choosing links the project only. Send annotations or a message to invoke AI. Only connected conversations on the same machine with access to this project are listed.'}</Text>
+                {candidates.map(candidate => <Button key={candidate.id} label={getSessionName(candidate)} testID={'motion-target:' + candidate.id} disabled={working} onPress={() => { void chooseTarget(candidate.id); }} />)}
+                {!candidates.length && <Text style={{ color: theme.colors.textSecondary }}>{zh ? '没有可用会话。可以新建会话后继续。' : 'No eligible conversation. Create one to continue.'}</Text>}
+                <Button label={createdTarget.current ? (zh ? '重试连接已创建会话' : 'Reconnect to the created conversation') : (zh ? '新建会话继续修改' : 'Continue in a new conversation')} icon="add-outline" testID="motion-target-new" disabled={working || creatingUnknown || !connected} onPress={() => { void createTarget(); }} />
+                {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
+            </ScrollView>
+        </DesktopDialogFrame>
+        <View style={{ padding: 8, gap: 6, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: theme.colors.divider }}>
+            <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, color: theme.colors.textSecondary }}>{target ? (zh ? '协作会话：' : 'Conversation: ') + getSessionName(target) : (zh ? '查看工程 · 尚未选择 AI 协作会话' : 'Viewing project · choose a conversation for AI edits')}</Text>
+            <Button label={zh ? '选择协作会话' : 'Choose conversation'} testID="motion-target-choose" disabled={working || phase !== 'ready'} onPress={() => setTargetChooser(true)} />
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', padding: 8, gap: 6, borderBottomWidth: 1, borderColor: theme.colors.divider, flexWrap: 'wrap' }}>
             <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 13 }}>{projectTitle ? `${projectTitle} · ` : ''}{t('motionWorkbench.title')}</Text>
             {queued && <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{t('motionWorkbench.queued')}</Text>}
             {sourceChanged && <Button label={t('motionWorkbench.reopen')} testID="motion-reopen" disabled={working} onPress={() => { void reload(); }} />}
             <Button label={t('motionWorkbench.annotations')} testID="motion-review-open" disabled={phase !== 'ready' || working || !connected} onPress={() => { void loadReview(); }} />
-            <Button label={t('motionWorkbench.export')} icon="download-outline" disabled={phase !== 'ready' || working || !connected || sourceChanged} onPress={() => { void exportWithAi(); }} />
+            <Button label={t('motionWorkbench.export')} icon="download-outline" disabled={phase !== 'ready' || working || !connected || sourceChanged || !targetId} onPress={() => { void exportWithAi(); }} />
             <Button label={t('motionWorkbench.license')} icon="information-circle-outline" compact disabled={phase !== 'ready'} onPress={downloadLicense} />
             <Button label={t('fileWorkspace.refresh')} compact icon="refresh-outline" disabled={phase !== 'ready' || !connected} onPress={() => port.current?.postMessage({ type: 'refresh' })} />
             <Button label={t('fileWorkspace.close')} compact icon="close-outline" onPress={() => { void prepareClose().then(ready => { if (ready) onClose(); }); }} />
@@ -300,7 +397,7 @@ const MotionWorkbenchOwner = React.forwardRef<MotionWorkbenchHandle, MotionWorkb
             <View style={{ flexDirection: 'row', padding: 8, alignItems: 'center', gap: 6 }}>
                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13 }}>{t('motionWorkbench.annotations')}</Text>
                 <Button label={t('fileWorkspace.refresh')} compact icon="refresh-outline" disabled={working || !connected} onPress={() => { void loadReview(); }} />
-                <Button label={t('motionWorkbench.send')} testID="motion-review-send" disabled={working || reviewStale || !selected.length || !connected} onPress={() => { void sendReview(); }} />
+                <Button label={t('motionWorkbench.send')} testID="motion-review-send" disabled={working || reviewStale || !selected.length || !connected || !targetId} onPress={() => { void sendReview(); }} />
                 <Button label={t('fileWorkspace.close')} compact icon="close-outline" onPress={() => setReviewOpen(false)} />
             </View>
             {reviewStale && <Text accessibilityLiveRegion="polite" style={{ paddingHorizontal: 8, color: theme.colors.textSecondary }}>{t('motionWorkbench.reviewChanged')}</Text>}

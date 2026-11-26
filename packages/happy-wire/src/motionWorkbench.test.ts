@@ -15,7 +15,7 @@ const request = () => ({ projectPath: '.', projectId: snapshot.projectId, snapsh
 
 it('bounds the project library and keeps discovery scoped to an empty session request', () => {
     expect(MotionWorkbenchRequests.motionWorkbenchList.safeParse({ root: '/outside' }).success).toBe(false);
-    const project = { projectPath: '/work/movie', title: 'Saved title', modifiedAt: 1 };
+    const project = { projectId: 'd'.repeat(64), projectPath: '/work/movie', title: 'Saved title', modifiedAt: 1 };
     expect(MotionProjectListSchema.safeParse({ projects: [project], truncated: false }).success).toBe(true);
     expect(MotionProjectListSchema.safeParse({ projects: Array(101).fill(project), truncated: true }).success).toBe(false);
 });

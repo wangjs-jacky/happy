@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { open, readFile, readdir, realpath, type FileHandle } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import type { BuildOptions, BuildResult, Plugin } from 'esbuild';
 import { studioHostEntry } from './studioHostEntry';
@@ -11,6 +11,95 @@ import { studioHostEntry } from './studioHostEntry';
 export type NativeStudio = { origin: string; base: string; api: string; version: string; state: Record<string, unknown> };
 type Bundler = { build(options: BuildOptions): Promise<BuildResult> };
 export class NativeStudioRequestError extends Error { constructor(readonly status: number) { super(`Editor request failed (${status})`); } }
+
+const NOTICE_FILE_LIMIT = 256 * 1024;
+const NOTICE_METADATA_LIMIT = 64 * 1024;
+const NOTICE_TOTAL_LIMIT = 1024 * 1024;
+const adapterSource = 'https://github.com/wangjs-jacky/happy/blob/main/packages/happy-cli/src/modules/motionWorkbench/';
+const adapterModifications = [
+    'Paws adapter changes, 2026-11-26:',
+    '- Bundle an event-driven MessageChannel project host and transport for an isolated iframe.',
+    '- Replace CompositionStudio view-context interval reporting with Studio and playback subscriptions.',
+    '- Disable the native agent hook; Paws dispatches explicit review requests through its conversation queue.',
+    '- Forward Studio failures to a Paws diagnostic event.',
+    '- Disable the native export-preview feature that queries export status; Paws handles export requests.',
+    '- Hide the native notes footer in the embedded presentation.',
+    'These changes are applied to the in-memory browser bundle; installed runtime files remain unchanged.',
+].join('\n');
+
+async function noticeFile(path: string, limit: number, required = false): Promise<string | undefined> {
+    let file: FileHandle;
+    try { file = await open(path, 'r'); }
+    catch (error) {
+        if (!required && ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
+        throw error;
+    }
+    try {
+        const stat = await file.stat();
+        if (!stat.isFile() || stat.size > limit) throw new Error('Installed editor notice exceeds its size limit or is not a file');
+        // One extra byte detects growth without allowing a changed file to allocate beyond its budget.
+        const buffer = Buffer.alloc(stat.size + 1);
+        let length = 0;
+        while (length < buffer.length) {
+            const result = await file.read(buffer, length, buffer.length - length, length);
+            if (!result.bytesRead) break;
+            length += result.bytesRead;
+        }
+        if (length > stat.size) throw new Error('Installed editor notice changed while reading');
+        const text = buffer.subarray(0, length).toString('utf8');
+        if (required && !text.trim()) throw new Error('Required editor license is empty');
+        return text;
+    } finally { await file.close(); }
+}
+
+function publicRepository(value: unknown): string | undefined {
+    const reference = typeof value === 'string' ? value
+        : value && typeof value === 'object' && 'url' in value && typeof value.url === 'string' ? value.url : undefined;
+    if (!reference || reference.length > 2048) return undefined;
+    try {
+        const url = new URL(reference.replace(/^git\+/, ''));
+        // Installed metadata is not permission to disclose paths or authenticated repository URLs.
+        if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password || url.search || url.hash) return undefined;
+        return reference;
+    } catch { return undefined; }
+}
+
+/** Notice archive only: compiled runtime files are not represented as preferred corresponding source. */
+export async function buildStudioLicenseText(runtime: string, runtimeVersion: string): Promise<string> {
+    const sections: string[] = [];
+    let bytes = 0;
+    const append = (text: string) => {
+        bytes += Buffer.byteLength(text, 'utf8') + 2;
+        if (bytes > NOTICE_TOTAL_LIMIT) throw new Error('Installed editor notices exceed the combined size limit');
+        sections.push(text);
+    };
+    append(`MotionHarness embedded editor notices\nSelected CLI runtime: ${runtimeVersion}`);
+    append(adapterModifications);
+    append(`Paws adapter source references (main branch, not a pinned source archive):\n${adapterSource}studioBundle.ts\n${adapterSource}studioHostEntry.ts`);
+    append('This download records installed package notices and adapter changes. It does not establish availability or completeness of the upstream preferred corresponding source. Installed dist files are not presented as that source.');
+    for (const name of ['studio', 'core', 'sdk', 'ui']) {
+        const packageName = '@motionharness/' + name;
+        const directory = join(runtime, 'node_modules', packageName);
+        append(`===== ${packageName} =====`);
+        const raw = await noticeFile(join(directory, 'package.json'), NOTICE_METADATA_LIMIT, name === 'studio');
+        if (raw === undefined) {
+            append('Package metadata: not present in the selected runtime.');
+        } else {
+            const metadata = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; repository?: unknown };
+            if (metadata.name !== packageName || typeof metadata.version !== 'string' || !/^[\w.+-]{1,128}$/.test(metadata.version)) {
+                throw new Error('Installed editor package metadata is invalid');
+            }
+            const license = typeof metadata.license === 'string' && metadata.license.length <= 256 ? metadata.license : undefined;
+            append('Installed package metadata: ' + JSON.stringify({ name: packageName, version: metadata.version, license,
+                repository: publicRepository(metadata.repository) ?? 'No public repository reference included' }));
+        }
+        for (const filename of ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md']) {
+            const text = await noticeFile(join(directory, filename), NOTICE_FILE_LIMIT, name === 'studio' && filename === 'LICENSE');
+            append(`--- ${packageName}/${filename} ---\n${text === undefined ? 'Optional notice file: not present in the selected runtime.' : text}`);
+        }
+    }
+    return sections.join('\n\n');
+}
 
 export async function readNativeResponse(url: string, options: RequestInit = {}, limit = 4 * 1024 * 1024): Promise<{ bytes: Buffer; mime: string }> {
     const response = await fetch(url, { ...options, redirect: 'error', signal: options.signal ?? AbortSignal.timeout(30000) });
@@ -119,9 +208,9 @@ export async function buildStudioBundle(native: NativeStudio): Promise<{ bytes: 
     const script = result.outputFiles?.find(file => file.path.endsWith('.js'))?.text;
     if (!script) throw new Error('Editor bundle was not produced');
     if (script.includes(native.base) || css.includes(native.base)) throw new Error('Native credentials must stay on the execution machine');
-    const licenseText = await readFile(join(runtime, 'node_modules/@motionharness/studio/LICENSE'), 'utf8');
+    const licenseText = await buildStudioLicenseText(runtime, native.version);
     const payload = Buffer.from(JSON.stringify({ script, css, license: 'GPL-3.0-only', licenseText, runtimeVersion: native.version,
-        modifications: 'Paws transport, event-driven project host and view subscription adapter. Original installed runtime remains unchanged.' }));
+        modifications: adapterModifications }));
     if (payload.length > 24 * 1024 * 1024) throw new Error('Editor bundle exceeds size limit');
     const bytes = gzipSync(payload);
     return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), uncompressedBytes: payload.length };
