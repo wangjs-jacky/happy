@@ -16,6 +16,12 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const en = {
     codexActivity: {
+        previousDay: 'Previous day',
+        nextDay: 'Next day',
+        detailsLabel: 'Selected day details',
+        metricInputShort: 'I',
+        metricCacheShort: 'C',
+        metricOutputShort: 'O',
         scope: 'All Codex activity on this machine',
         total: 'Total processed',
         uncachedInput: 'New input',

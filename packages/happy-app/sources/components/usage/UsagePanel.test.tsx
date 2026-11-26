@@ -42,16 +42,37 @@ const mocks = vi.hoisted(() => ({
     }>,
 }));
 
-vi.mock('react-native', () => ({
-    ActivityIndicator: 'ActivityIndicator',
-    Platform: {
-        OS: 'web',
-        select: (values: Record<string, unknown>) => values.web ?? values.default,
-    },
-    Pressable: 'Pressable',
-    ScrollView: 'ScrollView',
-    View: 'View',
-}));
+vi.mock('react-native', () => {
+    class Value {
+        value: number;
+        constructor(value: number) { this.value = value; }
+        setValue(value: number) { this.value = value; }
+        stopAnimation() {}
+        interpolate(config: object) { return { value: this, ...config }; }
+    }
+    const animation = (value: Value, options: { toValue: number }) => ({
+        start: (done?: (result: { finished: boolean }) => void) => {
+            value.setValue(options.toValue);
+            done?.({ finished: true });
+        },
+        stop: () => {},
+    });
+    return {
+        ActivityIndicator: 'ActivityIndicator',
+        Platform: {
+            OS: 'web',
+            select: (values: Record<string, unknown>) => values.web ?? values.default,
+        },
+        Pressable: 'Pressable',
+        ScrollView: 'ScrollView',
+        View: 'View',
+        AccessibilityInfo: {
+            isReduceMotionEnabled: () => Promise.resolve(true),
+            addEventListener: () => ({ remove: () => {} }),
+        },
+        Animated: { Value, View: 'AnimatedView', timing: animation, spring: animation },
+    };
+});
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('react-native-unistyles', async () => {
@@ -59,6 +80,8 @@ vi.mock('react-native-unistyles', async () => {
     const theme = appThemes.ginghamDark;
     return {
         StyleSheet: {
+            hairlineWidth: 1,
+            absoluteFillObject: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
             create: (factory: unknown) => typeof factory === 'function'
                 ? (factory as (value: typeof theme) => object)(theme)
                 : factory,

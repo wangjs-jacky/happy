@@ -76,3 +76,36 @@ token差额为0。Paws计入5719个有效事件、103个原生会话；Magpie多
 - Android OPS：`references/projects/happy-paws/operations/usage-activity-heatmap.md`，状态partial，真机未验。
 - Ego OPS：`references/sites/paws/operations/verify-usage-activity.md`，已维护站点索引并通过知识校验。
 - Web E2E：`experience.local.md` 的本次组件验收与媒体边界。设计发现保留在本工程报告，没有重复建立另一套设计规范。
+
+## v2：按 RareUI 源码补齐交互（2026-11-26）
+
+上文保留v1的实现、对账与验收历史。v1本地提交为`139070f30`。用户指出独立实现可能漏功能后，重新逐项阅读RareUI固定SHA的完整组件、demo及许可，新增双端能力对照，见[源码评估](rareui-activity-heatmap-assessment.md)。本轮只修改展示及其测试，不改变后端计数或重新宣称已部署。
+
+- 补齐卡片内覆盖展开、摘要图标叠层与三项真实指标的转换、入场、减少动态及`open/defaultOpen/onOpenChange`合同。Web采用持久徽标的FLIP与逐列进入；Native采用原生驱动的整体入场和图标交叉过渡。两端动效有意适配，不宣称逐帧相同。
+- 保留全年365天横向查看、主题语义颜色、独立选中外圈和原有机器级数据；用真实非缓存输入、缓存和输出承接参考的三行信息，不制造仓库/项目排行。
+- 新增44dp原生日期控制，Web窄屏对应按钮也为44px高；13px图表格仍是小目标，不把它描述为已满足触控面积。
+- 独立review发现并修复异步快照到达后徽标不显示、变换中测量导致终点偏移、月份动画被提前终止、受控更新后焦点留在隐藏区域。另修复键盘自动滚动后的提示定位；Escape主动关闭的提示不会因随后resize/scroll重开。
+
+### v2验证
+
+App定向回归共**59/59**：Web热图13、Native热图8、共享展示5、日期模型10、UsagePanel17、Dialog5+1；App完整TypeScript检查退出0。`UsagePanel`旧mock缺少Animated导致的测试失败已补齐必要边界，原17项断言保留。独立源码review与独立三帧布局评审通过；截图评审不能代替动态输入或真机验收。
+
+| Case | 实际浏览器结果（组件夹具，合成数据） |
+|---|---|
+| V2-1 覆盖与返回 | 1280px深色卡片展开前后stage均为272px；指标徽标与对应锚点最终偏差0px，切换前一天后收起仍保留日期 |
+| V2-2 动态设置 | 动画运行中反向收起回到正确叠层；运行时改为减少动态后，展开面板活动动画数为0，徽标仍正确对齐 |
+| V2-3 键盘层次 | 明细内Escape先收起面板并回到summary；日期方向键移动焦点；下一层Escape先关提示，随后Escape关闭外层Modal，重开成功 |
+| V2-4 窄屏与提示 | 深浅主题390px下页面宽均为390，365格完整保留；浅色窄屏ArrowLeft到2026-11-18，提示右边界382px，未越出视口 |
+| V2-5 触摸与长说明 | 390px浅色浏览器触摸模拟滑动，内部scrollTop到55（scrollHeight259/clientHeight204）；末尾说明进入可见区域，完整可读 |
+| V2-6 异步与受控 | 空快照恢复、受控更新焦点、同批快速切换、运行时减少动态取消与快照更新不重放入场，由DOM/native回归及独立模拟复核；不称为生产服务事件E2E |
+
+Ego最终状态及关键步骤已使用同一run绑定回传；失败/未验证帧未作为通过步骤上报。浏览器移动视口和触摸模拟不代表Android实体设备。
+
+本轮视频为真实浏览器按时间顺序采样的62帧，包含展开、前一天和收起，附末尾停留；不是静态三状态拼接，也不宣称设备原生录屏或恒定帧率源。原生CDP screencast回执参数被当前Ego封装拒绝，已停用该路径，改用同一已核对目标的顺序截图采样。成品`test-results/usage/usage-v2-browser-motion.mp4`为6.43秒、1280×900、H264/yuv420p、193帧；完整解码通过，并由Happy send_file发送成功。媒体仅证明所录动效，键盘和触摸由上表另行验证。
+
+### v2经验与交付边界
+
+- Ego OPS：更新`references/sites/paws/operations/verify-usage-activity.md`及站点导航，记录覆盖/减少动态/焦点提示和触摸滚动方法，完成知识校验。
+- Android OPS：更新`references/projects/happy-paws/operations/usage-activity-heatmap.md`、项目索引与通用基线；保持`partial / last_verified: null`，原生真机未验。
+- Motion OPS：更新`references/adaptations/layout-flip.md`及父索引，沉淀稳定锚点、边框坐标、逆向先测后取消、异步就绪和尾随动画结束；原例验证日期未冒充本次日期，库校验通过。
+- 未新增依赖或原生模块，未构建APK、发布OTA、替换daemon或上线Web。根工作区仍为干净main；实现保存在sibling worktree。本地实现与组件验收完成，生产及用户Android设备不在本轮已验证范围。

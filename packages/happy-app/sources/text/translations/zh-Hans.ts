@@ -19,6 +19,12 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHans: TranslationStructure = {
     codexActivity: {
+        previousDay: '前一天',
+        nextDay: '后一天',
+        detailsLabel: '所选日期明细',
+        metricInputShort: '入',
+        metricCacheShort: '缓',
+        metricOutputShort: '出',
         scope: '此机器全部 Codex 活动',
         total: '总处理量',
         uncachedInput: '非缓存输入',

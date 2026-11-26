@@ -19,6 +19,12 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 
 export const zhHant: TranslationStructure = {
     codexActivity: {
+        previousDay: '前一天',
+        nextDay: '後一天',
+        detailsLabel: '所選日期明細',
+        metricInputShort: '入',
+        metricCacheShort: '快',
+        metricOutputShort: '出',
         scope: '此機器全部 Codex 活動',
         total: '總處理量',
         uncachedInput: '非快取輸入',
