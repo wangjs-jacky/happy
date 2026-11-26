@@ -16,6 +16,27 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * Must match the exact structure of the English translations
  */
 export const ca: TranslationStructure = {
+    motionWorkbench: {
+        ...projectGoalsBase.motionWorkbench,
+        title: "Editor de vídeo",
+        open: "Obre l’editor de vídeo",
+        annotations: "Anotacions d’IA",
+        reviewChanged: "El projecte ha canviat. Actualitza les anotacions abans d’enviar-les.",
+        sourceChanged: "El codi ha canviat. Carrega la versió nova per continuar.",
+        unavailable: "L’editor de vídeo no està disponible.",
+        closeBlocked: "Acaba o desa l’edició abans de tancar.",
+        reviewMessage: "Modifica aquestes anotacions del vídeo:",
+        queued: "Afegit a la conversa actual",
+        send: "Envia a la IA",
+        empty: "No hi ha anotacions desades. Afegeix-ne una a l’editor.",
+        offline: "Sense connexió. L’edició i l’enviament a la IA estan en pausa.",
+        loading: "Carregant l’editor i els recursos…",
+        select: "Selecciona",
+        selected: "Seleccionat",
+        reopen: "Carrega la versió nova",
+        license: "Llicències",
+        export: "Demana a la IA que exporti MP4",
+    },
     codexActivity: { ...projectGoalsBase.codexActivity },
 
     delegation: {
@@ -324,6 +345,7 @@ export const ca: TranslationStructure = {
         referenceHint: "Només afegeix una referència; l’historial no es copia automàticament.",
     },
     bots: projectGoalsBase.bots,
+    projectCanvas: projectGoalsBase.projectCanvas,
     projectGoals: {
         ...projectGoalsBase.projectGoals,
         conversationCounts: "Els estats corresponen a les converses carregades; carrega més historial per continuar",

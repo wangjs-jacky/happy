@@ -102,3 +102,7 @@ packages/paws-bots/**/.pytest_cache/
 # Isolated task-webhook runtime, private test keys and logs
 /.webhook-validation/
 /.card-studio-validation/
+
+# Paws Web canvas build output
+/packages/happy-app/public/dsh-image-canvas/
+/packages/happy-app/public/.dsh-canvas-build-*/
