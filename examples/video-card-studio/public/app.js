@@ -1,8 +1,27 @@
+import { readArchiveBlob } from './download.mjs';
 const $ = id => document.getElementById(id);
 const statuses = { queued: '排队等待制作', dispatching: '正在提交制作', waiting: '等待制作机器接收', processing: '正在制作', completed: '制作完成', failed: '本次制作未完成', uncertain: '执行中断，等待管理员核对' };
-const phases = { source: '读取原视频', transcript: '识别原话', plan: '精选完整观点', frames: '提取原画面', selection: '挑选清晰画面', cards: '排版长图', archive: '保存图片', upload: '上传成品' };
+const phases = { source: '读取原视频', transcript: '识别原话', proofread: '对照画面核对字幕', plan: '精选完整观点', frames: '提取原画面', selection: '挑选清晰画面', cards: '排版长图', archive: '保存图片', upload: '上传成品' };
 const errors = { 'invalid-video': '请输入公开单 P 的 B 站视频链接或完整 BV 号。', 'queue-full': '制作队列已满，请稍后再提交。', 'rate-limit': '提交得有些快，请稍后再试。', 'idempotency-conflict': '这次提交的链接已变化，请重新提交。' };
 let stream, currentId, request = null, galleryFingerprint;
+let downloading = false, downloadController;
+const downloadURLs = new Map();
+window.addEventListener('pagehide', () => { downloadController?.abort(); for (const [url, timer] of downloadURLs) { clearTimeout(timer); URL.revokeObjectURL(url); } downloadURLs.clear(); });
+async function downloadBundle(job, button, feedback) {
+  if (downloading) { feedback.textContent = '另一组下载正在准备，请稍等。'; return; }
+  downloading = true; button.disabled = true; feedback.className = 'download-feedback'; feedback.textContent = '正在读取完整压缩包…';
+  downloadController = new AbortController();
+  try {
+    const blob = await readArchiveBlob(`/api/jobs/${job.id}/cards.zip`, { signal: AbortSignal.any([downloadController.signal, AbortSignal.timeout(120000)]) });
+    const url = URL.createObjectURL(blob), anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `${job.bvid}-cards.zip`; anchor.hidden = true; document.body.append(anchor); anchor.click(); anchor.remove();
+    // One-shot resource cleanup, never a status query or reconnect loop.
+    const timer = setTimeout(() => { URL.revokeObjectURL(url); downloadURLs.delete(url); }, 30000);
+    downloadURLs.set(url, timer);
+    feedback.textContent = '已交给浏览器保存，请查看下载记录。';
+  } catch { feedback.className = 'download-feedback error'; feedback.textContent = '下载未完成，请重新点击。'; }
+  finally { downloading = false; downloadController = null; button.disabled = false; }
+}
 function el(tag, className, text) { const value = document.createElement(tag); if (className) value.className = className; if (text !== undefined) value.textContent = text; return value; }
 function link(text, href, className) { const a = el('a', className, text); a.href = href; return a; }
 function time(seconds) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`; }
@@ -24,9 +43,10 @@ function render(state) {
     const group = el('section', 'result'), heading = el('div', 'result-heading'), title = el('div');
     title.append(el('h3', '', job.manifest.title));
     const source = link(`${job.manifest.author} · ${job.bvid} · 自动转写，待核对`, job.url, 'result-source'); source.target = '_blank'; source.rel = 'noopener noreferrer'; title.append(source);
-    const bundle = link(`整组下载 · ${job.manifest.cards.length} 张`, `/api/jobs/${job.id}/cards.zip`, 'download-all');
-    bundle.download = `${job.bvid}-cards.zip`;
-    heading.append(title, bundle); group.append(heading);
+    const downloadArea = el('div', 'download-area'), bundle = el('button', 'download-all', `整组下载 · ${job.manifest.cards.length} 张`), feedback = el('p', 'download-feedback');
+    bundle.type = 'button'; bundle.dataset.jobId = job.id; feedback.setAttribute('role', 'status');
+    bundle.onclick = () => void downloadBundle(job, bundle, feedback);
+    downloadArea.append(bundle, feedback); heading.append(title, downloadArea); group.append(heading);
     const cards = el('div', 'cards');
     for (const card of job.manifest.cards) {
       const figure = el('figure', 'card'), url = `/api/jobs/${job.id}/${card.file}`, imageLink = link('', url), img = el('img');

@@ -8,6 +8,7 @@ import { checkpoint, readJSON, writeJSON, run, safeError, digest } from './io.mj
 import { acquireEpisode, BVID } from './bilibili.mjs';
 import { generatePlan, selectFrames, validateInput } from './plan.mjs';
 import { archiveCards } from './archive.mjs';
+import { proofreadTranscript } from './proofread.mjs';
 
 export async function probeSource(dir, metadata, options = {}) {
   assert(BVID.test(metadata.bvid) && Number.isSafeInteger(metadata.uid) && metadata.uid > 0, '作品或作者身份无效');
@@ -140,9 +141,10 @@ export async function processEpisode(config, { bvid, context, episodeDir, adoptP
   catch (error) {
     if (error.code !== 'ENOENT') throw error;
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    job = { schemaVersion: 1, bvid, dir: resolve(episodeDir || join(config.dataRoot, 'episodes', bvid, stamp)), statePath, status: 'queued', phases: {} };
+    job = { schemaVersion: 2, bvid, dir: resolve(episodeDir || join(config.dataRoot, 'episodes', bvid, stamp)), statePath, status: 'queued', phases: {} };
     await writeJSON(statePath, job);
   }
+  assert([1, 2].includes(job.schemaVersion), '任务版本不受支持，不能自动恢复');
   if (episodeDir) assert.equal(job.dir, resolve(episodeDir), '已有任务使用另一份素材，不覆盖');
   const dir = job.dir, planPath = join(dir, 'plan.json');
   await mkdir(dir, { recursive: true });
@@ -201,7 +203,11 @@ export async function processEpisode(config, { bvid, context, episodeDir, adoptP
     // Source reuse keeps both the existing artifacts and caller browser context.
     const metadata = await readJSON(join(dir, 'metadata.json'));
     const media = await readJSON(join(dir, 'media-check.json'));
-    await checkpoint(job, 'transcript', [join(dir, 'source.json'), join(dir, 'transcript-original.json'), join(dir, 'transcript.json'), join(dir, 'transcript-quality.json')], async () => {
+    // v1 jobs retain their immutable legacy transcript and existing downstream
+    // plans. New jobs keep ASR evidence separate from the corrected transcript.
+    const asrName = job.schemaVersion === 2 ? 'transcript-asr.json' : 'transcript.json';
+    const qualityName = job.schemaVersion === 2 ? 'transcript-asr-quality.json' : 'transcript-quality.json';
+    await checkpoint(job, 'transcript', ['source.json', 'transcript-original.json', asrName, qualityName].map(name => join(dir, name)), async () => {
       // MLX Whisper has its own existing environment; Pillow is kept in a separate venv.
       if (adoptPrepared) {
         assert(episodeDir, '接入已转写资料必须显式指定目录');
@@ -210,9 +216,16 @@ export async function processEpisode(config, { bvid, context, episodeDir, adoptP
         await stat(join(dir, 'transcript-original.json'));
       } else await skill('prepare', ['--input', join(dir, 'source.mp4'), '--python', config.whisperPython, '--model', config.whisperModel || 'mlx-community/whisper-large-v3-turbo', '--title', metadata.title, '--author', metadata.author, '--url', metadata.source]);
       const checked = validateTranscript(await readJSON(join(dir, 'transcript.json')), media.duration);
-      await writeJSON(join(dir, 'transcript.json'), checked.transcript);
-      await writeJSON(join(dir, 'transcript-quality.json'), checked.quality);
+      await writeJSON(join(dir, asrName), checked.transcript);
+      await writeJSON(join(dir, qualityName), checked.quality);
     }, emit);
+    if (job.schemaVersion === 2) await checkpoint(job, 'proofread', async () => {
+      const report = await readJSON(join(dir, 'transcript-proofread.json'));
+      const evidence = Object.keys(report.evidence);
+      assert(evidence.every(name => /^subtitle-proofread\/(?:s\d+-[0-2]\.jpg|frames\.json|observations\.json|verify-\d+(?:\.schema)?\.json)$/.test(name)), '字幕核对证据路径无效');
+      return [...['transcript.json', 'transcript-quality.json', 'transcript-proofread.json', 'transcript.srt', 'transcript.md'], ...evidence].map(name => join(dir, name));
+    }, async () => (runners.proofread || proofreadTranscript)(config, { dir,
+      transcript: await readJSON(join(dir, asrName)), quality: await readJSON(join(dir, qualityName)), signal, execute }), emit);
     await checkpoint(job, 'plan', [planPath], async () => {
       const normalized = validateInput(await readJSON(join(dir, 'transcript.json')), { ...metadata, duration: media.duration }).source;
       if (await reusablePlan(dir, normalized, config.videoCardsSkill)) return;

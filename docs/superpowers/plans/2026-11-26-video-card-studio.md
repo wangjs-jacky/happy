@@ -53,7 +53,8 @@ Interfaces: POST /api/jobs {requestId,url}；GET /api/events；GET /api/jobs/:id
 - [x] 真实 HTTP → 新代码 Server → 正确隔离 daemon → 固定程序 → 原生 AI / 原画面制卡 → 上传 → 页面及下载。
 - [x] 重复与两个不同输入、队列不丢失、重连/重启边界；记录实际验证范围，不把夹具当真实制作。
 - [x] Ego 核对页面、单 PNG 实际保存和390px布局，按本会话规则上报关键帧；五图归档 Image OPS，保持review。
-- [ ] 整组 ZIP 浏览器保存：HTTP下载/解压通过，Ego下载仍canceled；原因待查，不能记为已通过。
+- [x] 整组 ZIP 浏览器保存：2026-11-27网页改用有界fetch/Blob，旧/新两组实际保存、摘要及解压通过；底层直接网络附件取消原因仍未证实。
+- [x] 新增原帧OCR候选＋无工具看图复核，实际修正8段并重新制卡；保留ASR、时间轴与恢复摘要，旧任务不自动迁移。
 - [x] 文档、源码 review、相关 OPS 写回；不自动生产部署。
 
 ## 执行记录
@@ -61,5 +62,6 @@ Interfaces: POST /api/jobs {requestId,url}；GET /api/events；GET /api/jobs/:id
 - 2026-11-26：基础 Webhook 2f1d67dba 已通过隔离 Codex 回复链路；后续网站、固定程序与任务SSE已实现，独立评审的6项Important与2项Minor已修复并回归。
 - 2026-11-26：新代码完整真实制作五图并显示；两不同视频输入均保留，第二条质量门禁失败被准确标为failed。Owner配置/轮换/撤销和两输入固定程序执行完成。
 - 2026-11-26：页面空闲后断开，独立一次连接实验确认Node原生fetch在约301秒以UND_ERR_BODY_TIMEOUT结束SSE；改用原生HTTP事件流，新增3项回归。总计90项定向测试通过，源码与真实验证详见 ../../validation/video-card-studio-20261126.md。
-- 交付边界：字幕待听校；ZIP浏览器保存未通过；无公网部署、正式服务升级或用户当前设备验收。
+- 2026-11-27：44项网站/流水线测试通过；新一轮HTTP→指定daemon→真实制作→completed→网页→ZIP保存通过，详见 ../../validation/video-card-studio-fixes-20261127.md。
+- 交付边界：字幕仍有证据不足的错字待听校；无公网部署、正式服务升级或用户当前设备验收。
 - 架构选择：独立 Node 服务优先复用现有栈，SQLite 单进程队列可在本机隔离实测；暂不引入 Cloudflare 工作流。新网站公网宿主和域名留待具体发布准备后落实。

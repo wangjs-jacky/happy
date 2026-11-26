@@ -22,7 +22,7 @@ async function jsonBody(req, limit = 8192) {
   try { return JSON.parse(await body(req, limit)); } catch (e) { if (e instanceof StudioError) throw e; throw new StudioError('invalid-json'); }
 }
 const shape = (value, keys) => { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw new StudioError('invalid-fields'); };
-const phases = new Set(['source', 'transcript', 'plan', 'frames', 'selection', 'cards', 'archive', 'upload']);
+const phases = new Set(['source', 'transcript', 'proofread', 'plan', 'frames', 'selection', 'cards', 'archive', 'upload']);
 
 export async function createStudio(options) {
   const { dataDir, workerToken, taskId } = options;
@@ -58,9 +58,9 @@ export async function createStudio(options) {
       if (req.headers.host !== new URL(origin).host || (req.headers.origin && req.headers.origin !== origin)) throw new StudioError('origin-rejected', 403);
       const url = new URL(req.url, origin), path = url.pathname;
       if (url.search) throw new StudioError('query-not-supported');
-      if (req.method === 'GET' && ['/', '/app.js', '/style.css'].includes(path)) {
+      if (req.method === 'GET' && ['/', '/app.js', '/download.mjs', '/style.css'].includes(path)) {
         const name = path === '/' ? 'index.html' : path.slice(1), bytes = await readFile(join(publicDir, name));
-        res.writeHead(200, { 'content-type': path === '/' ? 'text/html; charset=utf-8' : path.endsWith('.js') ? 'application/javascript' : 'text/css' }); res.end(bytes); return;
+        res.writeHead(200, { 'content-type': path === '/' ? 'text/html; charset=utf-8' : path === '/style.css' ? 'text/css' : 'application/javascript' }); res.end(bytes); return;
       }
       if (req.method === 'GET' && path === '/api/events') {
         if (clients.size >= 100) throw new StudioError('too-many-connections', 429);
