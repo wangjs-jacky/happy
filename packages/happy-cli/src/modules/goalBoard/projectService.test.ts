@@ -909,40 +909,53 @@ describe('project canvas RPC', () => {
         await expect(reopened.asset({ projectPath, assetId: asset.id, versionId: asset.versionId, offset: 0 })).rejects.toThrow('unavailable in this project');
     });
 
-    it('rejects malformed or network-enabled scene records before committing and accepts an unmanaged inline raster', async () => {
+    it('keeps the last readable scene when a malformed or unsupported replacement is submitted', async () => {
         const f = await fixture();
         const projectPath = join(f.root, 'p');
         const canvas = f.service.canvas;
         const source = sceneImage('asset:legacy');
         source.image.props.src = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
         const scene = sceneEnvelope(source.image, source.shape);
+        scene.schema.sequences = { 'com.tldraw.store': 5, 'com.tldraw.shape.image': 5, 'com.tldraw.shape.group': 0 };
+        const document = JSON.stringify(scene);
+        const saved = await canvas.saveScene({ projectPath, revision: 0, document });
+        expect(saved.canvas).toMatchObject({ revision: 1, scene: { revision: 1, document } });
+
         const { ['page:page']: _page, ...withoutPage } = scene.store;
+        const futureScene = { ...scene, schema: { ...scene.schema, sequences: { 'com.tldraw.shape.image': 6 } } };
         const rejected = [
             [{}, 'Invalid project canvas document'],
             [{ ...scene, store: withoutPage }, 'missing its document or pages'],
             [{ ...scene, schema: { schemaVersion: 2, sequences: { 'com.tldraw.store': -1 } } }, 'Invalid project canvas schema'],
+            [{ ...scene, schema: { ...scene.schema, sequences: { 'com.tldraw.future': 1 } } }, 'Invalid project canvas schema'],
+            [futureScene, 'Invalid project canvas schema'],
             [sceneEnvelope({ id: 'instance:session', typeName: 'instance', meta: {} }), 'Invalid project canvas record'],
             [sceneEnvelope({ ...scene.store['user:canvas-guest'], imageUrl: 'https://example.test/avatar.png' }), 'Invalid project canvas user record'],
             [sceneEnvelope(source.shape), 'Missing asset in project canvas shape'],
+            [sceneEnvelope(source.image, { ...source.shape, type: 'unknown' }), 'Unsupported project canvas shape type'],
             [sceneEnvelope(source.image, { ...source.shape, parentId: source.shape.id }), 'shape ancestry'],
             [sceneEnvelope(source.image, { ...source.shape, parentId: 'page:missing' }), 'Missing parent'],
             [sceneEnvelope(source.image, source.shape, {
                 id: 'binding:arrow', type: 'arrow', typeName: 'binding', fromId: source.shape.id, toId: 'shape:missing',
                 props: {}, meta: {},
             }), 'Missing shape in project canvas binding'],
+            [sceneEnvelope(source.image, source.shape, {
+                id: 'binding:unknown', type: 'unknown', typeName: 'binding', fromId: source.shape.id, toId: source.shape.id,
+                props: {}, meta: {},
+            }), 'Unsupported project canvas binding type'],
             [sceneEnvelope({ ...source.image, props: { ...source.image.props, src: 'https://example.test/image.jpg' } }, source.shape), 'persistent asset references'],
             [sceneEnvelope(source.image, { ...source.shape, props: { ...source.shape.props, richText: {
                 type: 'doc', content: [{ type: 'image', attrs: { src: 'https://example.test/tracker' } }],
             } } }), 'persistent asset references'],
         ] as const;
-        for (const [document, message] of rejected) {
-            await expect(canvas.saveScene({ projectPath, revision: 0, document: JSON.stringify(document) })).rejects.toThrow(message);
+        for (const [invalid, message] of rejected) {
+            await expect(canvas.saveScene({ projectPath, revision: 1, document: JSON.stringify(invalid) })).rejects.toThrow(message);
         }
-        expect(await canvas.get({ projectPath })).toMatchObject({ canvas: { revision: 0, assets: [] } });
-        const document = JSON.stringify(scene);
-        expect(await canvas.saveScene({ projectPath, revision: 0, document })).toMatchObject({
-            canvas: { revision: 1, scene: { revision: 1, document } },
-        });
+        await expect(canvas.commitBundle({
+            projectPath, revision: saved.canvas.revision, bundleId: 'cf82c940-d251-4e90-a71d-a9a06cc4cc69',
+            bundle: { categories: [], assets: [], document: JSON.stringify(futureScene) },
+        })).rejects.toThrow('Invalid project canvas schema');
+        expect(await f.make().canvas.get({ projectPath })).toEqual(saved);
     });
 
     it('stages verified bundle images without publishing a partial import and safely replays a completed commit', async () => {

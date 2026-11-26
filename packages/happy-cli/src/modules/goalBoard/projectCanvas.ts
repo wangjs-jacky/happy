@@ -92,7 +92,39 @@ const richTextResourceFields = new Set(['href', 'src', 'srcset', 'poster', 'url'
 const managedSceneAsset = /^asset-[a-f0-9]{64}-[a-f0-9]{64}$/;
 const managedSceneBitmap = /^asset:ig-asset-[a-f0-9]{64}-[a-f0-9]{64}$/;
 const managedSceneShape = /^shape:ig-asset-[a-f0-9]{64}-[a-f0-9]{64}$/;
-const sceneSequence = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
+// Serialized schema of the default Paws renderer store pinned to tldraw 5.3.0.
+// A newer sequence or shape type needs support in that renderer before it can
+// replace the project's active scene.
+const sceneSequenceVersions = new Map(Object.entries({
+    'com.tldraw.store': 5,
+    'com.tldraw.asset': 1,
+    'com.tldraw.camera': 1,
+    'com.tldraw.document': 2,
+    'com.tldraw.instance': 26,
+    'com.tldraw.instance_page_state': 5,
+    'com.tldraw.page': 1,
+    'com.tldraw.instance_presence': 6,
+    'com.tldraw.pointer': 1,
+    'com.tldraw.shape': 4,
+    'com.tldraw.user': 1,
+    'com.tldraw.asset.image': 6,
+    'com.tldraw.asset.video': 5,
+    'com.tldraw.asset.bookmark': 2,
+    'com.tldraw.shape.group': 0,
+    'com.tldraw.shape.text': 4,
+    'com.tldraw.shape.bookmark': 2,
+    'com.tldraw.shape.draw': 5,
+    'com.tldraw.shape.geo': 12,
+    'com.tldraw.shape.note': 13,
+    'com.tldraw.shape.line': 5,
+    'com.tldraw.shape.frame': 1,
+    'com.tldraw.shape.arrow': 8,
+    'com.tldraw.shape.highlight': 4,
+    'com.tldraw.shape.embed': 4,
+    'com.tldraw.shape.image': 5,
+    'com.tldraw.shape.video': 4,
+    'com.tldraw.binding.arrow': 1,
+}));
 const inlineRasterSource = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/;
 const unsafeSceneResource = 'Canvas scene images must use persistent asset references';
 
@@ -151,7 +183,10 @@ function validateSceneRichText(value: unknown) {
 
 function validateSceneShape(record: Record<string, unknown>, props: Record<string, unknown>, meta: Record<string, unknown>, records: ReadonlyMap<string, Record<string, unknown>>) {
     const { id, type, index, parentId, x, y, rotation, opacity, isLocked } = record;
-    if (typeof id !== 'string' || typeof type !== 'string' || !type || typeof index !== 'string' || !index ||
+    if (typeof type !== 'string' || !sceneSequenceVersions.has('com.tldraw.shape.' + type)) {
+        throw new Error('Unsupported project canvas shape type');
+    }
+    if (typeof id !== 'string' || typeof index !== 'string' || !index ||
         typeof parentId !== 'string' || typeof isLocked !== 'boolean' ||
         ![x, y, rotation].every(finiteSceneNumber) || !finiteSceneNumber(opacity) || opacity < 0 || opacity > 1) {
         throw new Error('Invalid project canvas shape');
@@ -184,8 +219,11 @@ function validateSceneDocument(document: string) {
         throw new Error('Invalid project canvas document');
     }
     const sequences = Object.entries(value.schema.sequences);
-    if (sequences.length > 256 || sequences.some(([id, revision]) =>
-        !sceneSequence.test(id) || !finiteSceneNumber(revision) || !Number.isSafeInteger(revision) || revision < 0)) {
+    if (sequences.some(([id, revision]) => {
+        const supported = sceneSequenceVersions.get(id);
+        return supported === undefined || !finiteSceneNumber(revision) || !Number.isSafeInteger(revision)
+            || revision < 0 || revision > supported;
+    })) {
         throw new Error('Invalid project canvas schema');
     }
 
@@ -220,8 +258,10 @@ function validateSceneDocument(document: string) {
         if (record.typeName === 'asset') {
             validateSceneAsset(id, record.type, record.props, record.meta);
         } else if (record.typeName === 'binding') {
-            if (typeof record.type !== 'string' || !record.type ||
-                typeof record.fromId !== 'string' || records.get(record.fromId)?.typeName !== 'shape' ||
+            if (typeof record.type !== 'string' || !sceneSequenceVersions.has('com.tldraw.binding.' + record.type)) {
+                throw new Error('Unsupported project canvas binding type');
+            }
+            if (typeof record.fromId !== 'string' || records.get(record.fromId)?.typeName !== 'shape' ||
                 typeof record.toId !== 'string' || records.get(record.toId)?.typeName !== 'shape') {
                 throw new Error('Missing shape in project canvas binding');
             }
