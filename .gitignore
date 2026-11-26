@@ -101,3 +101,4 @@ packages/paws-bots/**/.pytest_cache/
 
 # Isolated task-webhook runtime, private test keys and logs
 /.webhook-validation/
+/.card-studio-validation/

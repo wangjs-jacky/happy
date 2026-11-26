@@ -28,6 +28,24 @@ beforeAll(async () => {
     origin = await app.listen({ host: '127.0.0.1', port: 0 });
 }, 120000);
 afterAll(async () => { await app.close(); await context.database.$disconnect(); await context.pg.close(); });
+it('streams only task metadata with a scoped credential and closes immediately on rotation', async () => {
+    const credential = (await store.configureWebhook(owner, taskId, true)).token!;
+    expect((await fetch(`${origin}/v1/task-webhooks/${taskId}/events`, { headers: { authorization: 'Bearer owner-test-credential' } })).status).toBe(401);
+    expect((await fetch(`${origin}/v1/task-webhooks/${randomUUID()}/events`, { headers: { authorization: `Bearer ${credential}` } })).status).toBe(401);
+    const cancel = new AbortController();
+    try {
+        const stream = await fetch(`${origin}/v1/task-webhooks/${taskId}/events`, { headers: { authorization: `Bearer ${credential}` }, signal: cancel.signal });
+        expect(stream.status).toBe(200);
+        const reader = stream.body!.getReader();
+        const first = new TextDecoder().decode((await reader.read()).value);
+        expect(first).toContain('event: state');
+        expect(first).toContain('"activeRunId":null');
+        expect(first).not.toMatch(/ciphertext|encryptedConfig|machineId|prompt/);
+        await store.configureWebhook(owner, taskId, true);
+        expect((await reader.read()).done).toBe(true);
+        expect((await fetch(`${origin}/v1/task-webhooks/${taskId}/events`, { headers: { authorization: `Bearer ${credential}` } })).status).toBe(401);
+    } finally { cancel.abort(); }
+});
 it('serves real HTTP with task-scoped authentication, validation, deduplication and explicit backpressure', async () => {
     const configure = await fetch(`${origin}/v1/scheduled-tasks/${taskId}/webhook`, { method: 'POST', headers: { authorization: 'Bearer owner-test-credential', 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
     expect(configure.headers.get('cache-control')).toBe('no-store');
@@ -57,4 +75,26 @@ it('serves real HTTP with task-scoped authentication, validation, deduplication 
     const attempts = await Promise.all(Array.from({ length: 60 }, () => call(payload, 'invalid')));
     expect(attempts.some(r => r.status === 429 && r.headers.get('retry-after') === '60')).toBe(true);
     expect((await call(payload)).status).toBe(429);
+});
+it('closes only the affected streams on disable and delete', async () => {
+    const template = (await store.list(owner))[0];
+    const open = async (id: string, credential: string) => {
+        const response = await fetch(`${origin}/v1/task-webhooks/${id}/events`, { headers: { authorization: `Bearer ${credential}` }, signal: AbortSignal.timeout(10000) });
+        expect(response.status).toBe(200); const reader = response.body!.getReader(); await reader.read(); return reader;
+    };
+    for (const operation of ['disable', 'delete']) {
+        const task = await store.save(owner, { ...template, id: randomUUID() }, -1);
+        const sibling = await store.save(owner, { ...template, id: randomUUID() }, -1);
+        const token = (await store.configureWebhook(owner, task.id, true)).token!;
+        const otherToken = (await store.configureWebhook(owner, sibling.id, true)).token!;
+        const reader = await open(task.id, token), otherReader = await open(sibling.id, otherToken);
+        try {
+            if (operation === 'delete') await store.remove(owner, task.id, task.version);
+            else await store.configureWebhook(owner, task.id, false);
+            expect((await reader.read()).done).toBe(true);
+            expect((await fetch(`${origin}/v1/task-webhooks/${task.id}/events`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+            await store.runNow(owner, sibling.id, randomUUID(), { token: otherToken, input: { marker: 'other-task' } });
+            expect((await otherReader.read()).done).toBe(false);
+        } finally { await reader.cancel(); await otherReader.cancel(); }
+    }
 });

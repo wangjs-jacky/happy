@@ -48,7 +48,7 @@ const receipt = await response.json();
 | 202 | 已接受或已接受事件的重放；保存 runId |
 | 400 / 413 | 输入不符合约束 / HTTP body 太大；修正后重新提交 |
 | 401 | 凭据不合法、已停用、已撤销或不属于该任务 |
-| 404 | 已授权但任务已删除 |
+| 401（删除后） | 删除会撤销凭据，旧入口和状态订阅均不可用 |
 | 409 `task-busy` | 当前有 pending/claimed/running/waiting/uncertain 运行；新事件未接受，也未占用 requestId。调用方保留原输入和 ID，等完成事件或人工动作后重试 |
 | 429 `webhook-ingress-limit` | 单服务进程、同 IP 每分钟 60 次尝试（包括错误凭据和重放），带 Retry-After |
 | 429 `webhook-rate-limit` | 同任务每分钟最多接受 10 个新事件，预算持久化；重复回执不消耗接受预算 |
@@ -64,10 +64,14 @@ const receipt = await response.json();
 - 机器离线时已接受请求保持 pending 并阻塞新的不同事件；机器连接或收到工作事件时单次领取。旧 daemon 无协议能力时不领取。Server 重启恢复计划与 pending；已领取运行不自动重新投递。
 - journal 和原有回执继续保护恢复；未知启动/投递结果进入 uncertain，阻塞重叠。等待输入或 uncertain 需所有者按现有任务流程处理或显式结束跟踪，不会自动重发。
 - 原定时和手动运行共用任务的活动运行锁。原手动合并语义保留，Webhook 不采用该合并行为。
-- 状态变更复用 `scheduled-tasks-changed` 和机器 `scheduled-task-work-available` Socket 事件。没有新增外部回调、轮询或可由请求指定的回调地址；外部凭据也不授权订阅账户事件。所有者可订阅现有事件后单次读取历史，或手动查询。
+- 状态变更复用 `scheduled-tasks-changed` 和机器 `scheduled-task-work-available` Socket 事件。外部系统也可用同一任务凭据订阅 `GET /v1/task-webhooks/:taskId/events`：初始快照与变更事件只含 activeRunId 和该任务的 runId/requestId/status/reason/updatedAt，不含账户、机器、加密配置、输入或会话内容。轮换、禁用、删除会关闭旧流。每任务最多 5 条流，最多 256 个活动作用域；当前仅支持单 Server 进程事件源。没有新增外部回调、业务轮询或可由请求指定的回调地址，外部凭据不授权订阅账户事件。
 - 入口尝试预算在单进程内且最多记忆 1024 个 IP，重启会重置，不能替代公网网关的分布式防滥用措施。
 
 ## 验证入口
+
+固定本机程序可选 `executionKind: local-handler`，加密配置指定 `localHandlerId`，必须独立运行（`newChatEachRun: true`）。daemon 只运行其账户/Server 作用域中私有 `handlers.json` 对应 taskId 和真实工作目录的固定 executable/args；数据来自 stdin，无 shell 插值。这个授权使用 daemon 的 OS 用户权限，不是 AI 沙箱。新 daemon 每次只领取一个新执行槽位，收到 Server 确认 running 才 spawn；已取消/uncertain/启动过期时不启动。回执持久保存与 ACK，损坏/陈旧回执不能阻断其他工作；执行中断不自动重放。
+
+所有者可用 `packages/happy-cli/scripts/configure-task-handler.mts` 创建、轮换、撤销及移除本机登记，密钥直接进入 Account Pool / Keychain。完整配置例子、匿名网站的持久队列和 PNG/ZIP 回传见 [原话卡片示例](../examples/video-card-studio/README.md)。这是通用执行器的一种使用方式，B 站逻辑不进入通用 Server/daemon。
 
 ```sh
 pnpm install --frozen-lockfile

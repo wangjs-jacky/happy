@@ -23,9 +23,11 @@ export const ScheduledTaskConfigSchema = z.object({
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
     permissionMode: z.enum(['read-only', 'default', 'acceptEdits', 'plan']).default('read-only'),
     codexAccountProfileId: z.string().min(1).max(200).optional(),
+    localHandlerId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).optional(),
 }).strict();
 export type ScheduledTaskConfig = z.infer<typeof ScheduledTaskConfigSchema>;
 export const ScheduledTaskInputSchema = z.object({
+    executionKind: z.enum(['agent', 'local-handler']).optional(),
     id: z.string().uuid(), machineId: z.string().min(1).max(200),
     rule: ScheduleRuleSchema, encryptedConfig: z.string().min(1).max(300000),
     enabled: z.boolean(), newChatEachRun: z.boolean(),
@@ -50,6 +52,8 @@ export function scheduledTaskPrompt(config: ScheduledTaskConfig, input?: z.infer
         : '');
 }
 export const ScheduledRunSchema = z.object({
+    executionKind: z.enum(['agent', 'local-handler']).optional(),
+    webhookRequestId: z.string().uuid().optional(),
     webhookInput: TaskWebhookInputSchema.optional(),
     id: z.string().uuid(), taskId: z.string().uuid(), machineId: z.string(),
     scheduledAt: timestamp, createdAt: timestamp, updatedAt: timestamp,
