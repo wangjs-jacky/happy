@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,12 @@ if (!/^[0-9a-f]{40}$/.test(expectedRevision)) {
     throw new Error(`invalid local release revision: ${JSON.stringify(expectedRevision)}`);
 }
 const canvasEntry = projectCanvasEntry(html);
+const canvasDirectory = await stat(join(distDirectory, 'dsh-image-canvas')).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+});
+if (Boolean(canvasDirectory?.isDirectory()) !== Boolean(canvasEntry)) {
+    throw new Error('The Project Canvas renderer and release entry must be included together.');
+}
 const references = new Set();
 const attributePattern = /(?:src|href)=["']([^"']+)["']/gi;
 

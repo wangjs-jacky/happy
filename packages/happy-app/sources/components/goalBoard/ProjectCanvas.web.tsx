@@ -18,8 +18,13 @@ import { createProjectCanvasPreview } from './projectCanvasPreview.web';
 import { projectCanvasClient, projectCanvasImageTypes, type ProjectCanvasAsset, type ProjectCanvasSnapshot } from './projectCanvasClient.web';
 
 function getCanvasLicense(): string | undefined {
-    return (globalThis as typeof globalThis & { __HAPPY_CONFIG__?: { projectCanvasTldrawLicense?: string } })
-        .__HAPPY_CONFIG__?.projectCanvasTldrawLicense;
+    const settings = (globalThis as typeof globalThis & {
+        __HAPPY_CONFIG__?: { projectCanvasTldrawLicense?: string; projectCanvasTldrawExpiresAt?: number };
+    }).__HAPPY_CONFIG__;
+    if (settings?.projectCanvasTldrawExpiresAt !== undefined && Date.now() >= settings.projectCanvasTldrawExpiresAt) {
+        return undefined;
+    }
+    return settings?.projectCanvasTldrawLicense;
 }
 
 export function getProjectCanvasFramePath(): string | undefined {

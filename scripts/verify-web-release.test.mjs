@@ -70,6 +70,7 @@ test('rejects enabled canvas redirects, wrong MIME, stale bytes, missing files, 
         ['bytes', /Project Canvas canvas.css content mismatch/],
         ['missing', /Project Canvas canvas.css failed with HTTP 404/],
         ['entry', /Web entry Project Canvas entry mismatch/],
+        ['unconfigured', /Project Canvas renderer and release entry must be included together/],
         ['frame-header', /Project Canvas \S+ is missing same-origin proxy protections/],
     ]) {
         const result = await runVerifier({ includeCanvas: true, canvasFailure });
@@ -109,7 +110,8 @@ async function runVerifier({
     const botsJs = '/assets/bots/bots-' + 'b'.repeat(20) + '.js';
     const botsCss = '/assets/bots/bots-' + 'c'.repeat(20) + '.css';
     const html = await readFile(join(directory, 'index.html'), 'utf8');
-    const canvasMeta = includeCanvas ? `<meta name="paws-project-canvas-entry" content="${canvasPath}">` : '';
+    const canvasMeta = includeCanvas && canvasFailure !== 'unconfigured'
+        ? `<meta name="paws-project-canvas-entry" content="${canvasPath}">` : '';
     await writeFile(join(directory, 'index.html'), html.replace('</head>', `<meta name="paws-bots-entry" content="${botsJs}"><meta name="paws-bots-style" content="${botsCss}">${canvasMeta}</head>`));
     if (includeCanvas) {
         for (const file of canvasFiles.keys()) {

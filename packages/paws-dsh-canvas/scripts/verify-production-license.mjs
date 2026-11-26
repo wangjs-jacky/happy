@@ -1,4 +1,5 @@
 const origin = process.argv[2];
+const printEvaluationExpiry = process.argv[3] === '--print-evaluation-expiry';
 const key = process.env.PAWS_PROJECT_CANVAS_TLDRAW_LICENSE?.trim();
 
 async function verify() {
@@ -22,7 +23,14 @@ async function verify() {
         || result.isAnnualLicenseExpired || result.isPerpetualLicenseExpired || result.isEvaluationLicenseExpired) {
         throw new Error('The tldraw license must be valid for the production hostname and the bundled SDK version.');
     }
-    console.log('tldraw production license verified for the configured hostname.');
+    if (printEvaluationExpiry) {
+        // A signed expiry date remains usable through the end of that UTC day.
+        const expiresAt = result.isEvaluationLicense ? result.expiryDate.getTime() + 86_400_000 : '';
+        if (expiresAt !== '' && !Number.isSafeInteger(expiresAt)) throw new Error('Invalid tldraw evaluation expiry.');
+        console.log(expiresAt);
+    } else {
+        console.log('tldraw production license verified for the configured hostname.');
+    }
 }
 
 try {

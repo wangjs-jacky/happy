@@ -71,15 +71,21 @@ test('stamps the canvas entry for this release and exposes its license only on t
     const origin = 'https://47.115.228.20:8443';
     const revision = 'abcd'.repeat(10);
     const license = 'sample</script>';
-    const html = injectWebRuntimeServerConfig('<head></head>', { origin, revision, license });
+    const evaluationExpiry = '1800057600000';
+    const html = injectWebRuntimeServerConfig('<head></head>', { origin, revision, license, evaluationExpiry });
     assert.ok(html.includes(`<meta name="paws-project-canvas-entry" content="/dsh-image-canvas/${revision}/index.html">`));
     assert.equal(html.split('</script>').length, 2);
     const script = extractManagedScript(html);
     assert.equal(runInjectedScript(script, origin).projectCanvasTldrawLicense, license);
+    assert.equal(runInjectedScript(script, origin).projectCanvasTldrawExpiresAt, Number(evaluationExpiry));
     assert.equal(runInjectedScript(script, 'https://47.115.228.20').projectCanvasTldrawLicense, undefined);
     assert.equal(runInjectedScript(script, 'https://paws.rodeo').projectCanvasTldrawLicense, undefined);
     assert.throws(
         () => injectWebRuntimeServerConfig('<head></head>', { origin, revision }),
         /Missing or malformed PAWS_PROJECT_CANVAS_TLDRAW_LICENSE/,
+    );
+    assert.throws(
+        () => injectWebRuntimeServerConfig('<head></head>', { origin, revision, license, evaluationExpiry: 'not a date' }),
+        /Invalid Project Canvas evaluation expiry/,
     );
 });

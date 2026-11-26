@@ -13,6 +13,12 @@ const renderer = join(upstream, 'src', 'client', 'tl');
 const studio = join(renderer, 'studio-tl-canvas.tsx');
 const host = join(workspace, 'src', 'host');
 
+if (process.env.PAWS_PROJECT_CANVAS_BUILD_DISABLED === '1') {
+    await rm(output, { recursive: true, force: true });
+    console.log('Project Canvas renderer omitted from this Web build');
+    process.exit(0);
+}
+
 execFileSync(process.execPath, [join(workspace, 'scripts', 'sync-upstream.mjs'), '--check'], { stdio: 'inherit' });
 
 // Resolve the four host seams in the original Studio source. Missing seams or
