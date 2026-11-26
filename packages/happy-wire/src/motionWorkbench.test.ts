@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     MotionWorkbenchReviewRequestSchema, MotionWorkbenchSnapshotSchema,
+    MotionWorkbenchRequests, MotionProjectListSchema,
     prepareMotionReviewPrompt, selectMotionReviewMarkers, type MotionWorkbenchSnapshot,
 } from './motionWorkbench';
 
@@ -11,6 +12,13 @@ const snapshot: MotionWorkbenchSnapshot = {
         anchor: { x: 10, y: 20, width: 100, height: 50 }, target: { kind: 'instance', instanceId: 'hero' } }],
 };
 const request = () => ({ projectPath: '.', projectId: snapshot.projectId, snapshotHash: snapshot.snapshotHash, markers: [{ id: 'marker-1', requestVersion: 3 }] });
+
+it('bounds the project library and keeps discovery scoped to an empty session request', () => {
+    expect(MotionWorkbenchRequests.motionWorkbenchList.safeParse({ root: '/outside' }).success).toBe(false);
+    const project = { projectPath: '/work/movie', title: 'Saved title', modifiedAt: 1 };
+    expect(MotionProjectListSchema.safeParse({ projects: [project], truncated: false }).success).toBe(true);
+    expect(MotionProjectListSchema.safeParse({ projects: Array(101).fill(project), truncated: true }).success).toBe(false);
+});
 
 describe('motion review binding', () => {
     it('preserves frame, region and semantic object context', () => {

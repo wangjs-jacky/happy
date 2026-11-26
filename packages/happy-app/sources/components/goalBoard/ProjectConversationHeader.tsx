@@ -11,6 +11,7 @@ import { isProjectConversationArchived } from '@/sync/projectConversationLifecyc
 import { useProjectModalEscape } from '@/hooks/useProjectModalEscape';
 import { GoalBoardButton as Button } from './GoalBoardButton';
 import { ProjectConversationActions } from './ProjectConversationActions';
+import { MotionProjectsButton } from '@/components/motionWorkbench/MotionProjectsButton';
 
 /** Scope and task conversations share explicit new/history actions without a permanent task column. */
 export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNew, onRefresh, loading, error, onRetry, onMore, onResolveNext, busy, offline, mobile = false, mobileMenu, testIDPrefix, scope = 'task', onGlobal, onClose, manage = false }: {
@@ -111,6 +112,7 @@ export function ProjectConversationHeader({ sessions, selectedId, onSelect, onNe
             anchor.current?.measureInWindow((x, y, _w, h) => { setPosition({ x, y: y + h + 6 }); setOpen(true); onRefresh?.(); });
         }}><Ionicons name="time-outline" size={16} color={theme.colors.textSecondary} /><Text numberOfLines={1} style={styles.meta}>{compact ? t(scope === 'global' ? 'projectGoals.globalHistoryCompact' : 'projectGoals.taskHistoryCompact') : historyLabel} · {visibleSessions.length}</Text><Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} /></Button>
         <View style={{ flex: 1 }} />
+        {!mobile && <MotionProjectsButton sessionId={selectedId} />}
         {!mobile && onNew && <Button variant="toolbar" label={t('projectGoals.newChat')} disabled={busy || offline} testID={`${testIDPrefix}-new-chat`} onPress={create}><Ionicons name="add-outline" size={16} color={theme.colors.textLink} />{!compact && <Text style={styles.link}>{t('projectGoals.newChat')}</Text>}</Button>}
         {manage && selectedId && onClose && <ProjectConversationActions key={selectedId} id={selectedId} testIDPrefix={testIDPrefix} disabled={busy} onRemoved={() => advance(selectedId)} />}
         {onClose && <Button variant="toolbar" label={t('projectGoals.closeConversation')} testID={`${testIDPrefix}-close-chat`} onPress={onClose}><Ionicons name="close-outline" size={18} color={theme.colors.textSecondary} /></Button>}

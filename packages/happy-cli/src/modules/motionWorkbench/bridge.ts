@@ -13,6 +13,8 @@ import {
     type MotionWorkbenchErrorCode, type MotionWorkbenchResult, type MotionWorkbenchSnapshot,
 } from '@slopus/happy-wire';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
+import { motionHarnessExecutable } from './executable';
+import { createMotionProjectCatalog } from './catalog';
 
 const execute = promisify(execFile);
 const nativeSnapshotSchema = z.object({
@@ -26,7 +28,7 @@ const nativeSnapshotSchema = z.object({
 const projectConfigSchema = z.object({ version: z.literal(3), projectType: z.literal('pro') });
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
-class MotionWorkbenchError extends Error {
+export class MotionWorkbenchError extends Error {
     constructor(readonly code: MotionWorkbenchErrorCode, message: string) { super(message); }
 }
 
@@ -83,11 +85,11 @@ export function normalizeMotionHarnessSnapshot(projectPath: string, input: unkno
     } catch { throw new MotionWorkbenchError('INVALID_SNAPSHOT', 'The editor did not return a complete, versioned marker snapshot.'); }
 }
 
-async function inspectMotionProject(directory: string, projectPath: string, executable: string): Promise<MotionWorkbenchSnapshot> {
+async function inspectMotionProject(directory: string, projectPath: string, executable?: string): Promise<MotionWorkbenchSnapshot> {
     const project = await resolveMotionProject(directory, projectPath);
     let stdout: string;
     try {
-        ({ stdout } = await execute(executable, ['marker', 'list', '--project', project, '--output-format', 'json'], {
+        ({ stdout } = await execute(executable || await motionHarnessExecutable(), ['marker', 'list', '--project', project, '--output-format', 'json'], {
             cwd: project, encoding: 'utf8', timeout: 30_000, maxBuffer: MOTION_WORKBENCH_LIMITS.snapshotBytes,
             windowsHide: true, env: { ...process.env, MH_NO_BROWSER: '1', MH_NO_UPDATE_NOTIFIER: '1' },
         }));
@@ -109,7 +111,8 @@ async function inspectMotionProject(directory: string, projectPath: string, exec
 }
 
 /** No retries: every refresh/review is one explicit action on one session. */
-export function createMotionWorkbenchHandlers(directory: string, executable = process.env.PAWS_MOTIONHARNESS_BIN || 'mh') {
+export function createMotionWorkbenchHandlers(directory: string, executable?: string, catalogDirectory?: string) {
+    const catalog = createMotionProjectCatalog(directory, resolveMotionProject, catalogDirectory);
     let busy = false;
     async function run<T>(work: () => Promise<T>): Promise<MotionWorkbenchResult<T>> {
         if (busy) return { ok: false, error: { code: 'BUSY', message: 'A motion-project request is already running.' } };
@@ -122,6 +125,8 @@ export function createMotionWorkbenchHandlers(directory: string, executable = pr
         } finally { busy = false; }
     }
     return {
+        list: (input: unknown) => run(async () => { z.object({}).strict().parse(input); return catalog.list(); }),
+        register: (input: unknown) => run(async () => { const request = MotionWorkbenchInspectRequestSchema.parse(input); return catalog.register(request.projectPath); }),
         inspect: (input: unknown) => run(async () => {
             const request = MotionWorkbenchInspectRequestSchema.parse(input);
             return inspectMotionProject(directory, request.projectPath, executable);
@@ -137,6 +142,8 @@ export function createMotionWorkbenchHandlers(directory: string, executable = pr
 
 export function registerMotionWorkbenchHandlers(manager: Pick<RpcHandlerManager, 'registerHandler'>, directory: string): void {
     const handlers = createMotionWorkbenchHandlers(directory);
+    manager.registerHandler('motionWorkbenchList', handlers.list);
+    manager.registerHandler('motionWorkbenchRegister', handlers.register);
     manager.registerHandler('motionWorkbenchInspect', handlers.inspect);
     manager.registerHandler('motionWorkbenchPrepareReview', handlers.prepareReview);
 }

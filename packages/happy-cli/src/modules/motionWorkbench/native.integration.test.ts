@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { createMotionWorkbenchHandlers } from './bridge';
+import { createMotionWorkbenchHandlers, resolveMotionProject } from './bridge';
+import { createMotionProjectCatalog } from './catalog';
+import { createMotionEditor } from './editor';
+import { gunzipSync } from 'node:zlib';
+import { z } from 'zod';
 
 const executable = process.env.PAWS_MOTIONHARNESS_BIN;
 const archivePath = process.env.PAWS_MOTIONHARNESS_TEST_ARCHIVE;
@@ -14,6 +18,52 @@ const execute = promisify(execFile);
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 describe.skipIf(!executable || !archivePath)('installed MotionHarness review roundtrip', () => {
+    it('preserves the full native document, bundles an isolated editor and keeps bindings private', async () => {
+        if (!executable || !archivePath) throw new Error('Native fixture settings missing');
+        const root = await realpath(await mkdtemp(join(tmpdir(), 'paws-studio-native-'))), project = join(root, 'project');
+        const options = { cwd: root, env: { ...process.env, MH_NO_BROWSER: '1', MH_NO_UPDATE_NOTIFIER: '1' }, timeout: 30000, maxBuffer: 1024 * 1024 };
+        let changed: () => void = () => {};
+        const change = new Promise<void>(resolve => { changed = resolve; });
+        const catalogDirectory = join(root, 'private-index');
+        const editor = createMotionEditor(root, { executable, catalogDirectory, onChange: () => changed() });
+        const foreign = createMotionEditor(root, { executable, catalogDirectory });
+        try {
+            await execute(executable, ['unpack', await realpath(archivePath), project], options);
+            const opened = await editor.open({ projectPath: project });
+            expect(opened.ok).toBe(true); if (!opened.ok) throw new Error(JSON.stringify(opened));
+            const descriptor = opened.value;
+            const doc = z.object({ revision: z.number(), rootInstanceId: z.string(), settings: z.object({ width: z.number(), height: z.number(), duration: z.number() }), instances: z.record(z.string(), z.unknown()) }).parse(descriptor.state.document);
+            expect(doc.settings).toMatchObject({ width: 1440, height: 1152, duration: 8.5 });
+            expect(Object.keys(doc.instances).length).toBeGreaterThanOrEqual(44);
+            expect(descriptor.state.projectEntry).toBeUndefined(); expect(descriptor.state.studioSessions).toBeUndefined();
+            const chunks: Buffer[] = [];
+            for (let offset = 0; offset < descriptor.bundle.bytes;) {
+                const result = await editor.resource({ bindingId: descriptor.bindingId, resourceId: 'bundle', offset });
+                expect(result.ok).toBe(true); if (!result.ok) throw new Error(JSON.stringify(result));
+                const bytes = Buffer.from(result.value.dataBase64, 'base64'); chunks.push(bytes); offset += bytes.length;
+                expect(result.value.done).toBe(offset === descriptor.bundle.bytes);
+            }
+            const bytes = Buffer.concat(chunks); expect(sha256(bytes)).toBe(descriptor.bundle.sha256);
+            const bundle = JSON.parse(gunzipSync(bytes).toString('utf8'));
+            expect(bundle.script).toContain('paws-motion-connect'); expect(bundle.licenseText).toContain('GNU GENERAL PUBLIC LICENSE');
+            expect(bundle.script).not.toMatch(/\/s\/[a-f0-9]{32,}\/api/);
+            expect(await foreign.state({ bindingId: descriptor.bindingId })).toMatchObject({ ok: false, error: { code: 'BINDING_NOT_FOUND' } });
+            expect(await editor.resource({ bindingId: descriptor.bindingId, resourceId: 'asset:' + '0'.repeat(64), offset: 0 })).toMatchObject({ ok: false, error: { code: 'RESOURCE_NOT_FOUND' } });
+            expect(await editor.operation({ bindingId: descriptor.bindingId, route: 'project/launch', body: { path: '/outside' } })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+            const renamed = await editor.operation({ bindingId: descriptor.bindingId, route: 'rename', body: { title: 'Paws embedded native test', expectedRevision: doc.revision, expectedBuildId: descriptor.state.buildId } });
+            expect(renamed.ok).toBe(true); if (!renamed.ok) throw new Error(JSON.stringify(renamed));
+            expect(renamed.value.document).toMatchObject({ title: 'Paws embedded native test', instances: expect.any(Object) });
+            const catalog = createMotionProjectCatalog(root, resolveMotionProject, catalogDirectory);
+            expect((await catalog.list()).projects).toEqual([expect.objectContaining({ projectPath: project, title: 'Paws embedded native test', lastOpenedAt: expect.any(Number) })]);
+            await Promise.race([change, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('No native document event')), 3000); timer.unref(); })]);
+            expect(await editor.close({ bindingId: descriptor.bindingId })).toEqual({ ok: true, value: { closed: true } });
+            expect(await editor.state({ bindingId: descriptor.bindingId })).toMatchObject({ ok: false, error: { code: 'BINDING_NOT_FOUND' } });
+        } finally {
+            editor.dispose(); foreign.dispose();
+            await execute(executable, ['close', '--project', project], options).catch(() => {});
+            await rm(root, { recursive: true, force: true });
+        }
+    }, 120000);
     it('reads a real annotation, prepares without saving and rejects an edited instruction', async () => {
         if (!executable || !archivePath) throw new Error('Set PAWS_MOTIONHARNESS_BIN and PAWS_MOTIONHARNESS_TEST_ARCHIVE');
         const archive = await realpath(archivePath);

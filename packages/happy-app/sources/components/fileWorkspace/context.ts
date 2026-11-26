@@ -15,6 +15,8 @@ export type FileWorkspaceContextValue = {
     enabled: boolean; root: string; controller: FileWorkspaceController; snapshot: FileWorkspaceSnapshot;
     reference: FileReference | null; setReference: React.Dispatch<React.SetStateAction<FileReference | null>>;
     openReference: (path: string) => Promise<void>;
+    motionRequest?: { id: number; sessionId: string; path: string };
+    openMotionProject?: (projectPath: string) => Promise<void>;
     chatWidth: number; chatWidthCustomized?: boolean; setChatWidth: (width: number) => void;
     maximized: boolean; setMaximized: (value: boolean) => void;
 };

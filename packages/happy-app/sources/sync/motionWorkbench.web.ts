@@ -15,7 +15,7 @@ export async function motionWorkbenchRequest<K extends keyof typeof MotionWorkbe
     const request = MotionWorkbenchRequests[method].safeParse(input);
     if (!request.success) throw new MotionWorkbenchRpcError('INVALID_REQUEST', 'Invalid motion-project request.');
     let response: unknown;
-    try { response = await apiSocket.sessionRPC(sessionId, method, request.data, { timeoutMs: 40_000 }); }
+    try { response = await apiSocket.sessionRPC(sessionId, method, request.data, { timeoutMs: method === 'motionWorkbenchOpen' || method === 'motionWorkbenchClose' ? 90_000 : 40_000 }); }
     catch { throw new MotionWorkbenchRpcError('UNAVAILABLE', 'The motion-project session is unavailable.'); }
     if (!accountRuntimeCurrent()) throw new MotionWorkbenchRpcError('UNAVAILABLE', 'Account changed; reopen the project.');
     const envelope = z.discriminatedUnion('ok', [

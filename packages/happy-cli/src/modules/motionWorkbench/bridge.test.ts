@@ -19,6 +19,15 @@ const native = (project: string) => ({
 });
 
 describe('session-bound motion project', () => {
+    it('lists and registers named projects over the session interface without starting the engine or widening the root', async () => {
+        const { root, project, outside } = await setup();
+        await writeFile(join(project, 'document.json'), JSON.stringify({ title: 'Paws 宣传片' }));
+        const handlers = createMotionWorkbenchHandlers(root, '/does-not-exist/mh', join(root, '.private-index'));
+        expect(await handlers.list({ root: outside })).toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } });
+        expect(await handlers.list({})).toMatchObject({ ok: true, value: { truncated: false, projects: [{ projectPath: project, title: 'Paws 宣传片' }] } });
+        expect(await handlers.register({ projectPath: project })).toMatchObject({ ok: true, value: { projectPath: project } });
+        expect(await handlers.register({ projectPath: outside })).toMatchObject({ ok: false, error: { code: 'PROJECT_NOT_ALLOWED' } });
+    });
     it('resolves an existing Unicode project inside the workspace', async () => {
         const { root, project } = await setup();
         expect(await resolveMotionProject(root, '影片 project')).toBe(project);

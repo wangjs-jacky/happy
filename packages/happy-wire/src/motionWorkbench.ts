@@ -58,21 +58,53 @@ export const MotionWorkbenchReviewRequestSchema = MotionWorkbenchInspectRequestS
 });
 export type MotionWorkbenchReviewRequest = z.infer<typeof MotionWorkbenchReviewRequestSchema>;
 
+const bindingId = z.string().uuid();
+const studioState = z.record(z.string(), z.unknown());
+export const MotionStudioAssetSchema = z.object({ id: hash, mime: z.string().min(1).max(128), bytes: z.number().int().nonnegative().max(64 * 1024 * 1024) }).strict();
+export const MotionStudioOpenSchema = z.object({
+    bindingId, projectId: hash, projectPath: z.string().min(1).max(4096), runtimeVersion: z.literal('0.1.8'), state: studioState,
+    bundle: z.object({ bytes: z.number().int().positive().max(8 * 1024 * 1024), sha256: hash, encoding: z.literal('gzip') }).strict(),
+    assets: z.array(MotionStudioAssetSchema).max(2000),
+}).strict();
+export type MotionStudioOpen = z.infer<typeof MotionStudioOpenSchema>;
+export const MotionWorkbenchChangeSchema = z.object({ bindingId, sequence: z.number().int().nonnegative().safe() }).strict();
+export const MotionProjectSchema = z.object({
+    projectPath: z.string().min(1).max(4096), title: z.string().min(1).max(200),
+    modifiedAt: z.number().nonnegative(), lastOpenedAt: z.number().nonnegative().optional(),
+}).strict();
+export type MotionProject = z.infer<typeof MotionProjectSchema>;
+export const MotionProjectListSchema = z.object({ projects: z.array(MotionProjectSchema).max(100), truncated: z.boolean() }).strict();
+
 export const MotionWorkbenchRequests = {
+    motionWorkbenchList: z.object({}).strict(),
+    motionWorkbenchRegister: MotionWorkbenchInspectRequestSchema,
     motionWorkbenchInspect: MotionWorkbenchInspectRequestSchema,
     motionWorkbenchPrepareReview: MotionWorkbenchReviewRequestSchema,
+    motionWorkbenchOpen: MotionWorkbenchInspectRequestSchema.extend({ bindingId: bindingId.optional() }).strict(),
+    motionWorkbenchState: z.object({ bindingId }).strict(),
+    motionWorkbenchResource: z.object({ bindingId, resourceId: z.string().regex(/^(bundle|asset:[a-f0-9]{64})$/), offset: z.number().int().nonnegative().safe() }).strict(),
+    motionWorkbenchOperation: z.object({ bindingId, route: z.string().min(1).max(256), body: z.record(z.string(), z.unknown()).optional() }).strict(),
+    motionWorkbenchClose: z.object({ bindingId }).strict(),
 } as const;
 export const MotionWorkbenchResponses = {
+    motionWorkbenchList: MotionProjectListSchema,
+    motionWorkbenchRegister: MotionProjectSchema,
     motionWorkbenchInspect: MotionWorkbenchSnapshotSchema,
     motionWorkbenchPrepareReview: z.object({
         snapshot: MotionWorkbenchSnapshotSchema,
         prompt: z.string().min(1).max(2 * MOTION_WORKBENCH_LIMITS.snapshotBytes),
     }).strict(),
+    motionWorkbenchOpen: MotionStudioOpenSchema,
+    motionWorkbenchState: studioState,
+    motionWorkbenchResource: z.object({ offset: z.number().int().nonnegative(), totalBytes: z.number().int().nonnegative(), dataBase64: z.string().max(350000), done: z.boolean() }).strict(),
+    motionWorkbenchOperation: z.unknown(),
+    motionWorkbenchClose: z.object({ closed: z.literal(true) }).strict(),
 } as const;
 
 export const MotionWorkbenchErrorCodeSchema = z.enum([
     'INVALID_REQUEST', 'PROJECT_NOT_ALLOWED', 'PROJECT_NOT_FOUND', 'ENGINE_UNAVAILABLE',
     'ENGINE_TIMEOUT', 'ENGINE_FAILURE', 'INVALID_SNAPSHOT', 'STALE_REVIEW', 'BUSY',
+    'BINDING_NOT_FOUND', 'RESOURCE_NOT_FOUND', 'UNSUPPORTED', 'CONFLICT',
 ]);
 export type MotionWorkbenchErrorCode = z.infer<typeof MotionWorkbenchErrorCodeSchema>;
 export type MotionWorkbenchResult<T> = { ok: true; value: T } | {
