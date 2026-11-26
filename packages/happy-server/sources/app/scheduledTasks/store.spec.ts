@@ -128,15 +128,28 @@ describe('durable scheduled tasks', () => {
         const token = (await store.configureWebhook(owner, input.id, true)).token!;
         const firstId = randomUUID();
         const first = await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } });
-        for (let i = 0; i < 101; i++) {
-            const [claim] = await store.claim(owner, machine, 1);
-            await store.report(owner, input.id, claim.id, { claimId: claim.claimId!, status: 'failed', reason: 'test-terminal' });
-            now += 60_001;
-            if (i < 100) await store.runNow(owner, input.id, randomUUID(), { token, input: { value: i } });
-        }
+        const [claim] = await store.claim(owner, machine, 1);
+        await store.report(owner, input.id, claim.id, { claimId: claim.claimId!, status: 'failed', reason: 'test-terminal' });
+        const [finished] = await store.history(owner, input.id);
+        const encoder = new TextEncoder();
+        await context.database.userKVStore.createMany({ data: Array.from({ length: 101 }, (_, i) => {
+            const id = randomUUID();
+            const ordinary = { ...finished, id, createdAt: now + i + 1, webhookInput: undefined, webhookRequestId: undefined };
+            return { accountId: owner, key: `${SCHEDULED_TASK_PREFIX}run:${input.id}:${id}`, value: encoder.encode(JSON.stringify(ordinary)) };
+        }) });
+        now += 60_001;
+        const normal = await store.runNow(owner, input.id, randomUUID());
+        const history = await store.history(owner, input.id);
+        expect(history.filter(run => run.status === 'failed' && !run.webhookRequestId)).toHaveLength(100);
+        expect(history.some(run => run.id === first.id)).toBe(true);
+        const [normalClaim] = await store.claim(owner, machine, 1);
+        await store.report(owner, input.id, normal.id, { claimId: normalClaim.claimId!, status: 'failed', reason: 'test-terminal' });
         expect((await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } })).id).toBe(first.id);
         const prefix = `${SCHEDULED_TASK_PREFIX}webhook-request:${input.id}:`;
-        await context.database.userKVStore.createMany({ data: Array.from({ length: 899 }, (_, i) => ({ accountId: owner, key: prefix + 'seed-' + i, value: new TextEncoder().encode('{}') })) });
+        await context.database.userKVStore.createMany({ data: Array.from({ length: 999 }, () => {
+            const id = randomUUID();
+            return { accountId: owner, key: prefix + id, value: encoder.encode(JSON.stringify({ runId: id, createdAt: now - 60_001 })) };
+        }) });
         await expect(store.runNow(owner, input.id, randomUUID(), { token, input: {} })).rejects.toMatchObject({ code: 'webhook-history-limit', status: 429 });
         expect((await store.runNow(owner, input.id, firstId, { token, input: { value: 'keep' } })).id).toBe(first.id);
     });
