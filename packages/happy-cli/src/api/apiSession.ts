@@ -1,5 +1,6 @@
 import { createArtifactRuntime } from '@/modules/artifacts/runtime';
 import { registerArtifactHandlers } from '@/modules/artifacts/rpc';
+import { registerMotionWorkbenchHandlers } from '@/modules/motionWorkbench/bridge';
 import { runArtifactTurn } from '@/modules/artifacts/turn';
 import { logger } from '@/ui/logger'
 import { createScheduledRunTracker } from './scheduledRun';
@@ -237,6 +238,7 @@ export class ApiSessionClient extends EventEmitter {
         });
         registerArtifactHandlers(this.rpcHandlerManager, this.artifactRuntime.getStore, this.metadata.path);
         registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, this.artifactRuntime.supported && artifactIdentity && this.metadata.machineId ? this.artifactRuntime.getStore : undefined);
+        registerMotionWorkbenchHandlers(this.rpcHandlerManager, this.metadata.path);
         this.goalBoardController = registerGoalBoardHandlers(this.rpcHandlerManager, this.metadata.path, {
             homeDirectory: this.metadata.homeDir,
             initialFeaturePath: this.metadata.goalBoard?.featurePath,
