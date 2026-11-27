@@ -1572,8 +1572,8 @@ it('does not resume a cancelled candidate after its Codex grant finishes prepari
     vi.spyOn(TokenStorage, 'getCredentials').mockResolvedValue({ token: 'synthetic-auth', secret: 'synthetic-secret' });
     const accounts = await import('./apiCodexAccounts');
     vi.spyOn(accounts, 'createCodexSessionGrant').mockImplementation(async () => { grantStarted.resolve(); return grantReady.promise; });
-    vi.spyOn(subject.failedCodexRecovery, 'ensure').mockImplementation(async (_session: unknown, _owner: unknown, resume: () => Promise<unknown>) => {
-        await resume();
+    vi.spyOn(subject.failedCodexRecovery, 'ensure').mockImplementation(async (...args: unknown[]) => {
+        await (args[2] as () => Promise<unknown>)();
     });
     const send = sync.sendMessage(session.id, 'Old pending request', { conversationSwitchRequestId: 'switch-id' });
     await grantStarted.promise;
