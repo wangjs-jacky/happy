@@ -479,8 +479,10 @@ export function attachProjectEditor(editor: Editor, sessionKey: string): () => v
 
     // SDK record effects run synchronously. Export and background-tab
     // transitions can observe edits before the next animation frame.
+    // The SDK hydrates attribution users with source:'user' on a fresh origin.
+    // Keep them in saved documents, but only canvas content edits mark dirty.
     const effects = editor.store.sideEffects;
-    const changeHandlers = [...editor.store.scopedTypes.document].flatMap(type => [
+    const changeHandlers = [...editor.store.scopedTypes.document].filter(type => type !== 'user').flatMap(type => [
         effects.registerAfterCreateHandler(type, (record, source) => {
             if (source !== 'user' || disposed) return;
             const key = record.typeName === 'shape' ? keyOfShape(record) : undefined;
