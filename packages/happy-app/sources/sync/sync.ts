@@ -2128,20 +2128,29 @@ class Sync {
         options = { ...options, userSentAt };
         const recoveryOwner = this.encryption;
         const failedSession = storage.getState().sessions[sessionId];
+        const recoveryIsCurrent = () => {
+            if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) return false;
+            try {
+                assertSendOwner();
+                assertConversationSendAllowed(sessionId, options?.conversationSwitchRequestId);
+                return true;
+            } catch { return false; }
+        };
         await this.failedCodexRecovery.ensure(failedSession, recoveryOwner, async () => {
             const { machineResumeSession } = await import('./ops');
-            if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) {
+            if (!recoveryIsCurrent()) {
                 throw new Error('local-message-session-unavailable');
             }
             const modes = resolveMessageModeMeta(failedSession!, storage.getState().settings);
             return machineResumeSession({ machineId: failedSession!.metadata!.machineId!, sessionId, agent: 'codex',
+                isCurrent: recoveryIsCurrent,
                 codexMagpieConnection: failedSession!.metadata!.codexMagpieConnection,
                 model: modes.model ?? undefined, permissionMode: modes.permissionMode, effort: modes.effort,
                 ...(failedSession!.agentState!.turnStatus!.status === 'failed'
                     ? { expectedFailedTurn: failedSession!.agentState!.turnStatus! }
                     : { expectedWorkerPid: failedSession!.metadata!.hostPid }) });
         });
-        if (this.encryption !== recoveryOwner || !accountRuntimeCurrent() || options?.isCurrent?.() === false) {
+        if (!recoveryIsCurrent()) {
             throw new Error('local-message-session-unavailable');
         }
         const snapshots = { session: storage.getState().sessions[sessionId], settings: storage.getState().settings };

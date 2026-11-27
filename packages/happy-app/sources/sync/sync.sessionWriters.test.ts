@@ -17,7 +17,7 @@ vi.hoisted(() => {
     };
 });
 
-const mocks = vi.hoisted(() => ({ apiRequest: vi.fn(), updateMetadata: vi.fn(), fetchActive: vi.fn(), fetchPage: vi.fn(), fetchSnapshot: vi.fn() }));
+const mocks = vi.hoisted(() => ({ apiRequest: vi.fn(), updateMetadata: vi.fn(), fetchActive: vi.fn(), fetchPage: vi.fn(), fetchSnapshot: vi.fn(), machineRPC: vi.fn() }));
 vi.mock('./apiSessions', async importOriginal => ({
     ...await importOriginal<typeof import('./apiSessions')>(),
     fetchActiveSessionSnapshots: mocks.fetchActive,
@@ -29,6 +29,7 @@ vi.mock('./apiSocket', () => ({
         onMessage: vi.fn(),
         onReconnected: vi.fn(),
         request: mocks.apiRequest,
+        machineRPC: mocks.machineRPC,
         sendAppState: vi.fn(),
     },
     getCurrentAppState: vi.fn(() => 'active'),
@@ -1552,5 +1553,34 @@ it('rejects a cancelled switch id before native worker recovery, encryption, or 
     await expect(sync.sendMessage('writer-session', 'stale first input', { conversationSwitchRequestId: 'cancelled-request' })).rejects.toThrow();
     expect(recovery).not.toHaveBeenCalled();
     expect(encrypt).not.toHaveBeenCalled();
+    expect(subject.pendingOutbox.size).toBe(0);
+});
+
+
+it('does not resume a cancelled candidate after its Codex grant finishes preparing', async () => {
+    await sync.ensureSessionHydrated('writer-session');
+    const session = storage.getState().sessions['writer-session'];
+    const rootId = 'recovery-root';
+    storage.getState().applySessions([
+        { ...session, id: rootId, metadata: { ...session.metadata!, machineId: 'machine', conversationActiveSessionId: rootId,
+            conversationSwitch: { id: 'switch-id', sourceSessionId: rootId, targetSessionId: session.id } } },
+        { ...session, metadata: { ...session.metadata!, machineId: 'machine', flavor: 'codex', conversationRootSessionId: rootId,
+            continuationOfSessionId: rootId }, agentState: { turnStatus: { status: 'failed', updatedAt: 1, turnId: 'failed-turn' } } },
+    ]);
+    const grantReady = deferred<any>(); const grantStarted = deferred<void>();
+    const { TokenStorage } = await import('@/auth/tokenStorage');
+    vi.spyOn(TokenStorage, 'getCredentials').mockResolvedValue({ token: 'synthetic-auth', secret: 'synthetic-secret' });
+    const accounts = await import('./apiCodexAccounts');
+    vi.spyOn(accounts, 'createCodexSessionGrant').mockImplementation(async () => { grantStarted.resolve(); return grantReady.promise; });
+    vi.spyOn(subject.failedCodexRecovery, 'ensure').mockImplementation(async (_session: unknown, _owner: unknown, resume: () => Promise<unknown>) => {
+        await resume();
+    });
+    const send = sync.sendMessage(session.id, 'Old pending request', { conversationSwitchRequestId: 'switch-id' });
+    await grantStarted.promise;
+    const root = storage.getState().sessions[rootId];
+    storage.getState().applySessions([{ ...root, metadata: { ...root.metadata!, conversationSwitch: undefined } }]);
+    grantReady.resolve({ grant: 'x'.repeat(43), profile: { id: '00000000-0000-4000-8000-000000000001' } });
+    await expect(send).rejects.toThrow('local-message-session-unavailable');
+    expect(mocks.machineRPC).not.toHaveBeenCalled();
     expect(subject.pendingOutbox.size).toBe(0);
 });
