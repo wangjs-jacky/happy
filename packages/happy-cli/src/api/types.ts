@@ -1,5 +1,6 @@
 import { ArtifactChangedSchema, ARTIFACT_PROTOCOL, GoalProjectCanvasChangeNoticeSchema } from '@slopus/happy-wire';
 import type { DelegationRole, DelegatedTaskSummary, DelegationSnapshotV2 } from '@slopus/happy-wire';
+import type { PortableContextDescriptor, PortableContextBoundary } from '@slopus/happy-wire';
 import { z } from 'zod'
 import type { AsyncQuestionResponse, GoalBoardBinding, GoalBoardSnapshot, Update, UpdateMachineBody, SessionStreamEnvelope } from '@slopus/happy-wire';
 import { UsageSchema } from '@/claude/types'
@@ -376,6 +377,11 @@ export const MessageContentSchema = z.union([UserMessageSchema, AgentMessageSche
 export type MessageContent = z.infer<typeof MessageContentSchema>
 
 export type Metadata = {
+  portableContextProtocol?: 1;
+  portableContext?: PortableContextDescriptor;
+  portableContextBoundary?: PortableContextBoundary;
+  continuationContext?: string;
+  continuationOfSessionId?: string;
   delegationProtocol?: 1;
   delegationRoles?: Array<DelegationRole & { model: string }>;
   delegatedTasks?: Array<DelegatedTaskSummary & { roleId: string; model: string }>;
@@ -410,6 +416,7 @@ export type Metadata = {
     updatedAt: number
   },
   capabilities?: {
+    conversationNativeResume?: 1
     delegation?: 1
     delegationRoutes?: 1
     acpPermissionPolicy?: boolean
@@ -424,6 +431,7 @@ export type Metadata = {
   },
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID
+  claudeModelConnectionKey?: string,
   codexThreadId?: string, // Codex app-server thread ID
   codexAccountProfileId?: string,
   codexAccountCredentialVersion?: number,
