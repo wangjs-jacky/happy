@@ -326,7 +326,12 @@ export function useSpawnSession() {
                     }
                 }
                 if (native && native.contextEpoch !== undefined) {
-                    const resetHead = prepared.archive.snapshot.heads.find(head => storage.getState().sessions?.[head.sessionId]?.metadata?.portableContextBoundary);
+                    // Frozen prefixes can belong to independent chats whose
+                    // live parent has since cleared. Only this restored native's
+                    // proven logical chain participates in its epoch check.
+                    const logicalIds = new Set(native.contextSources?.map(source => source.sessionId));
+                    const resetHead = prepared.archive.snapshot.heads.find(head => logicalIds.has(head.sessionId)
+                        && storage.getState().sessions?.[head.sessionId]?.metadata?.portableContextBoundary);
                     const reset = resetHead ? { sessionId: resetHead.sessionId,
                         boundaryId: storage.getState().sessions[resetHead.sessionId].metadata!.portableContextBoundary!.id } : null;
                     if (JSON.stringify(reset) !== JSON.stringify(native.contextEpoch)) {

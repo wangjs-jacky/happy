@@ -252,3 +252,20 @@ describe('same-conversation handoff lifetimes', () => {
         expect(mocks.release).toHaveBeenCalledOnce(); expect(mocks.commit).not.toHaveBeenCalled(); hook.unmount();
     });
 });
+
+it('restores an independent continuation without adopting its frozen parent later clear', async () => {
+    const metadata = { machineId: 'machine', path: '/project', flavor: 'codex', codexThreadId: 'native-a' };
+    mocks.sessions = { source: { metadata }, prefix: { metadata: { portableContextBoundary: { id: 'later-parent-clear', afterSeq: 50 } } } };
+    const history = { ...prepared, archive: { snapshot: { items: [], heads: [
+        { sessionId: 'prefix', throughSeq: 10, afterSeq: 0 }, { sessionId: 'source', throughSeq: 20, afterSeq: 0 },
+    ] } } };
+    mocks.prepareContext.mockResolvedValue(history);
+    mocks.spawnConversation.mockResolvedValue({ type: 'success', sessionId: 'target', nativeResume: {
+        sourceSessionId: 'source', coverage: [], contextEpoch: null,
+        contextSources: [{ sessionId: 'source', identity: portableNativeSourceIdentity(metadata) }],
+    } });
+    const hook = renderHook();
+    await act(async () => { expect(await hook.current().spawn({ ...args, agent: 'codex' })).toBe(true); });
+    expect(mocks.cancelConversation).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledOnce(); hook.unmount();
+});
