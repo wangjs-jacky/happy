@@ -1456,3 +1456,101 @@ it('bounds native requests when an entire reconciliation batch fails', async () 
     expect(mocks.fetchSnapshot).toHaveBeenCalledTimes(4);
     expect(subject.nativeHistoryCursor).toBe('previous');
 });
+
+describe('complete detached portable source pagination', () => {
+    function raw(seq: number, content?: any) {
+        return { id: `portable-wire-${seq}`, seq, createdAt: seq, localId: null,
+            content: content ?? { role: 'user', content: { type: 'text', text: `source text ${seq}` } } };
+    }
+    async function reader() {
+        await sync.ensureSessionHydrated('writer-session');
+        const cipher = subject.encryption.getSessionEncryption('writer-session');
+        const decrypt = vi.fn(async (rows: any[]) => rows.map(row => raw(row.seq,
+            row.seq === 1 ? { role: 'user', content: { type: 'text', text: 'EARLIEST_GOAL ' + 'x'.repeat(40000) } } : undefined)));
+        vi.spyOn(cipher, 'createDetached').mockReturnValue({ decryptMessages: decrypt } as any);
+        return decrypt;
+    }
+    it('reads past five source pages and 24k without changing the visible UI window', async () => {
+        const decrypt = await reader();
+        const visible = { marker: 'do not replace', isAtLatest: false } as any;
+        storage.setState({ sessionMessages: { 'writer-session': visible } });
+        mocks.apiRequest.mockImplementation(async (path: string) => {
+            if (path.includes('after_seq=')) return { ok: true, json: async () => ({ messages: [], hasMore: false }) };
+            const before = Number(new URL(path, 'http://test').searchParams.get('before_seq'));
+            const seq = before > 7 ? 7 : before - 1;
+            return { ok: true, json: async () => ({ messages: [{ ...raw(seq), content: { t: 'encrypted', c: 'AA==' } }], hasMore: seq > 1 }) };
+        });
+        const segment = await sync.readPortableContextSegment('writer-session');
+        expect(decrypt).toHaveBeenCalledTimes(7);
+        expect(segment.head).toEqual({ sessionId: 'writer-session', afterSeq: 0, throughSeq: 7 });
+        expect(segment.items[0].text.length).toBeGreaterThan(40000);
+        expect(segment.items[0].text).toContain('EARLIEST_GOAL');
+        expect(storage.getState().sessionMessages['writer-session']).toBe(visible);
+    });
+    it('stops at an explicit clear and never decrypts earlier rows', async () => {
+        const decrypt = await reader();
+        const session = storage.getState().sessions['writer-session'];
+        storage.getState().applySessions([{ ...session, metadata: { ...session.metadata!, portableContextBoundary: {
+            id: '6c6a92b2-7397-40ef-8e0e-4900c83f2c16', afterSeq: 4,
+        } } }]);
+        mocks.apiRequest.mockImplementation(async (path: string) => ({ ok: true, json: async () => path.includes('after_seq=')
+            ? { messages: [], hasMore: false } : { messages: [3, 4, 5, 6].map(seq => ({ ...raw(seq), content: { t: 'encrypted', c: 'AA==' } })), hasMore: true } }));
+        const segment = await sync.readPortableContextSegment('writer-session');
+        expect(decrypt.mock.calls[0][0].map(row => row.seq)).toEqual([5, 6]);
+        expect(segment.items.map(item => item.seq)).toEqual([5, 6]);
+        expect(segment.head.afterSeq).toBe(4);
+    });
+    it('rejects a newer source record after capture instead of silently dropping it', async () => {
+        await reader();
+        mocks.apiRequest.mockImplementation(async (path: string) => ({ ok: true, json: async () => ({
+            messages: [{ ...raw(path.includes('after_seq=') ? 2 : 1), content: { t: 'encrypted', c: 'AA==' } }], hasMore: false,
+        }) }));
+        await expect(sync.readPortableContextSegment('writer-session')).rejects.toThrow('source-changed');
+    });
+    it('fences a live source event received after the last tail verification', async () => {
+        await reader();
+        mocks.apiRequest.mockImplementation(async (path: string) => ({ ok: true, json: async () => ({
+            messages: path.includes('after_seq=') ? [] : [{ ...raw(1), content: { t: 'encrypted', c: 'AA==' } }], hasMore: false,
+        }) }));
+        const segment = await sync.readPortableContextSegment('writer-session');
+        const session = storage.getState().sessions['writer-session'];
+        storage.getState().applySessions([{ ...session, seq: session.seq + 1 }]);
+        expect(() => segment.assertCurrent()).toThrow('source-changed');
+    });
+    it('rejects a stalled source page rather than returning partial history', async () => {
+        await reader();
+        mocks.apiRequest.mockResolvedValue({ ok: true, json: async () => ({ messages: [], hasMore: true }) });
+        await expect(sync.readPortableContextSegment('writer-session')).rejects.toThrow('pagination-stalled');
+    });
+});
+
+it('does not resurrect staged pre-clear context while target encryption is in flight', async () => {
+    await sync.ensureSessionHydrated('writer-session');
+    const current = storage.getState().sessions['writer-session'];
+    storage.getState().applySessions([{ ...current, metadata: { ...current.metadata!, continuationOfSessionId: 'older', continuationContext: 'PRE_CLEAR_SECRET' } }]);
+    const encrypted = deferred<string>(); const encrypting = deferred<void>();
+    vi.spyOn(subject.encryption.getSessionEncryption(current.id), 'encryptRawRecord').mockImplementation(() => {
+        encrypting.resolve(); return encrypted.promise;
+    });
+    vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+    const sending = sync.sendMessage(current.id, 'Current request');
+    await encrypting.promise;
+    const live = storage.getState().sessions[current.id];
+    const { continuationContext: _context, ...metadata } = live.metadata!;
+    storage.getState().applySessions([{ ...live, metadata: { ...metadata, portableContextBoundary: {
+        id: '6c6a92b2-7397-40ef-8e0e-4900c83f2c16', afterSeq: 100,
+    } } }]);
+    encrypted.resolve('old-encrypted-prompt');
+    await expect(sending).rejects.toThrow('conversation-context-changed');
+    expect(subject.pendingOutbox.size).toBe(0);
+});
+
+it('rejects a cancelled switch id before native worker recovery, encryption, or outbox admission', async () => {
+    await sync.ensureSessionHydrated('writer-session');
+    const recovery = vi.spyOn(subject.failedCodexRecovery, 'ensure');
+    const encrypt = vi.spyOn(subject.encryption.getSessionEncryption('writer-session'), 'encryptRawRecord');
+    await expect(sync.sendMessage('writer-session', 'stale first input', { conversationSwitchRequestId: 'cancelled-request' })).rejects.toThrow();
+    expect(recovery).not.toHaveBeenCalled();
+    expect(encrypt).not.toHaveBeenCalled();
+    expect(subject.pendingOutbox.size).toBe(0);
+});
