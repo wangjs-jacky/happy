@@ -1,4 +1,4 @@
-import { ArtifactChangedSchema, ARTIFACT_PROTOCOL } from '@slopus/happy-wire';
+import { ArtifactChangedSchema, ARTIFACT_PROTOCOL, GoalProjectCanvasChangeNoticeSchema } from '@slopus/happy-wire';
 import type { DelegationRole, DelegatedTaskSummary, DelegationSnapshotV2 } from '@slopus/happy-wire';
 import { z } from 'zod'
 import type { AsyncQuestionResponse, GoalBoardBinding, GoalBoardSnapshot, Update, UpdateMachineBody, SessionStreamEnvelope } from '@slopus/happy-wire';
@@ -134,7 +134,7 @@ export const MachineMetadataSchema = z.object({
   delegation: z.literal(1).optional(),
   delegationRoles: z.literal(1).optional(),
   scheduledTasks: z.literal(1).optional(),
-  projectCanvas: z.object({ version: z.number().int().positive(), daemonStartedAt: z.number().int().positive() }).optional(),
+  projectCanvas: z.object({ version: z.number().int().positive(), daemonStartedAt: z.number().int().positive(), previewReceipts: z.literal(true).optional() }).optional(),
   host: z.string(),
   platform: z.string(),
   happyCliVersion: z.string(),
@@ -236,6 +236,7 @@ export const DaemonStateSchema = z.object({
     ]).optional(),
   artifactChanges: z.array(ArtifactChangedSchema).max(64).optional(),
   goalProjectRevision: z.string().optional(),
+  goalProjectCanvasChange: z.object({ token: z.string().min(1), change: GoalProjectCanvasChangeNoticeSchema }).strict().optional(),
   codexUsage: CodexUsageSnapshotSchema.optional(),
   codexAccountUsage: z.array(CodexAccountUsageSnapshotSchema).optional(),
 })
