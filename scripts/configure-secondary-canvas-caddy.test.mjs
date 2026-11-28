@@ -28,6 +28,89 @@ other.example {
 }
 `;
 const configure = source => configurator.configureSecondaryCanvasCaddy(source);
+const legacyFallback = `\thandle {
+\t\trewrite * /web/current/index.html
+\t\treverse_proxy https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com {
+\t\t\theader_up Host happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com
+\t\t\theader_down -Content-Disposition
+\t\t\theader_down Content-Type "text/html; charset=utf-8"
+\t\t}
+\t}
+`;
+const legacyAssets = `\t@oss path /_expo/* /assets/* /desktop-skins/* /canvaskit.wasm /favicon.ico /favicon-active.ico /metadata.json
+\thandle @oss {
+\t\tredir https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com{uri} 302
+\t}
+`;
+const legacyFixture = `121.43.32.242:8443 {
+\ttls /etc/caddy/public.pem /etc/caddy/private.pem
+${['# paws-secondary-canvas:start', ...configurator.PROJECT_CANVAS_CADDY_LINES, '# paws-secondary-canvas:end'].map(line => '\t' + line).join('\n')}
+${legacyAssets}\t@image path /image /image/*
+\thandle @image {
+\t\trespond "image fixture"
+\t}
+\t@backend path /v1/* /health
+\thandle @backend {
+\t\treverse_proxy localhost:3005
+\t}
+\t@validate path /validate
+\thandle @validate {
+\t\trespond "validate fixture"
+\t}
+${legacyFallback}}
+other.example {
+    respond "untouched"
+}
+`;
+
+test('updates the observed unmarked TAB-indented legacy fallback and preserves every other handler', () => {
+    const configured = configure(legacyFixture);
+    const updatedFallback = legacyFallback.replace('\t\trewrite', '\t\theader >Cache-Control "no-store"\n\t\trewrite');
+    assert.ok(configured.includes(updatedFallback));
+    assert.ok(configured.includes(legacyAssets));
+    assert.ok(configured.includes(legacyFixture.slice(legacyFixture.indexOf('\t@image'), legacyFixture.indexOf(legacyFallback))));
+    assert.ok(configured.endsWith(legacyFixture.slice(legacyFixture.indexOf('other.example {'))));
+    assert.equal(configured.split('header >Cache-Control "no-store"').length - 1, 1);
+    assert.equal(configure(configured), configured);
+    assert.equal(configure(legacyFixture.replace('\t\trewrite * /web/current/index.html',
+        '\t\theader Cache-Control "public,max-age=3600"\n\t\trewrite * /web/current/index.html')), configured);
+});
+
+test('rejects legacy fallback or asset identity that is missing, wrong, duplicated, or nested', () => {
+    const badFallback = legacyFallback.replace('/web/current/index.html', '/web/other/index.html');
+    for (const source of [
+        legacyFixture.replace(legacyFallback, ''),
+        legacyFixture.replace(legacyFallback, badFallback),
+        legacyFixture.replace(legacyFallback, legacyFallback + legacyFallback),
+        legacyFixture.replace(legacyFallback, legacyFallback + badFallback),
+        legacyFixture.replace(legacyFallback, '\thandle @nested {\n' + legacyFallback + '\t}\n'),
+        legacyFixture.replace(legacyFallback, '\thandle {\n' + legacyFallback + '\t}\n'),
+        legacyFixture.replace(legacyFallback, legacyFallback.replace('reverse_proxy https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com', 'reverse_proxy https://unowned.example')),
+        legacyFixture.replace(legacyFallback, legacyFallback.replace('header_up Host happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com', 'header_up Host unowned.example')),
+        legacyFixture.replace(legacyAssets, ''),
+        legacyFixture.replace(legacyAssets, legacyAssets + legacyAssets),
+        legacyFixture.replace(legacyAssets, '\thandle @nested {\n' + legacyAssets + '\t}\n'),
+        legacyFixture.replace('/_expo/* /assets/*', '/_expo/* /assets/* /extra/*'),
+        legacyFixture.replace('/_expo/* /assets/*', '/assets/*'),
+        legacyFixture.replace('/_expo/* /assets/*', '/_expo/* /assets/* /assets/*'),
+        legacyFixture.replace('redir https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com{uri} 302', 'redir https://unowned.example{uri} 302'),
+    ]) assert.throws(() => configure(source), /(?:managed OSS|legacy|fallback)/i);
+});
+
+test('never treats partial, duplicate, malformed, or misplaced managed markers as a legacy fallback', () => {
+    const marked = legacyFixture.replace(legacyFallback,
+        '\t# paws-web-oss:start\n' + legacyFallback + '\t# paws-web-oss:end\n');
+    for (const source of [
+        legacyFixture.replace(legacyFallback, '\t# paws-web-oss:start\n' + legacyFallback),
+        legacyFixture.replace(legacyFallback, legacyFallback + '\t# paws-web-oss:end\n'),
+        legacyFixture.replace(legacyFallback, '\t# paws-web-oss:broken\n' + legacyFallback),
+        legacyFixture.replace(legacyFallback, '\t# PAWS-WEB-OSS:start\n' + legacyFallback),
+        marked.replace('\t# paws-web-oss:start', '\t# paws-web-oss:start\n\t# paws-web-oss:start'),
+        marked.replace('\t# paws-web-oss:end', '\t# paws-web-oss:end\n\t# paws-web-oss:end'),
+        marked.replace('\t# paws-web-oss:start', '\t# paws-web-oss:start extra'),
+        legacyFixture.replace(legacyFallback, '\t# paws-web-oss:start\n\t# paws-web-oss:end\n' + legacyFallback),
+    ]) assert.throws(() => configure(source), /(?:managed|OSS|fallback)/i);
+});
 
 test('installs the secondary canvas proxy while preserving its backend and SPA routing', () => {
     const configured = configure(fixture);
@@ -72,7 +155,8 @@ test('secondary HTML policy replaces a stale direct policy and remains idempoten
         '        header >Cache-Control "no-cache"\n        rewrite *')), /Ambiguous Cache-Control/);
 });
 
-test('secondary Caddy returns exact JS CSS and fonts and cannot fall back to the SPA', {
+for (const [kind, source] of [['managed', fixture], ['legacy', legacyFixture]]) {
+test(`secondary ${kind} Caddy returns exact JS CSS and fonts and cannot fall back to the SPA`, {
     skip: spawnSync('caddy', ['version'], { stdio: 'ignore' }).status !== 0,
 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'paws-secondary-canvas-'));
@@ -114,9 +198,9 @@ test('secondary Caddy returns exact JS CSS and fonts and cannot fall back to the
         const reserve = http.createServer();
         const address = `http://${await listen(reserve)}`;
         await new Promise(resolve => reserve.close(resolve));
-        const configured = configure('{\n admin off\n}\n' + fixture);
+        const configured = configure('{\n admin off\n}\n' + source);
         assert.ok(configured, 'secondary canvas proxy must be installed');
-        const config = configured.replace(/    tls [^\n]+\n/, '')
+        const config = configured.replace(/^\s*tls [^\n]+\n/m, '')
             .replace('121.43.32.242:8443', address).replace(/other.example \{[\s\S]*?\}\n/, '')
             .replace('reverse_proxy localhost:3005', 'respond "backend fixture"')
             .replaceAll(configurator.PRODUCTION_WEB_OSS_ORIGIN, `http://${ossAddress}`)
@@ -146,6 +230,13 @@ test('secondary Caddy returns exact JS CSS and fonts and cannot fall back to the
         const backend = await fetch(address + '/health');
         assert.equal(await backend.text(), 'backend fixture');
         assert.equal(backend.headers.get('cache-control'), null);
+        if (kind === 'legacy') {
+            for (const [path, body] of [['/image/example', 'image fixture'], ['/validate', 'validate fixture']]) {
+                const response = await fetch(address + path);
+                assert.equal(await response.text(), body);
+                assert.equal(response.headers.get('cache-control'), null);
+            }
+        }
         const assetRedirect = await fetch(address + '/assets/app.hash.js', { redirect: 'manual' });
         assert.equal(assetRedirect.status, 302);
         assert.equal(assetRedirect.headers.get('location'), `http://${ossAddress}/assets/app.hash.js`);
@@ -184,3 +275,4 @@ test('secondary Caddy returns exact JS CSS and fonts and cannot fall back to the
         await rm(directory, { recursive: true, force: true });
     }
 });
+}

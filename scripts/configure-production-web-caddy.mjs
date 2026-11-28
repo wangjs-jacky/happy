@@ -268,32 +268,76 @@ export function configureProductionWebCaddy(source, siteAddress = '47.115.228.20
     return hadFinalNewline && !result.endsWith('\n') ? `${result}\n` : result;
 }
 
-// Restrict the mutable HTML policy to the existing managed SPA fallback.
-// A site-wide header would also disable the canvas and hashed asset caches.
+function topLevelLineIndexes(lines) {
+    const indexes = [];
+    let depth = 0;
+    for (let index = 0; index < lines.length; index += 1) {
+        if (depth === 0) indexes.push(index);
+        depth += braceDelta(lines[index]);
+        if (depth < 0) throw new Error('Unbalanced secondary OSS fallback configuration.');
+    }
+    if (depth !== 0) throw new Error('Unbalanced secondary OSS fallback configuration.');
+    return indexes;
+}
+
+const directiveLines = lines => lines.map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+const normalizedDirective = line => line.trim().replace(/\s+/g, ' ');
+
+function assertLegacyOssFallback(site, topLevel, start, end, directBody) {
+    const assetMatchers = topLevel.filter(index => /^\s*@oss(?:\s|$)/.test(site[index]));
+    const assetHandlers = topLevel.filter(index => /^\s*handle\s+@oss\s*\{\s*$/.test(site[index]));
+    const expectedMatcher = '@oss path /_expo/* /assets/* /desktop-skins/* /canvaskit.wasm /favicon.ico /favicon-active.ico /metadata.json';
+    if (assetMatchers.length !== 1 || normalizedDirective(site[assetMatchers[0]]) !== expectedMatcher || assetHandlers.length !== 1) {
+        throw new Error('Expected the unique canonical legacy OSS asset matcher and handler.');
+    }
+    const assetEnd = findBlockEnd(site, assetHandlers[0]);
+    const assetBody = directiveLines(site.slice(assetHandlers[0] + 1, assetEnd)).map(normalizedDirective);
+    if (assetBody.length !== 1 || assetBody[0] !== `redir ${PRODUCTION_WEB_OSS_ORIGIN}{uri} 302`) {
+        throw new Error('Expected the canonical legacy OSS asset redirect.');
+    }
+    const shell = directBody.filter(line => !/^header\s+>?Cache-Control(?:\s|$)/i.test(line)).map(normalizedDirective);
+    if (shell.length !== 2 || shell[0] !== 'rewrite * /web/current/index.html'
+        || shell[1] !== `reverse_proxy ${PRODUCTION_WEB_OSS_ORIGIN} {`) {
+        throw new Error('Expected the canonical legacy OSS SPA fallback directives.');
+    }
+    const proxyStart = site.findIndex((line, index) => index > start && index < end && normalizedDirective(line) === shell[1]);
+    const proxyEnd = findBlockEnd(site, proxyStart);
+    const options = directiveLines(site.slice(proxyStart + 1, proxyEnd)).map(normalizedDirective);
+    const expectedOptions = [`header_up Host ${PRODUCTION_WEB_OSS_HOST}`, 'header_down -Content-Disposition',
+        'header_down Content-Type "text/html; charset=utf-8"'];
+    if (options.length !== expectedOptions.length || options.some((line, index) => line !== expectedOptions[index])) {
+        throw new Error('Expected the canonical legacy OSS SPA proxy options.');
+    }
+}
+
+// Scope the policy to one top-level application shell. Old secondary configs
+// have no managed Web markers, so admit only their exact legacy OSS identity.
 function configureSpaHtmlCachePolicy(site) {
     const range = findManagedRange(site, WEB_OSS_CADDY_BLOCK_START, WEB_OSS_CADDY_BLOCK_END);
-    if (!range
+    const markers = site.filter(line => /\bpaws-web-oss\b/i.test(line));
+    if (markers.length && (!range || markers.length !== 2
         || site.filter(line => line.trim() === WEB_OSS_CADDY_BLOCK_START).length !== 1
-        || site.filter(line => line.trim() === WEB_OSS_CADDY_BLOCK_END).length !== 1) {
+        || site.filter(line => line.trim() === WEB_OSS_CADDY_BLOCK_END).length !== 1)) {
         throw new Error('Managed OSS Web handler not found or ambiguous in the secondary site.');
     }
-    const candidates = [];
-    for (let start = range.start + 1; start < range.end; start += 1) {
-        if (!/^\s*handle\s*\{\s*$/.test(site[start])) continue;
-        const end = findBlockEnd(site, start);
-        const body = site.slice(start + 1, end);
-        const rewrites = body.filter(line => /^\s*rewrite\s+/.test(line));
-        const proxies = body.filter(line => /^\s*reverse_proxy\s+/.test(line));
-        if (end < range.end && rewrites.length === 1
-            && /^\s*rewrite\s+\*\s+\/web\/current\/index\.html\s*$/.test(rewrites[0])
-            && proxies.length === 1
-            && (proxies[0].trim() === `reverse_proxy ${PRODUCTION_WEB_OSS_ORIGIN}`
-                || proxies[0].trim() === `reverse_proxy ${PRODUCTION_WEB_OSS_ORIGIN} {`)) {
-            candidates.push({ start, end });
-        }
+    const topLevel = topLevelLineIndexes(site);
+    const fallbacks = topLevel.filter(index => /^\s*handle\s*\{\s*$/.test(site[index]));
+    if (fallbacks.length !== 1) throw new Error('Expected one top-level managed OSS SPA fallback in the secondary site.');
+    const start = fallbacks[0];
+    const end = findBlockEnd(site, start);
+    if (range && (start <= range.start || end >= range.end || !topLevel.includes(range.start) || !topLevel.includes(range.end))) {
+        throw new Error('Expected one managed OSS SPA fallback inside the approved Web block.');
     }
-    if (candidates.length !== 1) throw new Error('Expected one managed OSS SPA fallback in the secondary site.');
-    const { start, end } = candidates[0];
+    const body = site.slice(start + 1, end);
+    const directBody = directiveLines(topLevelLineIndexes(body).map(index => body[index]));
+    const rewrites = body.filter(line => /^\s*rewrite\s+/.test(line));
+    const proxies = body.filter(line => /^\s*reverse_proxy\s+/.test(line));
+    if (rewrites.length !== 1 || proxies.length !== 1 || !directBody.includes(rewrites[0].trim()) || !directBody.includes(proxies[0].trim())
+        || !/^\s*rewrite\s+\*\s+\/web\/current\/index\.html\s*$/.test(rewrites[0])
+        || ![ `reverse_proxy ${PRODUCTION_WEB_OSS_ORIGIN}`, `reverse_proxy ${PRODUCTION_WEB_OSS_ORIGIN} {` ].includes(proxies[0].trim())) {
+        throw new Error('Expected the canonical direct rewrite and proxy in the managed OSS SPA fallback.');
+    }
+    if (!range) assertLegacyOssFallback(site, topLevel, start, end, directBody);
     const existing = [];
     for (let index = start + 1; index < end; index += 1) {
         if (/^\s*header\s+>?Cache-Control(?:\s|$)/i.test(site[index])) existing.push(index);
